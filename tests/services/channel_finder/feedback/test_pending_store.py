@@ -29,13 +29,15 @@ def test_capture_returns_uuid(store):
 
 
 def test_capture_and_get(store):
-    item_id = store.capture({
-        "query": "show me magnets",
-        "facility": "ALS",
-        "tool_name": "mcp__channel-finder__build_channels",
-        "channel_count": 42,
-        "selections": {"system": "MAG"},
-    })
+    item_id = store.capture(
+        {
+            "query": "show me magnets",
+            "facility": "ALS",
+            "tool_name": "mcp__channel-finder__build_channels",
+            "channel_count": 42,
+            "selections": {"system": "MAG"},
+        }
+    )
 
     item = store.get_item(item_id)
     assert item is not None

@@ -14,12 +14,6 @@ You find and verify EPICS channel/PV addresses by exploring the channel database
 systematically. You are invoked when the user needs to find, locate, or discover
 channel addresses by description or function.
 
-## Facility Context
-
-Call `facility_description()` early in your work to get facility-specific terminology,
-naming conventions, and system descriptions. This helps you navigate the channel
-database more effectively and understand user requests in domain context.
-
 {# TODO: Remove middle_layer block — references deleted pipeline and prompt builder #}
 {% if channel_finder_mode == "middle_layer" %}
 {# PROMPT-PROVIDER: section=channel_finding_middle_layer
@@ -71,6 +65,8 @@ When descriptions are ABSENT (empty strings):
 - "readback" or "monitor" — Use Monitor field
 - "setpoint" or "control" — Use Setpoint field
 - Specific device numbers (e.g., "BPM 1") — Use devices parameter for filtering
+
+{% include "claude_code/claude/agents/_terminology/middle_layer.md.j2" %}
 {% elif channel_finder_mode == "hierarchical" %}
 {# PROMPT-PROVIDER: section=channel_finding_hierarchical
    Future: source from FrameworkPromptProvider.get_hierarchical_prompt_builder()
@@ -82,15 +78,28 @@ When descriptions are ABSENT (empty strings):
    naming pattern description, branching/optional level behavior #}
 ## Navigation Process
 
-The database uses a hierarchical naming scheme. Start by understanding the hierarchy
-structure, then navigate level by level.
+The database uses a hierarchical naming scheme. Start by checking for prior examples,
+then understand the hierarchy structure and navigate level by level.
+
+### Step 0: Check for prior examples
+
+Call `view_examples(keywords)` with a broad, comma-separated keyword list
+extracted from the user's query (e.g. "magnets, corrector, horizontal, steering").
+Cast a wide net — include device types, measurement types, and synonyms.
+
+If matching examples exist, use their selection paths directly in Step 2 —
+skip exploratory `get_options()` calls at levels you already know the answer to.
+If no examples match, proceed with full exploration.
 
 ### Step 1: Understand the hierarchy
 
-Call `hierarchy_info()` to get:
-- **hierarchy_levels**: Ordered list of level names (e.g., system, device, signal)
-- **hierarchy_config**: Type of each level (tree=categorical, instances=numbered)
-- **naming_pattern**: How levels combine into channel names (e.g., `{system}:{device}:{signal}`)
+{% if channel_finder_hierarchy %}
+- **hierarchy_levels**: {{ channel_finder_hierarchy.hierarchy_levels }}
+- **hierarchy_config**: {{ channel_finder_hierarchy.hierarchy_config }}
+- **naming_pattern**: `{{ channel_finder_hierarchy.naming_pattern }}`
+{% else %}
+Call `get_options()` at the first level to discover the hierarchy structure.
+{% endif %}
 
 ### Step 2: Navigate level by level
 
@@ -120,7 +129,9 @@ skip it — the channel name will be constructed without that component.
 
 ### Verification
 
-Use `validate(channels)` to verify the constructed channel names exist in the database.
+`build_channels()` automatically validates all constructed channel names and reports valid/invalid counts.
+
+{% include "claude_code/claude/agents/_terminology/hierarchical.md.j2" %}
 {% elif channel_finder_mode == "in_context" %}
 {# PROMPT-PROVIDER: section=channel_finding_in_context
    Future: source from FrameworkPromptProvider.get_in_context_prompt_builder()
@@ -164,8 +175,9 @@ or browse them in chunks.
 1. `statistics()` — understand database size and format
 2. `get_channels()` — get all channels (small databases) or use chunked access
 3. For large databases: `get_channels(chunk_idx=0, chunk_size=50)` to browse in chunks
-4. `validate(channels)` — verify your selections
-5. `resolve_addresses(channels)` — convert matched channel names to PV addresses
+4. `resolve_addresses(channels)` — convert matched channel names to PV addresses (includes validation counts)
+
+{% include "claude_code/claude/agents/_terminology/in_context.md.j2" %}
 {% endif %}
 
 {# PROMPT-PROVIDER: section=facility_context
@@ -183,7 +195,6 @@ You are exploring the {{ facility_name }} control system database.
 - Read descriptions carefully when available
 - Present results clearly to the user for confirmation
 - If no channels match, report honestly
-- Use `validate()` to verify channel names when uncertain
 
 ## Submitting Results
 

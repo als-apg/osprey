@@ -522,9 +522,7 @@ def test_update_record_success(store):
     entry = store.get_entry(key)
     ts = entry["successes"][0]["timestamp"]
 
-    store.update_record(
-        key, "successes", 0, ts, selections={"system": "QUAD"}, channel_count=99
-    )
+    store.update_record(key, "successes", 0, ts, selections={"system": "QUAD"}, channel_count=99)
 
     updated = store.get_entry(key)
     assert updated["successes"][0]["selections"] == {"system": "QUAD"}
@@ -566,8 +564,11 @@ def test_update_record_stale_timestamp_raises(store):
 
 def test_add_manual_entry_success(store):
     key = store.add_manual_entry(
-        query="magnets", facility="ALS", entry_type="success",
-        selections={"system": "MAG"}, channel_count=42,
+        query="magnets",
+        facility="ALS",
+        entry_type="success",
+        selections={"system": "MAG"},
+        channel_count=42,
     )
     hints = store.get_hints("magnets", "ALS")
     assert len(hints) == 1
@@ -577,8 +578,11 @@ def test_add_manual_entry_success(store):
 
 def test_add_manual_entry_failure(store):
     key = store.add_manual_entry(
-        query="bad", facility="ALS", entry_type="failure",
-        selections={"system": "MAG"}, reason="not found",
+        query="bad",
+        facility="ALS",
+        entry_type="failure",
+        selections={"system": "MAG"},
+        reason="not found",
     )
     entry = store.get_entry(key)
     assert len(entry["failures"]) == 1
@@ -588,12 +592,18 @@ def test_add_manual_entry_failure(store):
 def test_add_manual_entry_dedup(store):
     """Manual add of duplicate is silently ignored (existing dedup)."""
     store.add_manual_entry(
-        query="magnets", facility="ALS", entry_type="success",
-        selections={"system": "MAG"}, channel_count=10,
+        query="magnets",
+        facility="ALS",
+        entry_type="success",
+        selections={"system": "MAG"},
+        channel_count=10,
     )
     store.add_manual_entry(
-        query="magnets", facility="ALS", entry_type="success",
-        selections={"system": "MAG"}, channel_count=20,
+        query="magnets",
+        facility="ALS",
+        entry_type="success",
+        selections={"system": "MAG"},
+        channel_count=20,
     )
     hints = store.get_hints("magnets", "ALS")
     assert len(hints) == 1  # Dedup kept only the first
@@ -608,9 +618,7 @@ def test_export_data_returns_complete_store(store):
     store.record_success(
         query="magnets", facility="ALS", selections={"system": "MAG"}, channel_count=5
     )
-    store.record_failure(
-        query="bad", facility="ALS", partial_selections={}, reason="fail"
-    )
+    store.record_failure(query="bad", facility="ALS", partial_selections={}, reason="fail")
 
     exported = store.export_data()
     assert exported["version"] == 2
@@ -667,10 +675,78 @@ def test_meta_populated_on_new_records(store):
     assert entry["_meta"]["query"] == "Show Me Magnets"
     assert entry["_meta"]["facility"] == "ALS"
 
-    store.record_failure(
-        query="bad query", facility="LCLS", partial_selections={}, reason="fail"
-    )
+    store.record_failure(query="bad query", facility="LCLS", partial_selections={}, reason="fail")
     key2 = FeedbackStore._make_key("bad query", "LCLS")
     entry2 = store.get_entry(key2)
     assert entry2["_meta"]["query"] == "bad query"
     assert entry2["_meta"]["facility"] == "LCLS"
+
+
+# ------------------------------------------------------------------
+# 21. search_by_keywords
+# ------------------------------------------------------------------
+
+
+def test_search_by_keywords_single_match(store):
+    """A keyword like 'magnet' matches a query containing 'magnets' (after normalization)."""
+    store.record_success(
+        query="show me magnets", facility="ALS", selections={"system": "MAG"}, channel_count=42
+    )
+    store.record_success(
+        query="find BPM positions", facility="ALS", selections={"system": "BPM"}, channel_count=10
+    )
+
+    results = store.search_by_keywords(["magnets"])
+    assert len(results) == 1
+    assert results[0]["query"] == "show me magnets"
+    assert results[0]["score"] == 1
+    assert len(results[0]["successes"]) == 1
+
+
+def test_search_by_keywords_multi_overlap_ranked(store):
+    """More keyword overlap scores higher."""
+    store.record_success(
+        query="horizontal corrector magnets",
+        facility="ALS",
+        selections={"system": "HCM"},
+        channel_count=20,
+    )
+    store.record_success(
+        query="show me magnets",
+        facility="ALS",
+        selections={"system": "MAG"},
+        channel_count=42,
+    )
+
+    results = store.search_by_keywords(["corrector", "magnets"])
+    assert len(results) == 2
+    # "horizontal corrector magnets" has 2 overlapping tokens, should be first
+    assert results[0]["query"] == "horizontal corrector magnets"
+    assert results[0]["score"] == 2
+    # "show me magnets" has 1 overlapping token
+    assert results[1]["query"] == "show me magnets"
+    assert results[1]["score"] == 1
+
+
+def test_search_by_keywords_no_match(store):
+    """Unrelated keywords return empty."""
+    store.record_success(
+        query="show me magnets", facility="ALS", selections={"system": "MAG"}, channel_count=42
+    )
+
+    results = store.search_by_keywords(["temperature", "cryogenics"])
+    assert results == []
+
+
+def test_search_by_keywords_max_results(store):
+    """Respects max_results cap."""
+    for i in range(10):
+        store.record_success(
+            query=f"query with magnets variant {i}",
+            facility="ALS",
+            selections={"system": f"SYS_{i}"},
+            channel_count=i,
+        )
+
+    results = store.search_by_keywords(["magnets"], max_results=3)
+    assert len(results) == 3

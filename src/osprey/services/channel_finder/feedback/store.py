@@ -160,6 +160,56 @@ class FeedbackStore:
             for s in reversed(successes)
         ][:max_hints]
 
+    def search_by_keywords(self, keywords: list[str], max_results: int = 10) -> list[dict]:
+        """Find entries whose queries share keywords, ranked by overlap.
+
+        Tokenizes the given keywords and each stored query into word sets,
+        then scores entries by the number of overlapping tokens.
+
+        Args:
+            keywords: List of keyword strings to match against stored queries.
+            max_results: Maximum number of results to return.
+
+        Returns:
+            List of dicts sorted by descending overlap score:
+            ``{key, query, facility, score, successes, failures}``.
+        """
+        self._load()
+
+        # Normalize and tokenize the input keywords into a single word set
+        keyword_tokens: set[str] = set()
+        for kw in keywords:
+            normalized = self._normalize_query(kw)
+            keyword_tokens.update(normalized.split())
+
+        if not keyword_tokens:
+            return []
+
+        results: list[dict] = []
+        for key, bucket in self._data.get("entries", {}).items():
+            meta = bucket.get("_meta", {})
+            query = meta.get("query", "")
+            if not query:
+                continue
+
+            # Tokenize the stored query
+            query_tokens = set(self._normalize_query(query).split())
+            score = len(keyword_tokens & query_tokens)
+            if score > 0:
+                results.append(
+                    {
+                        "key": key,
+                        "query": query,
+                        "facility": meta.get("facility", ""),
+                        "score": score,
+                        "successes": bucket.get("successes", []),
+                        "failures": bucket.get("failures", []),
+                    }
+                )
+
+        results.sort(key=lambda r: r["score"], reverse=True)
+        return results[:max_results]
+
     def clear(self) -> None:
         """Wipe all stored feedback data."""
         with self._locked():
