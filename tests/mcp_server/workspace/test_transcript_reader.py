@@ -587,9 +587,6 @@ class TestSubagentReading:
         """Agent lifecycle events use the same agent_id as tool_call events."""
         main_transcript = tmp_path / "main-session.jsonl"
         main_entries = [
-            # Task tool_use in parent — result is NOT JSON so agentId
-            # extraction fails and the old code would fall back to the
-            # tool_use block id ("task-1"), causing a mismatch.
             _make_assistant_entry(_ts(0), [
                 {
                     "id": "task-1",
@@ -597,7 +594,7 @@ class TestSubagentReading:
                     "input": {
                         "subagent_type": "logbook-search",
                         "description": "Search the logbook",
-                        "prompt": "Find RF trips",
+                        "prompt": "Find RF trips in the logbook",
                     },
                 },
             ]),
@@ -611,11 +608,18 @@ class TestSubagentReading:
         ]
         _write_transcript(main_transcript, main_entries)
 
-        # Subagent transcript with OSPREY tool calls
+        # Subagent transcript: starts with user message (the prompt),
+        # followed by tool calls — matching the real Claude Code format.
         subagent_dir = tmp_path / "main-session" / "subagents"
         subagent_dir.mkdir(parents=True)
         sub_transcript = subagent_dir / "sub-xyz-123.jsonl"
         sub_entries = [
+            {
+                "type": "user",
+                "timestamp": _ts(1),
+                "sessionId": "sub-session",
+                "message": {"role": "user", "content": "Find RF trips in the logbook"},
+            },
             _make_assistant_entry(_ts(2), [
                 {
                     "id": "tu-sub1",
@@ -636,7 +640,6 @@ class TestSubagentReading:
         reader = TranscriptReader(tmp_path)
         events = reader.read_session(main_transcript)
 
-        # The lifecycle events must use the same agent_id as the tool_call
         tool_calls = [e for e in events if e["type"] == "tool_call"]
         starts = [e for e in events if e["type"] == "agent_start"]
         stops = [e for e in events if e["type"] == "agent_stop"]
@@ -645,14 +648,79 @@ class TestSubagentReading:
         assert len(starts) == 1
         assert len(stops) == 1
 
-        # All share the subagent transcript filename as agent_id
         assert tool_calls[0]["agent_id"] == "sub-xyz-123"
         assert starts[0]["agent_id"] == "sub-xyz-123"
         assert stops[0]["agent_id"] == "sub-xyz-123"
-
-        # agent_type comes from the Task input
         assert starts[0]["agent_type"] == "logbook-search"
-        assert stops[0]["agent_type"] == "logbook-search"
+
+    def test_prompt_matching_handles_concurrent_agents(self, tmp_path):
+        """Two agents launched concurrently are matched by prompt, not order."""
+        main_transcript = tmp_path / "main-session.jsonl"
+        main_entries = [
+            # Two Tasks in the same assistant message
+            _make_assistant_entry(_ts(0), [
+                {
+                    "id": "task-A",
+                    "name": "Task",
+                    "input": {
+                        "subagent_type": "logbook-search",
+                        "prompt": "Search logbook for RF trips",
+                    },
+                },
+                {
+                    "id": "task-B",
+                    "name": "Task",
+                    "input": {
+                        "subagent_type": "channel-finder",
+                        "prompt": "Find horizontal BPM channels",
+                    },
+                },
+            ]),
+            _make_user_entry(_ts(10), [
+                {"tool_use_id": "task-A", "content": "Found trips", "is_error": False},
+                {"tool_use_id": "task-B", "content": "Found BPMs", "is_error": False},
+            ]),
+        ]
+        _write_transcript(main_transcript, main_entries)
+
+        subagent_dir = tmp_path / "main-session" / "subagents"
+        subagent_dir.mkdir(parents=True)
+
+        # Subagent files are sorted alphabetically — note "zzz" comes AFTER "aaa",
+        # but its prompt matches the FIRST task (logbook-search).
+        # This proves prompt matching beats order matching.
+        sub_a = subagent_dir / "agent-zzz.jsonl"
+        _write_transcript(sub_a, [
+            {"type": "user", "timestamp": _ts(1), "sessionId": "s1",
+             "message": {"role": "user", "content": "Search logbook for RF trips"}},
+            _make_assistant_entry(_ts(2), [
+                {"id": "tu1", "name": "mcp__ariel__keyword_search", "input": {}},
+            ]),
+            _make_user_entry(_ts(3), [
+                {"tool_use_id": "tu1", "content": "ok", "is_error": False},
+            ]),
+        ])
+
+        sub_b = subagent_dir / "agent-aaa.jsonl"
+        _write_transcript(sub_b, [
+            {"type": "user", "timestamp": _ts(1), "sessionId": "s2",
+             "message": {"role": "user", "content": "Find horizontal BPM channels"}},
+            _make_assistant_entry(_ts(2), [
+                {"id": "tu2", "name": "mcp__channel-finder__channel_find", "input": {}},
+            ]),
+            _make_user_entry(_ts(3), [
+                {"tool_use_id": "tu2", "content": "ok", "is_error": False},
+            ]),
+        ])
+
+        reader = TranscriptReader(tmp_path)
+        events = reader.read_session(main_transcript)
+
+        starts = {e["agent_id"]: e for e in events if e["type"] == "agent_start"}
+        # agent-aaa (sorted first) has the BPM prompt → channel-finder
+        assert starts["agent-aaa"]["agent_type"] == "channel-finder"
+        # agent-zzz (sorted second) has the logbook prompt → logbook-search
+        assert starts["agent-zzz"]["agent_type"] == "logbook-search"
 
 
 # ---------------------------------------------------------------------------
@@ -878,3 +946,166 @@ class TestReadChatHistory:
         assert history[0]["content"] == "Search the logbook"
         assert history[1]["content"] == "Here are the results."
         assert "\n" not in history[0]["content"]
+
+
+# ---------------------------------------------------------------------------
+# find_transcript_by_id
+# ---------------------------------------------------------------------------
+
+class TestFindTranscriptById:
+    def test_finds_existing_session(self, transcript_dir):
+        project_dir, claude_dir = transcript_dir
+        session_file = claude_dir / "abc-def-123.jsonl"
+        session_file.write_text("{}\n")
+
+        reader = TranscriptReader(project_dir)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(Path, "home", lambda: claude_dir.parents[2])
+            result = reader.find_transcript_by_id("abc-def-123")
+        assert result == session_file
+
+    def test_returns_none_for_missing(self, transcript_dir):
+        project_dir, claude_dir = transcript_dir
+
+        reader = TranscriptReader(project_dir)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(Path, "home", lambda: claude_dir.parents[2])
+            result = reader.find_transcript_by_id("nonexistent-session")
+        assert result is None
+
+    def test_returns_none_when_no_transcript_dir(self, tmp_path):
+        reader = TranscriptReader(tmp_path / "nonexistent")
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(Path, "home", lambda: tmp_path)
+            result = reader.find_transcript_by_id("any-id")
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# read_session_by_id
+# ---------------------------------------------------------------------------
+
+class TestReadSessionById:
+    def test_reads_specific_session(self, transcript_dir):
+        project_dir, claude_dir = transcript_dir
+        session_file = claude_dir / "target-session.jsonl"
+        entries = [
+            _make_assistant_entry(_ts(0), [
+                {"id": "tu-1", "name": "mcp__controls__channel_read", "input": {}},
+            ]),
+            _make_user_entry(_ts(1), [
+                {"tool_use_id": "tu-1", "content": "ok", "is_error": False},
+            ]),
+        ]
+        _write_transcript(session_file, entries)
+
+        reader = TranscriptReader(project_dir)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(Path, "home", lambda: claude_dir.parents[2])
+            events = reader.read_session_by_id("target-session")
+        assert len(events) == 1
+        assert events[0]["tool"] == "channel_read"
+
+    def test_returns_empty_for_unknown(self, transcript_dir):
+        project_dir, claude_dir = transcript_dir
+
+        reader = TranscriptReader(project_dir)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(Path, "home", lambda: claude_dir.parents[2])
+            events = reader.read_session_by_id("unknown-session")
+        assert events == []
+
+
+# ---------------------------------------------------------------------------
+# read_chat_history_by_id
+# ---------------------------------------------------------------------------
+
+class TestReadChatHistoryById:
+    def test_reads_chat_for_specific_session(self, transcript_dir):
+        project_dir, claude_dir = transcript_dir
+        session_file = claude_dir / "chat-session.jsonl"
+        entries = [
+            _make_user_text_entry(_ts(0), "Hello there"),
+            _make_assistant_text_entry(_ts(1), "Hi, how can I help?"),
+        ]
+        _write_transcript(session_file, entries)
+
+        reader = TranscriptReader(project_dir)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(Path, "home", lambda: claude_dir.parents[2])
+            history = reader.read_chat_history_by_id("chat-session")
+        assert len(history) == 2
+        assert history[0]["role"] == "user"
+        assert history[0]["content"] == "Hello there"
+
+    def test_returns_empty_for_unknown(self, transcript_dir):
+        project_dir, claude_dir = transcript_dir
+
+        reader = TranscriptReader(project_dir)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(Path, "home", lambda: claude_dir.parents[2])
+            history = reader.read_chat_history_by_id("unknown")
+        assert history == []
+
+
+# ---------------------------------------------------------------------------
+# read_agent_timeline with session_id
+# ---------------------------------------------------------------------------
+
+class TestReadAgentTimelineWithSessionId:
+    def test_uses_session_id_to_locate_subagent(self, transcript_dir):
+        """With session_id, timeline looks in the correct parent transcript."""
+        project_dir, claude_dir = transcript_dir
+
+        # Create two sessions — only the target has the subagent
+        target = claude_dir / "target-session.jsonl"
+        target.write_text("{}\n")
+        sub_dir = claude_dir / "target-session" / "subagents"
+        sub_dir.mkdir(parents=True)
+        sub_file = sub_dir / "agent-xyz.jsonl"
+        sub_entries = [
+            {
+                "type": "user", "timestamp": _ts(0), "sessionId": "s",
+                "message": {"role": "user", "content": "Do the thing"},
+            },
+            _make_assistant_entry(_ts(1), [
+                {"id": "tu-1", "name": "mcp__controls__channel_read", "input": {}},
+            ]),
+            _make_user_entry(_ts(2), [
+                {"tool_use_id": "tu-1", "content": "done", "is_error": False},
+            ]),
+        ]
+        _write_transcript(sub_file, sub_entries)
+
+        reader = TranscriptReader(project_dir)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(Path, "home", lambda: claude_dir.parents[2])
+            timeline = reader.read_agent_timeline("agent-xyz", session_id="target-session")
+        assert len(timeline) > 0
+        kinds = [e["kind"] for e in timeline]
+        assert "prompt" in kinds
+        assert "tool_call" in kinds
+
+    def test_falls_back_to_current_when_no_session_id(self, transcript_dir):
+        """Without session_id, uses find_current_transcript (existing behavior)."""
+        project_dir, claude_dir = transcript_dir
+
+        current = claude_dir / "latest.jsonl"
+        current.write_text("{}\n")
+        sub_dir = claude_dir / "latest" / "subagents"
+        sub_dir.mkdir(parents=True)
+        sub_file = sub_dir / "agent-abc.jsonl"
+        sub_entries = [
+            {
+                "type": "user", "timestamp": _ts(0), "sessionId": "s",
+                "message": {"role": "user", "content": "Hello"},
+            },
+        ]
+        _write_transcript(sub_file, sub_entries)
+
+        reader = TranscriptReader(project_dir)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(Path, "home", lambda: claude_dir.parents[2])
+            timeline = reader.read_agent_timeline("agent-abc")
+        assert len(timeline) == 1
+        assert timeline[0]["kind"] == "prompt"
