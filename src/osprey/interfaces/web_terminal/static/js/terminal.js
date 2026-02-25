@@ -131,6 +131,21 @@ export function startTerminal(sessionId = null, mode = 'new') {
             currentSessionId = msg.session_id;
             const label = document.getElementById('terminal-label');
             if (label) label.textContent = `Session ${msg.session_id.slice(0, 8)}`;
+            notifySessionChange(msg.session_id);
+          } else if (msg.type === 'session_switched') {
+            term.reset();
+            currentSessionId = msg.session_id;
+            const label = document.getElementById('terminal-label');
+            if (label) label.textContent = `Session ${msg.session_id.slice(0, 8)}`;
+            notifySessionChange(msg.session_id);
+            // Update reconnect URL so auto-reconnect targets the correct session
+            if (wsConnection) {
+              wsConnection.setUrl(
+                `ws://${location.host}/ws/terminal?session_id=${encodeURIComponent(msg.session_id)}&mode=resume`
+              );
+            }
+          } else if (msg.type === 'error') {
+            term.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
           }
           return;
         } catch {
@@ -185,6 +200,21 @@ export function stopTerminal() {
 }
 
 /**
+ * Switch to a different Claude session over the existing WebSocket.
+ * Returns true if the switch message was sent (fast path), false if
+ * no WebSocket is available (caller should use the cold fallback).
+ *
+ * @param {string} sessionId - Target session UUID.
+ * @returns {boolean}
+ */
+export function switchSession(sessionId) {
+  if (!wsConnection) return false;
+  if (sessionId === currentSessionId) return true;
+  wsConnection.send(JSON.stringify({ type: 'switch_session', session_id: sessionId }));
+  return true;
+}
+
+/**
  * Get the current Claude Code session ID.
  */
 export function getCurrentSessionId() {
@@ -215,6 +245,21 @@ export function pasteToTerminal(text) {
   if (wsConnection && text) {
     wsConnection.send(text);
   }
+}
+
+/**
+ * Notify all panel iframes that the active session has changed.
+ * @param {string} sessionId - The new session UUID.
+ */
+export function notifySessionChange(sessionId) {
+  document.querySelectorAll('.panel-iframe').forEach(iframe => {
+    try {
+      iframe.contentWindow.postMessage(
+        { type: 'osprey-session-change', session_id: sessionId },
+        '*'
+      );
+    } catch { /* cross-origin — ignore */ }
+  });
 }
 
 /**

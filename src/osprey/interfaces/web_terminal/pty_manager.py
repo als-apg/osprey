@@ -14,6 +14,7 @@ import signal
 import struct
 import subprocess
 import termios
+from collections import OrderedDict
 from collections.abc import AsyncIterator
 
 from osprey.utils.logger import get_logger
@@ -31,6 +32,8 @@ class PtySession:
             self._command_list = list(shell_command)
         self._master_fd: int | None = None
         self._process: subprocess.Popen | None = None
+        self._last_rows: int = 24
+        self._last_cols: int = 80
 
     def start(
         self,
@@ -56,9 +59,7 @@ class PtySession:
         # Strip Claude Code internal session variables (nesting detection,
         # entrypoint tracking, beta flags).
         env = {
-            k: v
-            for k, v in os.environ.items()
-            if not k.startswith(("CLAUDECODE", "CLAUDE_CODE_"))
+            k: v for k, v in os.environ.items() if not k.startswith(("CLAUDECODE", "CLAUDE_CODE_"))
         }
 
         # When token-based auth is configured (e.g. CBORG proxy at LBNL),
@@ -154,6 +155,8 @@ class PtySession:
         if self._master_fd is not None:
             winsize = struct.pack("HHHH", rows, cols, 0, 0)
             fcntl.ioctl(self._master_fd, termios.TIOCSWINSZ, winsize)
+        self._last_rows = rows
+        self._last_cols = cols
 
     def terminate(self) -> None:
         """Terminate the subprocess and close the PTY."""
@@ -201,10 +204,107 @@ class PtySession:
 
 
 class PtyRegistry:
-    """Manages multiple PTY sessions keyed by session ID."""
+    """Manages multiple PTY sessions with LRU pool semantics.
 
-    def __init__(self) -> None:
-        self._sessions: dict[str, PtySession] = {}
+    Sessions are kept alive in the background after detach, enabling
+    near-instant reattach when switching between Claude sessions.
+    """
+
+    def __init__(self, max_background: int = 5) -> None:
+        self._sessions: OrderedDict[str, PtySession] = OrderedDict()
+        self._attached: set[str] = set()
+        self._max_background = max_background
+
+    # ---- Pool methods (new) ---- #
+
+    def get_or_create_session(
+        self,
+        session_key: str,
+        command: str | list[str],
+        rows: int = 24,
+        cols: int = 80,
+        extra_env: dict[str, str] | None = None,
+    ) -> tuple[PtySession, bool]:
+        """Get existing session or create a new one.
+
+        Returns:
+            (session, was_reused) — True if an existing live session was reattached.
+        """
+        existing = self._sessions.get(session_key)
+        if existing is not None:
+            if existing.is_alive:
+                # LRU bump — move to end
+                self._sessions.move_to_end(session_key)
+                existing.resize(rows, cols)
+                return existing, True
+            else:
+                # Dead — remove silently, respawn below
+                self._sessions.pop(session_key, None)
+                self._attached.discard(session_key)
+
+        # Evict if at capacity
+        self._evict_lru()
+
+        session = self._spawn_session(command, rows, cols, extra_env)
+        self._sessions[session_key] = session
+        return session, False
+
+    def attach_session(self, session_key: str) -> bool:
+        """Mark session as actively consumed by a WebSocket.
+
+        Returns False if already attached or not in pool.
+        """
+        if session_key not in self._sessions:
+            return False
+        if session_key in self._attached:
+            return False
+        self._attached.add(session_key)
+        return True
+
+    def detach_session(self, session_key: str) -> None:
+        """Remove from attached set without terminating.
+
+        LRU-bumps the session so it's less likely to be evicted.
+        """
+        self._attached.discard(session_key)
+        if session_key in self._sessions:
+            self._sessions.move_to_end(session_key)
+
+    def rekey_session(self, old_key: str, new_key: str) -> None:
+        """Rename a session entry (e.g. after UUID discovery)."""
+        if old_key not in self._sessions:
+            return
+        session = self._sessions.pop(old_key)
+        self._sessions[new_key] = session
+        if old_key in self._attached:
+            self._attached.discard(old_key)
+            self._attached.add(new_key)
+
+    def _evict_lru(self) -> None:
+        """Evict the oldest non-attached session if at capacity."""
+        if len(self._sessions) < self._max_background:
+            return
+        # Find oldest non-attached
+        for key in list(self._sessions):
+            if key not in self._attached:
+                evicted = self._sessions.pop(key)
+                evicted.terminate()
+                logger.info("Evicted LRU session %s", key)
+                return
+
+    def _spawn_session(
+        self,
+        command: str | list[str],
+        rows: int,
+        cols: int,
+        extra_env: dict[str, str] | None,
+    ) -> PtySession:
+        """Create and start a new PtySession."""
+        session = PtySession(command)
+        session.start(initial_rows=rows, initial_cols=cols, extra_env=extra_env)
+        return session
+
+    # ---- Legacy methods (backward compat for operator sessions, tests) ---- #
 
     def create_session(
         self,
@@ -232,6 +332,7 @@ class PtyRegistry:
         session = self._sessions.pop(session_id, None)
         if session is not None:
             session.terminate()
+        self._attached.discard(session_id)
 
     def terminate_session_if_owner(self, session_id: str, owner: PtySession) -> None:
         """Terminate only if the caller still owns the session.
@@ -251,3 +352,4 @@ class PtyRegistry:
         """Terminate all sessions (called during shutdown)."""
         for session_id in list(self._sessions):
             self.terminate_session(session_id)
+        self._attached.clear()

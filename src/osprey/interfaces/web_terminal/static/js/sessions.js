@@ -1,7 +1,7 @@
 /* OSPREY Web Terminal — Session Picker */
 
 import { fetchJSON } from './api.js';
-import { stopTerminal, startTerminal, restartTerminal, getCurrentSessionId } from './terminal.js';
+import { stopTerminal, startTerminal, restartTerminal, getCurrentSessionId, notifySessionChange, switchSession } from './terminal.js';
 
 let sessionsData = [];
 
@@ -104,16 +104,24 @@ function renderSessionList() {
 
 /**
  * Resume a session by ID.
+ *
+ * Fast path: send switch_session over the existing WebSocket (near-instant
+ * for warm sessions). Cold fallback: full stop/start cycle if no WS is open.
  */
 export async function resumeSession(sessionId) {
-  stopTerminal();
+  if (switchSession(sessionId)) {
+    // Fast path — server handles everything.
+    // terminal.js onMessage updates UI on session_switched.
+    return;
+  }
 
+  // Cold fallback — no WS open, do full reconnect
+  stopTerminal();
   const label = document.getElementById('terminal-label');
   if (label) label.textContent = `Session ${sessionId.slice(0, 8)}`;
-
-  // Small delay to let the WebSocket close cleanly
   await new Promise(r => setTimeout(r, 100));
   startTerminal(sessionId, 'resume');
+  notifySessionChange(sessionId);
 }
 
 /**

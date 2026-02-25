@@ -26,13 +26,14 @@ export function createWebSocket(url, { onOpen, onMessage, onClose, onError } = {
   let ws = null;
   let attempt = 0;
   let stopped = false;
+  let wsUrl = url;
 
   function connect() {
     if (stopped) return;
     wsState = 'connecting';
     notifyStateChange();
 
-    ws = new WebSocket(url);
+    ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
@@ -76,8 +77,12 @@ export function createWebSocket(url, { onOpen, onMessage, onClose, onError } = {
     if (ws) ws.close();
   }
 
+  function setUrl(newUrl) {
+    wsUrl = newUrl;
+  }
+
   connect();
-  return { send, stop, get ws() { return ws; } };
+  return { send, stop, setUrl, get ws() { return ws; } };
 }
 
 /**
