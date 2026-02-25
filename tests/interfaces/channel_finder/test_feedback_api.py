@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
-
 # ------------------------------------------------------------------
 # Status endpoint
 # ------------------------------------------------------------------
@@ -39,11 +36,16 @@ class TestFeedbackList:
         assert resp.json()["entries"] == []
 
     def test_populated(self, feedback_client):
-        feedback_client.post("/api/feedback", json={
-            "query": "magnets", "facility": "ALS",
-            "entry_type": "success", "selections": {"system": "MAG"},
-            "channel_count": 42,
-        })
+        feedback_client.post(
+            "/api/feedback",
+            json={
+                "query": "magnets",
+                "facility": "ALS",
+                "entry_type": "success",
+                "selections": {"system": "MAG"},
+                "channel_count": 42,
+            },
+        )
         resp = feedback_client.get("/api/feedback")
         entries = resp.json()["entries"]
         assert len(entries) == 1
@@ -58,11 +60,16 @@ class TestFeedbackList:
 
 class TestFeedbackDetail:
     def test_existing_key(self, feedback_client):
-        add_resp = feedback_client.post("/api/feedback", json={
-            "query": "magnets", "facility": "ALS",
-            "entry_type": "success", "selections": {"system": "MAG"},
-            "channel_count": 10,
-        })
+        add_resp = feedback_client.post(
+            "/api/feedback",
+            json={
+                "query": "magnets",
+                "facility": "ALS",
+                "entry_type": "success",
+                "selections": {"system": "MAG"},
+                "channel_count": 10,
+            },
+        )
         key = add_resp.json()["key"]
         resp = feedback_client.get(f"/api/feedback/{key}")
         assert resp.status_code == 200
@@ -80,27 +87,41 @@ class TestFeedbackDetail:
 
 class TestFeedbackAdd:
     def test_add_success(self, feedback_client):
-        resp = feedback_client.post("/api/feedback", json={
-            "query": "magnets", "facility": "ALS",
-            "entry_type": "success", "selections": {"system": "MAG"},
-            "channel_count": 42,
-        })
+        resp = feedback_client.post(
+            "/api/feedback",
+            json={
+                "query": "magnets",
+                "facility": "ALS",
+                "entry_type": "success",
+                "selections": {"system": "MAG"},
+                "channel_count": 42,
+            },
+        )
         assert resp.status_code == 200
         assert len(resp.json()["key"]) == 64
 
     def test_add_failure(self, feedback_client):
-        resp = feedback_client.post("/api/feedback", json={
-            "query": "bad", "facility": "ALS",
-            "entry_type": "failure", "selections": {"system": "X"},
-            "reason": "not found",
-        })
+        resp = feedback_client.post(
+            "/api/feedback",
+            json={
+                "query": "bad",
+                "facility": "ALS",
+                "entry_type": "failure",
+                "selections": {"system": "X"},
+                "reason": "not found",
+            },
+        )
         assert resp.status_code == 200
 
     def test_invalid_entry_type(self, feedback_client):
-        resp = feedback_client.post("/api/feedback", json={
-            "query": "test", "facility": "ALS",
-            "entry_type": "invalid",
-        })
+        resp = feedback_client.post(
+            "/api/feedback",
+            json={
+                "query": "test",
+                "facility": "ALS",
+                "entry_type": "invalid",
+            },
+        )
         assert resp.status_code == 400
 
 
@@ -111,11 +132,16 @@ class TestFeedbackAdd:
 
 class TestFeedbackEdit:
     def _add_and_get_ts(self, client):
-        client.post("/api/feedback", json={
-            "query": "magnets", "facility": "ALS",
-            "entry_type": "success", "selections": {"system": "MAG"},
-            "channel_count": 10,
-        })
+        client.post(
+            "/api/feedback",
+            json={
+                "query": "magnets",
+                "facility": "ALS",
+                "entry_type": "success",
+                "selections": {"system": "MAG"},
+                "channel_count": 10,
+            },
+        )
         entries = client.get("/api/feedback").json()["entries"]
         key = entries[0]["key"]
         detail = client.get(f"/api/feedback/{key}").json()
@@ -124,27 +150,36 @@ class TestFeedbackEdit:
 
     def test_edit_success_record(self, feedback_client):
         key, ts = self._add_and_get_ts(feedback_client)
-        resp = feedback_client.put(f"/api/feedback/{key}/successes/0", json={
-            "expected_timestamp": ts,
-            "selections": {"system": "QUAD"},
-            "channel_count": 99,
-        })
+        resp = feedback_client.put(
+            f"/api/feedback/{key}/successes/0",
+            json={
+                "expected_timestamp": ts,
+                "selections": {"system": "QUAD"},
+                "channel_count": 99,
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
 
     def test_stale_timestamp(self, feedback_client):
         key, _ = self._add_and_get_ts(feedback_client)
-        resp = feedback_client.put(f"/api/feedback/{key}/successes/0", json={
-            "expected_timestamp": "wrong",
-            "selections": {"system": "QUAD"},
-        })
+        resp = feedback_client.put(
+            f"/api/feedback/{key}/successes/0",
+            json={
+                "expected_timestamp": "wrong",
+                "selections": {"system": "QUAD"},
+            },
+        )
         assert resp.status_code == 409
 
     def test_invalid_record_type(self, feedback_client):
         key, ts = self._add_and_get_ts(feedback_client)
-        resp = feedback_client.put(f"/api/feedback/{key}/invalid/0", json={
-            "expected_timestamp": ts,
-        })
+        resp = feedback_client.put(
+            f"/api/feedback/{key}/invalid/0",
+            json={
+                "expected_timestamp": ts,
+            },
+        )
         assert resp.status_code == 400
 
 
@@ -155,11 +190,16 @@ class TestFeedbackEdit:
 
 class TestFeedbackDelete:
     def test_delete_entry(self, feedback_client):
-        resp = feedback_client.post("/api/feedback", json={
-            "query": "magnets", "facility": "ALS",
-            "entry_type": "success", "selections": {"system": "MAG"},
-            "channel_count": 10,
-        })
+        resp = feedback_client.post(
+            "/api/feedback",
+            json={
+                "query": "magnets",
+                "facility": "ALS",
+                "entry_type": "success",
+                "selections": {"system": "MAG"},
+                "channel_count": 10,
+            },
+        )
         key = resp.json()["key"]
         del_resp = feedback_client.delete(f"/api/feedback/{key}")
         assert del_resp.status_code == 200
@@ -170,33 +210,45 @@ class TestFeedbackDelete:
         assert resp.status_code == 404
 
     def test_delete_record_with_valid_timestamp(self, feedback_client):
-        feedback_client.post("/api/feedback", json={
-            "query": "magnets", "facility": "ALS",
-            "entry_type": "success", "selections": {"system": "MAG"},
-            "channel_count": 10,
-        })
+        feedback_client.post(
+            "/api/feedback",
+            json={
+                "query": "magnets",
+                "facility": "ALS",
+                "entry_type": "success",
+                "selections": {"system": "MAG"},
+                "channel_count": 10,
+            },
+        )
         entries = feedback_client.get("/api/feedback").json()["entries"]
         key = entries[0]["key"]
         detail = feedback_client.get(f"/api/feedback/{key}").json()
         ts = detail["successes"][0]["timestamp"]
 
         resp = feedback_client.request(
-            "DELETE", f"/api/feedback/{key}/successes/0",
+            "DELETE",
+            f"/api/feedback/{key}/successes/0",
             json={"expected_timestamp": ts},
         )
         assert resp.status_code == 200
 
     def test_delete_record_stale_timestamp(self, feedback_client):
-        feedback_client.post("/api/feedback", json={
-            "query": "magnets", "facility": "ALS",
-            "entry_type": "success", "selections": {"system": "MAG"},
-            "channel_count": 10,
-        })
+        feedback_client.post(
+            "/api/feedback",
+            json={
+                "query": "magnets",
+                "facility": "ALS",
+                "entry_type": "success",
+                "selections": {"system": "MAG"},
+                "channel_count": 10,
+            },
+        )
         entries = feedback_client.get("/api/feedback").json()["entries"]
         key = entries[0]["key"]
 
         resp = feedback_client.request(
-            "DELETE", f"/api/feedback/{key}/successes/0",
+            "DELETE",
+            f"/api/feedback/{key}/successes/0",
             json={"expected_timestamp": "wrong"},
         )
         assert resp.status_code == 409
@@ -213,11 +265,16 @@ class TestFeedbackClear:
         assert resp.status_code == 400
 
     def test_clears_data(self, feedback_client):
-        feedback_client.post("/api/feedback", json={
-            "query": "magnets", "facility": "ALS",
-            "entry_type": "success", "selections": {"system": "MAG"},
-            "channel_count": 10,
-        })
+        feedback_client.post(
+            "/api/feedback",
+            json={
+                "query": "magnets",
+                "facility": "ALS",
+                "entry_type": "success",
+                "selections": {"system": "MAG"},
+                "channel_count": 10,
+            },
+        )
         resp = feedback_client.delete("/api/feedback?confirm=true")
         assert resp.status_code == 200
         assert feedback_client.get("/api/feedback").json()["entries"] == []
@@ -230,11 +287,16 @@ class TestFeedbackClear:
 
 class TestFeedbackExport:
     def test_export(self, feedback_client):
-        feedback_client.post("/api/feedback", json={
-            "query": "magnets", "facility": "ALS",
-            "entry_type": "success", "selections": {"system": "MAG"},
-            "channel_count": 10,
-        })
+        feedback_client.post(
+            "/api/feedback",
+            json={
+                "query": "magnets",
+                "facility": "ALS",
+                "entry_type": "success",
+                "selections": {"system": "MAG"},
+                "channel_count": 10,
+            },
+        )
         resp = feedback_client.get("/api/feedback/export")
         assert resp.status_code == 200
         assert "attachment" in resp.headers.get("content-disposition", "")
@@ -258,9 +320,14 @@ class TestFeedbackUnavailable:
         assert client.get("/api/feedback/somekey").status_code == 404
 
     def test_add_returns_404(self, client):
-        resp = client.post("/api/feedback", json={
-            "query": "x", "facility": "X", "entry_type": "success",
-        })
+        resp = client.post(
+            "/api/feedback",
+            json={
+                "query": "x",
+                "facility": "X",
+                "entry_type": "success",
+            },
+        )
         assert resp.status_code == 404
 
     def test_delete_returns_404(self, client):

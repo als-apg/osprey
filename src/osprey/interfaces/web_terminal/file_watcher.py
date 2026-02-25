@@ -94,11 +94,13 @@ class _WorkspaceHandler(FileSystemEventHandler):
         except ValueError:
             return
 
-        self._broadcaster.broadcast({
-            "type": simple_type,
-            "path": str(relative),
-            "is_dir": event.is_directory,
-        })
+        self._broadcaster.broadcast(
+            {
+                "type": simple_type,
+                "path": str(relative),
+                "is_dir": event.is_directory,
+            }
+        )
 
 
 class WorkspaceWatcher:

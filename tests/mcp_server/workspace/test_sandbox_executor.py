@@ -221,9 +221,7 @@ class TestExecuteSandboxCode:
         assert result.execution_time_seconds is not None
         assert "6" in result.stdout
 
-    async def test_no_auto_capture_of_matplotlib_figures(
-        self, execution_folder, workspace_root
-    ):
+    async def test_no_auto_capture_of_matplotlib_figures(self, execution_folder, workspace_root):
         """Matplotlib code without save_artifact() produces no artifacts."""
         code = textwrap.dedent("""\
             import matplotlib
@@ -248,9 +246,7 @@ class TestExecuteSandboxCode:
         # No auto-capture: artifacts should be empty
         assert result.artifacts == []
 
-    async def test_save_artifact_produces_artifacts(
-        self, execution_folder, workspace_root
-    ):
+    async def test_save_artifact_produces_artifacts(self, execution_folder, workspace_root):
         """save_artifact() call produces artifacts in the manifest."""
         code = textwrap.dedent("""\
             import matplotlib
@@ -296,18 +292,14 @@ class TestExecuteSandboxCode:
         assert not result.success
         assert "timed out" in result.error_message
 
-    async def test_execute_validation_failure_returns_error(
-        self, execution_folder, workspace_root
-    ):
+    async def test_execute_validation_failure_returns_error(self, execution_folder, workspace_root):
         code = "import subprocess\nsubprocess.run(['ls'])"
 
         with patch(
             "osprey.mcp_server.common.resolve_workspace_root",
             return_value=workspace_root,
         ):
-            result = await execute_sandbox_code(
-                code=code, execution_folder=execution_folder
-            )
+            result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
 
         assert not result.success
         assert "validation failed" in result.error_message.lower()
@@ -349,9 +341,7 @@ class TestExecuteSandboxCode:
                 timeout=30,
             )
 
-        assert result.success, (
-            f"3D matplotlib plot failed: {result.error_message}\n{result.stderr}"
-        )
+        assert result.success, f"3D matplotlib plot failed: {result.error_message}\n{result.stderr}"
         assert len(result.artifacts) == 1
         assert result.artifacts[0]["title"] == "3D Scatter Plot"
         assert result.artifacts[0]["artifact_type"] == "plot_png"
@@ -364,9 +354,7 @@ class TestExecuteSandboxCode:
             "osprey.mcp_server.common.resolve_workspace_root",
             return_value=workspace_root,
         ):
-            result = await execute_sandbox_code(
-                code=code, execution_folder=execution_folder
-            )
+            result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
 
         assert not result.success
         assert result.error_message is not None
@@ -378,9 +366,7 @@ class TestExecuteSandboxCode:
             "osprey.mcp_server.common.resolve_workspace_root",
             return_value=workspace_root,
         ):
-            result = await execute_sandbox_code(
-                code=code, execution_folder=execution_folder
-            )
+            result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
 
         assert result.success
         assert "hello from sandbox" in result.stdout
@@ -405,9 +391,7 @@ class TestSandboxedOpen:
         (ws / "data").mkdir()
         return ws
 
-    async def test_sandboxed_open_workspace_allowed(
-        self, execution_folder, workspace_root
-    ):
+    async def test_sandboxed_open_workspace_allowed(self, execution_folder, workspace_root):
         # Create a test file in the workspace
         test_file = workspace_root / "data" / "test.csv"
         test_file.write_text("a,b\n1,2\n")
@@ -423,16 +407,12 @@ print(content)
             "osprey.mcp_server.common.resolve_workspace_root",
             return_value=workspace_root,
         ):
-            result = await execute_sandbox_code(
-                code=code, execution_folder=execution_folder
-            )
+            result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
 
         assert result.success
         assert "a,b" in result.stdout
 
-    async def test_sandboxed_open_outside_blocked(
-        self, execution_folder, workspace_root
-    ):
+    async def test_sandboxed_open_outside_blocked(self, execution_folder, workspace_root):
         code = """\
 try:
     with open('/etc/passwd') as f:
@@ -446,9 +426,7 @@ except PermissionError:
             "osprey.mcp_server.common.resolve_workspace_root",
             return_value=workspace_root,
         ):
-            result = await execute_sandbox_code(
-                code=code, execution_folder=execution_folder
-            )
+            result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
 
         assert result.success
         assert "BLOCKED" in result.stdout
@@ -563,9 +541,7 @@ class TestSaveArtifactBokehSupport:
         (ws / "data").mkdir()
         return ws
 
-    async def test_bokeh_import_allowed_in_sandbox(
-        self, execution_folder, workspace_root
-    ):
+    async def test_bokeh_import_allowed_in_sandbox(self, execution_folder, workspace_root):
         """Verify Bokeh can import in sandbox (needs venv/share data files)."""
         code = textwrap.dedent("""\
             from bokeh.plotting import figure
@@ -652,9 +628,7 @@ class TestSaveArtifactBokehSupport:
         assert len(result.artifacts) == 1
         assert result.artifacts[0]["artifact_type"] == "json"
 
-    async def test_save_artifact_pandas_dataframe(
-        self, execution_folder, workspace_root
-    ):
+    async def test_save_artifact_pandas_dataframe(self, execution_folder, workspace_root):
         """Verify save_artifact() handles pandas DataFrames."""
         code = textwrap.dedent("""\
             import pandas as pd

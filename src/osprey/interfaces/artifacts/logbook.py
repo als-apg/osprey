@@ -163,7 +163,7 @@ async def gather_context(
 # ---------------------------------------------------------------------------
 
 JSON_FORMAT_INSTRUCTIONS = (
-    'Respond with a JSON object containing exactly these fields:\n'
+    "Respond with a JSON object containing exactly these fields:\n"
     '- "subject": a short title (max 120 chars)\n'
     '- "details": the narrative body (1-3 paragraphs, plain text)\n'
     '- "tags": a list of 2-5 relevant tags (lowercase, no spaces)'
@@ -432,10 +432,12 @@ async def compose_entry(
     effective_prompt = system_prompt if system_prompt is not None else SYSTEM_PROMPT
 
     try:
-        chat_request = ChatCompletionRequest(messages=[
-            ChatMessage(role="system", content=effective_prompt),
-            ChatMessage(role="user", content=_build_user_prompt(ctx)),
-        ])
+        chat_request = ChatCompletionRequest(
+            messages=[
+                ChatMessage(role="system", content=effective_prompt),
+                ChatMessage(role="user", content=_build_user_prompt(ctx)),
+            ]
+        )
 
         text = await aget_chat_completion(
             chat_request=chat_request,
@@ -590,6 +592,4 @@ async def submit(req: SubmitRequest):
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to create draft: {exc}"
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"Failed to create draft: {exc}") from exc

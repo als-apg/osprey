@@ -57,14 +57,10 @@ async def test_channel_read_succeeds(safety_project):
 
     # channel_read should have been called
     read_calls = result.tools_matching("channel_read")
-    assert len(read_calls) >= 1, (
-        f"Expected channel_read call but got: {result.tool_names}"
-    )
+    assert len(read_calls) >= 1, f"Expected channel_read call but got: {result.tool_names}"
 
     # The tool call should not have errored
-    assert not read_calls[0].is_error, (
-        f"channel_read returned error: {read_calls[0].result}"
-    )
+    assert not read_calls[0].is_error, f"channel_read returned error: {read_calls[0].result}"
 
     # Reads in selective mode don't trigger approval → hook_events should be EMPTY
     assert len(result.hook_events) == 0, (

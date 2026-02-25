@@ -73,9 +73,8 @@ def compute_dtw_distance(current: np.ndarray, reference: np.ndarray) -> float:
         from dtw import dtw as dtw_func
     except ImportError:
         raise ImportError(
-            "dtw-python is required for DTW comparison. "
-            "Install with: uv sync --extra graph"
-        )
+            "dtw-python is required for DTW comparison. Install with: uv sync --extra graph"
+        ) from None
 
     alignment = dtw_func(current, reference)
     return float(alignment.distance)

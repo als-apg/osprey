@@ -60,32 +60,38 @@ async def papers_search_author(
         results = []
         for hit in result.get("hits", []):
             doc = hit["document"]
-            results.append({
-                "texkey": doc.get("id", ""),
-                "title": doc.get("title", ""),
-                "first_author": doc.get("first_author", ""),
-                "all_authors": doc.get("all_authors", ""),
-                "year": doc.get("year"),
-                "conference": doc.get("conference", ""),
-                "citation_count": doc.get("citation_count", 0),
-                "document_type": doc.get("document_type", ""),
-                "doi": doc.get("doi", ""),
-                "inspire_url": doc.get("inspire_url", ""),
-                "journal_title": doc.get("journal_title", ""),
-                "arxiv_id": doc.get("arxiv_id", ""),
-            })
+            results.append(
+                {
+                    "texkey": doc.get("id", ""),
+                    "title": doc.get("title", ""),
+                    "first_author": doc.get("first_author", ""),
+                    "all_authors": doc.get("all_authors", ""),
+                    "year": doc.get("year"),
+                    "conference": doc.get("conference", ""),
+                    "citation_count": doc.get("citation_count", 0),
+                    "document_type": doc.get("document_type", ""),
+                    "doi": doc.get("doi", ""),
+                    "inspire_url": doc.get("inspire_url", ""),
+                    "journal_title": doc.get("journal_title", ""),
+                    "arxiv_id": doc.get("arxiv_id", ""),
+                }
+            )
 
-        return json.dumps({
-            "author_query": author,
-            "filters": {
-                k: v for k, v in {
-                    "year_min": year_min,
-                    "year_max": year_max,
-                }.items() if v is not None
-            },
-            "results_found": len(results),
-            "papers": results,
-        })
+        return json.dumps(
+            {
+                "author_query": author,
+                "filters": {
+                    k: v
+                    for k, v in {
+                        "year_min": year_min,
+                        "year_max": year_max,
+                    }.items()
+                    if v is not None
+                },
+                "results_found": len(results),
+                "papers": results,
+            }
+        )
 
     except Exception as exc:
         logger.exception("papers_search_author failed")

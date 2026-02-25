@@ -6,7 +6,6 @@ can distinguish between file-based artifacts and data artifacts.
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # SSE event discrimination
 # ---------------------------------------------------------------------------

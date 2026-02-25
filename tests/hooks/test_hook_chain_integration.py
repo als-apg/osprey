@@ -296,12 +296,14 @@ def test_error_guidance_fires_on_tool_error(hook_runner, make_config):
         "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
-        tool_response=json.dumps({
-            "error": True,
-            "error_type": "connection_error",
-            "error_message": "Control system unreachable",
-            "suggestions": [],
-        }),
+        tool_response=json.dumps(
+            {
+                "error": True,
+                "error_type": "connection_error",
+                "error_message": "Control system unreachable",
+                "suggestions": [],
+            }
+        ),
     )
 
     assert result is not None
@@ -366,11 +368,13 @@ def test_post_tool_use_hooks_independent(hook_runner, make_config):
         "NotebookEdit",
         {"notebook_path": "/tmp/test.ipynb"},
         config_path=config,
-        tool_response=json.dumps({
-            "error": True,
-            "error_type": "internal_error",
-            "error_message": "something broke",
-        }),
+        tool_response=json.dumps(
+            {
+                "error": True,
+                "error_type": "internal_error",
+                "error_message": "something broke",
+            }
+        ),
     )
 
     assert error_result is None  # NotebookEdit is not an OSPREY MCP tool

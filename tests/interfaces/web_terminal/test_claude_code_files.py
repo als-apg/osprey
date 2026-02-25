@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from osprey.interfaces.web_terminal.claude_code_files import ClaudeCodeFileService
@@ -157,9 +155,7 @@ class TestCreateFile:
 
     def test_create_subdirectory(self, service, project_dir):
         """Should create parent directories if needed."""
-        result = service.create_file(
-            ".claude/commands/sub/deep.md", "# Deep\n"
-        )
+        result = service.create_file(".claude/commands/sub/deep.md", "# Deep\n")
         assert result["status"] == "created"
         assert (project_dir / ".claude" / "commands" / "sub" / "deep.md").exists()
 
@@ -174,24 +170,27 @@ class TestCategorize:
         assert ClaudeCodeFileService.categorize(".mcp.json", ".mcp.json") == "MCP Servers"
 
     def test_agent_file(self):
-        assert ClaudeCodeFileService.categorize(
-            "resolver-agent.md", ".claude/agents/resolver-agent.md"
-        ) == "Agents"
+        assert (
+            ClaudeCodeFileService.categorize(
+                "resolver-agent.md", ".claude/agents/resolver-agent.md"
+            )
+            == "Agents"
+        )
 
     def test_hooks_file(self):
-        assert ClaudeCodeFileService.categorize(
-            "pre-check.sh", ".claude/hooks/pre-check.sh"
-        ) == "Hooks"
+        assert (
+            ClaudeCodeFileService.categorize("pre-check.sh", ".claude/hooks/pre-check.sh")
+            == "Hooks"
+        )
 
     def test_commands_file(self):
-        assert ClaudeCodeFileService.categorize(
-            "deploy.md", ".claude/commands/deploy.md"
-        ) == "Commands"
+        assert (
+            ClaudeCodeFileService.categorize("deploy.md", ".claude/commands/deploy.md")
+            == "Commands"
+        )
 
     def test_unknown_file(self):
-        assert ClaudeCodeFileService.categorize(
-            "random.txt", "random.txt"
-        ) == "Other"
+        assert ClaudeCodeFileService.categorize("random.txt", "random.txt") == "Other"
 
 
 class TestDetectLanguage:

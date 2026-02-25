@@ -42,18 +42,14 @@ class TestBuildIndex:
     def test_self_loops_filtered(self, indexed_db):
         conn = sqlite3.connect(str(indexed_db))
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT * FROM dependencies WHERE caller = callee"
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM dependencies WHERE caller = callee").fetchall()
         assert len(rows) == 0
         conn.close()
 
     def test_stats_materialized(self, indexed_db):
         conn = sqlite3.connect(str(indexed_db))
         conn.row_factory = sqlite3.Row
-        row = conn.execute(
-            "SELECT value FROM stats WHERE key='total_functions'"
-        ).fetchone()
+        row = conn.execute("SELECT value FROM stats WHERE key='total_functions'").fetchone()
         assert row is not None
         assert int(row["value"]) == 8
         conn.close()
@@ -87,9 +83,7 @@ class TestBuildIndex:
     def test_stats_groups_breakdown(self, indexed_db):
         conn = sqlite3.connect(str(indexed_db))
         conn.row_factory = sqlite3.Row
-        row = conn.execute(
-            "SELECT value FROM stats WHERE key='groups'"
-        ).fetchone()
+        row = conn.execute("SELECT value FROM stats WHERE key='groups'").fetchone()
         groups = json.loads(row["value"])
         assert "StorageRing" in groups
         assert groups["StorageRing"] == 3

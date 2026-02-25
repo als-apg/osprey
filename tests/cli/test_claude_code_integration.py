@@ -163,9 +163,7 @@ class TestClaudeCodeFileContents:
         for hook_type in ["PreToolUse", "PostToolUse"]:
             entries = data["hooks"].get(hook_type, [])
             for i, entry in enumerate(entries):
-                assert "hooks" in entry, (
-                    f"{hook_type}[{i}] missing 'hooks' array: {entry}"
-                )
+                assert "hooks" in entry, f"{hook_type}[{i}] missing 'hooks' array: {entry}"
                 assert isinstance(entry["hooks"], list), (
                     f"{hook_type}[{i}]['hooks'] is not a list: {type(entry['hooks'])}"
                 )
@@ -174,9 +172,7 @@ class TestClaudeCodeFileContents:
         """mcp.json should not contain sentinel/placeholder server entries."""
         mcp_data = json.loads((project_dir / ".mcp.json").read_text())
         for key in mcp_data["mcpServers"]:
-            assert "sentinel" not in key.lower(), (
-                f"Sentinel entry '{key}' found in mcpServers"
-            )
+            assert "sentinel" not in key.lower(), f"Sentinel entry '{key}' found in mcpServers"
 
     def test_hook_scripts_are_executable(self, project_dir):
         """Hook scripts have executable permissions."""
@@ -371,7 +367,7 @@ class TestChannelFinderAgent:
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
-        assert "hierarchy_info" in content
+        assert "get_options" in content
         assert "build_channels" in content
         assert "list_systems" not in content
         assert "get_channels" not in content
@@ -404,7 +400,7 @@ class TestChannelFinderAgent:
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
         assert "get_channels" in content
-        assert "validate" in content
+        assert "resolve_addresses" in content
         assert "hierarchy_info" not in content
         assert "list_systems" not in content
 

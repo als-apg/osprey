@@ -9,7 +9,6 @@ Covers:
 """
 
 import json
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -414,11 +413,13 @@ class TestSaveArtifactInjection:
         art_dir = tmp_path / "artifacts"
         art_dir.mkdir()
         art_files = []
-        for i, (title, content, atype, mime) in enumerate([
-            ("First Artifact", "# First", "markdown", "text/markdown"),
-            ("Second Artifact", '{"key": "value"}', "json", "application/json"),
-            ("Third Artifact", "# Third", "markdown", "text/markdown"),
-        ]):
+        for i, (title, content, atype, mime) in enumerate(
+            [
+                ("First Artifact", "# First", "markdown", "text/markdown"),
+                ("Second Artifact", '{"key": "value"}', "json", "application/json"),
+                ("Third Artifact", "# Third", "markdown", "text/markdown"),
+            ]
+        ):
             art_file = art_dir / f"art_{i}.txt"
             art_file.write_text(content)
             art_files.append(
@@ -868,8 +869,6 @@ class TestServerLauncherRetry:
     def test_server_launcher_retries_after_crash(self):
         """_launched resets to False when the server thread crashes."""
         from osprey.mcp_server.server_launcher import ServerLauncher
-
-        launched_values = []
 
         def crash_app_factory(**kwargs):
             raise RuntimeError("app factory crash")

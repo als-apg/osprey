@@ -68,12 +68,14 @@ class ClaudeMemoryService:
                 continue
             content = path.read_text(encoding="utf-8")
             line_count = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
-            files.append({
-                "filename": path.name,
-                "line_count": line_count,
-                "size": path.stat().st_size,
-                "is_primary": path.name == "MEMORY.md",
-            })
+            files.append(
+                {
+                    "filename": path.name,
+                    "line_count": line_count,
+                    "size": path.stat().st_size,
+                    "is_primary": path.name == "MEMORY.md",
+                }
+            )
         return files
 
     # ── Read ──────────────────────────────────────────────────────────

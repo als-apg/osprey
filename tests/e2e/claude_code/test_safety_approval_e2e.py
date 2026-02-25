@@ -18,9 +18,18 @@ from tests.e2e.sdk_helpers import combined_text, run_sdk_query_with_hooks
 
 # Keywords that indicate a hook denied the tool call
 DENY_KEYWORDS = [
-    "deny", "denied", "violation", "blocked", "exceed", "limit",
-    "not writable", "read-only", "read only", "cannot write",
-    "not allowed", "refused",
+    "deny",
+    "denied",
+    "violation",
+    "blocked",
+    "exceed",
+    "limit",
+    "not writable",
+    "read-only",
+    "read only",
+    "cannot write",
+    "not allowed",
+    "refused",
 ]
 
 
@@ -73,12 +82,8 @@ async def test_channel_write_triggers_approval_callback(safety_project_selective
 
     # The write should have succeeded
     write_calls = result.tools_matching("channel_write")
-    assert len(write_calls) >= 1, (
-        f"Expected channel_write call but got: {result.tool_names}"
-    )
-    assert not write_calls[0].is_error, (
-        f"channel_write returned error: {write_calls[0].result}"
-    )
+    assert len(write_calls) >= 1, f"Expected channel_write call but got: {result.tool_names}"
+    assert not write_calls[0].is_error, f"channel_write returned error: {write_calls[0].result}"
 
 
 # ---------------------------------------------------------------------------
@@ -141,8 +146,7 @@ async def test_approval_denial_propagates_to_claude(safety_project_selective):
     # Claude should reference the denial in its response
     combined = combined_text(result)
     assert any(kw in combined for kw in DENY_KEYWORDS), (
-        f"Expected Claude to reference denial in response.\n"
-        f"  Text: {combined[:500]}"
+        f"Expected Claude to reference denial in response.\n  Text: {combined[:500]}"
     )
 
 
@@ -161,10 +165,7 @@ async def test_all_capabilities_asks_for_reads(safety_project_all_capabilities):
 
     Cost budget: $0.50
     """
-    prompt = (
-        "Use the channel_read tool to read the channel 'SR:BEAM:CURRENT'. "
-        "Report the value."
-    )
+    prompt = "Use the channel_read tool to read the channel 'SR:BEAM:CURRENT'. Report the value."
 
     result = await run_sdk_query_with_hooks(
         safety_project_all_capabilities,
@@ -191,8 +192,7 @@ async def test_all_capabilities_asks_for_reads(safety_project_all_capabilities):
         f"but got: {[e.tool_name for e in result.hook_events]}"
     )
     assert read_events[0].decision == "allow", (
-        f"Expected auto_approve to produce 'allow' decision "
-        f"but got: {read_events[0].decision}"
+        f"Expected auto_approve to produce 'allow' decision but got: {read_events[0].decision}"
     )
 
 
@@ -247,6 +247,5 @@ async def test_limits_deny_blocks_before_approval(safety_project_selective):
     # Claude should report the denial
     combined = combined_text(result)
     assert any(kw in combined for kw in DENY_KEYWORDS), (
-        f"Expected Claude to report limits violation.\n"
-        f"  Text: {combined[:500]}"
+        f"Expected Claude to report limits violation.\n  Text: {combined[:500]}"
     )

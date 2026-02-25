@@ -62,21 +62,19 @@ class TestValidateEndpoint:
     """Tests for POST /api/validate."""
 
     def test_validate_channels(self, client):
-        validate_result = json.dumps(
-            {
-                "results": [
-                    {"channel": "SR:BPM:01:X", "valid": True},
-                    {"channel": "INVALID", "valid": False},
-                ],
-                "valid_count": 1,
-                "invalid_count": 1,
-                "total": 2,
-            }
-        )
+        mock_db = MagicMock()
+        mock_db.validate_channels.return_value = [
+            {"channel": "SR:BPM:01:X", "valid": True},
+            {"channel": "INVALID", "valid": False},
+        ]
+        mock_db.get_valid_channels.return_value = ["SR:BPM:01:X"]
+        mock_db.get_invalid_channels.return_value = ["INVALID"]
+        mock_registry = MagicMock()
+        mock_registry.database = mock_db
         with patch(
-            "osprey.services.channel_finder.mcp.in_context.tools.validate.validate"
-        ) as mock_val:
-            mock_val.fn.return_value = validate_result
+            "osprey.services.channel_finder.mcp.in_context.registry.get_cf_ic_registry",
+            return_value=mock_registry,
+        ):
             resp = client.post("/api/validate", json={"channels": ["SR:BPM:01:X", "INVALID"]})
         assert resp.status_code == 200
         data = resp.json()
@@ -178,9 +176,7 @@ class TestCrudEndpoints:
         from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
         mock_db = MagicMock()
-        mock_db.add_channel.side_effect = DatabaseWriteError(
-            "Channel already exists", "duplicate"
-        )
+        mock_db.add_channel.side_effect = DatabaseWriteError("Channel already exists", "duplicate")
         with patch(
             "osprey.interfaces.channel_finder.database_api._get_database",
             return_value=mock_db,

@@ -116,10 +116,7 @@ def main():
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
-                "permissionDecisionReason": (
-                    "\U0001f512 WRITE DENIED\n\n"
-                    "No file path provided."
-                ),
+                "permissionDecisionReason": ("\U0001f512 WRITE DENIED\n\nNo file path provided."),
             }
         }
         json.dump(output, sys.stdout)

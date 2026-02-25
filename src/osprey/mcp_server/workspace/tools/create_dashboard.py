@@ -94,9 +94,7 @@ async def create_dashboard(
     )
 
     execution_folder = create_sandbox_execution_folder()
-    exec_result = await execute_sandbox_code(
-        code=full_code, execution_folder=execution_folder
-    )
+    exec_result = await execute_sandbox_code(code=full_code, execution_folder=execution_folder)
 
     if not exec_result.success:
         return json.dumps(
@@ -113,7 +111,9 @@ async def create_dashboard(
 
     # Collect artifacts with category and embedded metadata
     artifact_ids = collect_and_register_artifacts(
-        exec_result, title, description,
+        exec_result,
+        title,
+        description,
         tool_source="create_dashboard",
         category="dashboard",
         code=code,

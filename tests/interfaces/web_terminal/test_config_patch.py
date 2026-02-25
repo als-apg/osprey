@@ -7,7 +7,6 @@ complexity (PTY, file watchers, etc.) that can crash in test environments.
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import yaml

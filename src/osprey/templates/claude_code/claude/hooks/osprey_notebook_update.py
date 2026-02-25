@@ -41,7 +41,6 @@ notebook via `NotebookEdit`, the gallery's cached HTML rendering becomes
 stale. This hook deletes it so the next gallery view triggers a fresh render.
 """
 
-import json
 import os
 import sys
 from pathlib import Path
@@ -69,9 +68,13 @@ def main():
         cached_html = cache_dir / f"{nb_path.stem}_rendered.html"
         if cached_html.exists():
             cached_html.unlink()
-            log_hook("notebook-update", hook_input, status="invalidated", detail=f"path={notebook_path}")
+            log_hook(
+                "notebook-update", hook_input, status="invalidated", detail=f"path={notebook_path}"
+            )
         else:
-            log_hook("notebook-update", hook_input, status="no-cache", detail=f"path={notebook_path}")
+            log_hook(
+                "notebook-update", hook_input, status="no-cache", detail=f"path={notebook_path}"
+            )
     except Exception:
         pass  # Never block on cache invalidation failure
 

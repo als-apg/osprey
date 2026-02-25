@@ -76,9 +76,7 @@ class TestCreateNotebookFromCode:
         nb_success = create_notebook_from_code(code="pass", description="ok")
         assert "Success" in nb_success.cells[0].source
 
-        nb_error = create_notebook_from_code(
-            code="pass", description="fail", stderr="err"
-        )
+        nb_error = create_notebook_from_code(code="pass", description="fail", stderr="err")
         assert "Error" in nb_error.cells[0].source
 
     @pytest.mark.unit
@@ -128,9 +126,7 @@ class TestGetOrRenderHtml:
     @pytest.mark.unit
     def test_creates_cache_file(self, tmp_path):
         """First call creates the cached HTML file."""
-        nb = create_notebook_from_code(
-            code="CACHE_TEST_MARKER_ABC123", description="Cache test"
-        )
+        nb = create_notebook_from_code(code="CACHE_TEST_MARKER_ABC123", description="Cache test")
         nb_path = tmp_path / "cached.ipynb"
         with open(nb_path, "w") as f:
             nbformat.write(nb, f)
@@ -163,9 +159,7 @@ class TestGetOrRenderHtml:
     @pytest.mark.unit
     def test_invalidates_stale_cache(self, tmp_path):
         """Cache is regenerated when notebook is newer than cached HTML."""
-        nb = create_notebook_from_code(
-            code="STALE_ORIGINAL_MARKER", description="Stale test"
-        )
+        nb = create_notebook_from_code(code="STALE_ORIGINAL_MARKER", description="Stale test")
         nb_path = tmp_path / "stale.ipynb"
         with open(nb_path, "w") as f:
             nbformat.write(nb, f)
@@ -176,9 +170,7 @@ class TestGetOrRenderHtml:
 
         # Wait, then update the notebook (newer mtime)
         time.sleep(0.05)
-        nb2 = create_notebook_from_code(
-            code="STALE_UPDATED_MARKER", description="Updated"
-        )
+        nb2 = create_notebook_from_code(code="STALE_UPDATED_MARKER", description="Updated")
         with open(nb_path, "w") as f:
             nbformat.write(nb2, f)
 

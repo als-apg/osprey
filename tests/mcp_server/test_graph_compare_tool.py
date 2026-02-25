@@ -54,9 +54,8 @@ class TestGraphCompare:
 
     @pytest.fixture
     def tool_fn(self):
-        from tests.mcp_server.conftest import get_tool_fn
-
         from osprey.mcp_server.workspace.tools.graph_tools import graph_compare
+        from tests.mcp_server.conftest import get_tool_fn
 
         return get_tool_fn(graph_compare)
 
@@ -106,9 +105,7 @@ class TestGraphCompare:
         assert result["error_type"] == "not_found"
 
     async def test_no_reference_provided(self, tool_fn):
-        result = json.loads(
-            await tool_fn(current_entry_id=self._current_id)
-        )
+        result = json.loads(await tool_fn(current_entry_id=self._current_id))
         assert result["error"] is True
         assert result["error_type"] == "validation_error"
 

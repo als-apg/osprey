@@ -8,9 +8,7 @@ import pytest
 from osprey.mcp_server.workspace.execution.sandbox_executor import SandboxExecutionResult
 
 # Mock target for the sandbox executor used by create_static_plot
-_SANDBOX_EXEC_TARGET = (
-    "osprey.mcp_server.workspace.execution.sandbox_executor.execute_sandbox_code"
-)
+_SANDBOX_EXEC_TARGET = "osprey.mcp_server.workspace.execution.sandbox_executor.execute_sandbox_code"
 _SANDBOX_FOLDER_TARGET = (
     "osprey.mcp_server.workspace.execution.sandbox_executor.create_sandbox_execution_folder"
 )
@@ -55,9 +53,7 @@ class TestCreateStaticPlot:
             patch(_SANDBOX_EXEC_TARGET, new_callable=AsyncMock, return_value=mock_result),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
         ):
-            result = json.loads(
-                await tool_fn(code="plt.plot(undefined_var)", title="Bad Plot")
-            )
+            result = json.loads(await tool_fn(code="plt.plot(undefined_var)", title="Bad Plot"))
 
         assert result["error"] is True
         assert result["error_type"] == "execution_error"
@@ -74,16 +70,12 @@ class TestCreateStaticPlot:
             patch(_SANDBOX_EXEC_TARGET, new_callable=AsyncMock, return_value=mock_result),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
         ):
-            result = json.loads(
-                await tool_fn(code="x = 1", title="No-op Plot")
-            )
+            result = json.loads(await tool_fn(code="x = 1", title="No-op Plot"))
 
         assert result["status"] == "success"
         assert result["artifact_ids"] == []
 
-    async def test_successful_plot_with_artifacts(
-        self, tool_fn, tmp_path, mock_execution_folder
-    ):
+    async def test_successful_plot_with_artifacts(self, tool_fn, tmp_path, mock_execution_folder):
         """Verify artifacts from save_artifact() calls are saved."""
         art_path = tmp_path / "abc123_sine_wave.png"
         art_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
@@ -126,9 +118,7 @@ class TestCreateStaticPlot:
         async def mock_execute(code, execution_folder):
             nonlocal captured_code
             captured_code = code
-            return SandboxExecutionResult(
-                success=True, stdout="", stderr="", artifacts=[]
-            )
+            return SandboxExecutionResult(success=True, stdout="", stderr="", artifacts=[])
 
         with (
             patch(_SANDBOX_EXEC_TARGET, side_effect=mock_execute),
@@ -153,16 +143,12 @@ class TestCreateStaticPlot:
         async def mock_execute(code, execution_folder):
             nonlocal captured_code
             captured_code = code
-            return SandboxExecutionResult(
-                success=True, stdout="", stderr="", artifacts=[]
-            )
+            return SandboxExecutionResult(success=True, stdout="", stderr="", artifacts=[])
 
         with (
             patch(_SANDBOX_EXEC_TARGET, side_effect=mock_execute),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
-            patch(
-                "osprey.mcp_server.artifact_store.get_artifact_store"
-            ) as mock_store,
+            patch("osprey.mcp_server.artifact_store.get_artifact_store") as mock_store,
         ):
             mock_store.return_value.get_file_path.return_value = art_file
             await tool_fn(
@@ -182,9 +168,7 @@ class TestCreateStaticPlot:
         async def mock_execute(code, execution_folder):
             nonlocal captured_code
             captured_code = code
-            return SandboxExecutionResult(
-                success=True, stdout="", stderr="", artifacts=[]
-            )
+            return SandboxExecutionResult(success=True, stdout="", stderr="", artifacts=[])
 
         with (
             patch(_SANDBOX_EXEC_TARGET, side_effect=mock_execute),
@@ -204,9 +188,7 @@ class TestCreateStaticPlot:
         async def mock_execute(code, execution_folder):
             nonlocal captured_code
             captured_code = code
-            return SandboxExecutionResult(
-                success=True, stdout="", stderr="", artifacts=[]
-            )
+            return SandboxExecutionResult(success=True, stdout="", stderr="", artifacts=[])
 
         with (
             patch(_SANDBOX_EXEC_TARGET, side_effect=mock_execute),

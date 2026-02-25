@@ -2,8 +2,6 @@
 
 import socket
 
-import pytest
-
 from osprey.cli.interactive_menu import _check_simulation_ioc_running
 
 

@@ -23,6 +23,7 @@ def reset_state_between_tests():
     """
     # Reset before test
     import os as _os
+
     from osprey.registry import reset_registry
     from osprey.utils import config as config_module
 

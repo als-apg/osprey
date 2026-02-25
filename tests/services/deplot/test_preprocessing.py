@@ -7,7 +7,9 @@ They are skipped automatically when OpenCV is not installed.
 import numpy as np
 import pytest
 
-cv2 = pytest.importorskip("cv2", reason="opencv-python-headless not installed (install with: uv sync --extra graph)")
+cv2 = pytest.importorskip(
+    "cv2", reason="opencv-python-headless not installed (install with: uv sync --extra graph)"
+)
 
 
 def _make_test_image(width: int = 640, height: int = 480) -> np.ndarray:

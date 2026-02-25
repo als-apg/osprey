@@ -5,7 +5,6 @@ Writes targeting ``~/.claude/projects/<encoded>/memory/*.md`` are allowed;
 everything else is denied. Non-Write tools pass through without opinion.
 """
 
-import os
 from pathlib import Path
 
 import pytest

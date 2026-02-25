@@ -122,7 +122,9 @@ TOOL_TYPES: dict[str, TypeDef] = {
     "artifact_export": TypeDef("artifact_export", "Artifact Export", "#94a3b8"),
     "artifact_focus": TypeDef("artifact_focus", "Artifact Focus", "#60a5fa"),
     "context_focus": TypeDef("context_focus", "Context Focus", "#60a5fa"),
-    "memory_focus": TypeDef("memory_focus", "Memory Focus", "#60a5fa"),  # Legacy: retained for focus pattern consistency
+    "memory_focus": TypeDef(
+        "memory_focus", "Memory Focus", "#60a5fa"
+    ),  # Legacy: retained for focus pattern consistency
     "submit_response": TypeDef("submit_response", "Submit Response", "#f472b6"),
     "channel-finder": TypeDef("channel-finder", "Channel Finder", "#2dd4bf"),
     "graph-analyst": TypeDef("graph-analyst", "Graph Analyst", "#38bdf8"),

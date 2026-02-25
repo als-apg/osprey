@@ -43,8 +43,7 @@ async def test_safe_python_execution_succeeds(safety_project):
     Cost budget: $0.25
     """
     prompt = (
-        "Use the execute tool to run this code: "
-        "import math; print(math.pi * 2). Report the output."
+        "Use the execute tool to run this code: import math; print(math.pi * 2). Report the output."
     )
 
     result = await run_sdk_query_with_hooks(
@@ -70,17 +69,11 @@ async def test_safe_python_execution_succeeds(safety_project):
     assert result.result is not None, "No ResultMessage received from SDK"
 
     py_calls = result.tools_matching("execute")
-    assert len(py_calls) >= 1, (
-        f"Expected execute call but got: {result.tool_names}"
-    )
+    assert len(py_calls) >= 1, f"Expected execute call but got: {result.tool_names}"
 
     # The tool call should not have errored
-    assert not py_calls[0].is_error, (
-        f"execute returned error: {py_calls[0].result}"
-    )
+    assert not py_calls[0].is_error, f"execute returned error: {py_calls[0].result}"
 
     # Output should contain 6.283 (2*pi)
     combined = _combined_text(result)
-    assert "6.283" in combined, (
-        f"Expected '6.283' in output.\n  Combined: {combined[:500]}"
-    )
+    assert "6.283" in combined, f"Expected '6.283' in output.\n  Combined: {combined[:500]}"

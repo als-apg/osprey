@@ -15,7 +15,9 @@ def get_config_value(key: str, default=None):
 
 
 @click.command("web")
-@click.option("--port", "-p", type=int, default=None, help="Port to run on (default: from config or 8087)")
+@click.option(
+    "--port", "-p", type=int, default=None, help="Port to run on (default: from config or 8087)"
+)
 @click.option("--host", default=None, help="Host to bind to (default: from config or 127.0.0.1)")
 @click.option("--reload", is_flag=True, help="Enable auto-reload for development")
 @click.option("--shell", default=None, help="Shell command to run (default: claude)")
@@ -25,7 +27,9 @@ def get_config_value(key: str, default=None):
     default=None,
     help="OSPREY project directory (default: current directory)",
 )
-def web(port: int | None, host: str | None, reload: bool, shell: str | None, project: str | None) -> None:
+def web(
+    port: int | None, host: str | None, reload: bool, shell: str | None, project: str | None
+) -> None:
     """Launch the OSPREY Web Terminal interface.
 
     Starts a FastAPI server with a split-pane UI: a real terminal (PTY) on the

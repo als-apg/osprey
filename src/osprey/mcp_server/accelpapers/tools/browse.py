@@ -96,38 +96,44 @@ async def papers_browse(
             abstract = doc.get("abstract", "") or ""
             if len(abstract) > 300:
                 abstract = abstract[:300] + "..."
-            results.append({
-                "texkey": doc.get("id", ""),
-                "title": doc.get("title", ""),
-                "first_author": doc.get("first_author", ""),
-                "year": doc.get("year"),
-                "conference": doc.get("conference", ""),
-                "citation_count": doc.get("citation_count", 0),
-                "document_type": doc.get("document_type", ""),
-                "doi": doc.get("doi", ""),
-                "inspire_url": doc.get("inspire_url", ""),
-                "journal_title": doc.get("journal_title", ""),
-                "arxiv_id": doc.get("arxiv_id", ""),
-                "abstract": abstract,
-            })
+            results.append(
+                {
+                    "texkey": doc.get("id", ""),
+                    "title": doc.get("title", ""),
+                    "first_author": doc.get("first_author", ""),
+                    "year": doc.get("year"),
+                    "conference": doc.get("conference", ""),
+                    "citation_count": doc.get("citation_count", 0),
+                    "document_type": doc.get("document_type", ""),
+                    "doi": doc.get("doi", ""),
+                    "inspire_url": doc.get("inspire_url", ""),
+                    "journal_title": doc.get("journal_title", ""),
+                    "arxiv_id": doc.get("arxiv_id", ""),
+                    "abstract": abstract,
+                }
+            )
 
-        return json.dumps({
-            "filters": {
-                k: v for k, v in {
-                    "conference": conference,
-                    "year": year,
-                    "year_min": year_min,
-                    "year_max": year_max,
-                    "document_type": document_type,
-                }.items() if v is not None
-            },
-            "sort_by": sort_by,
-            "sort_order": sort_order,
-            "total_matching": total,
-            "offset": offset,
-            "results_returned": len(results),
-            "papers": results,
-        })
+        return json.dumps(
+            {
+                "filters": {
+                    k: v
+                    for k, v in {
+                        "conference": conference,
+                        "year": year,
+                        "year_min": year_min,
+                        "year_max": year_max,
+                        "document_type": document_type,
+                    }.items()
+                    if v is not None
+                },
+                "sort_by": sort_by,
+                "sort_order": sort_order,
+                "total_matching": total,
+                "offset": offset,
+                "results_returned": len(results),
+                "papers": results,
+            }
+        )
 
     except Exception as exc:
         logger.exception("papers_browse failed")

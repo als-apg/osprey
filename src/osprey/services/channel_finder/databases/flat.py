@@ -144,9 +144,7 @@ class ChannelDatabase(BaseDatabase):
 
     # === Write methods ===
 
-    def add_channel(
-        self, channel: str, address: str = "", description: str = ""
-    ) -> dict:
+    def add_channel(self, channel: str, address: str = "", description: str = "") -> dict:
         """Add a new channel to the database.
 
         Args:
@@ -161,9 +159,7 @@ class ChannelDatabase(BaseDatabase):
             DatabaseWriteError: If channel already exists.
         """
         if channel in self.channel_map:
-            raise DatabaseWriteError(
-                f"Channel '{channel}' already exists", "duplicate"
-            )
+            raise DatabaseWriteError(f"Channel '{channel}' already exists", "duplicate")
 
         new_entry = {"channel": channel, "address": address or channel}
         if description:
@@ -188,9 +184,7 @@ class ChannelDatabase(BaseDatabase):
             DatabaseWriteError: If channel not found.
         """
         if channel not in self.channel_map:
-            raise DatabaseWriteError(
-                f"Channel '{channel}' not found", "not_found"
-            )
+            raise DatabaseWriteError(f"Channel '{channel}' not found", "not_found")
 
         entry = self.channel_map.pop(channel)
         self.channels.remove(entry)
@@ -218,9 +212,7 @@ class ChannelDatabase(BaseDatabase):
             DatabaseWriteError: If channel not found.
         """
         if channel not in self.channel_map:
-            raise DatabaseWriteError(
-                f"Channel '{channel}' not found", "not_found"
-            )
+            raise DatabaseWriteError(f"Channel '{channel}' not found", "not_found")
 
         entry = self.channel_map[channel]
         if new_description is not None:

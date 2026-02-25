@@ -563,9 +563,7 @@ class MiddleLayerDatabase(BaseDatabase):
 
         from collections import Counter
 
-        sector_counts = Counter(
-            entry[0] for entry in device_list if len(entry) >= 2
-        )
+        sector_counts = Counter(entry[0] for entry in device_list if len(entry) >= 2)
         sectors = sorted(sector_counts.keys())
 
         return {
@@ -754,9 +752,7 @@ class MiddleLayerDatabase(BaseDatabase):
         fam_node = self._ml_navigate(system, family)
 
         if field not in fam_node:
-            raise DatabaseWriteError(
-                f"Field '{field}' not found in family '{family}'", "not_found"
-            )
+            raise DatabaseWriteError(f"Field '{field}' not found in family '{family}'", "not_found")
 
         target = fam_node[field]
         if subfield is not None:

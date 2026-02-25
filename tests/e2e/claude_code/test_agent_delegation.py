@@ -44,7 +44,11 @@ def _is_ariel_db_available() -> bool:
         import psycopg
 
         conn = psycopg.connect(
-            host="localhost", port=5432, dbname="ariel", user="ariel", password="ariel",
+            host="localhost",
+            port=5432,
+            dbname="ariel",
+            user="ariel",
+            password="ariel",
             connect_timeout=3,
         )
         cur = conn.cursor()
@@ -149,9 +153,7 @@ def print_trace_debug(test_name, result):
     for trace in result.tool_traces:
         error_flag = " [ERROR]" if trace.is_error else ""
         parent_flag = (
-            f" (sub-agent: {trace.parent_tool_use_id})"
-            if trace.parent_tool_use_id
-            else ""
+            f" (sub-agent: {trace.parent_tool_use_id})" if trace.parent_tool_use_id else ""
         )
         print(f"  tool: {trace.name}{error_flag}{parent_flag}")
         if trace.is_error and trace.result:
@@ -162,14 +164,12 @@ def assert_no_tool_errors(result, exclude_patterns=None):
     """Assert no tool traces have is_error=True, optionally excluding patterns."""
     exclude_patterns = exclude_patterns or []
     errors = [
-        t for t in result.tool_traces
+        t
+        for t in result.tool_traces
         if t.is_error and not any(pat in t.name for pat in exclude_patterns)
     ]
-    assert len(errors) == 0, (
-        f"{len(errors)} tool error(s): "
-        + "; ".join(
-            f"{t.name}: {t.result[:200] if t.result else 'N/A'}" for t in errors
-        )
+    assert len(errors) == 0, f"{len(errors)} tool error(s): " + "; ".join(
+        f"{t.name}: {t.result[:200] if t.result else 'N/A'}" for t in errors
     )
 
 
@@ -205,15 +205,11 @@ class TestAgentDelegation:
 
         # Session completed
         assert result.result is not None, "No ResultMessage received"
-        assert not result.result.is_error, (
-            f"SDK query ended in error: {result.result.result}"
-        )
+        assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
 
         # Sub-agent was invoked
         sa_traces = sub_agent_traces(result)
-        assert len(sa_traces) > 0, (
-            f"No sub-agent tool calls found. Tools: {result.tool_names}"
-        )
+        assert len(sa_traces) > 0, f"No sub-agent tool calls found. Tools: {result.tool_names}"
 
         # Expected MCP tools called (keyword_search or semantic_search)
         search_calls = result.tools_matching("keyword_search") + result.tools_matching(
@@ -264,15 +260,11 @@ class TestAgentDelegation:
 
         # Session completed
         assert result.result is not None, "No ResultMessage received"
-        assert not result.result.is_error, (
-            f"SDK query ended in error: {result.result.result}"
-        )
+        assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
 
         # Sub-agent was invoked
         sa_traces = sub_agent_traces(result)
-        assert len(sa_traces) > 0, (
-            f"No sub-agent tool calls found. Tools: {result.tool_names}"
-        )
+        assert len(sa_traces) > 0, f"No sub-agent tool calls found. Tools: {result.tool_names}"
 
         # Multiple search calls (deep research does iterative searching)
         search_calls = (
@@ -304,9 +296,7 @@ class TestAgentDelegation:
     # Test 3 — Literature search delegation
     # -------------------------------------------------------------------
 
-    @pytest.mark.skipif(
-        not _is_accelpapers_db_available(), reason="AccelPapers DB not available"
-    )
+    @pytest.mark.skipif(not _is_accelpapers_db_available(), reason="AccelPapers DB not available")
     @pytest.mark.asyncio
     async def test_literature_search_delegation(self, delegation_project):
         """Literature-search agent: BM25 search over accelerator physics papers."""
@@ -327,15 +317,11 @@ class TestAgentDelegation:
 
         # Session completed
         assert result.result is not None, "No ResultMessage received"
-        assert not result.result.is_error, (
-            f"SDK query ended in error: {result.result.result}"
-        )
+        assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
 
         # Sub-agent was invoked
         sa_traces = sub_agent_traces(result)
-        assert len(sa_traces) > 0, (
-            f"No sub-agent tool calls found. Tools: {result.tool_names}"
-        )
+        assert len(sa_traces) > 0, f"No sub-agent tool calls found. Tools: {result.tool_names}"
 
         # Expected MCP tools called
         paper_calls = result.tools_matching("papers_search") + result.tools_matching(
@@ -386,29 +372,22 @@ class TestAgentDelegation:
 
         # Session completed
         assert result.result is not None, "No ResultMessage received"
-        assert not result.result.is_error, (
-            f"SDK query ended in error: {result.result.result}"
-        )
+        assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
 
         # archiver_read was called (main agent)
         archiver_calls = result.tools_matching("archiver_read")
-        assert len(archiver_calls) > 0, (
-            f"archiver_read not called. Tools: {result.tool_names}"
-        )
+        assert len(archiver_calls) > 0, f"archiver_read not called. Tools: {result.tool_names}"
 
         # Sub-agent was invoked
         sa_traces = sub_agent_traces(result)
-        assert len(sa_traces) > 0, (
-            f"No sub-agent tool calls found. Tools: {result.tool_names}"
-        )
+        assert len(sa_traces) > 0, f"No sub-agent tool calls found. Tools: {result.tool_names}"
 
         # Expected MCP tools: graph_save_reference or graph_extract
         graph_calls = result.tools_matching("graph_save_reference") + result.tools_matching(
             "graph_extract"
         )
         assert len(graph_calls) > 0, (
-            f"Neither graph_save_reference nor graph_extract called. "
-            f"Tools: {result.tool_names}"
+            f"Neither graph_save_reference nor graph_extract called. Tools: {result.tool_names}"
         )
 
         # submit_response called (agent must persist its analysis)
@@ -450,23 +429,18 @@ class TestAgentDelegation:
 
         # Session completed
         assert result.result is not None, "No ResultMessage received"
-        assert not result.result.is_error, (
-            f"SDK query ended in error: {result.result.result}"
-        )
+        assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
 
         # Sub-agent was invoked
         sa_traces = sub_agent_traces(result)
-        assert len(sa_traces) > 0, (
-            f"No sub-agent tool calls found. Tools: {result.tool_names}"
-        )
+        assert len(sa_traces) > 0, f"No sub-agent tool calls found. Tools: {result.tool_names}"
 
         # Expected MCP tools called
         wiki_calls = result.tools_matching("confluence_search") + result.tools_matching(
             "confluence_get_page"
         )
         assert len(wiki_calls) > 0, (
-            f"Neither confluence_search nor confluence_get_page called. "
-            f"Tools: {result.tool_names}"
+            f"Neither confluence_search nor confluence_get_page called. Tools: {result.tool_names}"
         )
 
         # submit_response called
@@ -509,15 +483,11 @@ class TestAgentDelegation:
 
         # Session completed
         assert result.result is not None, "No ResultMessage received"
-        assert not result.result.is_error, (
-            f"SDK query ended in error: {result.result.result}"
-        )
+        assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
 
         # Sub-agent was invoked
         sa_traces = sub_agent_traces(result)
-        assert len(sa_traces) > 0, (
-            f"No sub-agent tool calls found. Tools: {result.tool_names}"
-        )
+        assert len(sa_traces) > 0, f"No sub-agent tool calls found. Tools: {result.tool_names}"
 
         # Expected MCP tools called
         mml_calls = result.tools_matching("mml_search") + result.tools_matching("mml_browse")

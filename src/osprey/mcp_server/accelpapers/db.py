@@ -13,15 +13,19 @@ def get_client() -> typesense.Client:
         ACCELPAPERS_TYPESENSE_PORT: Server port (default: 8108).
         ACCELPAPERS_TYPESENSE_API_KEY: API key (default: accelpapers-dev).
     """
-    return typesense.Client({
-        "api_key": os.environ.get("ACCELPAPERS_TYPESENSE_API_KEY", "accelpapers-dev"),
-        "nodes": [{
-            "host": os.environ.get("ACCELPAPERS_TYPESENSE_HOST", "localhost"),
-            "port": os.environ.get("ACCELPAPERS_TYPESENSE_PORT", "8108"),
-            "protocol": "http",
-        }],
-        "connection_timeout_seconds": 5,
-    })
+    return typesense.Client(
+        {
+            "api_key": os.environ.get("ACCELPAPERS_TYPESENSE_API_KEY", "accelpapers-dev"),
+            "nodes": [
+                {
+                    "host": os.environ.get("ACCELPAPERS_TYPESENSE_HOST", "localhost"),
+                    "port": os.environ.get("ACCELPAPERS_TYPESENSE_PORT", "8108"),
+                    "protocol": "http",
+                }
+            ],
+            "connection_timeout_seconds": 5,
+        }
+    )
 
 
 def get_collection_name() -> str:

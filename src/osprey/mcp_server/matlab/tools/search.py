@@ -73,26 +73,30 @@ async def mml_search(
 
         results = []
         for row in rows:
-            results.append({
-                "function_name": row["function_name"],
-                "group": row["group_name"],
-                "type": row["type"],
-                "in_degree": row["in_degree"],
-                "out_degree": row["out_degree"],
-                "snippet": row["snippet"],
-                "bm25_score": round(row["rank"], 4),
-            })
+            results.append(
+                {
+                    "function_name": row["function_name"],
+                    "group": row["group_name"],
+                    "type": row["type"],
+                    "in_degree": row["in_degree"],
+                    "out_degree": row["out_degree"],
+                    "snippet": row["snippet"],
+                    "bm25_score": round(row["rank"], 4),
+                }
+            )
 
         conn.close()
 
-        return json.dumps({
-            "query": query,
-            "filters": {
-                k: v for k, v in {"group": group, "type": type}.items() if v is not None
-            },
-            "results_found": len(results),
-            "functions": results,
-        })
+        return json.dumps(
+            {
+                "query": query,
+                "filters": {
+                    k: v for k, v in {"group": group, "type": type}.items() if v is not None
+                },
+                "results_found": len(results),
+                "functions": results,
+            }
+        )
 
     except Exception as exc:
         logger.exception("mml_search failed")

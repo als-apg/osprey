@@ -12,7 +12,7 @@ import json
 
 import pytest
 
-from osprey.mcp_server.artifact_store import ArtifactEntry, ArtifactStore
+from osprey.mcp_server.artifact_store import ArtifactStore
 
 
 @pytest.fixture
@@ -63,7 +63,7 @@ class TestPinned:
     def test_list_filter_pinned(self, store):
         """list_entries(pinned=True) returns only pinned."""
         e1 = _save(store, title="A")
-        e2 = _save(store, title="B")
+        _save(store, title="B")
         store.set_pinned(e1.id, True)
 
         pinned = store.list_entries(pinned=True)

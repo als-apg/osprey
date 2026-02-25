@@ -326,9 +326,7 @@ async def test_patch_whitelist_enforcement(project_dir):
     """setup_patch rejects files not in the whitelist."""
     fn = _get_setup_patch()
     with _patch_config_path(project_dir):
-        result = json.loads(
-            await fn(file="settings.json", key_path="foo", value="bar")
-        )
+        result = json.loads(await fn(file="settings.json", key_path="foo", value="bar"))
 
     assert result["error"] is True
     assert result["error_type"] == "validation_error"
@@ -341,9 +339,7 @@ async def test_patch_rejects_traversal(project_dir):
     """setup_patch rejects key_path with '..' traversal."""
     fn = _get_setup_patch()
     with _patch_config_path(project_dir):
-        result = json.loads(
-            await fn(file="config.yml", key_path="foo..bar", value="baz")
-        )
+        result = json.loads(await fn(file="config.yml", key_path="foo..bar", value="baz"))
 
     assert result["error"] is True
     assert result["error_type"] == "validation_error"
@@ -356,9 +352,7 @@ async def test_patch_rejects_absolute_path(project_dir):
     """setup_patch rejects key_path starting with / or ~."""
     fn = _get_setup_patch()
     with _patch_config_path(project_dir):
-        result = json.loads(
-            await fn(file="config.yml", key_path="/etc/passwd", value="x")
-        )
+        result = json.loads(await fn(file="config.yml", key_path="/etc/passwd", value="x"))
 
     assert result["error"] is True
     assert result["error_type"] == "validation_error"
@@ -370,9 +364,7 @@ async def test_patch_rejects_empty_key_path(project_dir):
     """setup_patch rejects empty key_path."""
     fn = _get_setup_patch()
     with _patch_config_path(project_dir):
-        result = json.loads(
-            await fn(file="config.yml", key_path="", value="x")
-        )
+        result = json.loads(await fn(file="config.yml", key_path="", value="x"))
 
     assert result["error"] is True
     assert result["error_type"] == "validation_error"
@@ -420,9 +412,7 @@ async def test_patch_file_not_found(project_dir):
     # Remove .mcp.json
     (project_dir / ".mcp.json").unlink()
     with _patch_config_path(project_dir):
-        result = json.loads(
-            await fn(file=".mcp.json", key_path="foo", value="bar")
-        )
+        result = json.loads(await fn(file=".mcp.json", key_path="foo", value="bar"))
 
     assert result["error"] is True
     assert result["error_type"] == "not_found"

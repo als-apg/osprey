@@ -282,12 +282,14 @@ def test_step_size_blocks_when_current_value_unreadable(tmp_path, hook_runner):
     """
     config = _make_limits_config(
         tmp_path,
-        {"TEST:PV": {
-            "min_value": 0.0,
-            "max_value": 100.0,
-            "writable": True,
-            "max_step": 5.0,
-        }},
+        {
+            "TEST:PV": {
+                "min_value": 0.0,
+                "max_value": 100.0,
+                "writable": True,
+                "max_step": 5.0,
+            }
+        },
     )
 
     result = hook_runner(

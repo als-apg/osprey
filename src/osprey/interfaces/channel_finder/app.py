@@ -43,6 +43,7 @@ def _create_lifespan(project_cwd: str | None = None):
         pipeline_type = config.get("channel_finder", {}).get("pipeline_mode", "in_context")
         app.state.pipeline_type = pipeline_type
         app.state.project_cwd = project_cwd or str(Path.cwd())
+        app.state.facility_name = config.get("facility_name", "")
 
         # Initialize all available pipeline registries so the UI can switch
         available: list[str] = []

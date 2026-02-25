@@ -293,9 +293,7 @@ class TestSessionSwitchingContract:
         assert key_used == sid
 
         # attach_session was called (at least once) with the same key
-        attach_calls = [
-            c for c in mock_reg.attach_session.call_args_list if c == call(sid)
-        ]
+        attach_calls = [c for c in mock_reg.attach_session.call_args_list if c == call(sid)]
         assert len(attach_calls) >= 1
 
     # -- switch_session contract --

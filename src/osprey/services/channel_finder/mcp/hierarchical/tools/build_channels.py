@@ -35,9 +35,21 @@ def build_channels(selections: dict) -> str:
 
         channels = db.build_channels_from_selections(selections)
 
+        valid = []
+        invalid = []
+        for ch in channels:
+            if db.validate_channel(ch):
+                valid.append(ch)
+            else:
+                invalid.append(ch)
+
         result = {
             "channels": channels,
             "total": len(channels),
+            "valid": valid,
+            "invalid": invalid,
+            "valid_count": len(valid),
+            "invalid_count": len(invalid),
         }
         return json.dumps(result)
 
@@ -47,8 +59,7 @@ def build_channels(selections: dict) -> str:
                 "validation_error",
                 str(exc),
                 [
-                    "Use hierarchy_info to see required hierarchy levels.",
-                    "Use get_options to see valid options at each level.",
+                    "Use get_options to discover hierarchy levels and valid options.",
                 ],
             )
         )

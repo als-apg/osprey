@@ -61,9 +61,7 @@ class DePlotClient:
         except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError):
             return False
 
-    async def extract(
-        self, image_path: str, preprocess: bool = True
-    ) -> dict[str, Any]:
+    async def extract(self, image_path: str, preprocess: bool = True) -> dict[str, Any]:
         """Send an image to the DePlot service for data extraction.
 
         Args:

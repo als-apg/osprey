@@ -95,28 +95,32 @@ async def mml_browse(
             docstring = row["docstring"] or ""
             if len(docstring) > 200:
                 docstring = docstring[:200] + "..."
-            results.append({
-                "function_name": row["function_name"],
-                "group": row["group_name"],
-                "type": row["type"],
-                "in_degree": row["in_degree"],
-                "out_degree": row["out_degree"],
-                "docstring": docstring,
-            })
+            results.append(
+                {
+                    "function_name": row["function_name"],
+                    "group": row["group_name"],
+                    "type": row["type"],
+                    "in_degree": row["in_degree"],
+                    "out_degree": row["out_degree"],
+                    "docstring": docstring,
+                }
+            )
 
         conn.close()
 
-        return json.dumps({
-            "filters": {
-                k: v for k, v in {"group": group, "type": type}.items() if v is not None
-            },
-            "sort_by": sort_by,
-            "order": order,
-            "total_matching": total,
-            "offset": offset,
-            "results_returned": len(results),
-            "functions": results,
-        })
+        return json.dumps(
+            {
+                "filters": {
+                    k: v for k, v in {"group": group, "type": type}.items() if v is not None
+                },
+                "sort_by": sort_by,
+                "order": order,
+                "total_matching": total,
+                "offset": offset,
+                "results_returned": len(results),
+                "functions": results,
+            }
+        )
 
     except Exception as exc:
         logger.exception("mml_browse failed")

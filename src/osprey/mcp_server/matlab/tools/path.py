@@ -43,12 +43,14 @@ async def mml_path(
     max_depth = max(1, min(10, max_depth))
 
     if source == target:
-        return json.dumps({
-            "source": source,
-            "target": target,
-            "path": [source],
-            "length": 0,
-        })
+        return json.dumps(
+            {
+                "source": source,
+                "target": target,
+                "path": [source],
+                "length": 0,
+            }
+        )
 
     try:
         conn = get_connection()
@@ -86,21 +88,25 @@ async def mml_path(
         conn.close()
 
         if row is None:
-            return json.dumps({
-                "source": source,
-                "target": target,
-                "path": None,
-                "length": None,
-                "message": f"No path found within {max_depth} steps.",
-            })
+            return json.dumps(
+                {
+                    "source": source,
+                    "target": target,
+                    "path": None,
+                    "length": None,
+                    "message": f"No path found within {max_depth} steps.",
+                }
+            )
 
         path_list = row["path"].split(",")
-        return json.dumps({
-            "source": source,
-            "target": target,
-            "path": path_list,
-            "length": len(path_list) - 1,
-        })
+        return json.dumps(
+            {
+                "source": source,
+                "target": target,
+                "path": path_list,
+                "length": len(path_list) - 1,
+            }
+        )
 
     except Exception as exc:
         logger.exception("mml_path failed")

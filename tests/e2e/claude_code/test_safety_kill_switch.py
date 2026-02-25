@@ -13,9 +13,18 @@ import pytest
 from tests.e2e.sdk_helpers import combined_text, run_sdk_query_with_hooks
 
 # Keywords that indicate the writes_check hook denied the operation
-WRITES_DISABLED_KEYWORDS = ["writes", "disabled", "denied", "blocked", "not allowed",
-                            "not enabled", "kill switch", "write operations",
-                            "cannot write", "refused"]
+WRITES_DISABLED_KEYWORDS = [
+    "writes",
+    "disabled",
+    "denied",
+    "blocked",
+    "not allowed",
+    "not enabled",
+    "kill switch",
+    "write operations",
+    "cannot write",
+    "refused",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -67,9 +76,8 @@ async def test_channel_write_denied_when_writes_disabled(safety_project_writes_o
     combined = combined_text(result)
     write_calls = result.tools_matching("channel_write")
 
-    denied = (
-        any(t.is_error for t in write_calls)
-        or any(kw in combined for kw in WRITES_DISABLED_KEYWORDS)
+    denied = any(t.is_error for t in write_calls) or any(
+        kw in combined for kw in WRITES_DISABLED_KEYWORDS
     )
     assert denied, (
         f"Expected channel_write to be denied by kill switch.\n"
@@ -134,9 +142,8 @@ async def test_python_write_denied_when_writes_disabled(safety_project_writes_of
     combined = combined_text(result)
     py_calls = result.tools_matching("execute")
 
-    denied = (
-        any(t.is_error for t in py_calls)
-        or any(kw in combined for kw in WRITES_DISABLED_KEYWORDS)
+    denied = any(t.is_error for t in py_calls) or any(
+        kw in combined for kw in WRITES_DISABLED_KEYWORDS
     )
     assert denied, (
         f"Expected execute write to be denied by kill switch.\n"

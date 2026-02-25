@@ -78,54 +78,41 @@ class TestAuditObservability:
         # ================================================================
 
         assert result.result is not None, "No ResultMessage received from SDK"
-        assert not result.result.is_error, (
-            f"SDK query ended in error: {result.result.result}"
-        )
+        assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
 
         # channel_find or channel-finder subagent was used
         channel_tools = result.tools_matching("channel")
         channel_evidence = channel_tools or any(
             "channel" in t.lower() or "bpm" in t.lower() for t in result.text_blocks
         )
-        assert channel_evidence, (
-            f"No channel-related activity found. Tools: {result.tool_names}"
-        )
+        assert channel_evidence, f"No channel-related activity found. Tools: {result.tool_names}"
 
         # archiver_read was called
         archiver_tools = result.tools_matching("archiver_read")
-        assert len(archiver_tools) >= 1, (
-            f"Expected archiver_read call but got: {result.tool_names}"
-        )
+        assert len(archiver_tools) >= 1, f"Expected archiver_read call but got: {result.tool_names}"
 
         # A plot was created — via execute or create_static_plot/create_interactive_plot
         plot_tool_names = ["execute", "create_static_plot", "create_interactive_plot"]
-        plot_tools = [
-            t for t in result.tool_traces if any(p in t.name for p in plot_tool_names)
-        ]
+        plot_tools = [t for t in result.tool_traces if any(p in t.name for p in plot_tool_names)]
         assert len(plot_tools) >= 1, (
-            f"Expected a plot tool call (execute or create_*_plot) "
-            f"but got: {result.tool_names}"
+            f"Expected a plot tool call (execute or create_*_plot) but got: {result.tool_names}"
         )
 
         # If execute was used, verify it contains plot-related code
         py_tools = result.tools_matching("execute")
         if py_tools:
-            py_code_combined = " ".join(
-                str(t.input.get("code", "")) for t in py_tools
-            ).lower()
+            py_code_combined = " ".join(str(t.input.get("code", "")) for t in py_tools).lower()
             plot_keywords = ["plot", "plt", "matplotlib", "savefig", "figure"]
             has_plot_code = any(kw in py_code_combined for kw in plot_keywords)
             assert has_plot_code, (
-                f"execute code doesn't appear to create a plot. "
-                f"Code: {py_code_combined[:500]}"
+                f"execute code doesn't appear to create a plot. Code: {py_code_combined[:500]}"
             )
 
         # At least one PNG artifact exists (or artifact_save was called)
         png_files = find_png_files(project_dir)
         artifact_saves = result.tools_matching("artifact_save")
         assert len(png_files) >= 1 or len(artifact_saves) >= 1, (
-            "No PNG files found and no artifact_save calls. "
-            "The plot may not have been persisted."
+            "No PNG files found and no artifact_save calls. The plot may not have been persisted."
         )
 
         # Tool ordering: channel before archiver, archiver before final plot tool
@@ -134,10 +121,7 @@ class TestAuditObservability:
         tool_names = result.tool_names
         channel_indices = [i for i, n in enumerate(tool_names) if "channel" in n]
         archiver_indices = [i for i, n in enumerate(tool_names) if "archiver" in n]
-        plot_indices = [
-            i for i, n in enumerate(tool_names)
-            if any(p in n for p in plot_tool_names)
-        ]
+        plot_indices = [i for i, n in enumerate(tool_names) if any(p in n for p in plot_tool_names)]
         if channel_indices and archiver_indices and plot_indices:
             assert min(channel_indices) < max(archiver_indices), (
                 f"Expected a channel call before an archiver call. "
@@ -176,9 +160,7 @@ class TestAuditObservability:
 
         # 3. At least one tool_call from controls or channel-finder server
         control_system_calls = [
-            e
-            for e in tool_calls
-            if e.get("server") in ("controls", "channel-finder")
+            e for e in tool_calls if e.get("server") in ("controls", "channel-finder")
         ]
         assert len(control_system_calls) >= 1, (
             f"No tool_call from control-system or channel-finder server. "
@@ -193,8 +175,7 @@ class TestAuditObservability:
 
         # 5. result_summary is non-empty on at least one event
         has_summary = any(
-            tc.get("result_summary") and tc["result_summary"].strip()
-            for tc in tool_calls
+            tc.get("result_summary") and tc["result_summary"].strip() for tc in tool_calls
         )
         assert has_summary, (
             "No tool_call has a non-empty result_summary — "

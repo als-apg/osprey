@@ -8,16 +8,13 @@ Covers:
 
 from __future__ import annotations
 
-import importlib
 import os
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 import yaml
 
 from osprey.interfaces.web_terminal.operator_session import build_clean_env
-
 
 # ---------------------------------------------------------------------------
 # build_clean_env — hooks.debug propagation
@@ -132,10 +129,9 @@ class TestLifespanOspreyConfig:
         config_file.write_text(yaml.dump({"hooks": {"debug": True}}))
         monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
-        from osprey.mcp_server.common import _config_cache, reset_config_cache
-
         # Simulate stale cache from web_cmd.py pre-lifespan call
         import osprey.mcp_server.common as common_mod
+        from osprey.mcp_server.common import reset_config_cache
 
         common_mod._config_cache = {"stale": True}
 

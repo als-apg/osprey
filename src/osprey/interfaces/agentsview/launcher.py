@@ -83,9 +83,7 @@ class AgentsviewLauncher:
                     return
                 # Check if process died
                 if self._process.poll() is not None:
-                    logger.error(
-                        "agentsview exited early (rc=%s)", self._process.returncode
-                    )
+                    logger.error("agentsview exited early (rc=%s)", self._process.returncode)
                     self._process = None
                     self._launched = False
                     return

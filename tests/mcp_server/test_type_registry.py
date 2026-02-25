@@ -93,22 +93,22 @@ class TestKnownDataTypes:
     """Verify that every data_type string produced by Python tools is in the registry."""
 
     TOOL_PRODUCED_TYPES = [
-        "timeseries",       # archiver_read
-        "channel_values",   # channel_read
-        "write_results",    # channel_write
-        "code_output",      # execute
-        "visualization",    # create_static_plot, create_interactive_plot
-        "dashboard",        # create_dashboard
-        "document",         # create_document
-        "memory",           # memory_save
-        "screenshot",       # screen_capture
-        "graph_extraction", # graph_extract
-        "graph_comparison", # graph_compare
+        "timeseries",  # archiver_read
+        "channel_values",  # channel_read
+        "write_results",  # channel_write
+        "code_output",  # execute
+        "visualization",  # create_static_plot, create_interactive_plot
+        "dashboard",  # create_dashboard
+        "document",  # create_document
+        "memory",  # memory_save
+        "screenshot",  # screen_capture
+        "graph_extraction",  # graph_extract
+        "graph_comparison",  # graph_compare
         "graph_reference",  # graph_save_reference
-        "agent_response",   # submit_response (default)
+        "agent_response",  # submit_response (default)
         "channel_addresses",  # agents via submit_response
-        "logbook_research",   # agents via submit_response
-        "search_results",     # agents via submit_response
+        "logbook_research",  # agents via submit_response
+        "search_results",  # agents via submit_response
     ]
 
     @pytest.mark.parametrize("dt", TOOL_PRODUCED_TYPES)

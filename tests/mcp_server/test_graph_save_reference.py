@@ -36,9 +36,8 @@ class TestGraphSaveReference:
 
     @pytest.fixture
     def tool_fn(self):
-        from tests.mcp_server.conftest import get_tool_fn
-
         from osprey.mcp_server.workspace.tools.graph_tools import graph_save_reference
+        from tests.mcp_server.conftest import get_tool_fn
 
         return get_tool_fn(graph_save_reference)
 

@@ -1,7 +1,6 @@
 """Tests for ``osprey prompts`` CLI subcommands."""
 
 import json
-from pathlib import Path
 
 import pytest
 import yaml
@@ -26,9 +25,7 @@ class TestPromptsList:
 
     def test_list_shows_all_artifacts(self, project_dir):
         runner = CliRunner()
-        result = runner.invoke(
-            prompts, ["list", "--project", str(project_dir)]
-        )
+        result = runner.invoke(prompts, ["list", "--project", str(project_dir)])
         assert result.exit_code == 0
         assert "Prompt Artifacts" in result.output
         assert "claude-md" in result.output
@@ -37,17 +34,13 @@ class TestPromptsList:
 
     def test_list_shows_framework_managed(self, project_dir):
         runner = CliRunner()
-        result = runner.invoke(
-            prompts, ["list", "--project", str(project_dir)]
-        )
+        result = runner.invoke(prompts, ["list", "--project", str(project_dir)])
         assert "Framework-managed" in result.output
 
     def test_list_shows_facility(self, project_dir):
         """rules/facility appears either as framework-managed or user-owned."""
         runner = CliRunner()
-        result = runner.invoke(
-            prompts, ["list", "--project", str(project_dir)]
-        )
+        result = runner.invoke(prompts, ["list", "--project", str(project_dir)])
         assert "rules/facility" in result.output
 
 
@@ -105,9 +98,7 @@ class TestPromptsClaim:
             ["claim", "rules/safety", "--project", str(project_dir)],
         )
 
-        manifest = json.loads(
-            (project_dir / MANIFEST_FILENAME).read_text()
-        )
+        manifest = json.loads((project_dir / MANIFEST_FILENAME).read_text())
         assert "user_owned" in manifest
         assert "rules/safety" in manifest["user_owned"]
         assert "framework_hash" in manifest["user_owned"]["rules/safety"]
@@ -215,9 +206,7 @@ class TestPromptsUnclaim:
             ["unclaim", "rules/safety", "--project", str(project_dir)],
         )
 
-        manifest = json.loads(
-            (project_dir / MANIFEST_FILENAME).read_text()
-        )
+        manifest = json.loads((project_dir / MANIFEST_FILENAME).read_text())
         assert "rules/safety" not in manifest.get("user_owned", {})
 
     def test_unclaim_keeps_file(self, project_dir):
@@ -254,8 +243,6 @@ class TestPromptsListWithUserOwned:
             prompts,
             ["claim", "rules/safety", "--project", str(project_dir)],
         )
-        result = runner.invoke(
-            prompts, ["list", "--project", str(project_dir)]
-        )
+        result = runner.invoke(prompts, ["list", "--project", str(project_dir)])
         assert "User-owned" in result.output
         assert "rules/safety" in result.output

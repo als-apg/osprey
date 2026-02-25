@@ -426,9 +426,7 @@ class TestGitIsolation:
         import subprocess
 
         # Create a parent git repo
-        subprocess.run(
-            ["git", "init"], cwd=tmp_path, check=True, capture_output=True
-        )
+        subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
         subprocess.run(
             ["git", "commit", "--allow-empty", "-m", "parent init"],
             cwd=tmp_path,
@@ -459,9 +457,7 @@ class TestGitIsolation:
         from pathlib import Path
 
         # Create a parent git repo
-        subprocess.run(
-            ["git", "init"], cwd=tmp_path, check=True, capture_output=True
-        )
+        subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
         subprocess.run(
             ["git", "commit", "--allow-empty", "-m", "parent init"],
             cwd=tmp_path,
@@ -551,15 +547,122 @@ class TestGitIsolation:
         assert claude_project_dir.exists()
 
         # Re-create with --force
-        result = runner.invoke(
-            init, ["session-test", "--output-dir", str(tmp_path), "--force"]
-        )
+        result = runner.invoke(init, ["session-test", "--output-dir", str(tmp_path), "--force"])
         assert result.exit_code == 0
 
         # Session directory should be gone
-        assert not claude_project_dir.exists(), (
-            "Session directory should be removed on --force"
+        assert not claude_project_dir.exists(), "Session directory should be removed on --force"
+
+
+class TestBuildClaudeCodeContextHierarchy:
+    """Tests for hierarchy embedding in _build_claude_code_context."""
+
+    def _make_manager_and_config(self, tmp_path, db_data):
+        """Create a TemplateManager and config pointing at a hierarchy database."""
+        import json as _json
+
+        db_file = tmp_path / "channels.json"
+        db_file.write_text(_json.dumps(db_data))
+
+        # Manifest must declare control_assistant template for the
+        # channel_finder block to activate.
+        manifest = tmp_path / ".osprey-manifest.json"
+        manifest.write_text(_json.dumps({"creation": {"template": "control_assistant"}}))
+
+        config = {
+            "facility_name": "TestFacility",
+            "channel_finder": {
+                "pipeline_mode": "hierarchical",
+                "pipelines": {
+                    "hierarchical": {
+                        "database": {"path": "channels.json"},
+                    },
+                },
+            },
+        }
+        return TemplateManager(), config
+
+    @pytest.mark.unit
+    def test_build_claude_code_context_embeds_hierarchy_info(self, tmp_path):
+        """Hierarchy levels, config, and naming pattern are embedded in context."""
+        manager, config = self._make_manager_and_config(
+            tmp_path,
+            {
+                "hierarchy": {
+                    "levels": [
+                        {"name": "system", "type": "tree"},
+                        {"name": "device", "type": "instances"},
+                    ],
+                    "naming_pattern": "{system}:{device}",
+                },
+                "tree": {
+                    "SR": {
+                        "DEVICE": {
+                            "_expansion": {
+                                "_type": "range",
+                                "_pattern": "D{:02d}",
+                                "_range": [1, 3],
+                            }
+                        }
+                    }
+                },
+            },
         )
+        ctx = manager._build_claude_code_context(tmp_path, config)
+        hier = ctx["channel_finder_hierarchy"]
+        assert hier is not None
+        assert hier["hierarchy_levels"] == ["system", "device"]
+        assert hier["naming_pattern"] == "{system}:{device}"
+        assert "system" in hier["hierarchy_config"]["levels"]
+
+    @pytest.mark.unit
+    def test_build_claude_code_context_hierarchy_missing_path(self, tmp_path):
+        """Graceful fallback to None when database path is missing."""
+        config = {
+            "facility_name": "TestFacility",
+            "channel_finder": {
+                "pipeline_mode": "hierarchical",
+                "pipelines": {
+                    "hierarchical": {
+                        "database": {},
+                    },
+                },
+            },
+        }
+        manager = TemplateManager()
+        ctx = manager._build_claude_code_context(tmp_path, config)
+        assert ctx["channel_finder_hierarchy"] is None
+
+    @pytest.mark.unit
+    def test_build_claude_code_context_hierarchy_non_hierarchical(self, tmp_path):
+        """Non-hierarchical pipeline mode: channel_finder_hierarchy is None."""
+        config = {
+            "facility_name": "TestFacility",
+            "channel_finder": {
+                "pipeline_mode": "in_context",
+            },
+        }
+        manager = TemplateManager()
+        ctx = manager._build_claude_code_context(tmp_path, config)
+        assert ctx["channel_finder_hierarchy"] is None
+
+    @pytest.mark.unit
+    def test_create_project_embeds_hierarchy_info(self, tmp_path, monkeypatch):
+        """create_project renders hierarchy info into the agent prompt."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        manager = TemplateManager()
+
+        project_dir = manager.create_project(
+            project_name="test-hier-embed",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+
+        agent_prompt = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
+        # Must contain embedded hierarchy info, NOT the fallback text
+        assert "hierarchy_levels" in agent_prompt
+        assert "Call `get_options()` at the first level to discover" not in agent_prompt
 
 
 if __name__ == "__main__":

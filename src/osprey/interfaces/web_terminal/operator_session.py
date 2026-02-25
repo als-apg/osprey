@@ -79,11 +79,13 @@ def _message_to_events(message: Any) -> list[dict[str, Any]]:
     if isinstance(message, AssistantMessage):
         # Check for API-level errors on the message itself
         if message.error is not None:
-            events.append({
-                "type": "error",
-                "message": f"API error: {message.error}",
-                "error_type": "AssistantMessageError",
-            })
+            events.append(
+                {
+                    "type": "error",
+                    "message": f"API error: {message.error}",
+                    "error_type": "AssistantMessageError",
+                }
+            )
 
         for block in message.content:
             if isinstance(block, TextBlock):
@@ -91,29 +93,35 @@ def _message_to_events(message: Any) -> list[dict[str, Any]]:
             elif isinstance(block, ThinkingBlock):
                 events.append({"type": "thinking", "content": block.thinking})
             elif isinstance(block, ToolUseBlock):
-                events.append({
-                    "type": "tool_use",
-                    "tool_name": _format_tool_name(block.name),
-                    "tool_name_raw": block.name,
-                    "tool_use_id": block.id,
-                    "input": block.input,
-                })
+                events.append(
+                    {
+                        "type": "tool_use",
+                        "tool_name": _format_tool_name(block.name),
+                        "tool_name_raw": block.name,
+                        "tool_use_id": block.id,
+                        "input": block.input,
+                    }
+                )
             elif isinstance(block, ToolResultBlock):
-                events.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.tool_use_id,
-                    "content": block.content,
-                    "is_error": bool(block.is_error),
-                })
+                events.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block.tool_use_id,
+                        "content": block.content,
+                        "is_error": bool(block.is_error),
+                    }
+                )
 
     elif isinstance(message, ResultMessage):
-        events.append({
-            "type": "result",
-            "is_error": message.is_error,
-            "total_cost_usd": message.total_cost_usd,
-            "duration_ms": message.duration_ms,
-            "num_turns": message.num_turns,
-        })
+        events.append(
+            {
+                "type": "result",
+                "is_error": message.is_error,
+                "total_cost_usd": message.total_cost_usd,
+                "duration_ms": message.duration_ms,
+                "num_turns": message.num_turns,
+            }
+        )
 
     elif isinstance(message, SystemMessage):
         events.append({"type": "system", "subtype": message.subtype})
@@ -133,11 +141,7 @@ def build_clean_env(project_cwd: str | None = None) -> dict[str, str]:
             already set and this directory contains ``config.yml``, the variable
             is set automatically so hooks can locate the configuration.
     """
-    env = {
-        k: v
-        for k, v in os.environ.items()
-        if not k.startswith(("CLAUDECODE", "CLAUDE_CODE_"))
-    }
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("CLAUDECODE", "CLAUDE_CODE_"))}
 
     # When token-based auth is configured, strip ANTHROPIC_API_KEY to
     # prevent the "auth conflict" warning.
@@ -240,19 +244,23 @@ class OperatorSession:
                 for event in _message_to_events(message):
                     await self._queue.put(event)
         except (ClaudeSDKError, CLIConnectionError) as exc:
-            await self._queue.put({
-                "type": "error",
-                "message": str(exc),
-                "error_type": type(exc).__name__,
-            })
+            await self._queue.put(
+                {
+                    "type": "error",
+                    "message": str(exc),
+                    "error_type": type(exc).__name__,
+                }
+            )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            await self._queue.put({
-                "type": "error",
-                "message": f"Unexpected error: {exc}",
-                "error_type": type(exc).__name__,
-            })
+            await self._queue.put(
+                {
+                    "type": "error",
+                    "message": f"Unexpected error: {exc}",
+                    "error_type": type(exc).__name__,
+                }
+            )
 
     async def cancel(self) -> None:
         """Interrupt the current response."""
@@ -312,9 +320,7 @@ class OperatorRegistry:
     async def terminate_session(self, session_id: str) -> None:
         await self._terminate_session_internal(session_id)
 
-    async def terminate_session_if_owner(
-        self, session_id: str, owner: OperatorSession
-    ) -> None:
+    async def terminate_session_if_owner(self, session_id: str, owner: OperatorSession) -> None:
         """Terminate only if the caller still owns the session.
 
         Prevents a stale WebSocket's cleanup from killing a newer session

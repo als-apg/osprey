@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from osprey.services.channel_finder.databases.hierarchical import (
         HierarchicalChannelDatabase,
     )
+    from osprey.services.channel_finder.feedback.store import FeedbackStore
 
 logger = logging.getLogger("osprey.services.channel_finder.mcp.hierarchical.registry")
 
@@ -40,6 +41,7 @@ class ChannelFinderHierRegistry:
     def __init__(self) -> None:
         self._raw_config: dict[str, Any] = {}
         self._database: HierarchicalChannelDatabase | None = None
+        self._feedback_store: FeedbackStore | None = None
         self._facility_name: str = "control system"
         self._initialized = False
 
@@ -74,6 +76,21 @@ class ChannelFinderHierRegistry:
                 "channel finder tools will fail until config is provided"
             )
 
+        # Initialize feedback store if configured and enabled
+        feedback_config = hier_config.get("feedback", {})
+        if feedback_config.get("enabled", False) and feedback_config.get("store_path"):
+            try:
+                from osprey.services.channel_finder.feedback.store import FeedbackStore
+
+                store_path = self._resolve_path(feedback_config["store_path"])
+                self._feedback_store = FeedbackStore(store_path)
+                logger.info("ChannelFinderHierRegistry: feedback store loaded from %s", store_path)
+            except Exception:
+                logger.warning(
+                    "ChannelFinderHierRegistry: failed to initialize feedback store",
+                    exc_info=True,
+                )
+
         facility = self._raw_config.get("facility", {})
         self._facility_name = facility.get("name", "control system")
 
@@ -98,6 +115,11 @@ class ChannelFinderHierRegistry:
     def facility_name(self) -> str:
         """Facility name from config (e.g. 'ALS')."""
         return self._facility_name
+
+    @property
+    def feedback_store(self) -> FeedbackStore | None:
+        """FeedbackStore instance, or None if not configured."""
+        return self._feedback_store
 
     def _resolve_path(self, path_str: str) -> str:
         """Resolve path relative to config file directory."""

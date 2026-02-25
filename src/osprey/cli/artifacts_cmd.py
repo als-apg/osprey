@@ -24,8 +24,12 @@ def artifacts():
 
 
 @artifacts.command("web")
-@click.option("--port", "-p", type=int, default=None, help="Port to run on (default: from config or 8086)")
-@click.option("--host", "-h", default=None, help="Host to bind to (default: from config or 127.0.0.1)")
+@click.option(
+    "--port", "-p", type=int, default=None, help="Port to run on (default: from config or 8086)"
+)
+@click.option(
+    "--host", "-h", default=None, help="Host to bind to (default: from config or 127.0.0.1)"
+)
 @click.option("--reload", is_flag=True, help="Enable auto-reload for development")
 def web(port: int | None, host: str | None, reload: bool) -> None:
     """Launch the Artifact Gallery web interface.

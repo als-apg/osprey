@@ -445,9 +445,7 @@ class TestClaudeChatCommand:
             template_name="minimal",
         )
 
-        result = cli_runner.invoke(
-            chat_claude, ["--project", str(project_dir)]
-        )
+        result = cli_runner.invoke(chat_claude, ["--project", str(project_dir)])
 
         assert result.exit_code == 0
         mock_execvp.assert_called_once()

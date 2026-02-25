@@ -16,8 +16,7 @@ from osprey.mcp_server.workspace.tools.screen_capture_backends.base import (
 from osprey.mcp_server.workspace.tools.screen_capture_backends.macos import MacOSBackend
 
 _SUBPROCESS_PATCH = (
-    "osprey.mcp_server.workspace.tools.screen_capture_backends.macos"
-    ".asyncio.create_subprocess_exec"
+    "osprey.mcp_server.workspace.tools.screen_capture_backends.macos.asyncio.create_subprocess_exec"
 )
 
 
@@ -163,9 +162,7 @@ async def test_capture_window_by_name(backend, tmp_path):
     async def mock_exec(*args, **kwargs):
         captured_args.append(args)
         if args[0] == "swift":
-            return _make_mock_process(
-                returncode=0, stdout=json.dumps(mock_windows).encode()
-            )
+            return _make_mock_process(returncode=0, stdout=json.dumps(mock_windows).encode())
         elif args[0] == "screencapture":
             open(filepath, "wb").write(b"PNG_DATA")
             return _make_mock_process(returncode=0)
@@ -205,13 +202,19 @@ async def test_list_windows_basic(backend):
     """list_windows returns WindowInfo objects."""
     mock_windows = [
         {"wid": 1, "app": "Finder", "title": "", "x": 0, "y": 0, "width": 800, "height": 600},
-        {"wid": 2, "app": "Terminal", "title": "bash", "x": 100, "y": 100, "width": 600, "height": 400},
+        {
+            "wid": 2,
+            "app": "Terminal",
+            "title": "bash",
+            "x": 100,
+            "y": 100,
+            "width": 600,
+            "height": 400,
+        },
     ]
 
     async def mock_exec(*args, **kwargs):
-        return _make_mock_process(
-            returncode=0, stdout=json.dumps(mock_windows).encode()
-        )
+        return _make_mock_process(returncode=0, stdout=json.dumps(mock_windows).encode())
 
     with patch(_SUBPROCESS_PATCH, side_effect=mock_exec):
         windows = await backend.list_windows()
@@ -226,13 +229,19 @@ async def test_list_windows_filter(backend):
     """list_windows filters by app name."""
     mock_windows = [
         {"wid": 1, "app": "Finder", "title": "", "x": 0, "y": 0, "width": 800, "height": 600},
-        {"wid": 2, "app": "Terminal", "title": "bash", "x": 100, "y": 100, "width": 600, "height": 400},
+        {
+            "wid": 2,
+            "app": "Terminal",
+            "title": "bash",
+            "x": 100,
+            "y": 100,
+            "width": 600,
+            "height": 400,
+        },
     ]
 
     async def mock_exec(*args, **kwargs):
-        return _make_mock_process(
-            returncode=0, stdout=json.dumps(mock_windows).encode()
-        )
+        return _make_mock_process(returncode=0, stdout=json.dumps(mock_windows).encode())
 
     with patch(_SUBPROCESS_PATCH, side_effect=mock_exec):
         windows = await backend.list_windows(app_filter="terminal")

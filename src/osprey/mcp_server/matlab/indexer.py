@@ -128,9 +128,7 @@ def _materialize_stats(conn: sqlite3.Connection) -> None:
     row = conn.execute("SELECT COUNT(*) as c FROM functions").fetchone()
     stats["total_functions"] = str(row["c"])
 
-    row = conn.execute(
-        "SELECT COUNT(*) as c FROM dependencies"
-    ).fetchone()
+    row = conn.execute("SELECT COUNT(*) as c FROM dependencies").fetchone()
     stats["total_edges"] = str(row["c"])
 
     # Group breakdown
@@ -142,28 +140,21 @@ def _materialize_stats(conn: sqlite3.Connection) -> None:
 
     # Type breakdown
     rows = conn.execute(
-        "SELECT type, COUNT(*) as c FROM functions "
-        "WHERE type != '' GROUP BY type ORDER BY c DESC"
+        "SELECT type, COUNT(*) as c FROM functions WHERE type != '' GROUP BY type ORDER BY c DESC"
     ).fetchall()
     stats["types"] = json.dumps({r["type"]: r["c"] for r in rows})
 
     # Top 10 most-called (highest in_degree)
     rows = conn.execute(
-        "SELECT function_name, in_degree FROM functions "
-        "ORDER BY in_degree DESC LIMIT 10"
+        "SELECT function_name, in_degree FROM functions ORDER BY in_degree DESC LIMIT 10"
     ).fetchall()
-    stats["top_called"] = json.dumps(
-        {r["function_name"]: r["in_degree"] for r in rows}
-    )
+    stats["top_called"] = json.dumps({r["function_name"]: r["in_degree"] for r in rows})
 
     # Top 10 most-dependent (highest out_degree)
     rows = conn.execute(
-        "SELECT function_name, out_degree FROM functions "
-        "ORDER BY out_degree DESC LIMIT 10"
+        "SELECT function_name, out_degree FROM functions ORDER BY out_degree DESC LIMIT 10"
     ).fetchall()
-    stats["top_dependent"] = json.dumps(
-        {r["function_name"]: r["out_degree"] for r in rows}
-    )
+    stats["top_dependent"] = json.dumps({r["function_name"]: r["out_degree"] for r in rows})
 
     for key, value in stats.items():
         conn.execute(
@@ -241,7 +232,11 @@ def build_index(
             rate = (i + 1) / elapsed if elapsed > 0 else 0
             logger.info(
                 "Functions: %d/%d (%.0f/sec) — indexed=%d skipped=%d",
-                i + 1, total_nodes, rate, indexed, skipped,
+                i + 1,
+                total_nodes,
+                rate,
+                indexed,
+                skipped,
             )
 
     # Flush remaining batch
@@ -277,9 +272,7 @@ def build_index(
         conn.commit()
         edge_count += len(edge_batch)
 
-    logger.info(
-        "Indexed %d edges, filtered %d self-loops", edge_count, self_loops
-    )
+    logger.info("Indexed %d edges, filtered %d self-loops", edge_count, self_loops)
 
     # Rebuild FTS index for optimal ranking
     logger.info("Rebuilding FTS index...")
@@ -293,7 +286,10 @@ def build_index(
     elapsed = time.time() - t0
     logger.info(
         "Indexing complete in %.1fs: %d functions, %d edges (DB: %s)",
-        elapsed, indexed, edge_count, db_path,
+        elapsed,
+        indexed,
+        edge_count,
+        db_path,
     )
 
     # Log DB size

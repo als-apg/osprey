@@ -134,7 +134,7 @@ class AppProvider(RegistryConfigProvider):
         )
 
         # Should not raise
-        manager = RegistryManager(registry_path=str(registry_file))
+        RegistryManager(registry_path=str(registry_file))
 
         # Built-in providers should still be resolvable via ProviderRegistry
         pr = get_provider_registry()
@@ -433,7 +433,7 @@ class AppProvider(RegistryConfigProvider):
         )
 
         # Should not raise
-        manager = RegistryManager(registry_path=str(registry_file))
+        RegistryManager(registry_path=str(registry_file))
 
         # Built-in providers resolved via ProviderRegistry (not config.providers)
         pr = get_provider_registry()
@@ -442,7 +442,7 @@ class AppProvider(RegistryConfigProvider):
 
     def test_framework_only_registry_has_providers(self):
         """Test that framework-only setup still resolves built-in providers."""
-        manager = RegistryManager(registry_path=None)
+        RegistryManager(registry_path=None)
 
         # config.providers is now empty (built-ins live in ProviderRegistry)
         # but providers are still resolvable

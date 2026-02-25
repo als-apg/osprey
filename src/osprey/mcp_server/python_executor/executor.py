@@ -181,7 +181,6 @@ async def _execute_via_local(
     limits_validator,
 ) -> ExecutionResult:
     """Execute code in a local subprocess with the ExecutionWrapper."""
-    import json
     import sys
 
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
@@ -221,7 +220,7 @@ async def _execute_via_local(
         stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         stdout_text = stdout_bytes.decode("utf-8", errors="replace")
         stderr_text = stderr_bytes.decode("utf-8", errors="replace")
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         await proc.wait()
         elapsed = time.time() - start_time

@@ -60,10 +60,12 @@ async def session_summary() -> str:
     try:
         workspace_root = resolve_workspace_root()
     except Exception as e:
-        return json.dumps(make_error(
-            "internal_error",
-            f"Could not resolve workspace root: {e}",
-        ))
+        return json.dumps(
+            make_error(
+                "internal_error",
+                f"Could not resolve workspace root: {e}",
+            )
+        )
 
     # --- Unified artifact store ---
     from osprey.mcp_server.artifact_store import ArtifactStore
@@ -74,22 +76,22 @@ async def session_summary() -> str:
     entries = []
     total_bytes = 0
     for entry in all_entries:
-        size = entry.size_bytes or _safe_file_size(
-            store.get_file_path(entry.id) or ""
-        )
+        size = entry.size_bytes or _safe_file_size(store.get_file_path(entry.id) or "")
         total_bytes += size
         channels = _extract_channels(entry)
-        entries.append({
-            "id": entry.id,
-            "tool": entry.tool_source,
-            "category": entry.category,
-            "artifact_type": entry.artifact_type,
-            "title": entry.title,
-            "description": entry.description,
-            "size_bytes": size,
-            "channels": channels,
-            "timestamp": entry.timestamp,
-        })
+        entries.append(
+            {
+                "id": entry.id,
+                "tool": entry.tool_source,
+                "category": entry.category,
+                "artifact_type": entry.artifact_type,
+                "title": entry.title,
+                "description": entry.description,
+                "size_bytes": size,
+                "channels": channels,
+                "timestamp": entry.timestamp,
+            }
+        )
 
     # --- Totals ---
     category_counts: dict[str, int] = {}

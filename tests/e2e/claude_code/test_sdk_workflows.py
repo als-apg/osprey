@@ -139,26 +139,19 @@ class TestClaudeCodeSDKIntegration:
 
         # archiver_read was called
         archiver_calls = result.tools_matching("archiver_read")
-        assert len(archiver_calls) > 0, (
-            f"archiver_read not called. Tools used: {result.tool_names}"
-        )
+        assert len(archiver_calls) > 0, f"archiver_read not called. Tools used: {result.tool_names}"
 
         # execute was called
         python_calls = result.tools_matching("execute")
-        assert len(python_calls) > 0, (
-            f"execute not called. Tools used: {result.tool_names}"
-        )
+        assert len(python_calls) > 0, f"execute not called. Tools used: {result.tool_names}"
 
         # archiver_read was called BEFORE execute
         archiver_idx = next(
             i for i, t in enumerate(result.tool_traces) if "archiver_read" in t.name
         )
-        python_idx = next(
-            i for i, t in enumerate(result.tool_traces) if "execute" in t.name
-        )
+        python_idx = next(i for i, t in enumerate(result.tool_traces) if "execute" in t.name)
         assert archiver_idx < python_idx, (
-            f"archiver_read (idx={archiver_idx}) should come before "
-            f"execute (idx={python_idx})"
+            f"archiver_read (idx={archiver_idx}) should come before execute (idx={python_idx})"
         )
 
         # PNG artifact exists in the project tree
@@ -215,9 +208,7 @@ class TestClaudeCodeSDKIntegration:
         for trace in result.tool_traces:
             error_flag = " [ERROR]" if trace.is_error else ""
             parent_flag = (
-                f" (sub-agent: {trace.parent_tool_use_id})"
-                if trace.parent_tool_use_id
-                else ""
+                f" (sub-agent: {trace.parent_tool_use_id})" if trace.parent_tool_use_id else ""
             )
             print(f"  tool: {trace.name}{error_flag}{parent_flag}")
             print(f"    input keys: {list(trace.input.keys())}")
@@ -234,15 +225,11 @@ class TestClaudeCodeSDKIntegration:
 
         # archiver_read was called (should retrieve data for multiple channels)
         archiver_calls = result.tools_matching("archiver_read")
-        assert len(archiver_calls) > 0, (
-            f"archiver_read not called. Tools used: {result.tool_names}"
-        )
+        assert len(archiver_calls) > 0, f"archiver_read not called. Tools used: {result.tool_names}"
 
         # execute was called (should contain plotting code)
         python_calls = result.tools_matching("execute")
-        assert len(python_calls) > 0, (
-            f"execute not called. Tools used: {result.tool_names}"
-        )
+        assert len(python_calls) > 0, f"execute not called. Tools used: {result.tool_names}"
 
         # Check that execute input contains plotting-related code
         plot_related = False
@@ -254,15 +241,11 @@ class TestClaudeCodeSDKIntegration:
             ):
                 plot_related = True
                 break
-        assert plot_related, (
-            "execute was called but code doesn't contain plot-related keywords"
-        )
+        assert plot_related, "execute was called but code doesn't contain plot-related keywords"
 
         # At least one PNG artifact was created
         png_files = find_png_files(project_dir)
-        assert len(png_files) > 0, (
-            "No PNG files found -- execute may not have created plots."
-        )
+        assert len(png_files) > 0, "No PNG files found -- execute may not have created plots."
 
         # Cost should be under budget
         if result.cost_usd is not None:
@@ -327,47 +310,44 @@ class TestClaudeCodeSDKIntegration:
         for trace in result.tool_traces:
             error_flag = " [ERROR]" if trace.is_error else ""
             parent_flag = (
-                f" (sub-agent: {trace.parent_tool_use_id})"
-                if trace.parent_tool_use_id
-                else ""
+                f" (sub-agent: {trace.parent_tool_use_id})" if trace.parent_tool_use_id else ""
             )
             print(f"  tool: {trace.name}{error_flag}{parent_flag}")
 
         # -- Assertions --
         assert result.result is not None, "No ResultMessage received"
-        assert not result.result.is_error, (
-            f"SDK query ended in error: {result.result.result}"
-        )
+        assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
 
         # archiver_read was called
         archiver_calls = result.tools_matching("archiver_read")
-        assert len(archiver_calls) > 0, (
-            f"archiver_read not called. Tools used: {result.tool_names}"
-        )
+        assert len(archiver_calls) > 0, f"archiver_read not called. Tools used: {result.tool_names}"
 
         # A visualization tool was called (static or interactive)
-        viz_calls = (
-            result.tools_matching("create_static_plot")
-            + result.tools_matching("create_interactive_plot")
+        viz_calls = result.tools_matching("create_static_plot") + result.tools_matching(
+            "create_interactive_plot"
         )
-        assert len(viz_calls) > 0, (
-            f"No visualization tool called. Tools used: {result.tool_names}"
-        )
+        assert len(viz_calls) > 0, f"No visualization tool called. Tools used: {result.tool_names}"
 
         # The viz tool should have succeeded (no errors)
         viz_errors = [t for t in viz_calls if t.is_error]
         assert len(viz_errors) == 0, (
-            f"Visualization tool returned errors: "
-            f"{[t.result[:300] for t in viz_errors]}"
+            f"Visualization tool returned errors: {[t.result[:300] for t in viz_errors]}"
         )
 
         # Check that the viz code contains 3D-related keywords
         has_3d_code = False
         for call in viz_calls:
             code = call.input.get("code", "")
-            if any(kw in code.lower() for kw in [
-                "3d", "scatter3d", "mplot3d", "axes3d", "projection",
-            ]):
+            if any(
+                kw in code.lower()
+                for kw in [
+                    "3d",
+                    "scatter3d",
+                    "mplot3d",
+                    "axes3d",
+                    "projection",
+                ]
+            ):
                 has_3d_code = True
                 break
         assert has_3d_code, (

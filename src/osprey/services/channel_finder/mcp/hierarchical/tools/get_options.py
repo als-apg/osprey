@@ -18,7 +18,7 @@ logger = logging.getLogger("osprey.services.channel_finder.mcp.hierarchical.tool
 def get_options(level: str, selections: dict | None = None) -> str:
     """Get available options at a specific hierarchy level.
 
-    Use hierarchy_info first to learn the level names and order.
+    Refer to the hierarchy structure in the agent prompt for level names and order.
     Then call this tool iteratively, passing previous selections to drill down.
 
     Args:
@@ -49,7 +49,7 @@ def get_options(level: str, selections: dict | None = None) -> str:
                 "validation_error",
                 str(exc),
                 [
-                    "Use hierarchy_info to see available hierarchy levels.",
+                    "Use get_options to discover available hierarchy levels.",
                     "Ensure previous level selections are valid.",
                 ],
             )

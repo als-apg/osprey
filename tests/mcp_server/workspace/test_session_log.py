@@ -345,9 +345,7 @@ async def test_combined_filters(basic_events, tmp_path):
         ),
         _patch_transcript_reader(basic_events),
     ):
-        result = json.loads(
-            await fn(agent="data-visualizer", errors_only=True)
-        )
+        result = json.loads(await fn(agent="data-visualizer", errors_only=True))
     assert result["total_events"] == 1
     assert result["events"][0]["tool"] == "create_dashboard"
 

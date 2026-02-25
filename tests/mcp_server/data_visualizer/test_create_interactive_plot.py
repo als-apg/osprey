@@ -11,9 +11,7 @@ from osprey.mcp_server.workspace.execution.sandbox_executor import SandboxExecut
 from osprey.mcp_server.workspace.tools._viz_common import resolve_data_source
 
 # Mock target for the sandbox executor used by create_interactive_plot
-_SANDBOX_EXEC_TARGET = (
-    "osprey.mcp_server.workspace.execution.sandbox_executor.execute_sandbox_code"
-)
+_SANDBOX_EXEC_TARGET = "osprey.mcp_server.workspace.execution.sandbox_executor.execute_sandbox_code"
 _SANDBOX_FOLDER_TARGET = (
     "osprey.mcp_server.workspace.execution.sandbox_executor.create_sandbox_execution_folder"
 )
@@ -60,9 +58,7 @@ class TestCreateInteractivePlot:
             patch(_SANDBOX_EXEC_TARGET, new_callable=AsyncMock, return_value=mock_result),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
         ):
-            result = json.loads(
-                await tool_fn(code="import plotly", title="Bad Plot")
-            )
+            result = json.loads(await tool_fn(code="import plotly", title="Bad Plot"))
 
         assert result["error"] is True
         assert result["error_type"] == "execution_error"
@@ -79,16 +75,12 @@ class TestCreateInteractivePlot:
             patch(_SANDBOX_EXEC_TARGET, new_callable=AsyncMock, return_value=mock_result),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
         ):
-            result = json.loads(
-                await tool_fn(code="x = 1", title="No-op Plot")
-            )
+            result = json.loads(await tool_fn(code="x = 1", title="No-op Plot"))
 
         assert result["status"] == "success"
         assert result["artifact_ids"] == []
 
-    async def test_successful_plotly_artifact(
-        self, tool_fn, tmp_path, mock_execution_folder
-    ):
+    async def test_successful_plotly_artifact(self, tool_fn, tmp_path, mock_execution_folder):
         """Verify Plotly HTML artifacts from save_artifact() are saved."""
         art_path = tmp_path / "abc123_interactive_chart.html"
         art_path.write_text("<html><body>plotly chart</body></html>")
@@ -131,9 +123,7 @@ class TestCreateInteractivePlot:
         async def mock_execute(code, execution_folder):
             nonlocal captured_code
             captured_code = code
-            return SandboxExecutionResult(
-                success=True, stdout="", stderr="", artifacts=[]
-            )
+            return SandboxExecutionResult(success=True, stdout="", stderr="", artifacts=[])
 
         with (
             patch(_SANDBOX_EXEC_TARGET, side_effect=mock_execute),
@@ -153,9 +143,7 @@ class TestCreateInteractivePlot:
         async def mock_execute(code, execution_folder):
             nonlocal captured_code
             captured_code = code
-            return SandboxExecutionResult(
-                success=True, stdout="", stderr="", artifacts=[]
-            )
+            return SandboxExecutionResult(success=True, stdout="", stderr="", artifacts=[])
 
         with (
             patch(_SANDBOX_EXEC_TARGET, side_effect=mock_execute),
@@ -180,16 +168,12 @@ class TestCreateInteractivePlot:
         async def mock_execute(code, execution_folder):
             nonlocal captured_code
             captured_code = code
-            return SandboxExecutionResult(
-                success=True, stdout="", stderr="", artifacts=[]
-            )
+            return SandboxExecutionResult(success=True, stdout="", stderr="", artifacts=[])
 
         with (
             patch(_SANDBOX_EXEC_TARGET, side_effect=mock_execute),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
-            patch(
-                "osprey.mcp_server.artifact_store.get_artifact_store"
-            ) as mock_store,
+            patch("osprey.mcp_server.artifact_store.get_artifact_store") as mock_store,
         ):
             mock_store.return_value.get_file_path.return_value = art_file
             await tool_fn(
@@ -202,9 +186,7 @@ class TestCreateInteractivePlot:
         # Resolved path should appear in the generated code
         assert str(art_file) in captured_code
 
-    async def test_data_source_artifact_store_entry(
-        self, tool_fn, tmp_path, mock_execution_folder
-    ):
+    async def test_data_source_artifact_store_entry(self, tool_fn, tmp_path, mock_execution_folder):
         """Verify hex artifact ID data_source resolves via ArtifactStore."""
         # Save data to ArtifactStore so a hex artifact ID exists
         store = get_artifact_store()
@@ -223,9 +205,7 @@ class TestCreateInteractivePlot:
         async def mock_execute(code, execution_folder):
             nonlocal captured_code
             captured_code = code
-            return SandboxExecutionResult(
-                success=True, stdout="", stderr="", artifacts=[]
-            )
+            return SandboxExecutionResult(success=True, stdout="", stderr="", artifacts=[])
 
         with (
             patch(_SANDBOX_EXEC_TARGET, side_effect=mock_execute),
@@ -255,17 +235,13 @@ class TestResolveDataSource:
         assert result == "data/002_archiver_read.json"
 
     def test_artifact_id_resolves_via_store(self):
-        with patch(
-            "osprey.mcp_server.artifact_store.get_artifact_store"
-        ) as mock_store:
+        with patch("osprey.mcp_server.artifact_store.get_artifact_store") as mock_store:
             mock_store.return_value.get_file_path.return_value = Path("/art/file.csv")
             result = resolve_data_source("a1b2c3d4e5f6")
         assert result == "/art/file.csv"
 
     def test_artifact_id_not_found_raises(self):
-        with patch(
-            "osprey.mcp_server.artifact_store.get_artifact_store"
-        ) as mock_store:
+        with patch("osprey.mcp_server.artifact_store.get_artifact_store") as mock_store:
             mock_store.return_value.get_file_path.return_value = None
             with pytest.raises(FileNotFoundError, match="Artifact.*not found"):
                 resolve_data_source("a1b2c3d4e5f6")

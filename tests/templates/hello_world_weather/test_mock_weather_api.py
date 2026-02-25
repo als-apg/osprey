@@ -8,8 +8,6 @@ random weather data regardless of the location provided.
 
 from datetime import datetime
 
-import pytest
-
 from osprey.templates.apps.hello_world_weather.mock_weather_api import (
     SimpleWeatherAPI,
     weather_api,

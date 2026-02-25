@@ -81,7 +81,7 @@ class ServerLauncher:
         # Brief health-check to verify server came up
         import time
 
-        for attempt in range(3):
+        for _attempt in range(3):
             time.sleep(0.5)
             if self._is_running(host, port):
                 logger.info("%s health check passed", self._name)

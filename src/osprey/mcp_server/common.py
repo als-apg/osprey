@@ -315,7 +315,9 @@ def gather_session_metadata(created_via: str) -> dict:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, timeout=2,
+            capture_output=True,
+            text=True,
+            timeout=2,
         )
         if result.returncode == 0:
             git_branch = result.stdout.strip() or None
@@ -324,7 +326,9 @@ def gather_session_metadata(created_via: str) -> dict:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True, text=True, timeout=2,
+            capture_output=True,
+            text=True,
+            timeout=2,
         )
         if result.returncode == 0:
             git_commit_short = result.stdout.strip() or None

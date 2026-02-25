@@ -237,12 +237,8 @@ class PromptRegistry:
     """
 
     def __init__(self, artifacts: list[PromptArtifact]) -> None:
-        self._by_name: dict[str, PromptArtifact] = {
-            a.canonical_name: a for a in artifacts
-        }
-        self._by_output: dict[str, PromptArtifact] = {
-            a.output_path: a for a in artifacts
-        }
+        self._by_name: dict[str, PromptArtifact] = {a.canonical_name: a for a in artifacts}
+        self._by_output: dict[str, PromptArtifact] = {a.output_path: a for a in artifacts}
 
     @classmethod
     def default(cls) -> PromptRegistry:

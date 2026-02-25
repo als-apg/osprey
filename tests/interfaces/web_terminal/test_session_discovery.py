@@ -46,10 +46,12 @@ class TestListSessions:
         session_file = sessions_dir / f"{session_id}.jsonl"
         lines = [
             json.dumps({"type": "queue-operation", "sessionId": session_id}),
-            json.dumps({
-                "type": "user",
-                "message": {"content": "Hello, can you help me with beam tuning?"},
-            }),
+            json.dumps(
+                {
+                    "type": "user",
+                    "message": {"content": "Hello, can you help me with beam tuning?"},
+                }
+            ),
             json.dumps({"type": "assistant", "message": {"content": "Sure!"}}),
         ]
         session_file.write_text("\n".join(lines))
@@ -101,6 +103,7 @@ class TestListSessions:
             f.write_text(json.dumps({"type": "user", "message": {"content": name}}))
             # Set mtime — older file gets earlier time
             import os
+
             mtime = time.time() - (100 - i * 50)
             os.utime(f, (mtime, mtime))
 
@@ -119,15 +122,17 @@ class TestListSessions:
 
         session_id = "multi-part-cccc-dddd-eeeeeeeeeeee"
         session_file = sessions_dir / f"{session_id}.jsonl"
-        line = json.dumps({
-            "type": "user",
-            "message": {
-                "content": [
-                    {"type": "text", "text": "Multi-part message here"},
-                    {"type": "image", "source": "..."},
-                ],
-            },
-        })
+        line = json.dumps(
+            {
+                "type": "user",
+                "message": {
+                    "content": [
+                        {"type": "text", "text": "Multi-part message here"},
+                        {"type": "image", "source": "..."},
+                    ],
+                },
+            }
+        )
         session_file.write_text(line)
 
         discovery = SessionDiscovery("/test")
@@ -244,5 +249,3 @@ class TestAllowedIdsFilter:
 
         result = discovery.list_sessions(allowed_ids=None)
         assert len(result) == 1
-
-

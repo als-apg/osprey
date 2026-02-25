@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -92,10 +90,6 @@ def pending_review_client(mock_config, mock_registry, tmp_path):
         application = create_app(project_cwd="/tmp/test-project")
         with TestClient(application) as c:
             # Set after lifespan runs (lifespan sets stores=None)
-            application.state.pending_review_store = PendingReviewStore(
-                tmp_path / "pending.json"
-            )
-            application.state.feedback_store = FeedbackStore(
-                tmp_path / "feedback.json"
-            )
+            application.state.pending_review_store = PendingReviewStore(tmp_path / "pending.json")
+            application.state.feedback_store = FeedbackStore(tmp_path / "feedback.json")
             yield c

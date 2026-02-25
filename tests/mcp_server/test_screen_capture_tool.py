@@ -396,9 +396,7 @@ async def test_list_windows_backend_failure(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     backend = _make_mock_backend()
-    backend.list_windows = AsyncMock(
-        side_effect=RuntimeError("Swift window listing failed")
-    )
+    backend.list_windows = AsyncMock(side_effect=RuntimeError("Swift window listing failed"))
 
     with patch(_BACKEND_PATCH, return_value=backend):
         fn = _get_list_windows()
@@ -529,9 +527,7 @@ async def test_manage_window_injection_prevention(tmp_path, monkeypatch):
 
     with patch(_BACKEND_PATCH, return_value=backend):
         fn = _get_manage_window()
-        result = await fn(
-            app='Finder"; do shell script "rm -rf /', action="bring_to_front"
-        )
+        result = await fn(app='Finder"; do shell script "rm -rf /', action="bring_to_front")
 
     data = json.loads(result)
     assert data["error"] is True

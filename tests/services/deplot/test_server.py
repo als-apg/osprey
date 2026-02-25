@@ -76,7 +76,7 @@ class TestExtractEndpoint:
 
     async def test_extract_with_preprocess(self, client):
         """Test extraction with preprocessing enabled (mocked model + CV)."""
-        cv2 = pytest.importorskip("cv2", reason="OpenCV not installed")
+        pytest.importorskip("cv2", reason="OpenCV not installed")
 
         mock_result = {
             "title": "",

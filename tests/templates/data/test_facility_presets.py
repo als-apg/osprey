@@ -1,7 +1,5 @@
 """Tests for EPICS facility presets."""
 
-import pytest
-
 from osprey.templates.data.facility_presets import (
     FACILITY_PRESETS,
     get_facility_choices,

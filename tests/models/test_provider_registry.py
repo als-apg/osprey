@@ -53,8 +53,15 @@ class TestProviderRegistry:
         reg = ProviderRegistry()
         names = reg.list_providers()
         expected = {
-            "anthropic", "openai", "google", "ollama", "cborg",
-            "stanford", "argo", "asksage", "vllm",
+            "anthropic",
+            "openai",
+            "google",
+            "ollama",
+            "cborg",
+            "stanford",
+            "argo",
+            "asksage",
+            "vllm",
         }
         assert expected == set(names)
         assert len(names) == 9

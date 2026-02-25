@@ -16,9 +16,15 @@ from ..core.base_database import BaseDatabase, DatabaseWriteError
 
 logger = logging.getLogger(__name__)
 
-_HIER_META_KEYS = frozenset({
-    "_description", "_expansion", "_channel_part", "_is_leaf", "_separator",
-})
+_HIER_META_KEYS = frozenset(
+    {
+        "_description",
+        "_expansion",
+        "_channel_part",
+        "_is_leaf",
+        "_separator",
+    }
+)
 
 
 class HierarchicalChannelDatabase(BaseDatabase):
@@ -1660,15 +1666,9 @@ class HierarchicalChannelDatabase(BaseDatabase):
 
         # Determine level info
         level_name = (
-            self.hierarchy_levels[level_idx]
-            if level_idx < len(self.hierarchy_levels)
-            else None
+            self.hierarchy_levels[level_idx] if level_idx < len(self.hierarchy_levels) else None
         )
-        level_config = (
-            self.hierarchy_config["levels"].get(level_name, {})
-            if level_name
-            else {}
-        )
+        level_config = self.hierarchy_config["levels"].get(level_name, {}) if level_name else {}
         level_type = level_config.get("type", "tree")
 
         if level_type == "instances":
@@ -1712,8 +1712,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
                 if "_expansion" in child_node:
                     exp_count = self._expansion_instance_count(child_node["_expansion"])
                     lines.append(
-                        f"{indent}{child_key} ({channel_count} ch, "
-                        f"{exp_count} instances){desc_str}"
+                        f"{indent}{child_key} ({channel_count} ch, {exp_count} instances){desc_str}"
                     )
                 else:
                     lines.append(f"{indent}{child_key} ({channel_count} ch){desc_str}")
@@ -1913,9 +1912,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
         parent = self._navigate_for_write(parent_selections)
 
         if name in parent:
-            raise DatabaseWriteError(
-                f"Node '{name}' already exists at this level", "duplicate"
-            )
+            raise DatabaseWriteError(f"Node '{name}' already exists at this level", "duplicate")
 
         new_node: dict = {}
         if description:
@@ -1959,9 +1956,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
 
         if effective_name != old_name:
             if effective_name in parent:
-                raise DatabaseWriteError(
-                    f"Node '{effective_name}' already exists", "duplicate"
-                )
+                raise DatabaseWriteError(f"Node '{effective_name}' already exists", "duplicate")
             parent[effective_name] = parent.pop(old_name)
 
         if description is not None:
@@ -2146,7 +2141,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
             lvl_idx = self.hierarchy_levels.index(level)
         except ValueError:
             lvl_idx = -1
-        remaining = self.hierarchy_levels[lvl_idx + 1:] if lvl_idx >= 0 else self.hierarchy_levels
+        remaining = self.hierarchy_levels[lvl_idx + 1 :] if lvl_idx >= 0 else self.hierarchy_levels
 
         impact = self._collect_impact(parent[name], remaining, self._level_types)
         impact["channels"] = self._count_channels(parent[name])

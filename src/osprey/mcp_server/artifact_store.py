@@ -427,9 +427,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         if source_agent_filter:
             entries = [e for e in entries if e.source_agent == source_agent_filter]
         if session_filter:
-            entries = [
-                e for e in entries if e.session_id == session_filter or not e.session_id
-            ]
+            entries = [e for e in entries if e.session_id == session_filter or not e.session_id]
         if pinned is not None:
             entries = [e for e in entries if e.pinned == pinned]
         if search:

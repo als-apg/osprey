@@ -29,7 +29,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 # Plotly.newPlot() applies layout.width/height via JS *after* load, overriding
 # CSS.  We therefore inject a script that deletes those fixed dimensions and
 # calls Plotly.Plots.resize() once the library is ready.
-_RESPONSIVE_PLOTLY = """<style>
+_RESPONSIVE_PLOTLY = r"""<style>
 /* OSPREY: fill iframe viewport */
 html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
 .plotly-graph-div { width: 100% !important; height: 100vh !important; }
@@ -326,6 +326,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         workspace_root: Workspace root containing ``artifacts/`` dir.
             Defaults to ``./osprey-workspace``.
     """
+    from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher
     from osprey.mcp_server.artifact_store import (
         ArtifactEntry,
         ArtifactStore,
@@ -338,8 +339,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         register_memory_listener,
         unregister_memory_listener,
     )
-
-    from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher
 
     store = ArtifactStore(workspace_root=workspace_root)
     memory_store = MemoryStore(workspace_root=workspace_root)
@@ -450,7 +449,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         session_id: str | None = None,
     ):
         entries = store.list_entries(
-            type_filter=type, search=search, pinned=pinned,
+            type_filter=type,
+            search=search,
+            pinned=pinned,
             category_filter=category,
             session_filter=session_id,
         )
@@ -490,9 +491,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
         data_file = entry.data_file or entry.metadata.get("data_file")
         if not data_file:
-            raise HTTPException(
-                status_code=400, detail="Artifact has no associated data file"
-            )
+            raise HTTPException(status_code=400, detail="Artifact has no associated data file")
 
         filepath = Path(data_file)
         if not filepath.is_absolute():

@@ -4,9 +4,6 @@ Covers: config loading, make_error format, DataContext
 save/list/get operations, config bridge (create_server primes ConfigBuilder).
 """
 
-import json
-from pathlib import Path
-
 import pytest
 
 
@@ -78,9 +75,7 @@ async def test_load_osprey_config_resolves_env_vars(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     config_file = tmp_path / "config.yml"
     config_file.write_text(
-        "control_system:\n"
-        "  type: ${CS_TYPE:-mock}\n"
-        "  host: ${CS_HOST:-localhost}\n"
+        "control_system:\n  type: ${CS_TYPE:-mock}\n  host: ${CS_HOST:-localhost}\n"
     )
 
     # CS_TYPE not set → should use default "mock"

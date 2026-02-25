@@ -141,9 +141,7 @@ class TestMmlBrowse:
     @pytest.mark.asyncio
     async def test_browse_sort_by_in_degree(self, patch_db):
         fn = get_tool_fn(mml_browse)
-        result = json.loads(
-            await fn(group="StorageRing", sort_by="in_degree", order="desc")
-        )
+        result = json.loads(await fn(group="StorageRing", sort_by="in_degree", order="desc"))
         assert "error" not in result
         degrees = [f["in_degree"] for f in result["functions"]]
         assert degrees == sorted(degrees, reverse=True)
@@ -163,9 +161,7 @@ class TestMmlDependencies:
     @pytest.mark.asyncio
     async def test_callees_depth_1(self, patch_db):
         fn = get_tool_fn(mml_dependencies)
-        result = json.loads(
-            await fn(function_name="orbitcorrection", direction="callees", depth=1)
-        )
+        result = json.loads(await fn(function_name="orbitcorrection", direction="callees", depth=1))
         assert "error" not in result
         callees = [c["function_name"] for c in result["callees"]]
         assert "getbpm" in callees
@@ -175,9 +171,7 @@ class TestMmlDependencies:
     @pytest.mark.asyncio
     async def test_callers_depth_1(self, patch_db):
         fn = get_tool_fn(mml_dependencies)
-        result = json.loads(
-            await fn(function_name="family2channel", direction="callers", depth=1)
-        )
+        result = json.loads(await fn(function_name="family2channel", direction="callers", depth=1))
         assert "error" not in result
         callers = [c["function_name"] for c in result["callers"]]
         assert "getbpm" in callers
@@ -187,9 +181,7 @@ class TestMmlDependencies:
     @pytest.mark.asyncio
     async def test_both_directions(self, patch_db):
         fn = get_tool_fn(mml_dependencies)
-        result = json.loads(
-            await fn(function_name="setsp", direction="both", depth=1)
-        )
+        result = json.loads(await fn(function_name="setsp", direction="both", depth=1))
         assert "error" not in result
         assert "callers" in result
         assert "callees" in result
@@ -197,9 +189,7 @@ class TestMmlDependencies:
     @pytest.mark.asyncio
     async def test_deeper_traversal(self, patch_db):
         fn = get_tool_fn(mml_dependencies)
-        result = json.loads(
-            await fn(function_name="orbitcorrection", direction="callees", depth=2)
-        )
+        result = json.loads(await fn(function_name="orbitcorrection", direction="callees", depth=2))
         assert "error" not in result
         # Depth 2 should include family2channel (called by getbpm which is called by orbitcorrection)
         callees = [c["function_name"] for c in result["callees"]]
@@ -215,9 +205,7 @@ class TestMmlDependencies:
     @pytest.mark.asyncio
     async def test_invalid_direction(self, patch_db):
         fn = get_tool_fn(mml_dependencies)
-        result = json.loads(
-            await fn(function_name="getbpm", direction="invalid")
-        )
+        result = json.loads(await fn(function_name="getbpm", direction="invalid"))
         assert result["error"] is True
         assert result["error_type"] == "validation_error"
 
@@ -246,9 +234,7 @@ class TestMmlPath:
     @pytest.mark.asyncio
     async def test_indirect_path(self, patch_db):
         fn = get_tool_fn(mml_path)
-        result = json.loads(
-            await fn(source="bts_init", target="family2channel")
-        )
+        result = json.loads(await fn(source="bts_init", target="family2channel"))
         assert "error" not in result
         assert result["path"] is not None
         assert result["path"][0] == "bts_init"
@@ -266,9 +252,7 @@ class TestMmlPath:
     async def test_no_path(self, patch_db):
         fn = get_tool_fn(mml_path)
         # family2channel doesn't call anything in our sample
-        result = json.loads(
-            await fn(source="family2channel", target="orbitcorrection")
-        )
+        result = json.loads(await fn(source="family2channel", target="orbitcorrection"))
         assert result["path"] is None
 
     @pytest.mark.asyncio

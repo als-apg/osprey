@@ -13,7 +13,6 @@ from osprey.interfaces.web_terminal.claude_memory_service import (
     MemoryValidationError,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -207,27 +206,33 @@ class TestDeleteFile:
 
 
 class TestFilenameValidation:
-    @pytest.mark.parametrize("filename", [
-        "../escape.md",
-        "../../etc/passwd",
-        "path/traversal.md",
-        "bad\\.md",
-        "",
-        "no-extension",
-        ".hidden.md",
-        "has spaces.md",
-    ])
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "../escape.md",
+            "../../etc/passwd",
+            "path/traversal.md",
+            "bad\\.md",
+            "",
+            "no-extension",
+            ".hidden.md",
+            "has spaces.md",
+        ],
+    )
     def test_invalid_filenames(self, service, memory_dir, filename):
         with pytest.raises(MemoryValidationError):
             service.read_file(filename)
 
-    @pytest.mark.parametrize("filename", [
-        "MEMORY.md",
-        "debugging.md",
-        "my-notes.md",
-        "topic_1.md",
-        "A.md",
-    ])
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "MEMORY.md",
+            "debugging.md",
+            "my-notes.md",
+            "topic_1.md",
+            "A.md",
+        ],
+    )
     def test_valid_filenames(self, service, memory_dir, filename):
         (memory_dir / filename).write_text("x\n", encoding="utf-8")
         result = service.read_file(filename)

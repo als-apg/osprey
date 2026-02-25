@@ -158,9 +158,7 @@ class TestBuildIndex:
     def test_builds_collection(self, tmp_path, sample_json_dir):
         """Test that build_index creates a collection and imports documents."""
         mock_docs = MagicMock()
-        mock_docs.import_ = MagicMock(
-            return_value=[{"success": True} for _ in range(5)]
-        )
+        mock_docs.import_ = MagicMock(return_value=[{"success": True} for _ in range(5)])
         mock_collection = MagicMock()
         mock_collection.documents = mock_docs
 
@@ -197,12 +195,16 @@ class TestBuildIndex:
         data_dir = tmp_path / "data"
         data_dir.mkdir()
         (data_dir / "bad.json").write_text("NOT JSON")
-        (data_dir / "good.json").write_text(json.dumps({
-            "texkey": "Test:2020abc",
-            "title": "A valid paper",
-            "year": "2020",
-            "content": None,
-        }))
+        (data_dir / "good.json").write_text(
+            json.dumps(
+                {
+                    "texkey": "Test:2020abc",
+                    "title": "A valid paper",
+                    "year": "2020",
+                    "content": None,
+                }
+            )
+        )
 
         mock_docs = MagicMock()
         mock_docs.import_ = MagicMock(return_value=[{"success": True}])

@@ -8,16 +8,12 @@ import pytest
 from osprey.mcp_server.workspace.execution.sandbox_executor import SandboxExecutionResult
 
 # Mock targets for the sandbox executor used by create_dashboard
-_SANDBOX_EXEC_TARGET = (
-    "osprey.mcp_server.workspace.execution.sandbox_executor.execute_sandbox_code"
-)
+_SANDBOX_EXEC_TARGET = "osprey.mcp_server.workspace.execution.sandbox_executor.execute_sandbox_code"
 _SANDBOX_FOLDER_TARGET = (
     "osprey.mcp_server.workspace.execution.sandbox_executor.create_sandbox_execution_folder"
 )
 # Mock target for the bokeh availability check
-_BOKEH_CHECK_TARGET = (
-    "osprey.mcp_server.workspace.tools.create_dashboard.importlib"
-)
+_BOKEH_CHECK_TARGET = "osprey.mcp_server.workspace.tools.create_dashboard.importlib"
 
 
 class TestCreateDashboard:
@@ -57,9 +53,7 @@ class TestCreateDashboard:
         mock_importlib = MagicMock()
         mock_importlib.import_module.side_effect = ImportError("No module named 'bokeh'")
         with patch(_BOKEH_CHECK_TARGET, mock_importlib):
-            result = json.loads(
-                await tool_fn(code="p = figure()", title="No Bokeh")
-            )
+            result = json.loads(await tool_fn(code="p = figure()", title="No Bokeh"))
 
         assert result["error"] is True
         assert result["error_type"] == "dependency_missing"
@@ -79,9 +73,7 @@ class TestCreateDashboard:
             patch(_SANDBOX_EXEC_TARGET, new_callable=AsyncMock, return_value=mock_result),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
         ):
-            result = json.loads(
-                await tool_fn(code="p = figure()", title="Bad Dashboard")
-            )
+            result = json.loads(await tool_fn(code="p = figure()", title="Bad Dashboard"))
 
         assert result["error"] is True
         assert result["error_type"] == "execution_error"
@@ -99,9 +91,7 @@ class TestCreateDashboard:
             patch(_SANDBOX_EXEC_TARGET, new_callable=AsyncMock, return_value=mock_result),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
         ):
-            result = json.loads(
-                await tool_fn(code="x = 1", title="Empty Dashboard")
-            )
+            result = json.loads(await tool_fn(code="x = 1", title="Empty Dashboard"))
 
         assert result["error"] is True
         assert result["error_type"] == "execution_error"
@@ -144,9 +134,7 @@ class TestCreateDashboard:
         assert len(result["artifact_ids"]) == 1
         assert result["artifact_id"] is not None
 
-    async def test_preamble_includes_bokeh_imports(
-        self, tool_fn, mock_execution_folder
-    ):
+    async def test_preamble_includes_bokeh_imports(self, tool_fn, mock_execution_folder):
         """Verify Bokeh imports are prepended to the code."""
         captured_code = None
 
@@ -229,9 +217,7 @@ class TestCreateDashboard:
             patch(_SANDBOX_EXEC_TARGET, new_callable=AsyncMock, return_value=mock_result),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
         ):
-            result = json.loads(
-                await tool_fn(code="pass", title="Multi-panel Dashboard")
-            )
+            result = json.loads(await tool_fn(code="pass", title="Multi-panel Dashboard"))
 
         assert result["status"] == "success"
         assert len(result["artifact_ids"]) == 2

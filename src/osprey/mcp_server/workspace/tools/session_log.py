@@ -18,7 +18,6 @@ logger = logging.getLogger("osprey.mcp_server.tools.session_log")
 MAX_LAST_N = 200
 
 
-
 def _build_agent_windows(events: list[dict], agent_type: str) -> list[tuple[str, str, str]]:
     """Build (agent_id, start_ts, stop_ts) windows for a given agent_type.
 
@@ -271,9 +270,7 @@ async def session_log(
             if target_agent_type:
                 agent_windows = _build_agent_windows(all_events, target_agent_type)
             if agent_id and agent_windows:
-                agent_windows = [
-                    (aid, s, e) for aid, s, e in agent_windows if aid == agent_id
-                ]
+                agent_windows = [(aid, s, e) for aid, s, e in agent_windows if aid == agent_id]
 
     # Apply filters
     filtered: list[dict] = []
