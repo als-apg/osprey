@@ -21,6 +21,7 @@ def create_server() -> FastMCP:
         initialize_workspace_singletons,
         prime_config_builder,
         resolve_workspace_root,
+        startup_timer,
     )
 
     # Prime the main ConfigBuilder and registry so downstream services
@@ -33,25 +34,26 @@ def create_server() -> FastMCP:
     initialize_workspace_singletons(workspace_root)
 
     # Import tool modules (each registers itself via @mcp.tool())
-    from osprey.mcp_server.workspace.tools import (  # noqa: F401
-        archiver_downsample,
-        artifact_export,
-        artifact_save,
-        create_dashboard,
-        create_document,
-        create_interactive_plot,
-        create_static_plot,
-        data_context_tools,
-        facility_description,
-        focus_tools,
-        graph_tools,
-        memory,
-        screen_capture,
-        session_log,
-        session_summary,
-        setup,
-        submit_response,
-    )
+    with startup_timer("tool_imports"):
+        from osprey.mcp_server.workspace.tools import (  # noqa: F401
+            archiver_downsample,
+            artifact_export,
+            artifact_save,
+            create_dashboard,
+            create_document,
+            create_interactive_plot,
+            create_static_plot,
+            data_context_tools,
+            facility_description,
+            focus_tools,
+            graph_tools,
+            memory,
+            screen_capture,
+            session_log,
+            session_summary,
+            setup,
+            submit_response,
+        )
 
     logger.info("Workspace MCP server initialised with all tools registered")
     return mcp
