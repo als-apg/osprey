@@ -90,13 +90,11 @@ def hier_db_instances(tmp_path: Path) -> HierarchicalChannelDatabase:
 
 
 class TestGenerateTreePreview:
-    def test_header_contains_channel_count(
-        self, hier_db: HierarchicalChannelDatabase
-    ):
+    def test_header_contains_channel_count(self, hier_db: HierarchicalChannelDatabase):
         preview = hier_db.generate_tree_preview()
         first_line = preview.splitlines()[0]
         assert "Database Structure" in first_line
-        assert "total channels" in first_line
+        assert "5 total channels" in first_line
 
     def test_hierarchy_line(self, hier_db: HierarchicalChannelDatabase):
         preview = hier_db.generate_tree_preview()
@@ -108,15 +106,10 @@ class TestGenerateTreePreview:
         preview = hier_db.generate_tree_preview()
         assert "Naming: {system}:{device}:{signal}" in preview
 
-    def test_node_names_with_channel_counts(
-        self, hier_db: HierarchicalChannelDatabase
-    ):
+    def test_node_names_with_channel_counts(self, hier_db: HierarchicalChannelDatabase):
         preview = hier_db.generate_tree_preview()
-        # Top-level systems should appear with channel counts
-        assert "SR" in preview
-        assert "BR" in preview
-        # Channel count format: "NodeName (N ch)"
-        assert " ch)" in preview
+        assert "SR (3 ch)" in preview
+        assert "BR (2 ch)" in preview
 
     def test_descriptions_included(self, hier_db: HierarchicalChannelDatabase):
         preview = hier_db.generate_tree_preview()
@@ -125,9 +118,7 @@ class TestGenerateTreePreview:
         assert "Quadrupole" in preview
         assert "Booster Ring" in preview
 
-    def test_max_depth_limits_rendering(
-        self, hier_db: HierarchicalChannelDatabase
-    ):
+    def test_max_depth_limits_rendering(self, hier_db: HierarchicalChannelDatabase):
         # depth=1 should show only system-level nodes, not their children
         shallow = hier_db.generate_tree_preview(max_depth=1)
         assert "SR" in shallow
@@ -159,16 +150,12 @@ class TestGenerateTreePreview:
         # Only 3 systems shown, 7 truncated
         assert "... and 7 more" in preview
 
-    def test_caching_returns_same_object(
-        self, hier_db: HierarchicalChannelDatabase
-    ):
+    def test_caching_returns_same_object(self, hier_db: HierarchicalChannelDatabase):
         first = hier_db.generate_tree_preview(max_depth=2, max_children=3)
         second = hier_db.generate_tree_preview(max_depth=2, max_children=3)
         assert first is second
 
-    def test_different_params_not_cached_together(
-        self, hier_db: HierarchicalChannelDatabase
-    ):
+    def test_different_params_not_cached_together(self, hier_db: HierarchicalChannelDatabase):
         a = hier_db.generate_tree_preview(max_depth=1, max_children=5)
         b = hier_db.generate_tree_preview(max_depth=3, max_children=5)
         # Different depth should produce different content
@@ -190,9 +177,7 @@ class TestInstanceLevelPreview:
         assert "3 instances" in preview
         assert "01..03" in preview
 
-    def test_instance_level_children_rendered(
-        self, hier_db_instances: HierarchicalChannelDatabase
-    ):
+    def test_instance_level_children_rendered(self, hier_db_instances: HierarchicalChannelDatabase):
         preview = hier_db_instances.generate_tree_preview()
         # Children of the instance container (I, V) should appear
         assert "I" in preview
@@ -205,12 +190,8 @@ class TestInstanceLevelPreview:
 
 
 class TestGenerateSubtreePreview:
-    def test_subtree_scopes_to_position(
-        self, hier_db: HierarchicalChannelDatabase
-    ):
-        preview = hier_db.generate_subtree_preview(
-            previous_selections={"system": "SR"}
-        )
+    def test_subtree_scopes_to_position(self, hier_db: HierarchicalChannelDatabase):
+        preview = hier_db.generate_subtree_preview(previous_selections={"system": "SR"})
         assert "Subtree at:" in preview
         assert "system=SR" in preview
         # Should show children of SR (BPM, QUAD) but not BR
@@ -218,25 +199,15 @@ class TestGenerateSubtreePreview:
         assert "QUAD" in preview
         assert "BR" not in preview
 
-    def test_subtree_shows_channel_count(
-        self, hier_db: HierarchicalChannelDatabase
-    ):
-        preview = hier_db.generate_subtree_preview(
-            previous_selections={"system": "SR"}
-        )
-        assert "channels below this point" in preview
+    def test_subtree_shows_channel_count(self, hier_db: HierarchicalChannelDatabase):
+        preview = hier_db.generate_subtree_preview(previous_selections={"system": "SR"})
+        assert "3 channels below this point" in preview
 
-    def test_subtree_invalid_position_returns_empty(
-        self, hier_db: HierarchicalChannelDatabase
-    ):
-        result = hier_db.generate_subtree_preview(
-            previous_selections={"system": "NONEXISTENT"}
-        )
+    def test_subtree_invalid_position_returns_empty(self, hier_db: HierarchicalChannelDatabase):
+        result = hier_db.generate_subtree_preview(previous_selections={"system": "NONEXISTENT"})
         assert result == ""
 
-    def test_subtree_all_levels_selected_returns_empty(
-        self, hier_db: HierarchicalChannelDatabase
-    ):
+    def test_subtree_all_levels_selected_returns_empty(self, hier_db: HierarchicalChannelDatabase):
         result = hier_db.generate_subtree_preview(
             previous_selections={
                 "system": "SR",
@@ -246,9 +217,7 @@ class TestGenerateSubtreePreview:
         )
         assert result == ""
 
-    def test_subtree_deeper_navigation(
-        self, hier_db: HierarchicalChannelDatabase
-    ):
+    def test_subtree_deeper_navigation(self, hier_db: HierarchicalChannelDatabase):
         preview = hier_db.generate_subtree_preview(
             previous_selections={"system": "SR", "device": "BPM"}
         )

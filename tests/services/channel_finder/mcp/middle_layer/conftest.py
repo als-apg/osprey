@@ -7,9 +7,20 @@ from osprey.services.channel_finder.mcp.middle_layer.registry import reset_cf_ml
 
 @pytest.fixture(autouse=True)
 def _reset_registry():
-    """Reset registry singletons between tests."""
+    """Reset registry singletons and config caches between tests."""
+    from osprey.mcp_server.common import reset_config_cache
+    import osprey.utils.config as _cfg
+
+    reset_config_cache()
+    _cfg._default_config = None
+    _cfg._default_configurable = None
+    _cfg._config_cache.clear()
+
     yield
+
     reset_cf_ml_registry()
+    reset_config_cache()
+    _cfg._config_cache.clear()
 
 
 def get_tool_fn(tool_or_fn):

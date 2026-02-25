@@ -317,8 +317,8 @@ class TestDescriptionExtraction:
         result = service.list_artifacts()
         by_name = {a["name"]: a for a in result}
         art = by_name["rules/safety"]
-        assert art["summary"] == "Safety boundaries and tool confinement"
-        assert "MCP tool interactions" in art["description"]
+        assert art["summary"] == "Safety boundaries, channel write safety, and data integrity"
+        assert "tool confinement" in art["description"]
 
     def test_command_has_summary_from_front_matter(self, service):
         """Command artifacts get summary from added front matter."""

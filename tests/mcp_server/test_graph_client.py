@@ -19,9 +19,9 @@ class TestGetDeplotUrl:
     """Tests for get_deplot_url config resolution."""
 
     def test_default_url(self, monkeypatch, tmp_path):
-        monkeypatch.chdir(tmp_path)
         from osprey.mcp_server.common import reset_config_cache
 
+        monkeypatch.chdir(tmp_path)
         reset_config_cache()
         url = get_deplot_url()
         assert url == "http://127.0.0.1:8095"
@@ -31,10 +31,10 @@ class TestGetDeplotUrl:
 
         from osprey.mcp_server.common import reset_config_cache
 
-        reset_config_cache()
         config = tmp_path / "config.yml"
         config.write_text(yaml.dump({"deplot": {"host": "10.0.0.5", "port": 9000}}))
         monkeypatch.chdir(tmp_path)
+        reset_config_cache()
 
         url = get_deplot_url()
         assert url == "http://10.0.0.5:9000"

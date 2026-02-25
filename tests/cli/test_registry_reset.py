@@ -11,18 +11,42 @@ the global registry singleton is cleared when switching between projects.
 """
 
 import os
-from unittest.mock import patch
+import sys
+import types
+from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _fake_direct_conversation():
+    """Inject a fake osprey.interfaces.cli.direct_conversation module.
+
+    handle_chat_action() does a dynamic import:
+        from osprey.interfaces.cli.direct_conversation import run_cli
+    This module may not exist in the test environment, so we inject a
+    stub into sys.modules to let the import succeed.
+    """
+    mod_name = "osprey.interfaces.cli.direct_conversation"
+    fake_mod = types.ModuleType(mod_name)
+    fake_mod.run_cli = MagicMock(name="run_cli")
+    old = sys.modules.get(mod_name)
+    sys.modules[mod_name] = fake_mod
+    yield fake_mod
+    if old is None:
+        sys.modules.pop(mod_name, None)
+    else:
+        sys.modules[mod_name] = old
 
 
 class TestRegistryResetInInteractiveMenu:
     """Test that handle_chat_action properly resets registry before starting chat."""
 
+    @patch("builtins.input")
     @patch("osprey.cli.interactive_menu.asyncio.run")
     @patch("osprey.registry.reset_registry")
     def test_handle_chat_action_resets_registry_with_project_path(
-        self, mock_reset, mock_asyncio_run, tmp_path
+        self, mock_reset, mock_asyncio_run, mock_input, tmp_path
     ):
         """
         Test that handle_chat_action calls reset_registry when given a project path.
@@ -52,10 +76,11 @@ class TestRegistryResetInInteractiveMenu:
             if os.getcwd() != str(original_cwd):
                 os.chdir(original_cwd)
 
+    @patch("builtins.input")
     @patch("osprey.cli.interactive_menu.asyncio.run")
     @patch("osprey.registry.reset_registry")
     def test_handle_chat_action_resets_registry_default_path(
-        self, mock_reset, mock_asyncio_run, tmp_path
+        self, mock_reset, mock_asyncio_run, mock_input, tmp_path
     ):
         """
         Test that handle_chat_action resets registry even when using default path.
@@ -86,8 +111,9 @@ class TestRegistryResetInInteractiveMenu:
             # Restore original directory
             os.chdir(original_cwd)
 
+    @patch("builtins.input")
     @patch("osprey.registry.reset_registry")
-    def test_reset_called_before_chat_not_after(self, mock_reset, tmp_path):
+    def test_reset_called_before_chat_not_after(self, mock_reset, mock_input, tmp_path):
         """
         Verify that reset_registry is called BEFORE initializing the chat,
         not after. This timing is critical to prevent capability leakage.

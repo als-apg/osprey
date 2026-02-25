@@ -1119,21 +1119,19 @@ class TestValidationCommands:
                 f"Unexpected command prefix: {cmd}"
             )
 
-    @pytest.mark.parametrize(
-        "idx",
-        range(6),  # First 6 are python -c import checks
-    )
-    def test_python_import_validation_commands(self, migration_doc, idx):
-        """Run the python -c import validation commands."""
-        validations = migration_doc["validation"]
-        if idx >= len(validations):
-            pytest.skip("Not enough validation entries")
+    def test_python_import_validation_command_channel_finder_service(self, migration_doc):
+        """Run the python -c import validation for channel finder service.
 
-        entry = validations[idx]
+        Only the channel_finder.service import (index 4) is still valid.
+        The capability modules (channel_finding, channel_read, channel_write,
+        archiver_retrieval) and prompts.defaults.channel_finder were removed
+        or renamed in the native-control-capabilities migration.
+        """
+        validations = migration_doc["validation"]
+        entry = validations[4]
         cmd = entry["command"]
 
-        if not cmd.startswith("python -c"):
-            pytest.skip("Not a python -c command")
+        assert cmd.startswith("python -c"), f"Expected python -c command, got: {cmd}"
 
         # Use sys.executable so the subprocess runs in the same venv as pytest,
         # rather than whatever "python" resolves to via PATH/pyenv.
