@@ -145,19 +145,26 @@ function broadcastTheme(name) {
         { type: 'osprey-theme-change', theme: name },
         '*'
       );
+      iframe.contentWindow.postMessage(
+        { type: 'theme:set', theme: name },
+        '*'
+      );
     } catch {
       // cross-origin — expected for some iframes
     }
   }
 
-  // Grafana special case: update iframe src URL with theme param
-  const monitoringIframes = document.querySelectorAll('.panel-iframe[src*="grafana"], .panel-iframe[src*="monitoring"]');
-  for (const iframe of monitoringIframes) {
+  // Cross-origin iframes (Grafana, agentsview): update iframe src URL with theme param
+  // These panels don't share our origin, so postMessage may not reach them —
+  // reload the iframe with the new ?theme= query parameter instead.
+  const CROSS_ORIGIN_PANELS = ['monitoring'];
+  for (const panelId of CROSS_ORIGIN_PANELS) {
+    const iframe = document.querySelector(`.panel-iframe[data-panel-id="${panelId}"]`);
+    if (!iframe) continue;
     try {
       const url = new URL(iframe.src);
-      const grafanaTheme = name === 'light' ? 'light' : 'dark';
-      if (url.searchParams.get('theme') !== grafanaTheme) {
-        url.searchParams.set('theme', grafanaTheme);
+      if (url.searchParams.get('theme') !== name) {
+        url.searchParams.set('theme', name);
         iframe.src = url.toString();
       }
     } catch {
