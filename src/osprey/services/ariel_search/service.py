@@ -383,7 +383,7 @@ class ARIELSearchService:
 
             builder = get_framework_prompts().get_ariel_rag_prompt_builder()
             prompt_template = builder.get_prompt_template()  # type: ignore[attr-defined]
-        except (ValueError, NotImplementedError, AttributeError):
+        except (ImportError, ValueError, NotImplementedError, AttributeError):
             pass  # Falls back to hardcoded default inside RAGPipeline
 
         pipeline = RAGPipeline(
@@ -521,7 +521,7 @@ class ARIELSearchService:
 
             builder = get_framework_prompts().get_ariel_agent_prompt_builder()
             system_prompt = builder.get_system_prompt()  # type: ignore[attr-defined]
-        except (ValueError, NotImplementedError, AttributeError):
+        except (ImportError, ValueError, NotImplementedError, AttributeError):
             pass
 
         executor = AgentExecutor(
