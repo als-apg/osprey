@@ -312,6 +312,10 @@ function activateTab(panelId, { userInitiated = false } = {}) {
         { type: 'osprey-theme-change', theme: getTheme() },
         '*'
       );
+      state.iframe.contentWindow.postMessage(
+        { type: 'theme:set', theme: getTheme() },
+        '*'
+      );
       const sid = getCurrentSessionId();
       if (sid) {
         state.iframe.contentWindow.postMessage(
@@ -360,6 +364,7 @@ function createIframe(panelId) {
 
   const iframe = document.createElement('iframe');
   iframe.className = 'panel-iframe';
+  iframe.dataset.panelId = panelId;
   // Use pendingUrl (from navigatePanel) if available, otherwise base URL
   const targetUrl = state.pendingUrl || state.url;
   state.pendingUrl = null;
