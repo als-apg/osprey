@@ -51,8 +51,8 @@ async def papers_search(
 
         search_params: dict = {
             "q": query.strip(),
-            "query_by": "title,abstract,all_authors,keywords,full_text",
-            "vector_query": "embedding:([], alpha: 0.3)",
+            "query_by": "title,abstract,all_authors,keywords,full_text,embedding",
+            "prefix": "true,true,true,true,true,false",
             "highlight_full_fields": "abstract",
             "highlight_start_tag": ">>>",
             "highlight_end_tag": "<<<",

@@ -5,7 +5,9 @@ tools and indexer in isolation.
 """
 
 import json
+from pathlib import Path
 
+import numpy as np
 import pytest
 
 
@@ -210,6 +212,28 @@ def _get_indexed_docs() -> list[dict]:
     return _INDEXED_DOCS
 
 
+# Pre-loaded embeddings fixture
+_EMBEDDINGS: dict | None = None
+
+
+def _get_embeddings() -> dict:
+    """Load embeddings fixture file (cached at module level)."""
+    global _EMBEDDINGS
+    if _EMBEDDINGS is None:
+        fixture_path = Path(__file__).parent.parent / "fixtures" / "accelpapers" / "embeddings.json"
+        with open(fixture_path) as f:
+            _EMBEDDINGS = json.load(f)
+    return _EMBEDDINGS
+
+
+def _attach_embeddings(docs: list[dict], doc_embeddings: dict[str, list[float]]) -> None:
+    """Attach embedding vectors to indexed docs by matching on doc['id']."""
+    for doc in docs:
+        emb = doc_embeddings.get(doc["id"])
+        if emb:
+            doc["embedding"] = emb
+
+
 def _matches_filter(doc: dict, filter_by: str) -> bool:
     """Simple filter_by evaluator for mock Typesense searches."""
     if not filter_by:
@@ -238,21 +262,82 @@ def _matches_filter(doc: dict, filter_by: str) -> bool:
     return True
 
 
-def _matches_query(doc: dict, q: str, query_by: str) -> bool:
-    """Simple text match for mock Typesense searches."""
-    if q == "*":
-        return True
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Cosine similarity between two vectors."""
+    va, vb = np.asarray(a), np.asarray(b)
+    denom = np.linalg.norm(va) * np.linalg.norm(vb)
+    if denom == 0:
+        return 0.0
+    return float(np.dot(va, vb) / denom)
+
+
+def _text_match_score(doc: dict, q: str, text_fields: list[str]) -> float:
+    """Compute a 0.0-1.0 text match score based on fraction of query terms found.
+
+    Returns the ratio of query terms that appear in at least one of the given fields.
+    """
     terms = q.lower().split()
-    fields = [f.strip() for f in query_by.split(",")]
+    if not terms:
+        return 0.0
+    matched = 0
     for term in terms:
-        found = False
-        for field in fields:
+        for field in text_fields:
             if term in str(doc.get(field, "")).lower():
-                found = True
+                matched += 1
                 break
-        if found:
-            return True
-    return False
+    return matched / len(terms)
+
+
+def _score_query(
+    doc: dict,
+    q: str,
+    query_by: str,
+    query_embeddings: dict[str, list[float]],
+) -> tuple[float, float | None] | None:
+    """Score a document against a query, returning (blended_score, vector_distance) or None.
+
+    Splits query_by fields into text fields and embedding, computes a blended score:
+      score = (1 - alpha) * text_score + alpha * vector_score
+    with alpha=0.3. Falls back to keyword-only (alpha=0) when no embedding available.
+
+    Returns None if the document doesn't match at all.
+    """
+    if q == "*":
+        return (1.0, None)
+
+    all_fields = [f.strip() for f in query_by.split(",")]
+    text_fields = [f for f in all_fields if f != "embedding"]
+    has_embedding = "embedding" in all_fields
+
+    text_score = _text_match_score(doc, q, text_fields)
+
+    vector_score: float | None = None
+    vector_distance: float | None = None
+
+    if has_embedding:
+        doc_emb = doc.get("embedding")
+        query_emb = query_embeddings.get(q)
+        if doc_emb and query_emb:
+            sim = _cosine_similarity(doc_emb, query_emb)
+            # Only count vector match if similarity is above a meaningful threshold.
+            # Random/gibberish queries produce ~0.3-0.4 cosine similarity against real docs;
+            # genuine semantic matches score > 0.5.
+            if sim >= 0.5:
+                # Convert cosine similarity ([-1, 1]) to a 0-1 score
+                vector_score = max(0.0, (sim + 1.0) / 2.0)
+                # Typesense vector_distance is cosine distance: 1 - sim (range [0, 2])
+                vector_distance = 1.0 - sim
+
+    if vector_score is not None:
+        alpha = 0.3
+        blended = (1.0 - alpha) * text_score + alpha * vector_score
+    else:
+        blended = text_score
+
+    if blended <= 0.0:
+        return None
+
+    return (blended, vector_distance)
 
 
 class MockDocumentProxy:
@@ -271,8 +356,9 @@ class MockDocumentProxy:
 class MockDocuments:
     """Mock for client.collections[name].documents."""
 
-    def __init__(self, docs: list[dict]):
+    def __init__(self, docs: list[dict], query_embeddings: dict[str, list[float]] | None = None):
         self._docs = docs
+        self._query_embeddings = query_embeddings or {}
 
     def __getitem__(self, doc_id: str) -> MockDocumentProxy:
         return MockDocumentProxy(self._docs, doc_id)
@@ -286,24 +372,30 @@ class MockDocuments:
         sort_by = params.get("sort_by", "")
         facet_by = params.get("facet_by", "")
 
-        # Filter matching docs
-        matched = []
+        has_embedding = "embedding" in query_by
+
+        # Filter and score matching docs
+        scored: list[tuple[dict, float, float | None]] = []
         for doc in self._docs:
             if not _matches_filter(doc, filter_by):
                 continue
-            if not _matches_query(doc, q, query_by):
+            result = _score_query(doc, q, query_by, self._query_embeddings)
+            if result is None:
                 continue
-            matched.append(doc)
+            score, vector_distance = result
+            scored.append((doc, score, vector_distance))
 
-        # Sort
+        # Sort: explicit sort_by takes precedence, otherwise rank by score
         if sort_by:
             field_order = sort_by.split(":")
             field = field_order[0]
             reverse = len(field_order) > 1 and field_order[1] == "desc"
-            matched.sort(
-                key=lambda d: d.get(field) if d.get(field) is not None else 0,
+            scored.sort(
+                key=lambda t: t[0].get(field) if t[0].get(field) is not None else 0,
                 reverse=reverse,
             )
+        else:
+            scored.sort(key=lambda t: t[1], reverse=True)
 
         # Build facets if requested
         facet_counts = []
@@ -317,30 +409,38 @@ class MockDocuments:
                         key = str(val)
                         counts[key] = counts.get(key, 0) + 1
                 sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
-                facet_counts.append({
-                    "field_name": facet_field,
-                    "counts": [{"value": k, "count": v} for k, v in sorted_counts],
-                })
+                facet_counts.append(
+                    {
+                        "field_name": facet_field,
+                        "counts": [{"value": k, "count": v} for k, v in sorted_counts],
+                    }
+                )
 
-        total = len(matched)
+        total = len(scored)
 
         # Pagination
         if per_page > 0:
             start = (page - 1) * per_page
-            matched = matched[start:start + per_page]
+            scored = scored[start : start + per_page]
 
-        # Build hits with highlight stubs
+        # Build hits with highlight stubs and scores
         hits = []
-        for doc in matched:
+        for doc, score, vector_distance in scored:
             # Exclude fields
             exclude = set(params.get("exclude_fields", "").split(","))
             filtered_doc = {k: v for k, v in doc.items() if k not in exclude}
 
+            # Scale score to a Typesense-like text_match_info score
+            text_match_score = int(score * 100)
+
             hit: dict = {
                 "document": filtered_doc,
-                "text_match_info": {"score": 100},
+                "text_match_info": {"score": text_match_score},
                 "highlight": {},
             }
+            # Add vector_distance when embedding was used
+            if has_embedding and vector_distance is not None:
+                hit["vector_distance"] = vector_distance
             # Add abstract snippet highlight
             if "abstract" in doc:
                 abstract = doc["abstract"] or ""
@@ -348,13 +448,13 @@ class MockDocuments:
                 hit["highlight"]["abstract"] = {"snippet": snippet}
             hits.append(hit)
 
-        result: dict = {
+        result_dict: dict = {
             "found": total,
             "hits": hits,
         }
         if facet_counts:
-            result["facet_counts"] = facet_counts
-        return result
+            result_dict["facet_counts"] = facet_counts
+        return result_dict
 
     def import_(self, docs: list[dict], params: dict | None = None) -> list[dict]:
         """Mock batch import — always succeeds."""
@@ -365,8 +465,8 @@ class MockDocuments:
 class MockCollection:
     """Mock for client.collections[name]."""
 
-    def __init__(self, docs: list[dict]):
-        self.documents = MockDocuments(docs)
+    def __init__(self, docs: list[dict], query_embeddings: dict[str, list[float]] | None = None):
+        self.documents = MockDocuments(docs, query_embeddings)
         self._info = {
             "name": "papers",
             "num_documents": len(docs),
@@ -380,6 +480,7 @@ class MockCollection:
                 {"name": "citation_count", "type": "int32", "facet": True},
                 {"name": "document_type", "type": "string", "optional": True, "facet": True},
                 {"name": "journal_title", "type": "string", "optional": True, "facet": True},
+                {"name": "embedding", "type": "float[]", "num_dim": 768},
             ],
         }
 
@@ -393,11 +494,15 @@ class MockCollection:
 class MockCollections:
     """Mock for client.collections — supports both indexing and keyed access."""
 
-    def __init__(self, docs: list[dict]):
+    def __init__(self, docs: list[dict], query_embeddings: dict[str, list[float]] | None = None):
         self._docs = docs
+        self._query_embeddings = query_embeddings or {}
+        self._cache: dict[str, MockCollection] = {}
 
     def __getitem__(self, name: str) -> MockCollection:
-        return MockCollection(self._docs)
+        if name not in self._cache:
+            self._cache[name] = MockCollection(self._docs, self._query_embeddings)
+        return self._cache[name]
 
     def create(self, schema: dict) -> dict:
         return schema
@@ -406,9 +511,13 @@ class MockCollections:
 class MockTypesenseClient:
     """Mock Typesense client for testing."""
 
-    def __init__(self, docs: list[dict] | None = None):
+    def __init__(
+        self,
+        docs: list[dict] | None = None,
+        query_embeddings: dict[str, list[float]] | None = None,
+    ):
         self._docs = docs or []
-        self.collections = MockCollections(self._docs)
+        self.collections = MockCollections(self._docs, query_embeddings)
 
 
 @pytest.fixture
@@ -437,9 +546,11 @@ def sample_json_dir(tmp_path):
 
 @pytest.fixture
 def mock_client():
-    """Create a MockTypesenseClient pre-loaded with indexed sample docs."""
+    """Create a MockTypesenseClient pre-loaded with indexed sample docs and embeddings."""
     docs = _get_indexed_docs()
-    return MockTypesenseClient(docs)
+    embeddings = _get_embeddings()
+    _attach_embeddings(docs, embeddings["documents"])
+    return MockTypesenseClient(docs, query_embeddings=embeddings["queries"])
 
 
 @pytest.fixture

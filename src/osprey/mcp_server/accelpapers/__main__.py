@@ -23,8 +23,8 @@ def main() -> None:
     idx = sub.add_parser("index", help="Build Typesense collection from INSPIRE JSON files")
     idx.add_argument(
         "--data-dir",
-        required=True,
-        help="Directory containing INSPIRE JSON files (with subdirectories)",
+        default=os.environ.get("ACCELPAPERS_DATA_DIR"),
+        help="Directory containing INSPIRE JSON files (default: ACCELPAPERS_DATA_DIR env)",
     )
     idx.add_argument(
         "--typesense-host",
@@ -40,6 +40,11 @@ def main() -> None:
         "--api-key",
         default=None,
         help="Typesense API key (default: accelpapers-dev, or ACCELPAPERS_TYPESENSE_API_KEY env)",
+    )
+    idx.add_argument(
+        "--ollama-url",
+        default=None,
+        help="Ollama base URL (default: http://localhost:11434, or ACCELPAPERS_OLLAMA_URL env)",
     )
     idx.add_argument(
         "--collection",
@@ -65,6 +70,9 @@ def main() -> None:
         # Set up logging for CLI use
         logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
+        if not args.data_dir:
+            parser.error("--data-dir is required (or set ACCELPAPERS_DATA_DIR env var)")
+
         # Set env vars from CLI args (takes precedence over existing env)
         if args.typesense_host:
             os.environ["ACCELPAPERS_TYPESENSE_HOST"] = args.typesense_host
@@ -72,6 +80,8 @@ def main() -> None:
             os.environ["ACCELPAPERS_TYPESENSE_PORT"] = args.typesense_port
         if args.api_key:
             os.environ["ACCELPAPERS_TYPESENSE_API_KEY"] = args.api_key
+        if args.ollama_url:
+            os.environ["ACCELPAPERS_OLLAMA_URL"] = args.ollama_url
         if args.collection:
             os.environ["ACCELPAPERS_COLLECTION"] = args.collection
 
