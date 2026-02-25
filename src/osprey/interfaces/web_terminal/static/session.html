@@ -285,6 +285,95 @@
       white-space: nowrap;
     }
 
+    /* ---- Agent Timeline ---- */
+    .agent-timeline {
+      display: none;
+      padding: 0 12px 10px;
+      border-top: 1px solid var(--border);
+      margin-top: 4px;
+    }
+    .agent-card.expanded .agent-timeline { display: block; }
+    .tl-entry {
+      position: relative;
+      padding: 6px 0 6px 16px;
+      border-left: 2px solid rgba(148,163,184,0.15);
+      margin-left: 4px;
+    }
+    .tl-entry::before {
+      content: '';
+      position: absolute;
+      left: -4px;
+      top: 12px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--text-muted);
+    }
+    .tl-entry.tl-prompt::before { background: var(--amber); }
+    .tl-entry.tl-reasoning::before { background: var(--accent); }
+    .tl-entry.tl-tool_call::before { background: #a78bfa; }
+    .tl-entry.tl-tool_result::before { background: #60a5fa; }
+    .tl-entry.tl-error::before { background: var(--error); }
+    .tl-entry.tl-thinking::before { background: #f472b6; }
+    .tl-kind {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 2px;
+    }
+    .tl-entry.tl-prompt .tl-kind { color: var(--amber); }
+    .tl-entry.tl-reasoning .tl-kind { color: var(--accent); }
+    .tl-entry.tl-tool_call .tl-kind { color: #a78bfa; }
+    .tl-entry.tl-tool_result .tl-kind { color: #60a5fa; }
+    .tl-entry.tl-thinking .tl-kind { color: #f472b6; }
+    .tl-text {
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+    .tl-text.tl-collapsed {
+      max-height: 40px;
+      overflow: hidden;
+      cursor: pointer;
+      mask-image: linear-gradient(to bottom, black 60%, transparent);
+      -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent);
+    }
+    .tl-text.tl-collapsed:hover {
+      max-height: 120px;
+      mask-image: none;
+      -webkit-mask-image: none;
+    }
+    .tl-tool-name {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 2px;
+    }
+    .tl-args {
+      font-size: 10px;
+      color: var(--text-muted);
+      background: var(--bg-secondary);
+      padding: 4px 6px;
+      border-radius: 3px;
+      max-height: 80px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .tl-loading {
+      padding: 20px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 10px;
+      letter-spacing: 1px;
+    }
+
     /* ---- Tool Log View ---- */
     .filter-bar {
       display: flex;
@@ -590,13 +679,19 @@
   if (theme) document.documentElement.setAttribute('data-theme', theme);
 
   window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'osprey-theme-change' && e.data.theme) {
+    if (!e.data) return;
+    if (e.data.type === 'osprey-theme-change' && e.data.theme) {
       document.documentElement.setAttribute('data-theme', e.data.theme);
+    } else if (e.data.type === 'osprey-session-change') {
+      currentSessionId = e.data.session_id || null;
+      cache = { agents: null, toollog: null, artifacts: null, conversation: null };
+      refreshActive();
     }
   });
 
   // ---- State ----
   let activeView = 'agents';
+  let currentSessionId = null;
   let cache = { agents: null, toollog: null, artifacts: null, conversation: null };
 
   const SERVER_COLORS = {
@@ -615,6 +710,10 @@
   const FETCH_TIMEOUT = 4000;
 
   async function apiFetch(path) {
+    if (currentSessionId) {
+      const sep = path.includes('?') ? '&' : '?';
+      path = path + sep + 'session_id=' + encodeURIComponent(currentSessionId);
+    }
     const resp = await fetch(path, { signal: AbortSignal.timeout(FETCH_TIMEOUT) });
     if (resp.status === 404) return null;
     if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
@@ -742,14 +841,27 @@
         </div>`;
       }
 
-      html += `</div></div>`;
+      if (!isRoot) {
+        html += `<div class="agent-timeline" data-tl-agent="${esc(aid)}">
+          <div class="tl-loading">LOADING TIMELINE…</div>
+        </div>`;
+      }
+
+      html += `</div>`;
     }
 
     el.innerHTML = html;
 
     el.querySelectorAll('.agent-card').forEach(card => {
       card.querySelector('.agent-card-header').addEventListener('click', () => {
+        const wasExpanded = card.classList.contains('expanded');
         card.classList.toggle('expanded');
+        if (!wasExpanded) {
+          const tlEl = card.querySelector('.agent-timeline');
+          if (tlEl && !tlEl.dataset.loaded) {
+            loadAgentTimeline(tlEl, card.dataset.agent);
+          }
+        }
       });
     });
 
@@ -760,6 +872,55 @@
         const detail = el.querySelector(`.log-detail[data-tool-detail="${key}"]`);
         if (detail) detail.classList.toggle('expanded');
       });
+    });
+  }
+
+  // ---- Agent Timeline ----
+  async function loadAgentTimeline(tlEl, agentId) {
+    tlEl.dataset.loaded = '1';
+    try {
+      const data = await apiFetch(`/api/session-agent-timeline?agent_id=${encodeURIComponent(agentId)}`);
+      if (!data || !data.timeline || !data.timeline.length) {
+        tlEl.innerHTML = '<div class="tl-loading">NO INTERNAL STATE AVAILABLE</div>';
+        return;
+      }
+      renderTimeline(tlEl, data.timeline);
+    } catch {
+      tlEl.innerHTML = '<div class="tl-loading">FAILED TO LOAD TIMELINE</div>';
+    }
+  }
+
+  function renderTimeline(container, timeline) {
+    let html = '';
+    for (const entry of timeline) {
+      const kind = entry.kind || 'unknown';
+      const errCls = entry.is_error ? ' tl-error' : '';
+      const kindLabel = kind === 'tool_call' ? entry.tool || 'tool call'
+                       : kind === 'tool_result' ? 'result'
+                       : kind;
+
+      html += `<div class="tl-entry tl-${esc(kind)}${errCls}">`;
+      html += `<div class="tl-kind">${esc(kindLabel)}</div>`;
+
+      if (kind === 'tool_call') {
+        const args = entry.arguments;
+        const argStr = args ? (typeof args === 'string' ? args : JSON.stringify(args, null, 2)) : '';
+        html += `<div class="tl-tool-name">${esc(entry.tool || '')}</div>`;
+        if (argStr) {
+          html += `<div class="tl-args">${esc(argStr)}</div>`;
+        }
+      } else {
+        const text = entry.text || '';
+        const needsCollapse = text.length > 200;
+        html += `<div class="tl-text${needsCollapse ? ' tl-collapsed' : ''}">${esc(text)}</div>`;
+      }
+
+      html += `</div>`;
+    }
+    container.innerHTML = html;
+
+    container.querySelectorAll('.tl-text.tl-collapsed').forEach(el => {
+      el.addEventListener('click', () => el.classList.toggle('tl-collapsed'));
     });
   }
 
