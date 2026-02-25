@@ -7,6 +7,7 @@ import pytest
 
 from osprey.mcp_server.accelpapers.indexer import (
     PAPERS_SCHEMA,
+    _build_papers_schema,
     _parse_paper,
     build_all_authors,
     build_index,
@@ -232,7 +233,7 @@ class TestBuildIndex:
         assert mock_docs.import_.call_count == 1
 
     def test_schema_has_embedding_field(self):
-        """Verify the schema includes auto-embedding config."""
+        """Verify the schema includes auto-embedding config with correct base URL."""
         embedding_field = None
         for field in PAPERS_SCHEMA["fields"]:
             if field["name"] == "embedding":
@@ -243,3 +244,43 @@ class TestBuildIndex:
         assert embedding_field["num_dim"] == 768
         assert "embed" in embedding_field
         assert embedding_field["embed"]["from"] == ["title", "abstract", "keywords"]
+        # Typesense appends /v1/embeddings itself — URL must be base only
+        url = embedding_field["embed"]["model_config"]["url"]
+        assert url == "http://localhost:11434"
+        assert "/v1/" not in url
+
+
+class TestBuildPapersSchema:
+    def test_defaults(self):
+        """_build_papers_schema returns correct defaults without env vars."""
+        schema = _build_papers_schema()
+        embedding = next(f for f in schema["fields"] if f["name"] == "embedding")
+        cfg = embedding["embed"]["model_config"]
+        assert cfg["url"] == "http://localhost:11434"
+        assert cfg["model_name"] == "openai/nomic-embed-text"
+        assert cfg["api_key"] == "ollama"
+
+    def test_env_var_override(self, monkeypatch):
+        """_build_papers_schema reads env vars for embedding config."""
+        monkeypatch.setenv("ACCELPAPERS_OLLAMA_URL", "http://gpu-host:11434")
+        monkeypatch.setenv("ACCELPAPERS_EMBEDDING_MODEL", "openai/mxbai-embed-large")
+        monkeypatch.setenv("ACCELPAPERS_EMBEDDING_API_KEY", "my-key")
+
+        schema = _build_papers_schema()
+        embedding = next(f for f in schema["fields"] if f["name"] == "embedding")
+        cfg = embedding["embed"]["model_config"]
+        assert cfg["url"] == "http://gpu-host:11434"
+        assert cfg["model_name"] == "openai/mxbai-embed-large"
+        assert cfg["api_key"] == "my-key"
+
+    def test_does_not_mutate_module_constant(self):
+        """_build_papers_schema returns a deep copy, not PAPERS_SCHEMA itself."""
+        schema = _build_papers_schema()
+        assert schema is not PAPERS_SCHEMA
+        # Mutate the copy and verify the original is unchanged
+        for field in schema["fields"]:
+            if field["name"] == "embedding":
+                field["embed"]["model_config"]["url"] = "http://mutated:9999"
+                break
+        original = next(f for f in PAPERS_SCHEMA["fields"] if f["name"] == "embedding")
+        assert original["embed"]["model_config"]["url"] == "http://localhost:11434"

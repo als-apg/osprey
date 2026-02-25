@@ -64,6 +64,89 @@ class TestPapersSearch:
         result = json.loads(await fn(query="beam", max_results=2))
         assert result["results_found"] <= 2
 
+    @pytest.mark.asyncio
+    async def test_hybrid_search_params(self, patch_client):
+        """Verify papers_search sends correct hybrid search parameters."""
+        fn = get_tool_fn(papers_search)
+        # Capture the search params by inspecting the mock
+        captured = {}
+        original_search = patch_client.collections["papers"].documents.search
+
+        def capturing_search(params):
+            captured.update(params)
+            return original_search(params)
+
+        patch_client.collections["papers"].documents.search = capturing_search
+        await fn(query="beam position monitor")
+
+        assert "embedding" in captured["query_by"]
+        prefix_values = captured["prefix"].split(",")
+        assert len(prefix_values) == len(captured["query_by"].split(","))
+        assert prefix_values[-1] == "false"
+        assert "vector_query" not in captured
+        assert "embedding" in captured["exclude_fields"]
+
+    @pytest.mark.asyncio
+    async def test_semantic_search_finds_related_papers(self, patch_client):
+        """Search with zero keyword overlap should find papers via vector similarity."""
+        fn = get_tool_fn(papers_search)
+        # "orbit correction diagnostics" has no keyword overlap with any doc,
+        # but is semantically close to BPM papers (orbit correction is done with BPMs)
+        result = json.loads(await fn(query="orbit correction diagnostics"))
+        assert result["results_found"] >= 1
+        texkeys = [p["texkey"] for p in result["papers"]]
+        # Should find BPM-related papers via semantic similarity
+        assert any("Smith" in k or "Jones" in k for k in texkeys)
+
+    @pytest.mark.asyncio
+    async def test_vector_search_improves_ranking(self, patch_client):
+        """Verify that vector search ranks the most semantically relevant paper first."""
+        fn = get_tool_fn(papers_search)
+        result = json.loads(await fn(query="machine learning optimization"))
+        assert result["results_found"] >= 1
+        # Chen's paper on "RF cavity design optimization using machine learning"
+        # should rank first for this query
+        assert result["papers"][0]["texkey"] == "Chen:2019xyz"
+
+    @pytest.mark.asyncio
+    async def test_search_results_include_vector_distance(self, patch_client):
+        """Verify mock returns vector_distance when embedding is in query_by."""
+        client = patch_client
+        result = client.collections["papers"].documents.search(
+            {
+                "q": "beam position monitor",
+                "query_by": "title,abstract,embedding",
+                "prefix": "true,true,false",
+                "per_page": 10,
+            }
+        )
+        assert result["found"] >= 1
+        for hit in result["hits"]:
+            assert "vector_distance" in hit
+            vd = hit["vector_distance"]
+            assert 0.0 <= vd <= 2.0
+
+    @pytest.mark.asyncio
+    async def test_prefix_count_matches_query_by_fields(self, patch_client):
+        """Structural test: prefix and query_by field counts must match."""
+        fn = get_tool_fn(papers_search)
+        captured = {}
+        original_search = patch_client.collections["papers"].documents.search
+
+        def capturing_search(params):
+            captured.update(params)
+            return original_search(params)
+
+        patch_client.collections["papers"].documents.search = capturing_search
+        await fn(query="beam")
+
+        query_by_fields = captured["query_by"].split(",")
+        prefix_values = captured["prefix"].split(",")
+        assert len(query_by_fields) == len(prefix_values)
+        # Find the embedding field's index and verify it has prefix=false
+        emb_idx = query_by_fields.index("embedding")
+        assert prefix_values[emb_idx] == "false"
+
 
 # --- papers_get ---------------------------------------------------------------
 
@@ -109,9 +192,7 @@ class TestPapersGet:
     async def test_get_with_content(self, patch_client, sample_json_dir):
         """Test include_content loads sections from the JSON file on disk."""
         fn = get_tool_fn(papers_get)
-        result = json.loads(
-            await fn(texkey="Smith:2020abc", include_content=True)
-        )
+        result = json.loads(await fn(texkey="Smith:2020abc", include_content=True))
         # Content loading depends on json_path being valid on disk
         if "content" in result:
             assert "sections" in result["content"]
@@ -159,9 +240,7 @@ class TestPapersBrowse:
     @pytest.mark.asyncio
     async def test_browse_sort_by_citation(self, patch_client):
         fn = get_tool_fn(papers_browse)
-        result = json.loads(
-            await fn(year_min=2018, sort_by="citation_count", sort_order="desc")
-        )
+        result = json.loads(await fn(year_min=2018, sort_by="citation_count", sort_order="desc"))
         assert "error" not in result
         citations = [p["citation_count"] for p in result["papers"]]
         assert citations == sorted(citations, reverse=True)

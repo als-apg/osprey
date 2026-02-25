@@ -7,6 +7,7 @@ auto-embedding (Ollama nomic-embed-text).
 
 import json
 import logging
+import os
 import time
 from pathlib import Path
 
@@ -48,13 +49,37 @@ PAPERS_SCHEMA = {
                 "model_config": {
                     "model_name": "openai/nomic-embed-text",
                     "api_key": "ollama",
-                    "url": "http://localhost:11434/v1/embeddings",
+                    # Typesense appends /v1/embeddings itself — pass the base URL only
+                    "url": "http://localhost:11434",
                 },
             },
         },
     ],
     "default_sorting_field": "citation_count",
 }
+
+
+def _build_papers_schema() -> dict:
+    """Build the papers collection schema with env-var-configurable embedding settings.
+
+    Environment variables:
+        ACCELPAPERS_OLLAMA_URL: Ollama base URL (default: http://localhost:11434)
+        ACCELPAPERS_EMBEDDING_MODEL: Model name (default: openai/nomic-embed-text)
+        ACCELPAPERS_EMBEDDING_API_KEY: API key (default: ollama)
+    """
+    import copy
+
+    schema = copy.deepcopy(PAPERS_SCHEMA)
+    for field in schema["fields"]:
+        if field["name"] == "embedding":
+            cfg = field["embed"]["model_config"]
+            cfg["url"] = os.environ.get("ACCELPAPERS_OLLAMA_URL", "http://localhost:11434")
+            cfg["model_name"] = os.environ.get(
+                "ACCELPAPERS_EMBEDDING_MODEL", "openai/nomic-embed-text"
+            )
+            cfg["api_key"] = os.environ.get("ACCELPAPERS_EMBEDDING_API_KEY", "ollama")
+            break
+    return schema
 
 
 # --- Helpers ------------------------------------------------------------------
@@ -240,7 +265,7 @@ def build_index(
         except Exception:
             pass  # Collection doesn't exist yet
 
-    schema = {**PAPERS_SCHEMA, "name": collection_name}
+    schema = {**_build_papers_schema(), "name": collection_name}
     client.collections.create(schema)
     logger.info("Created collection '%s'", collection_name)
 
