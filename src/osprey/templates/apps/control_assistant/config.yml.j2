@@ -557,27 +557,6 @@ deplot:
   auto_launch: true
 
 # ============================================================
-# MONITORING — OpenTelemetry + Prometheus + Grafana
-# ============================================================
-# Auto-launches a local OTEL monitoring stack with `osprey web`.
-# Collects Claude Code telemetry (cost, tokens, sessions, tool usage).
-# Install binaries first: osprey monitoring install
-
-monitoring:
-  auto_launch: true
-  otel_collector:
-    host: "127.0.0.1"
-    grpc_port: 4317
-    http_port: 4318
-    prometheus_port: 8889
-  prometheus:
-    host: "127.0.0.1"
-    port: 9090
-  grafana:
-    host: "127.0.0.1"
-    port: 8091
-
-# ============================================================
 # AGENTSVIEW — Session Analytics UI
 # ============================================================
 # Provides a web UI for browsing Claude Code session transcripts,

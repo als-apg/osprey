@@ -71,7 +71,6 @@ class TestLazyGroup:
             "ariel",
             "artifacts",
             "web",
-            "monitoring",
             "prompts",
         ]
         assert isinstance(commands, list)

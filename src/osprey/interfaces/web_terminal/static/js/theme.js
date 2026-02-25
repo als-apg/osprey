@@ -154,23 +154,6 @@ function broadcastTheme(name) {
     }
   }
 
-  // Cross-origin iframes (Grafana, agentsview): update iframe src URL with theme param
-  // These panels don't share our origin, so postMessage may not reach them —
-  // reload the iframe with the new ?theme= query parameter instead.
-  const CROSS_ORIGIN_PANELS = ['monitoring'];
-  for (const panelId of CROSS_ORIGIN_PANELS) {
-    const iframe = document.querySelector(`.panel-iframe[data-panel-id="${panelId}"]`);
-    if (!iframe) continue;
-    try {
-      const url = new URL(iframe.src);
-      if (url.searchParams.get('theme') !== name) {
-        url.searchParams.set('theme', name);
-        iframe.src = url.toString();
-      }
-    } catch {
-      // ignore URL parse errors
-    }
-  }
 }
 
 // ---- Theme transition animation ----
