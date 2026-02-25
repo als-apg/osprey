@@ -1,0 +1,36 @@
+
+## Channel Database Terminology
+
+### Database Profile
+
+This is a **hierarchical** channel database — channels are organized in a tree
+structure with named levels (e.g., system → device → signal). You navigate
+level-by-level, selecting options at each level to narrow down to specific channels.
+
+### Terminology Mapping
+
+Operators use domain language. Map their terms to hierarchy navigation:
+
+| Operator Language | Hierarchy Navigation |
+|---|---|
+| "beam current" | System: look for ring/accelerator → Device: `DCCT`, `BCM` → Signal: `current`, `monitor` |
+| "BPM positions" / "beam position" | System: ring/section → Device: `BPM` → Signal: `X`, `Y`, `position` |
+| "corrector magnets" | System: ring/section → Device: `HCM`, `VCM`, `corrector` → Signal: setpoint/readback |
+| "quadrupole" / "quad" | System: ring → Device: `QF`, `QD`, `quad` → Signal: strength/current |
+| "readback" / "monitor" | Navigate to device first, then select readback/monitor signal level |
+| "setpoint" / "control" | Navigate to device first, then select setpoint/control signal level |
+| "temperature" | System: relevant area → Device: `TC`, `Temp` → Signal: readback |
+| "vacuum" / "pressure" | System: relevant section → Device: `VGC`, `CCG`, `gauge` → Signal: pressure |
+| "in sector 3" / "at cell 5" | Map to the appropriate hierarchy level for location (system, section, cell) |
+| "all BPMs" | Select BPM at device level, then use wildcard/range at instance level |
+
+### Hierarchy Conventions
+
+- Refer to the **Hierarchy Structure** section above — level names and types vary by facility
+- **Tree levels** have categorical options (e.g., system names) — select by name match
+- **Instance levels** have numbered options (e.g., device #1–#20) — select by number or range
+- When the user specifies a location, map it to the correct hierarchy level
+  (different facilities name location levels differently: "sector", "cell", "section", etc.)
+- If an operator says "all" for a level, you may need to enumerate or use a wildcard
+- The **naming_pattern** above shows how levels combine into PV names
+  (e.g., `{system}:{device}:{signal}`)

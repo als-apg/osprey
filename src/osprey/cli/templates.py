@@ -11,6 +11,7 @@ This module provides the TemplateManager class which handles:
 
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -308,6 +309,7 @@ class TemplateManager:
         if config_file.exists():
             with open(config_file) as f:
                 rendered_config = yaml.safe_load(f) or {}
+            rendered_config = resolve_env_vars(rendered_config)  # Match regen path
             if "confluence" in rendered_config:
                 ctx["confluence"] = rendered_config["confluence"]
             if "matlab" in rendered_config:
@@ -328,6 +330,52 @@ class TemplateManager:
             except ValueError:
                 model_spec = None
             ctx["claude_code_model_spec"] = model_spec
+
+            # System timezone for ARIEL tools
+            system_config = rendered_config.get("system", {})
+            ctx["system_timezone"] = system_config.get("timezone", "UTC")
+
+            # Facility name fallback (already set for control_assistant at line 284,
+            # but setdefault handles other templates)
+            ctx.setdefault("facility_name", rendered_config.get("facility_name", project_name))
+
+            # Override channel_finder_mode with the actual active pipeline from
+            # rendered config. During phase 1, channel_finder_mode may be "all"
+            # (meaning "render all pipeline configs"). But Claude Code agent templates
+            # need the actual active pipeline mode, which is deterministic from
+            # config.yml pipeline_mode.
+            cf_config = rendered_config.get("channel_finder", {})
+            if cf_config.get("pipeline_mode"):
+                ctx["channel_finder_mode"] = cf_config["pipeline_mode"]
+
+            # Embed hierarchy info for initial creation (mirrors _build_claude_code_context)
+            if cf_config.get("pipeline_mode") == "hierarchical":
+                try:
+                    db_path = (
+                        cf_config.get("pipelines", {})
+                        .get("hierarchical", {})
+                        .get("database", {})
+                        .get("path", "")
+                    )
+                    if db_path:
+                        from osprey.services.channel_finder.databases.hierarchical import (
+                            HierarchicalChannelDatabase,
+                        )
+
+                        resolved = (project_dir / db_path).resolve()
+                        db = HierarchicalChannelDatabase(str(resolved))
+                        ctx["channel_finder_hierarchy"] = {
+                            "hierarchy_levels": db.hierarchy_levels,
+                            "hierarchy_config": db.hierarchy_config,
+                            "naming_pattern": db.naming_pattern,
+                        }
+                except Exception:
+                    logging.getLogger("osprey.cli.templates").warning(
+                        "Could not load hierarchy info during project creation",
+                        exc_info=True,
+                    )
+            ctx.setdefault("channel_finder_hierarchy", None)
+
         # Ensure defaults exist even without rendered config
         ctx.setdefault("disable_servers", [])
         ctx.setdefault("disable_agents", [])
@@ -989,6 +1037,36 @@ proper framework operation, especially when using containerized services.
             ctx["channel_finder_mode"] = pipeline_mode
             ctx["default_pipeline"] = pipeline_mode
 
+            # Embed hierarchy info at render time so the agent doesn't need
+            # a separate hierarchy_info() tool call.
+            if pipeline_mode == "hierarchical":
+                try:
+                    db_path = (
+                        channel_finder.get("pipelines", {})
+                        .get("hierarchical", {})
+                        .get("database", {})
+                        .get("path", "")
+                    )
+                    if db_path:
+                        from osprey.services.channel_finder.databases.hierarchical import (
+                            HierarchicalChannelDatabase,
+                        )
+
+                        resolved = (project_dir / db_path).resolve()
+                        db = HierarchicalChannelDatabase(str(resolved))
+                        ctx["channel_finder_hierarchy"] = {
+                            "hierarchy_levels": db.hierarchy_levels,
+                            "hierarchy_config": db.hierarchy_config,
+                            "naming_pattern": db.naming_pattern,
+                        }
+                except Exception:
+                    logging.getLogger("osprey.cli.templates").warning(
+                        "Could not load hierarchy info for template rendering",
+                        exc_info=True,
+                    )
+
+        ctx.setdefault("channel_finder_hierarchy", None)
+
         # Pass through optional config sections
         if "confluence" in config:
             ctx["confluence"] = config["confluence"]
@@ -1123,8 +1201,7 @@ proper framework operation, especially when using containerized services.
         config_file = project_dir / "config.yml"
         if not config_file.exists():
             raise FileNotFoundError(
-                f"No config.yml found in {project_dir}. "
-                "Are you in an OSPREY project directory?"
+                f"No config.yml found in {project_dir}. Are you in an OSPREY project directory?"
             )
 
         with open(config_file, encoding="utf-8") as f:
@@ -1238,9 +1315,7 @@ proper framework operation, especially when using containerized services.
             **summary,
         }
 
-    def _check_user_owned_drift(
-        self, project_dir: Path, ctx: dict
-    ) -> list[str]:
+    def _check_user_owned_drift(self, project_dir: Path, ctx: dict) -> list[str]:
         """Check if framework templates changed since user claimed ownership.
 
         Compares the current rendered framework hash against the hash stored
@@ -1402,9 +1477,7 @@ proper framework operation, especially when using containerized services.
             pass  # Skip — user owns it
         elif not facility_md.exists() and facility_j2.exists():
             facility_md.parent.mkdir(parents=True, exist_ok=True)
-            self.render_template(
-                "claude_code/claude/rules/facility.md.j2", ctx, facility_md
-            )
+            self.render_template("claude_code/claude/rules/facility.md.j2", ctx, facility_md)
             # Auto-register as user-owned so regen preserves user edits
             self._auto_register_user_owned(project_dir, "rules/facility")
             files_created += 1
@@ -1418,6 +1491,10 @@ proper framework operation, especially when using containerized services.
                 if not src_file.is_file():
                     continue
                 rel_path = src_file.relative_to(claude_src)
+
+                # Skip files in _-prefixed directories (include-only fragments)
+                if any(part.startswith("_") for part in rel_path.parts[:-1]):
+                    continue
 
                 if src_file.suffix == ".j2":
                     output_rel = rel_path.with_suffix("")
