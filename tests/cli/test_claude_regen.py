@@ -11,7 +11,7 @@ import os
 import pytest
 import yaml
 
-from osprey.cli.templates import MANIFEST_FILENAME, TemplateManager
+from osprey.cli.templates import TemplateManager
 
 
 class TestBuildClaudeCodeContext:
@@ -44,9 +44,7 @@ class TestBuildClaudeCodeContext:
             template_name="control_assistant",
         )
         # Generate manifest so _build_claude_code_context can discover template_name
-        manager.generate_manifest(
-            project_dir, "ctx-control", "control_assistant", "extend", {}
-        )
+        manager.generate_manifest(project_dir, "ctx-control", "control_assistant", "extend", {})
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
         ctx = manager._build_claude_code_context(project_dir, config)
@@ -99,9 +97,7 @@ class TestBuildClaudeCodeContext:
             template_name="control_assistant",
         )
         # Generate manifest
-        manager.generate_manifest(
-            project_dir, "ctx-manifest", "control_assistant", "extend", {}
-        )
+        manager.generate_manifest(project_dir, "ctx-manifest", "control_assistant", "extend", {})
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
         ctx = manager._build_claude_code_context(project_dir, config)
@@ -293,9 +289,7 @@ class TestSafetyPreservation:
 
     def test_always_includes_safety_hooks(self, regen_project):
         """After regen, settings.json still has PreToolUse/PostToolUse hook chains."""
-        settings = json.loads(
-            (regen_project / ".claude" / "settings.json").read_text()
-        )
+        settings = json.loads((regen_project / ".claude" / "settings.json").read_text())
         assert "PreToolUse" in settings["hooks"]
         assert "PostToolUse" in settings["hooks"]
 
@@ -305,9 +299,7 @@ class TestSafetyPreservation:
         Write is NOT in the deny list — it's guarded by the memory_guard hook
         which allows writes only to the Claude Code memory directory.
         """
-        settings = json.loads(
-            (regen_project / ".claude" / "settings.json").read_text()
-        )
+        settings = json.loads((regen_project / ".claude" / "settings.json").read_text())
         deny = settings["permissions"]["deny"]
         for tool in ["Bash", "Edit", "WebFetch", "WebSearch"]:
             assert tool in deny, f"{tool} should be in deny list after regen"
@@ -315,38 +307,24 @@ class TestSafetyPreservation:
 
     def test_preserves_writes_check_hook(self, regen_project):
         """osprey_writes_check.py is in PreToolUse for channel_write after regen."""
-        settings = json.loads(
-            (regen_project / ".claude" / "settings.json").read_text()
-        )
+        settings = json.loads((regen_project / ".claude" / "settings.json").read_text())
         pre_tool_use = settings["hooks"]["PreToolUse"]
         channel_write_hooks = [
-            h for h in pre_tool_use
-            if h.get("matcher") == "mcp__controls__channel_write"
+            h for h in pre_tool_use if h.get("matcher") == "mcp__controls__channel_write"
         ]
         assert len(channel_write_hooks) > 0
         hook_commands = [
-            hook["command"]
-            for entry in channel_write_hooks
-            for hook in entry["hooks"]
+            hook["command"] for entry in channel_write_hooks for hook in entry["hooks"]
         ]
         assert any("osprey_writes_check.py" in cmd for cmd in hook_commands)
 
     def test_has_memory_guard_hook(self, regen_project):
         """After regen, memory_guard hook is in PreToolUse for Write."""
-        settings = json.loads(
-            (regen_project / ".claude" / "settings.json").read_text()
-        )
+        settings = json.loads((regen_project / ".claude" / "settings.json").read_text())
         pre_tool_use = settings["hooks"]["PreToolUse"]
-        write_hooks = [
-            h for h in pre_tool_use
-            if h.get("matcher") == "Write"
-        ]
+        write_hooks = [h for h in pre_tool_use if h.get("matcher") == "Write"]
         assert len(write_hooks) == 1
-        hook_commands = [
-            hook["command"]
-            for entry in write_hooks
-            for hook in entry["hooks"]
-        ]
+        hook_commands = [hook["command"] for entry in write_hooks for hook in entry["hooks"]]
         assert any("osprey_memory_guard.py" in cmd for cmd in hook_commands)
         assert (regen_project / ".claude" / "hooks" / "osprey_memory_guard.py").exists()
 
@@ -442,10 +420,10 @@ class TestErrorHandling:
 
 
 class TestGitignore:
-    """Test that gitignore includes generated artifacts."""
+    """Test that gitignore includes local (personal) settings but NOT shared artifacts."""
 
-    def test_gitignore_includes_generated_artifacts(self, tmp_path):
-        """Project .gitignore includes CLAUDE.md, .mcp.json, .claude/."""
+    def test_gitignore_includes_local_settings(self, tmp_path):
+        """Project .gitignore includes local settings but not shared generated files."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="gitignore-gen-test",
@@ -454,16 +432,26 @@ class TestGitignore:
         )
 
         gitignore = (project_dir / ".gitignore").read_text()
-        assert "CLAUDE.md" in gitignore
-        assert ".mcp.json" in gitignore
-        assert ".claude/" in gitignore
+        # Local/personal settings ARE ignored
+        assert "CLAUDE.local.md" in gitignore
+        assert ".claude/settings.local.json" in gitignore
+        # Shared generated artifacts are NOT ignored (they're committed)
+        lines = [line.strip() for line in gitignore.splitlines()]
+        assert "CLAUDE.md" not in lines
+        assert ".mcp.json" not in lines
 
 
 class TestDisableServers:
     """Test disable_servers functionality."""
 
-    def _create_and_regen(self, tmp_path, disable_servers=None, disable_agents=None,
-                          extra_servers=None, template="minimal"):
+    def _create_and_regen(
+        self,
+        tmp_path,
+        disable_servers=None,
+        disable_agents=None,
+        extra_servers=None,
+        template="minimal",
+    ):
         """Helper: create project, set claude_code overrides, regen."""
         manager = TemplateManager()
         project_dir = manager.create_project(
@@ -489,9 +477,7 @@ class TestDisableServers:
 
     def test_disable_server_removes_from_mcp_json(self, tmp_path):
         """Disabling accelpapers removes it from .mcp.json."""
-        project_dir, _ = self._create_and_regen(
-            tmp_path, disable_servers=["accelpapers"]
-        )
+        project_dir, _ = self._create_and_regen(tmp_path, disable_servers=["accelpapers"])
 
         mcp_data = json.loads((project_dir / ".mcp.json").read_text())
         assert "accelpapers" not in mcp_data["mcpServers"]
@@ -500,9 +486,7 @@ class TestDisableServers:
 
     def test_disable_server_removes_from_settings_allow(self, tmp_path):
         """Disabling accelpapers removes its tools from settings allow list."""
-        project_dir, _ = self._create_and_regen(
-            tmp_path, disable_servers=["accelpapers"]
-        )
+        project_dir, _ = self._create_and_regen(tmp_path, disable_servers=["accelpapers"])
 
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
         allow = settings["permissions"]["allow"]
@@ -511,18 +495,14 @@ class TestDisableServers:
 
     def test_disable_server_removes_from_claude_md(self, tmp_path):
         """Disabling accelpapers removes accelpapers row from CLAUDE.md tool table."""
-        project_dir, _ = self._create_and_regen(
-            tmp_path, disable_servers=["accelpapers"]
-        )
+        project_dir, _ = self._create_and_regen(tmp_path, disable_servers=["accelpapers"])
 
         content = (project_dir / "CLAUDE.md").read_text()
         assert "accelpapers" not in content.lower() or "accelpapers" not in content
 
     def test_disable_agent_removes_agent_file(self, tmp_path):
         """Disabling literature-search produces an empty agent file."""
-        project_dir, _ = self._create_and_regen(
-            tmp_path, disable_agents=["literature-search"]
-        )
+        project_dir, _ = self._create_and_regen(tmp_path, disable_agents=["literature-search"])
 
         agent_file = project_dir / ".claude" / "agents" / "literature-search.md"
         if agent_file.exists():
@@ -532,9 +512,7 @@ class TestDisableServers:
 
     def test_disable_agent_removes_task_from_settings(self, tmp_path):
         """Disabling literature-search removes Task(literature-search) from allow."""
-        project_dir, _ = self._create_and_regen(
-            tmp_path, disable_agents=["literature-search"]
-        )
+        project_dir, _ = self._create_and_regen(tmp_path, disable_agents=["literature-search"])
 
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
         allow = settings["permissions"]["allow"]
@@ -542,9 +520,7 @@ class TestDisableServers:
 
     def test_disable_agent_removes_from_claude_md(self, tmp_path):
         """Disabling literature-search removes its delegation section from CLAUDE.md."""
-        project_dir, _ = self._create_and_regen(
-            tmp_path, disable_agents=["literature-search"]
-        )
+        project_dir, _ = self._create_and_regen(tmp_path, disable_agents=["literature-search"])
 
         content = (project_dir / "CLAUDE.md").read_text()
         # The delegation section should be gone
@@ -556,9 +532,7 @@ class TestDisableServers:
         """Extra server appears in .mcp.json."""
         project_dir, _ = self._create_and_regen(
             tmp_path,
-            extra_servers={
-                "my-server": {"command": "node", "args": ["server.js"]}
-            },
+            extra_servers={"my-server": {"command": "node", "args": ["server.js"]}},
         )
 
         mcp_data = json.loads((project_dir / ".mcp.json").read_text())
@@ -569,9 +543,7 @@ class TestDisableServers:
         """Extra server gets ask permission in settings.json."""
         project_dir, _ = self._create_and_regen(
             tmp_path,
-            extra_servers={
-                "my-server": {"command": "node", "args": ["server.js"]}
-            },
+            extra_servers={"my-server": {"command": "node", "args": ["server.js"]}},
         )
 
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -580,9 +552,7 @@ class TestDisableServers:
 
     def test_disable_does_not_remove_safety_hooks(self, tmp_path):
         """Disabling a server doesn't remove hook script files."""
-        project_dir, _ = self._create_and_regen(
-            tmp_path, disable_servers=["accelpapers"]
-        )
+        project_dir, _ = self._create_and_regen(tmp_path, disable_servers=["accelpapers"])
 
         hooks_dir = project_dir / ".claude" / "hooks"
         assert hooks_dir.exists()
@@ -595,9 +565,7 @@ class TestDisableServers:
 
     def test_regen_summary_includes_active_lists(self, tmp_path):
         """Result dict contains active/disabled lists."""
-        _, result = self._create_and_regen(
-            tmp_path, disable_servers=["accelpapers"]
-        )
+        _, result = self._create_and_regen(tmp_path, disable_servers=["accelpapers"])
 
         assert "active_servers" in result
         assert "disabled_servers" in result
@@ -609,9 +577,7 @@ class TestDisableServers:
 
     def test_disable_core_server_allowed(self, tmp_path):
         """Users can disable any server including core ones."""
-        project_dir, result = self._create_and_regen(
-            tmp_path, disable_servers=["ariel"]
-        )
+        project_dir, result = self._create_and_regen(tmp_path, disable_servers=["ariel"])
 
         mcp_data = json.loads((project_dir / ".mcp.json").read_text())
         assert "ariel" not in mcp_data["mcpServers"]
