@@ -52,18 +52,65 @@ class SandboxExecutionResult:
 # ---------------------------------------------------------------------------
 _ALLOWED_IMPORTS: set[str] = {
     # Data science
-    "numpy", "pandas", "scipy", "sklearn", "statsmodels",
+    "numpy",
+    "pandas",
+    "scipy",
+    "sklearn",
+    "statsmodels",
     # Visualization
-    "matplotlib", "mpl_toolkits", "plotly", "bokeh", "seaborn", "altair",
+    "matplotlib",
+    "mpl_toolkits",
+    "plotly",
+    "bokeh",
+    "seaborn",
+    "altair",
     # Image processing
-    "PIL", "Pillow", "skimage", "cv2",
+    "PIL",
+    "Pillow",
+    "skimage",
+    "cv2",
     # Stdlib (safe subset)
-    "os", "os.path", "pathlib", "json", "datetime", "math", "random", "re",
-    "collections", "itertools", "functools", "io", "textwrap", "warnings",
-    "copy", "typing", "dataclasses", "enum", "operator", "string", "uuid",
-    "time", "tempfile", "statistics", "decimal", "fractions", "numbers",
-    "abc", "contextlib", "inspect", "struct", "array", "bisect", "heapq",
-    "csv", "hashlib", "base64", "html", "pprint", "colorsys", "calendar",
+    "os",
+    "os.path",
+    "pathlib",
+    "json",
+    "datetime",
+    "math",
+    "random",
+    "re",
+    "collections",
+    "itertools",
+    "functools",
+    "io",
+    "textwrap",
+    "warnings",
+    "copy",
+    "typing",
+    "dataclasses",
+    "enum",
+    "operator",
+    "string",
+    "uuid",
+    "time",
+    "tempfile",
+    "statistics",
+    "decimal",
+    "fractions",
+    "numbers",
+    "abc",
+    "contextlib",
+    "inspect",
+    "struct",
+    "array",
+    "bisect",
+    "heapq",
+    "csv",
+    "hashlib",
+    "base64",
+    "html",
+    "pprint",
+    "colorsys",
+    "calendar",
 }
 
 # Top-level module names extracted from dotted allowed imports
@@ -190,6 +237,11 @@ _ALLOWED_ROOTS = [
 # Also allow tempfile directory
 import tempfile as _tempfile
 _ALLOWED_ROOTS.append(Path(_tempfile.gettempdir()).resolve())
+# Allow matplotlib/fontconfig cache dirs (read-only config under HOME)
+_home = Path.home()
+for _cfg_dir in [_home / ".matplotlib", _home / ".config", _home / ".cache", _home / ".local"]:
+    if _cfg_dir.exists():
+        _ALLOWED_ROOTS.append(_cfg_dir.resolve())
 
 
 def _sandboxed_open(file, mode="r", *args, **kwargs):
@@ -560,12 +612,10 @@ async def execute_sandbox_code(
             stderr=asyncio.subprocess.PIPE,
             cwd=str(project_root),
         )
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout
-        )
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         stdout_text = stdout_bytes.decode("utf-8", errors="replace")
         stderr_text = stderr_bytes.decode("utf-8", errors="replace")
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         await proc.wait()
         elapsed = time.time() - start_time
