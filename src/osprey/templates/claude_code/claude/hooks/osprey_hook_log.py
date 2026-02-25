@@ -15,8 +15,8 @@ def get_hook_input():
 
 
 def get_project_dir(hook_input):
-    """Single deterministic source: hook_input['cwd']."""
-    return hook_input.get("cwd", "")
+    """Resolve project directory: CLAUDE_PROJECT_DIR env var > hook_input['cwd']."""
+    return os.environ.get("CLAUDE_PROJECT_DIR") or hook_input.get("cwd", "")
 
 
 _debug_from_config = None  # module-level cache

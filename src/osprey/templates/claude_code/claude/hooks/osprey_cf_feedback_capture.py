@@ -55,12 +55,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import get_hook_input, get_project_dir, log_hook
 
 # Top-level guard: never crash the agent
+hook_input = None
 try:
     # ----------------------------------------------------------------
     # 1. Read hook input from stdin
     # ----------------------------------------------------------------
     hook_input = get_hook_input()
     if not hook_input:
+        log_hook("cf-feedback-capture", {}, status="empty-input")
         sys.exit(0)
 
     # ----------------------------------------------------------------
@@ -72,12 +74,19 @@ try:
         "mcp__channel-finder__get_channels",
     }
     if tool_name not in CAPTURE_TOOLS:
+        log_hook("cf-feedback-capture", hook_input, status="skip-tool", detail=tool_name)
         sys.exit(0)
 
     # ----------------------------------------------------------------
     # 3. Parse tool_response, skip if total <= 0
     # ----------------------------------------------------------------
     tool_response_raw = hook_input.get("tool_response", "")
+
+    # Handle content block array format: [{"type": "text", "text": "..."}]
+    if isinstance(tool_response_raw, list):
+        texts = [b.get("text", "") for b in tool_response_raw if isinstance(b, dict)]
+        tool_response_raw = texts[0] if texts else ""
+
     try:
         tool_response = (
             json.loads(tool_response_raw)
@@ -85,12 +94,24 @@ try:
             else tool_response_raw
         )
     except (json.JSONDecodeError, ValueError):
+        log_hook(
+            "cf-feedback-capture", hook_input,
+            status="parse-error",
+            detail=f"type={type(tool_response_raw).__name__}",
+        )
         sys.exit(0)
 
     total = 0
     if isinstance(tool_response, dict):
         total = tool_response.get("total", 0)
     if not total or total <= 0:
+        resp_type = type(tool_response).__name__
+        resp_keys = list(tool_response.keys()) if isinstance(tool_response, dict) else None
+        log_hook(
+            "cf-feedback-capture", hook_input,
+            status="no-total",
+            detail=f"type={resp_type} keys={resp_keys}",
+        )
         sys.exit(0)
 
     # ----------------------------------------------------------------
@@ -98,6 +119,7 @@ try:
     # ----------------------------------------------------------------
     project_dir = get_project_dir(hook_input)
     if not project_dir:
+        log_hook("cf-feedback-capture", hook_input, status="no-cwd")
         sys.exit(0)
 
     store_path = os.path.join(project_dir, "data", "feedback", "pending_reviews.json")
@@ -189,8 +211,8 @@ try:
 
 except SystemExit:
     raise
-except BaseException:
-    # Never crash the agent
-    pass
+except BaseException as exc:
+    # Never crash the agent, but log the exception for diagnostics
+    log_hook("cf-feedback-capture", hook_input or {}, status="exception", detail=str(exc))
 
 sys.exit(0)
