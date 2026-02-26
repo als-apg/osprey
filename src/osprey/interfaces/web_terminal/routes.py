@@ -139,6 +139,13 @@ async def agentsview_server_config(request: Request):
     return {"url": url, "available": url is not None}
 
 
+@router.get("/api/custom-panels")
+async def get_custom_panels(request: Request):
+    """Return user-defined panels from config.yml web.panels section."""
+    panels = getattr(request.app.state, "custom_panels", [])
+    return panels
+
+
 class PanelFocusRequest(BaseModel):
     panel: str
     url: str | None = None
@@ -162,6 +169,9 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
         "session",
         "session-analytics",
     }
+    # Include custom panel IDs
+    custom = getattr(request.app.state, "custom_panels", [])
+    known |= {p["id"] for p in custom}
     if body.panel not in known:
         raise HTTPException(status_code=422, detail=f"Unknown panel: {body.panel}")
     request.app.state.active_panel = body.panel

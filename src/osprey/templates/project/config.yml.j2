@@ -166,9 +166,24 @@ python_executor:
 # Agents are auto-managed based on config and are not listed here.
 
 claude_code:
-  # disable_servers: []     # e.g. ["accelpapers"] to remove a server
-  # disable_agents: []      # e.g. ["literature-search"] to remove an agent
-  # extra_servers: {}        # Add custom MCP servers
+  # ── Server / Agent Overrides ──────────────────────────────
+  # Disable framework servers or add custom MCP servers:
+  # servers:
+  #   accelpapers:
+  #     enabled: false
+  #   my-server:
+  #     command: "python"
+  #     args: ["-m", "my_mcp"]
+  #     env:
+  #       MY_KEY: "${MY_KEY}"
+  #     permissions:
+  #       allow: [read_data, list_items]
+  #       ask: [write_data]
+  #
+  # Disable framework agents:
+  # agents:
+  #   literature-search:
+  #     enabled: false
   #
   # ── Model Provider ──────────────────────────────────────────
   # Which provider serves Claude models. Must support Anthropic Messages API.

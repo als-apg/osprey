@@ -601,9 +601,14 @@ class TestDisableServers:
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
         ctx = manager._build_claude_code_context(project_dir, config)
-        assert ctx["disable_servers"] == ["accelpapers"]
-        assert ctx["disable_agents"] == ["literature-search"]
+        # disable_servers now includes both user-disabled AND condition-disabled
+        assert "accelpapers" in ctx["disable_servers"]
+        assert "literature-search" in ctx["disable_agents"]
+        # extra_servers preserved for backward compat
         assert "my-srv" in ctx["extra_servers"]
+        # New data-driven lists available
+        assert any(s["name"] == "my-srv" and s["enabled"] for s in ctx["servers"])
+        assert any(s["name"] == "accelpapers" and not s["enabled"] for s in ctx["servers"])
 
     def test_defaults_empty_when_no_claude_code_section(self, tmp_path):
         """Without claude_code section, overrides default to empty."""
@@ -616,8 +621,10 @@ class TestDisableServers:
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
         ctx = manager._build_claude_code_context(project_dir, config)
-        assert ctx["disable_servers"] == []
-        assert ctx["disable_agents"] == []
+        # No user-specified disables, but conditional servers (matlab, etc.) are disabled
+        # Core servers should all be enabled
+        enabled = {s["name"] for s in ctx["servers"] if s["enabled"]}
+        assert {"controls", "python", "workspace", "ariel", "accelpapers"} <= enabled
         assert ctx["extra_servers"] == {}
 
 

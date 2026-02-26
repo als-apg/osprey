@@ -218,14 +218,20 @@ class MCPRegistry:
         cs = self.config.control_system
         if not cs:
             logger.warning("No control_system section in config.yml")
-        elif cs.get("type") not in ("mock", "epics", None):
-            logger.warning("Unknown control_system.type: %s", cs.get("type"))
+        else:
+            cs_type = cs.get("type")
+            if cs_type not in ("mock", "epics", None) and "." not in (cs_type or ""):
+                logger.warning("Unknown control_system.type: %s", cs_type)
 
         arch = self.config.archiver
         if not arch:
             logger.warning("No archiver section in config.yml")
-        elif arch.get("type") not in ("mock_archiver", "epics_archiver", None):
-            logger.warning("Unknown archiver.type: %s", arch.get("type"))
+        else:
+            arch_type = arch.get("type")
+            if arch_type not in ("mock_archiver", "epics_archiver", None) and "." not in (
+                arch_type or ""
+            ):
+                logger.warning("Unknown archiver.type: %s", arch_type)
 
     async def shutdown(self) -> None:
         """Disconnect all connectors. Called on server shutdown."""

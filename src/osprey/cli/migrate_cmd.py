@@ -650,6 +650,7 @@ def migrate():
       init     Create manifest for existing project (retroactive)
       check    Check if migration is needed
       run      Perform migration analysis and generate prompts
+      config   Migrate claude_code config from legacy to new format
 
     \b
     Examples:
@@ -1064,3 +1065,97 @@ def migrate_run(project: Path, dry_run: bool, output: Path | None, use_current_v
             shutil.rmtree(temp_dir)
         except Exception as e:
             console.print(f"[dim]Warning: Could not remove temp directory {temp_dir}: {e}[/dim]")
+
+
+@migrate.command("config")
+@click.option(
+    "--project",
+    "-p",
+    type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path),
+    default=Path.cwd(),
+    help="Project directory",
+)
+@click.option("--dry-run/--apply", default=True, help="Preview vs apply changes")
+def migrate_config(project: Path, dry_run: bool):
+    """Migrate claude_code config from legacy to new format.
+
+    Converts legacy keys to the new extensibility format:
+
+    \b
+      disable_servers: [x]  ->  servers: {x: {enabled: false}}
+      extra_servers: {n: s} ->  servers: {n: s}
+      disable_agents: [x]  ->  agents: {x: {enabled: false}}
+    """
+    from ruamel.yaml import YAML
+
+    config_path = project / "config.yml"
+    if not config_path.exists():
+        console.print(f"[error]No config.yml found at {project}[/error]")
+        raise click.Abort()
+
+    yaml = YAML(typ="rt")
+    yaml.preserve_quotes = True
+    yaml.width = 200
+
+    with open(config_path, encoding="utf-8") as f:
+        data = yaml.load(f)
+
+    if data is None:
+        console.print("[warning]config.yml is empty[/warning]")
+        raise click.Abort()
+
+    claude_code = data.get("claude_code")
+    if claude_code is None:
+        console.print("[info]No claude_code section in config.yml — nothing to migrate.[/info]")
+        return
+
+    legacy_keys = {"disable_servers", "extra_servers", "disable_agents"}
+    found = legacy_keys & set(claude_code.keys())
+    if not found:
+        console.print(
+            "[info]No legacy keys found in claude_code section — already using new format.[/info]"
+        )
+        return
+
+    console.print("[bold]OSPREY Config Migration[/bold]\n")
+    console.print(f"Found legacy keys: {', '.join(sorted(found))}\n")
+
+    # Build servers dict
+    servers = dict(claude_code.get("servers", {}))
+
+    disable_servers = claude_code.get("disable_servers", [])
+    for name in disable_servers:
+        servers[name] = {"enabled": False}
+        console.print(f"  disable_servers: {name} -> servers.{name}.enabled: false")
+
+    extra_servers = claude_code.get("extra_servers", {})
+    for name, spec in extra_servers.items():
+        servers[name] = dict(spec) if hasattr(spec, "items") else spec
+        console.print(f"  extra_servers: {name} -> servers.{name}: {{...}}")
+
+    # Build agents dict
+    agents = dict(claude_code.get("agents", {}))
+
+    disable_agents = claude_code.get("disable_agents", [])
+    for name in disable_agents:
+        agents[name] = {"enabled": False}
+        console.print(f"  disable_agents: {name} -> agents.{name}.enabled: false")
+
+    if dry_run:
+        console.print("\n[dim]Dry run — no changes written. Use --apply to write.[/dim]")
+        return
+
+    # Apply changes: remove legacy keys, insert new ones
+    for key in ("disable_servers", "extra_servers", "disable_agents"):
+        if key in claude_code:
+            del claude_code[key]
+
+    if servers:
+        claude_code["servers"] = servers
+    if agents:
+        claude_code["agents"] = agents
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.dump(data, f)
+
+    console.print(f"\n[success]Migration applied to {config_path}[/success]")

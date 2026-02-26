@@ -306,6 +306,7 @@ class TemplateManager:
         # Load rendered config.yml so conditional sections (confluence, etc.)
         # are available to Claude Code templates (mcp.json.j2, CLAUDE.md.j2).
         config_file = project_dir / "config.yml"
+        cc_cfg = {}
         if config_file.exists():
             with open(config_file) as f:
                 rendered_config = yaml.safe_load(f) or {}
@@ -318,6 +319,7 @@ class TemplateManager:
                 ctx["deplot"] = rendered_config["deplot"]
             # Claude Code explicit overrides
             cc_config = rendered_config.get("claude_code", {})
+            cc_cfg = cc_config
             ctx.setdefault("disable_servers", cc_config.get("disable_servers", []))
             ctx.setdefault("disable_agents", cc_config.get("disable_agents", []))
             ctx.setdefault("extra_servers", cc_config.get("extra_servers", {}))
@@ -380,6 +382,23 @@ class TemplateManager:
         ctx.setdefault("disable_servers", [])
         ctx.setdefault("disable_agents", [])
         ctx.setdefault("extra_servers", {})
+
+        # Resolve servers and agents via the data-driven registry.
+        # Merge init-time overrides (passed via context=) into cc_cfg
+        # so the resolver sees them — e.g. context={"disable_agents": [...]}.
+        from osprey.cli.server_registry import resolve_agents, resolve_servers
+
+        if ctx.get("disable_servers") and "disable_servers" not in cc_cfg:
+            cc_cfg = {**cc_cfg, "disable_servers": ctx["disable_servers"]}
+        if ctx.get("disable_agents") and "disable_agents" not in cc_cfg:
+            cc_cfg = {**cc_cfg, "disable_agents": ctx["disable_agents"]}
+
+        ctx["servers"] = resolve_servers(cc_cfg, ctx)
+        ctx["agents"] = resolve_agents(cc_cfg, ctx, project_dir, ctx["servers"])
+        # Update legacy keys from resolved data
+        ctx["disable_servers"] = [s["name"] for s in ctx["servers"] if not s["enabled"]]
+        ctx["disable_agents"] = [a["name"] for a in ctx["agents"] if not a["enabled"]]
+
         self._create_claude_code_integration(project_dir, ctx)
 
         return project_dir
@@ -1075,10 +1094,20 @@ proper framework operation, especially when using containerized services.
         if "deplot" in config:
             ctx["deplot"] = config["deplot"]
 
-        # Claude Code explicit overrides
+        # Claude Code server + agent resolution (data-driven registry)
         claude_code_config = config.get("claude_code", {})
-        ctx["disable_servers"] = claude_code_config.get("disable_servers", [])
-        ctx["disable_agents"] = claude_code_config.get("disable_agents", [])
+
+        from osprey.cli.server_registry import resolve_agents, resolve_servers
+
+        ctx["servers"] = resolve_servers(claude_code_config, ctx)
+        ctx["agents"] = resolve_agents(
+            claude_code_config, ctx, project_dir, ctx["servers"]
+        )
+
+        # Backward compat: legacy keys for agent .md.j2 templates that
+        # still use {% if "name" not in disable_agents %} guards.
+        ctx["disable_servers"] = [s["name"] for s in ctx["servers"] if not s["enabled"]]
+        ctx["disable_agents"] = [a["name"] for a in ctx["agents"] if not a["enabled"]]
         ctx["extra_servers"] = claude_code_config.get("extra_servers", {})
         # User-owned files: regen skips these, users edit in-place
         ctx["user_owned"] = config.get("prompts", {}).get("user_owned", [])
@@ -1126,60 +1155,22 @@ proper framework operation, especially when using containerized services.
         """Compute active/disabled server and agent lists from template context.
 
         Args:
-            ctx: Template context dict with disable_servers, disable_agents, extra_servers,
-                 and optional confluence/matlab/channel_finder_pipeline keys.
+            ctx: Template context dict with ``servers`` and ``agents`` lists
+                 (populated by ``resolve_servers`` / ``resolve_agents``).
 
         Returns:
-            Dict with active_servers, disabled_servers, active_agents, disabled_agents keys.
+            Dict with active_servers, disabled_servers, extra_servers,
+            active_agents, disabled_agents keys.
         """
-        disable_servers = ctx.get("disable_servers", [])
-        disable_agents = ctx.get("disable_agents", [])
-        extra_servers = ctx.get("extra_servers", {})
-
-        # Core servers (always available)
-        core_servers = [
-            "controls",
-            "python",
-            "workspace",
-            "ariel",
-            "accelpapers",
-        ]
-
-        # Conditional servers (from config sections)
-        all_servers = list(core_servers)
-        if ctx.get("confluence"):
-            all_servers.append("confluence")
-        if ctx.get("matlab"):
-            all_servers.append("matlab")
-        if ctx.get("channel_finder_pipeline"):
-            all_servers.append("channel-finder")
-        all_servers.extend(extra_servers.keys())
-
-        # Core agents (always available)
-        core_agents = ["logbook-search", "logbook-deep-research", "literature-search"]
-
-        # Conditional agents (from config sections)
-        all_agents = list(core_agents)
-        if ctx.get("confluence"):
-            all_agents.append("wiki-search")
-        if ctx.get("matlab"):
-            all_agents.append("matlab-search")
-        if ctx.get("channel_finder_pipeline"):
-            all_agents.append("channel-finder")
-        if ctx.get("deplot"):
-            all_agents.append("graph-analyst")
-
-        active_servers = [s for s in all_servers if s not in disable_servers]
-        active_agents = [a for a in all_agents if a not in disable_agents]
-        actual_disabled_servers = [s for s in disable_servers if s in all_servers]
-        actual_disabled_agents = [a for a in disable_agents if a in all_agents]
+        servers = ctx.get("servers", [])
+        agents = ctx.get("agents", [])
 
         return {
-            "active_servers": active_servers,
-            "disabled_servers": actual_disabled_servers,
-            "extra_servers": list(extra_servers.keys()),
-            "active_agents": active_agents,
-            "disabled_agents": actual_disabled_agents,
+            "active_servers": [s["name"] for s in servers if s["enabled"]],
+            "disabled_servers": [s["name"] for s in servers if not s["enabled"]],
+            "extra_servers": [s["name"] for s in servers if s.get("is_custom")],
+            "active_agents": [a["name"] for a in agents if a["enabled"]],
+            "disabled_agents": [a["name"] for a in agents if not a["enabled"]],
         }
 
     def regenerate_claude_code(self, project_dir: Path, dry_run: bool = False) -> dict:
