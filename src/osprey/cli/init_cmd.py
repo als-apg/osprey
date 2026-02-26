@@ -332,6 +332,19 @@ def init(
             " project-local settings only.[/dim]"
         )
 
+        if provider:
+            from osprey.cli.claude_code_resolver import CLAUDE_CODE_PROVIDERS
+
+            prov_def = CLAUDE_CODE_PROVIDERS.get(provider, {})
+            if prov_def:
+                console.print(f"\n[bold]Shell setup for '{provider}':[/bold]")
+                console.print(
+                    f"  ✓ Required in ~/.zshrc:  "
+                    f"[accent]export {prov_def['auth_secret_env']}=<your-key>[/accent]"
+                )
+                console.print("  ✗ Remove from ~/.zshrc:  any ANTHROPIC_* exports")
+                console.print("  → Launch with:           [accent]osprey claude chat[/accent]")
+
     except ValueError as e:
         console.print(f"❌ Error: {e}", style=Styles.ERROR)
         raise click.Abort() from e

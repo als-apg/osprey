@@ -640,6 +640,23 @@ def status(project):
                 note = f" [dim]({default_tier})[/dim]"
             console.print(f"  {agent_name:28s} → {model_id}{note}")
 
+        # ── Environment conflict check ──
+        conflicts = spec.detect_env_conflicts(dict(os.environ))
+        if conflicts:
+            console.print("\n[warning]⚠ Shell environment conflicts:[/warning]")
+            for var, (shell_val, settings_val) in sorted(conflicts.items()):
+                console.print(f"  {var}:")
+                console.print(f"    shell:    {shell_val}")
+                console.print(f"    settings: {settings_val}")
+            console.print("\n[dim]Use 'osprey claude chat' to auto-resolve.[/dim]")
+
+        secret_available = bool(os.environ.get(spec.auth_secret_env))
+        icon = "[success]✓[/success]" if secret_available else "[error]✗[/error]"
+        console.print(
+            f"\n  Auth: {icon} ${spec.auth_secret_env} "
+            f"{'available' if secret_available else 'NOT FOUND'}"
+        )
+
     # ── Artifact drift ────────────────────────────────────────
     console.print("\n[bold]Artifact Status[/bold]")
     try:
@@ -709,6 +726,34 @@ def chat_claude(project, resume, print_mode):
     except FileNotFoundError as e:
         console.print(f"[error]Error:[/error] {e}", style="red")
         raise SystemExit(1) from e
+
+    # ── Provider isolation: wire auth token, scrub managed vars ──
+    from osprey.cli.claude_code_resolver import MANAGED_ENV_VARS, ClaudeCodeModelResolver
+
+    config_path = project_dir / "config.yml"
+    if config_path.exists():
+        config = yaml.safe_load(config_path.read_text()) or {}
+        cc_config = config.get("claude_code", {})
+        api_providers = config.get("api", {}).get("providers", {})
+        spec = ClaudeCodeModelResolver.resolve(cc_config, api_providers)
+        if spec and spec.auth_secret_env:
+            secret = os.environ.get(spec.auth_secret_env)
+            if secret:
+                os.environ[spec.auth_env_var] = secret
+                console.print(f"[dim]Set ${spec.auth_env_var} from ${spec.auth_secret_env}[/dim]")
+            else:
+                console.print(
+                    f"[warning]⚠ ${spec.auth_secret_env} not found in environment — "
+                    f"provider '{spec.provider}' may not authenticate[/warning]"
+                )
+            # Scrub managed vars so settings.json env block is authoritative
+            scrubbed = []
+            for var in sorted(MANAGED_ENV_VARS):
+                if var in os.environ and var != spec.auth_env_var:
+                    del os.environ[var]
+                    scrubbed.append(var)
+            if scrubbed:
+                console.print(f"[dim]Scrubbed: {', '.join(scrubbed)}[/dim]")
 
     # Build claude CLI args
     args = ["claude", "--project-dir", str(project_dir)]
