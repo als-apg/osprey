@@ -13,12 +13,8 @@ from .hierarchical import HierarchicalChannelDatabase
 from .middle_layer import MiddleLayerDatabase
 from .template import ChannelDatabase as TemplateChannelDatabase
 
-# Backward compatibility alias
-LegacyChannelDatabase = FlatChannelDatabase
-
 __all__ = [
     "FlatChannelDatabase",
-    "LegacyChannelDatabase",  # Backward compatibility
     "TemplateChannelDatabase",
     "HierarchicalChannelDatabase",
     "MiddleLayerDatabase",

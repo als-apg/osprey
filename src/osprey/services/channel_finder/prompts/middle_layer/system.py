@@ -1,12 +1,8 @@
 """System-level prompt assembly for Example Middle Layer Accelerator.
 
-This module combines facility description and matching rules into the
-complete facility_description used by the channel finder pipeline.
-
-To customize for your facility:
-1. Edit facility_description.py with your facility's details
-2. Optionally edit matching_rules.py to adjust terminology/synonyms
-3. This file (system.py) typically doesn't need modification
+Combines facility_description and matching_rules into the complete
+facility_description string used by the pipeline. Edit the component
+files rather than this module.
 """
 
 from .facility_description import FACILITY_DESCRIPTION

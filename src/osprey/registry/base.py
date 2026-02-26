@@ -1,96 +1,13 @@
-"""Registry Configuration Interface and Shared Definitions.
+"""Registration dataclasses and the ``RegistryConfigProvider`` ABC.
 
-This module defines the abstract interface that all applications must implement
-to provide their registry configuration, plus all shared dataclass definitions
-used by both framework and applications. It serves as the foundation for the
-registry system's type-safe, convention-based component registration.
+All component types (capabilities, nodes, context classes, data sources, services,
+etc.) are represented as frozen metadata for lazy loading by the registry manager.
 
-The module provides two main categories of functionality:
-
-1. **Registration Dataclasses**: Structured metadata definitions for lazy loading
-   of all component types (capabilities, nodes, context classes, data sources, services)
-2. **Configuration Interface**: Abstract base class that applications implement
-   to provide their registry configuration in a standardized way
-
-This design eliminates naming ambiguity, provides complete type safety, and ensures
-zero backwards compatibility issues when the registry system evolves. Applications
-only need to implement the RegistryConfigProvider interface and define their
-components using the provided registration dataclasses.
-
-Architecture Benefits:
-    - **Type Safety**: All component metadata is strongly typed
-    - **Lazy Loading**: Components are loaded only when needed, preventing circular imports
-    - **Convention-Based**: Standardized patterns reduce configuration complexity
-    - **Extensible**: New component types can be added without breaking existing applications
-    - **Validation**: Built-in validation ensures configuration consistency
-
-The registration system supports sophisticated component relationships through
-the provides/requires pattern, enabling automatic dependency resolution and
-validation at runtime.
-
-.. note::
-   All registration dataclasses use module_path and class_name for lazy loading,
-   ensuring components are imported only during registry initialization, not at
-   module load time.
-
-.. warning::
-   Applications must implement exactly one RegistryConfigProvider class in their
-   registry module. Multiple implementations or missing implementations will cause
-   RegistryError during initialization.
-
-Examples:
-    Basic application registry implementation::
-
-        >>> from osprey.registry.base import RegistryConfigProvider, RegistryConfig
-        >>> from osprey.registry.base import CapabilityRegistration, ContextClassRegistration
-        >>>
-        >>> class MyAppRegistryProvider(RegistryConfigProvider):
-        ...     def get_registry_config(self) -> RegistryConfig:
-        ...         return RegistryConfig(
-        ...             capabilities=[
-        ...                 CapabilityRegistration(
-        ...                     name="data_analysis",
-        ...                     module_path="applications.myapp.capabilities.data_analysis",
-        ...                     class_name="DataAnalysisCapability",
-        ...                     description="Analyze scientific data sets",
-        ...                     provides=["ANALYSIS_RESULTS"],
-        ...                     requires=["DATA_INPUT"]
-        ...                 )
-        ...             ],
-        ...             context_classes=[
-        ...                 ContextClassRegistration(
-        ...                     context_type="ANALYSIS_RESULTS",
-        ...                     module_path="applications.myapp.context_classes",
-        ...                     class_name="AnalysisResults"
-        ...                 )
-        ...             ]
-        ...         )
-
-    Service registration with internal nodes::
-
-        >>> ServiceRegistration(
-        ...     name="data_processor",
-        ...     module_path="applications.myapp.services.data_processor",
-        ...     class_name="DataProcessorService",
-        ...     description="Multi-step data processing service",
-        ...     provides=["PROCESSED_DATA"],
-        ...     requires=["RAW_DATA"],
-        ...     internal_nodes=["validator", "transformer", "aggregator"]
-        ... )
-
-.. seealso::
-   :class:`RegistryManager` : Registry manager that uses these definitions
-   :mod:`osprey.registry.registry` : Framework registry provider implementation
-   :doc:`/developer-guides/registry-system` : Complete registry system guide
-   :doc:`/developer-guides/03_core-framework-systems/03_registry-and-discovery` : Component registration patterns
+.. seealso:: :doc:`/developer-guides/registry-system`
 """
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-
-# =============================================================================
-# SHARED DATACLASS DEFINITIONS - Used by both framework and applications
-# =============================================================================
 
 
 @dataclass
@@ -144,16 +61,16 @@ class CapabilityRegistration:
 
     """
 
-    name: str  # Unique name like "pv_address_finding"
-    module_path: str  # Like "applications.als_assistant.capabilities.pv_address_finding"
-    class_name: str  # Like "PVAddressFindingCapability"
-    description: str  # Human-readable description
-    provides: list[str]  # Context types this capability produces
-    requires: list[str]  # Context types this capability needs as input
-    always_active: bool = False  # Whether capability is always active (no classification needed)
-    functional_node: str = None  # Name of functional node (from capability.node attribute)
-    example_usage: str = ""  # Example of how this capability is used
-    _is_explicit_override: bool = False  # Internal: True if registered via override_capabilities
+    name: str
+    module_path: str
+    class_name: str
+    description: str
+    provides: list[str]
+    requires: list[str]
+    always_active: bool = False
+    functional_node: str = None
+    example_usage: str = ""
+    _is_explicit_override: bool = False
 
 
 @dataclass
@@ -171,9 +88,9 @@ class ContextClassRegistration:
     :type class_name: str
     """
 
-    context_type: str  # String constant like "PV_ADDRESSES"
-    module_path: str  # Like "applications.als_assistant.context_classes"
-    class_name: str  # Like "PVAddresses"
+    context_type: str
+    module_path: str
+    class_name: str
 
 
 @dataclass
@@ -196,8 +113,8 @@ class DataSourceRegistration:
     """
 
     name: str
-    module_path: str  # Module path for lazy loading
-    class_name: str  # Class name for lazy loading
+    module_path: str
+    class_name: str
     description: str
     health_check_required: bool = True
 
@@ -222,10 +139,10 @@ class ExecutionPolicyAnalyzerRegistration:
     """
 
     name: str
-    module_path: str  # Module path for lazy loading
-    class_name: str  # Class name for lazy loading
+    module_path: str
+    class_name: str
     description: str
-    priority: int = 50  # Default priority
+    priority: int = 50
 
 
 @dataclass
@@ -248,10 +165,10 @@ class DomainAnalyzerRegistration:
     """
 
     name: str
-    module_path: str  # Module path for lazy loading
-    class_name: str  # Class name for lazy loading
+    module_path: str
+    class_name: str
     description: str
-    priority: int = 50  # Default priority
+    priority: int = 50
 
 
 @dataclass
@@ -293,8 +210,8 @@ class FrameworkPromptProviderRegistration:
             )
     """
 
-    module_path: str  # Module path containing custom builders
-    prompt_builders: dict[str, str] = field(default_factory=dict)  # prompt_type -> class_name
+    module_path: str
+    prompt_builders: dict[str, str] = field(default_factory=dict)
 
     # Deprecated fields (kept for backward compatibility)
     application_name: str | None = None
@@ -443,7 +360,7 @@ class ConnectorRegistration:
     """
 
     name: str
-    connector_type: str  # 'control_system' or 'archiver'
+    connector_type: str
     module_path: str
     class_name: str
     description: str
@@ -743,206 +660,27 @@ class ExtendedRegistryConfig(RegistryConfig):
     pass  # Marker class - inherits all fields and behavior from RegistryConfig
 
 
-# =============================================================================
-# REGISTRY CONFIGURATION INTERFACE
-# =============================================================================
-
-
 class RegistryConfigProvider(ABC):
     """Abstract interface for application registry configuration.
 
-    All applications must implement this interface to provide their registry
-    configuration in a standardized, type-safe manner. This interface eliminates
-    naming ambiguity and ensures consistent registry patterns across all applications
-    in the framework ecosystem.
+    Each application registry module must contain exactly one subclass that
+    implements :meth:`get_registry_config` and returns a :class:`RegistryConfig`
+    (or :class:`ExtendedRegistryConfig` when extending framework defaults).
 
-    The framework loads classes implementing this interface from each configured
-    application's registry module using the convention-based path:
-    applications.{app_name}.registry
+    The framework discovers implementations automatically from each configured
+    application's registry module (``applications.{app_name}.registry``).
 
-    This design provides several key benefits:
-
-    - **Type Safety**: All registry configurations are strongly typed
-    - **Convention-Based Loading**: Standardized module path patterns
-    - **Validation**: Automatic validation of registry structure
-    - **Extensibility**: Easy to add new component types without breaking changes
-    - **Documentation**: Self-documenting registry configurations
-
-    Implementation Requirements:
-        1. Exactly one class per application registry module must implement this interface
-        2. The get_registry_config() method must return a complete RegistryConfig
-        3. All component registrations must use valid module paths and class names
-        4. Context type dependencies (provides/requires) must be consistent
-
-    The registry system will call get_registry_config() once during initialization
-    and merge the returned configuration with the framework's base registry.
-    Applications can override framework components by using the same names.
-
-    :raises RegistryError: If multiple implementations found in one module
-    :raises RegistryError: If no implementation found in application registry module
-    :raises NotImplementedError: If get_registry_config() is not implemented
-
-    Examples:
-        Basic application registry::
-
-            >>> class MyAppRegistryProvider(RegistryConfigProvider):
-            ...     def get_registry_config(self) -> RegistryConfig:
-            ...         return RegistryConfig(
-            ...             capabilities=[
-            ...                 CapabilityRegistration(
-            ...                     name="my_capability",
-            ...                     module_path="applications.myapp.capabilities.my_capability",
-            ...                     class_name="MyCapability",
-            ...                     description="Application-specific functionality",
-            ...                     provides=["MY_RESULTS"],
-            ...                     requires=["INPUT_DATA"]
-            ...                 )
-            ...             ],
-            ...             context_classes=[
-            ...                 ContextClassRegistration(
-            ...                     context_type="MY_RESULTS",
-            ...                     module_path="applications.myapp.context_classes",
-            ...                     class_name="MyResults"
-            ...                 )
-            ...             ]
-            ...         )
-
-        Advanced registry with services and data sources::
-
-            >>> class AdvancedAppRegistryProvider(RegistryConfigProvider):
-            ...     def get_registry_config(self) -> RegistryConfig:
-            ...         return RegistryConfig(
-            ...             capabilities=[...],
-            ...             context_classes=[...],
-            ...             data_sources=[
-            ...                 DataSourceRegistration(
-            ...                     name="app_database",
-            ...                     module_path="applications.myapp.data_sources.database",
-            ...                     class_name="AppDatabaseProvider",
-            ...                     description="Application-specific database access",
-            ...                     health_check_required=True
-            ...                 )
-            ...             ],
-            ...             services=[
-            ...                 ServiceRegistration(
-            ...                     name="data_processor",
-            ...                     module_path="applications.myapp.services.processor",
-            ...                     class_name="DataProcessorService",
-            ...                     description="Multi-step data processing workflow",
-            ...                     provides=["PROCESSED_DATA"],
-            ...                     requires=["RAW_DATA"],
-            ...                     internal_nodes=["validator", "transformer", "aggregator"]
-            ...                 )
-            ...             ]
-            ...         )
-
-    .. note::
-       The framework will merge application registries with the base framework registry,
-       allowing applications to override framework components by using the same names.
-
-    .. warning::
-       Each application registry module must contain exactly one class implementing
-       this interface. Multiple implementations or missing implementations will cause
-       RegistryError during framework initialization.
-
-    .. seealso::
-       :class:`RegistryConfig` : Configuration structure returned by implementations
-       :class:`RegistryManager` : Manager that discovers and uses these providers
-       :doc:`/developer-guides/02_quick-start-patterns/01_building-your-first-capability` : Complete application development guide
+    .. seealso:: :class:`RegistryConfig`, :class:`RegistryManager`
     """
 
     @abstractmethod
     def get_registry_config(self) -> RegistryConfig:
-        """Get complete application registry configuration.
+        """Return the complete registry configuration for this application.
 
-        This method is called once during registry initialization to retrieve
-        the complete component configuration for the application. The returned
-        RegistryConfig will be merged with the framework's base registry,
-        allowing applications to extend or override framework functionality.
+        Called once during registry initialization. The returned configuration
+        is merged with the framework's base registry.
 
-        The configuration should include all components that the application
-        provides: capabilities, context classes, data sources, services, and
-        any other registered components. Components are loaded lazily using
-        the module_path and class_name metadata provided in the registrations.
-
-        Implementation Guidelines:
-            - Return a complete RegistryConfig with all application components
-            - Use descriptive names and clear documentation for all components
-            - Ensure provides/requires relationships are consistent across components
-            - Validate that all module paths and class names are correct
-            - Consider component initialization order when defining dependencies
-
-        :return: Complete registry configuration for this application including
-            all capabilities, context classes, data sources, services, and other
-            components that should be available in the framework
+        :return: Registry configuration with all application components.
         :rtype: RegistryConfig
-        :raises NotImplementedError: If not implemented by subclass (required by ABC)
-        :raises ImportError: If any component module paths are invalid
-        :raises AttributeError: If any component class names are not found
-
-        .. note::
-           This method is called exactly once during registry initialization.
-           The framework caches the returned configuration, so dynamic changes
-           after initialization are not supported.
-
-        .. warning::
-           All module paths must be importable and all class names must exist
-           in their respective modules. Invalid paths will cause registry
-           initialization to fail.
-
-        Examples:
-            Minimal application configuration::
-
-                >>> def get_registry_config(self) -> RegistryConfig:
-                ...     return RegistryConfig(
-                ...         capabilities=[
-                ...             CapabilityRegistration(
-                ...                 name="hello_world",
-                ...                 module_path="applications.myapp.capabilities.hello",
-                ...                 class_name="HelloWorldCapability",
-                ...                 description="Simple greeting capability",
-                ...                 provides=["GREETING"],
-                ...                 requires=[]
-                ...             )
-                ...         ],
-                ...         context_classes=[
-                ...             ContextClassRegistration(
-                ...                 context_type="GREETING",
-                ...                 module_path="applications.myapp.context_classes",
-                ...                 class_name="GreetingContext"
-                ...             )
-                ...         ]
-                ...     )
-
-            Complex application with all component types::
-
-                >>> def get_registry_config(self) -> RegistryConfig:
-                ...     return RegistryConfig(
-                ...         capabilities=[...],  # Domain-specific capabilities
-                ...         context_classes=[...],  # Data structures
-                ...         data_sources=[...],  # External data providers
-                ...         services=[...],  # Internal service graphs
-                ...         framework_prompt_providers=[...]  # Custom prompts
-                ...     )
-
-        .. seealso::
-           :class:`RegistryConfig` : Structure of the returned configuration
-           :class:`CapabilityRegistration` : Capability registration metadata
-           :class:`ContextClassRegistration` : Context class registration metadata
-           :doc:`/developer-guides/03_core-framework-systems/03_registry-and-discovery` : Component registration guide
         """
-        # This should never be called due to @abstractmethod, but provide helpful error
-        # in case someone bypasses the abstract enforcement or has implementation issues
-        class_name = self.__class__.__name__
-
-        raise NotImplementedError(
-            f"{class_name} must implement get_registry_config() method. "
-            f"This abstract method is required by RegistryConfigProvider interface.\n\n"
-            f"Expected implementation:\n"
-            f"class {class_name}(RegistryConfigProvider):\n"
-            f"    def get_registry_config(self) -> RegistryConfig:\n"
-            f"        return RegistryConfig(\n"
-            f"            capabilities=[...],\n"
-            f"            context_classes=[...]\n"
-            f"        )"
-        )
+        ...

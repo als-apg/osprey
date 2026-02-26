@@ -127,7 +127,6 @@ osprey:
 # Import from restructured subsystems
 from .analysis import (
     detect_control_system_operations,
-    get_default_patterns,
     get_framework_standard_patterns,
 )
 from .exceptions import (  # Code errors (retry code generation); Infrastructure errors (retry execution); Workflow errors (special handling); Base
@@ -186,7 +185,6 @@ __all__ = [
     # Note: Generator registration now via registry system (see osprey.registry.base.CodeGeneratorRegistration)
     # Analysis utilities
     "detect_control_system_operations",
-    "get_default_patterns",
     "get_framework_standard_patterns",
     # Execution context and notebook management
     "NotebookAttempt",

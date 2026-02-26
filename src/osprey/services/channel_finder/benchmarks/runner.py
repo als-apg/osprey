@@ -15,11 +15,8 @@ from pathlib import Path
 from rich.panel import Panel
 from rich.table import Table
 
-# Use Osprey's styling system
 from osprey.cli.styles import Messages, Styles, console
 from osprey.services.channel_finder.service import ChannelFinderService
-
-# Use Osprey's config system
 from osprey.utils.config import get_config_builder
 
 from .models import BenchmarkResults, QueryBenchmarkEntry, QueryEvaluation, QueryRunResult

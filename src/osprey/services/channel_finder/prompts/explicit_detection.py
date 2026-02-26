@@ -4,18 +4,11 @@ import textwrap
 
 
 def get_prompt(query: str) -> str:
-    """
-    Prompt for detecting explicit channel/PV addresses in user queries.
+    """Build the explicit channel detection prompt for the given query.
 
-    This is a shared optimization used by all pipelines (hierarchical, in-context,
-    middle-layer) to detect when users provide specific channel addresses directly,
-    allowing pipelines to skip search/navigation for efficiency.
-
-    Args:
-        query: User's natural language query
-
-    Returns:
-        Formatted prompt string for explicit channel detection
+    Shared across all pipelines (hierarchical, in-context, middle-layer) to
+    detect when users provide specific PV addresses directly, allowing
+    pipelines to skip search/navigation for efficiency.
     """
     return textwrap.dedent(
         f"""

@@ -259,33 +259,3 @@ def detect_control_system_operations(
         )
 
     return result
-
-
-def get_default_patterns() -> dict[str, dict[str, list[str]]]:
-    """
-    DEPRECATED: Get old nested pattern format.
-
-    This function is maintained for backward compatibility with existing tests
-    and code that still uses the old nested pattern format.
-
-    New code should use get_framework_standard_patterns() instead.
-
-    Returns:
-        Dictionary in old nested format for backward compatibility
-
-    .. deprecated::
-        Use :func:`get_framework_standard_patterns` instead.
-        This function will be removed in a future version.
-    """
-    logger.warning(
-        "get_default_patterns() is deprecated. Use get_framework_standard_patterns() instead."
-    )
-
-    # Return framework standard patterns in old nested format for backward compatibility
-    framework_patterns = get_framework_standard_patterns()
-
-    return {
-        "mock": framework_patterns,
-        "epics": framework_patterns,
-        # All control systems use the same patterns now (control-system-agnostic)
-    }

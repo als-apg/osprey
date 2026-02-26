@@ -1,15 +1,7 @@
-"""Facility-specific description for Example Middle Layer Accelerator.
+"""Facility description for Example Middle Layer Accelerator.
 
-This file contains facility-specific information that users should customize
-for their own control system. It describes:
-- What the facility is
-- Functional hierarchy structure (Middle Layer pattern)
-- System and family descriptions
-
-To customize for your facility:
-1. Copy this file to your facility's prompts directory
-2. Replace the content with your facility's description
-3. Update system/family descriptions to match your MML structure
+Customize this file for your facility: replace the description and
+system/family descriptions to match your MML structure.
 """
 
 FACILITY_DESCRIPTION = """

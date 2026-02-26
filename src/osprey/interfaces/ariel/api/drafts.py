@@ -55,10 +55,6 @@ class DraftResponse(BaseModel):
     metadata: dict | None = None
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 DRAFT_TTL_SECONDS = 3600  # 1 hour
 
 
@@ -97,11 +93,6 @@ def read_draft(draft_id: str) -> dict[str, Any] | None:
     if not filepath.exists():
         return None
     return json.loads(filepath.read_text())
-
-
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
 
 
 @draft_router.post("/drafts", response_model=DraftCreateResponse)

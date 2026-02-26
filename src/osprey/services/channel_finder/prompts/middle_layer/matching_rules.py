@@ -1,14 +1,8 @@
-"""Channel matching rules and terminology conventions for Middle Layer pipeline.
+"""Channel matching rules for middle layer pipeline.
 
-This file contains rules for interpreting user queries and matching them
-to the correct channels using the MML (MATLAB Middle Layer) pattern.
-
-Sections:
-- Monitor vs Setpoint terminology
-- Position and axis conventions
-- Device selection patterns
-- Common synonyms
-- Operational guidelines for React agent
+Uses the MML (MATLAB Middle Layer) naming conventions: Monitor vs
+Setpoint terminology, device selection patterns, and operational
+guidelines for the React agent.
 """
 
 MATCHING_RULES = """

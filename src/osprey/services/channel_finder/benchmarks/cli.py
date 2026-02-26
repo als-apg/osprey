@@ -3,11 +3,6 @@ Benchmark CLI for Channel Finder
 
 Core benchmark functions for evaluating channel finder performance.
 These are imported and used by osprey.cli.channel_finder_cmd.
-
-Functions:
-    parse_query_selection: Parse query selection strings
-    create_config_override: Apply CLI overrides to config
-    run_benchmarks: Execute the benchmark suite
 """
 
 import logging
@@ -65,7 +60,7 @@ def parse_query_selection(query_arg: str):
 
 
 def create_config_override(queries: str = None, model: str = None, dataset: str = None):
-    """Apply CLI argument overrides to config."""
+    """Apply CLI argument overrides to the channel finder config."""
     config = get_config()
 
     # Override query selection

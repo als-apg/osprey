@@ -1,100 +1,9 @@
-"""Registry Manager for Osprey Agentic Framework Components.
+"""Registry manager: lazy-loading, dependency-ordered component registry.
 
-This module provides the centralized registry management system for the Osprey
-framework, serving as the single point of access for all framework components
-including capabilities, nodes, context classes, data sources, and services.
+Provides :class:`RegistryManager` plus the global singleton helpers
+:func:`get_registry`, :func:`initialize_registry`, and :func:`reset_registry`.
 
-The registry manager implements a sophisticated component management system that:
-
-Core Functionality:
-    - **Centralized Access**: Single point of access for all framework components
-    - **Lazy Loading**: Components are imported only when needed, preventing circular imports
-    - **Dependency Management**: Automatic initialization in proper dependency order
-    - **Convention-Based Loading**: Application registry loading using naming conventions
-    - **Override Support**: Applications can override framework components
-    - **Type Safety**: Strongly typed component registration and access
-
-Architecture Overview:
-    The registry system uses a two-tier architecture with configuration-driven loading:
-
-    1. **Framework Registry**: Core infrastructure loaded from osprey.registry.registry
-    2. **Application Registries**: Domain-specific components from applications.{app}.registry
-
-    Applications must be listed in configuration, then the system loads their registries
-    using naming conventions and merges them with the framework registry, allowing
-    applications to extend or override framework functionality.
-
-Component Lifecycle:
-    1. **Loading**: Registry configurations loaded via RegistryConfigProvider interface
-    2. **Merging**: Application configs merged with framework config (applications override)
-    3. **Initialization**: Components loaded in dependency order (context → data → nodes → capabilities)
-    4. **Access**: Components available through typed getter methods
-    5. **Export**: Registry metadata exported for external tools
-
-Initialization Order:
-    Components are initialized in strict dependency order:
-
-    1. Context classes (required by capabilities)
-    2. Data sources (required by capabilities)
-    3. Core nodes (infrastructure components)
-    4. Services (internal service graphs)
-    5. Capabilities (domain-specific functionality)
-    6. Framework prompt providers (application-specific prompts)
-
-The registry manager is typically accessed through global functions rather than
-direct instantiation, providing a singleton pattern that ensures consistent
-state across the entire framework.
-
-.. note::
-   The registry uses lazy loading throughout - components are imported and instantiated
-   only during the initialization phase, not at module load time. This prevents
-   circular import issues while maintaining full introspection capabilities.
-
-.. warning::
-   Registry initialization must complete successfully before any components can be
-   accessed. Failed initialization will raise RegistryError and prevent framework
-   operation. Always call initialize_registry() before accessing components.
-
-Examples:
-    Basic registry usage::
-
-        >>> from osprey.registry import initialize_registry, get_registry
-        >>>
-        >>> # Initialize the complete registry system
-        >>> initialize_registry()
-        >>>
-        >>> # Access the singleton registry instance
-        >>> registry = get_registry()
-        >>>
-        >>> # Access framework components
-        >>> capability = registry.get_capability("pv_address_finding")
-        >>> context_class = registry.get_context_class("PV_ADDRESSES")
-        >>> data_source = registry.get_data_source("core_user_memory")
-
-    Registry statistics and debugging::
-
-        >>> # Check registry status
-        >>> stats = registry.get_stats()
-        >>> print(f"Loaded {stats['capabilities']} capabilities")
-        >>> print(f"Available: {stats['capability_names']}")
-        >>>
-        >>> # Validate configuration
-        >>> errors = registry.validate_configuration()
-        >>> if errors:
-        ...     print(f"Configuration issues: {errors}")
-
-    Export registry data for external tools::
-
-        >>> # Export complete registry metadata
-        >>> data = registry.export_registry_to_json("/tmp/registry_export")
-        >>> print(f"Exported {data['metadata']['total_capabilities']} capabilities")
-
-.. seealso::
-   :func:`get_registry` : Singleton access to the global registry instance
-   :func:`initialize_registry` : Registry system initialization
-   :class:`RegistryConfigProvider` : Interface for application registry implementations
-   :doc:`/developer-guides/registry-system` : Complete registry system documentation
-   :doc:`/developer-guides/03_core-framework-systems/03_registry-and-discovery` : Component registration patterns
+.. seealso:: :doc:`/developer-guides/registry-system`
 """
 
 import importlib
@@ -112,7 +21,6 @@ from osprey.utils.logger import get_logger
 
 from .base import RegistryConfig, RegistryConfigProvider
 
-# Import for prompt loading
 try:
     from osprey.prompts.defaults import DefaultPromptProvider
     from osprey.prompts.loader import _prompt_loader, set_default_framework_prompt_provider
@@ -157,92 +65,18 @@ class RegistryManager:
     """
 
     def __init__(self, registry_path: str | None = None):
-        """Initialize registry manager with optional application registry.
+        """Create a registry manager and build merged configuration.
 
-        Creates a new registry manager instance that builds configuration from
-        framework defaults and optionally an application registry. The manager
-        automatically detects whether the application uses Standalone or Extend
-        mode based on the registry type.
+        Mode is auto-detected: ``ExtendedRegistryConfig`` triggers extend mode
+        (merge with framework), plain ``RegistryConfig`` triggers standalone mode.
 
-        **Registry Modes:**
-
-        - **Standalone Mode** (``RegistryConfig``): Application provides complete
-          registry with ALL framework components. Framework registry is not loaded.
-          Used when applications need full control over all components.
-
-        - **Extend Mode** (``ExtendedRegistryConfig``): Application extends framework
-          defaults. Framework components are loaded first, then application components
-          are merged. This is the recommended mode for most applications.
-
-        The mode is detected automatically based on the type returned by the
-        application's ``get_registry_config()`` method. Use :func:`extend_framework_registry`
-        helper to create Extend mode registries.
-
-        **Initialization Process:**
-
-        1. Load application registry from specified path (if provided)
-        2. Detect registry mode based on type (RegistryConfig vs ExtendedRegistryConfig)
-        3. Load framework registry if Extend mode, or skip if Standalone mode
-        4. Merge configurations if Extend mode (application overrides take precedence)
-        5. Prepare component registries for lazy loading
-
-        :param registry_path: Path to application registry.py file.
-            Can be absolute (e.g., "/path/to/app/registry.py") or
-            relative (e.g., "./my_app/registry.py", "./src/app/registry.py").
-            If None, only framework registry is loaded (framework-only mode).
-        :type registry_path: str, optional
-        :raises RegistryError: If registry cannot be loaded or is invalid
-        :raises ConfigurationError: If registry configuration is invalid
-
-        .. note::
-           The registry manager is not initialized after construction. Call :meth:`initialize`
-           to perform component loading and make components available for access.
-
-        .. warning::
-           This is a low-level API. Most applications should use :func:`initialize_registry`
-           which reads registry_path from configuration automatically.
-
-        Examples:
-            **Recommended: Use global functions** (reads from config.yml)::
-
-                >>> from osprey.registry import initialize_registry, get_registry
-                >>> initialize_registry()  # Uses registry_path from config.yml
-                >>> registry = get_registry()
-                >>> capability = registry.get_capability("my_capability")
-
-            **Extend Mode** (application extends framework)::
-
-                >>> manager = RegistryManager("./my_app/registry.py")
-                >>> manager.initialize()
-                >>> # Has framework + application capabilities
-                >>> memory_cap = manager.get_capability("memory")  # Framework
-                >>> app_cap = manager.get_capability("my_capability")  # Application
-
-            **Standalone Mode** (application provides everything)::
-
-                >>> manager = RegistryManager("./standalone_app/registry.py")
-                >>> manager.initialize()
-                >>> # Only has components defined in application registry
-                >>> app_cap = manager.get_capability("my_capability")
-
-            **Framework-only mode** (no application)::
-
-                >>> manager = RegistryManager()  # No registry_path
-                >>> manager.initialize()
-                >>> memory_cap = manager.get_capability("memory")  # Framework only
-
-        .. seealso::
-           :func:`initialize_registry` : Preferred way to create and initialize registry
-           :func:`get_registry` : Access the global singleton registry instance
-           :func:`extend_framework_registry` : Helper to create Extend mode registry
-           :meth:`initialize` : Initialize components after construction
-           :class:`RegistryConfigProvider` : Interface that applications must implement
-           :class:`ExtendedRegistryConfig` : Marker class for Extend mode
+        :param registry_path: Path to application ``registry.py``, or *None*
+            for framework-only mode.
+        :raises RegistryError: If registry cannot be loaded or is invalid.
         """
         self.registry_path = registry_path
         self._initialized = False
 
-        # Core registries (no circular imports - pure lookup tables)
         self._registries = {
             "capabilities": {},
             "nodes": {},
@@ -261,13 +95,10 @@ class RegistryManager:
             "ariel_ingestion_adapters": {},
         }
 
-        # Provider-specific storage for metadata introspection
         self._provider_registrations = {}
-
-        # Store provider exclusions for deferred checking (names are introspected after loading)
+        # Provider exclusions are deferred: names are only known after class
+        # introspection at init time, not at merge time.
         self._excluded_provider_names = []
-
-        # Build complete configuration by merging framework + applications
         self.config = self._build_merged_configuration()
 
     def _build_merged_configuration(self) -> RegistryConfig:
@@ -296,19 +127,15 @@ class RegistryManager:
 
         from .base import ExtendedRegistryConfig
 
-        # No application registry? Framework only
         if not self.registry_path:
             logger.info("Built framework-only registry (no application)")
             return self._load_registry_from_module("osprey.registry.registry")
 
-        # Load application registry
         try:
             app_config = self._load_registry_from_path(self.registry_path)
             app_name = Path(self.registry_path).resolve().parent.name
 
-            # Check registry mode based on type
             if isinstance(app_config, ExtendedRegistryConfig):
-                # Extend mode: merge with framework
                 logger.info(f"Extending framework registry with application '{app_name}'")
 
                 framework_config = self._load_registry_from_module("osprey.registry.registry")
@@ -336,7 +163,6 @@ class RegistryManager:
                 return merged
 
             else:
-                # Standalone mode: use app config directly
                 logger.info(
                     f"Using standalone registry from application '{app_name}' (framework registry skipped)"
                 )
@@ -359,7 +185,6 @@ class RegistryManager:
         :rtype: RegistryConfig
         :raises RegistryError: If registry cannot be loaded or interface not implemented
         """
-        # Auto-derive component name for error messages and logging
         if module_path.startswith("applications."):
             component_name = f"{module_path.split('.')[1]} application"
         elif module_path == "osprey.registry.registry":
@@ -368,10 +193,8 @@ class RegistryManager:
             component_name = f"module {module_path}"
 
         try:
-            # Import the registry module
             registry_module = importlib.import_module(module_path)
 
-            # Find classes implementing RegistryConfigProvider interface
             provider_classes = []
             for name in dir(registry_module):
                 obj = getattr(registry_module, name)
@@ -382,7 +205,6 @@ class RegistryManager:
                 ):
                     provider_classes.append(obj)
 
-            # STRICT ENFORCEMENT: Exactly one provider class required
             if len(provider_classes) == 0:
                 raise RegistryError(
                     f"No RegistryConfigProvider implementation found in {module_path}. "
@@ -396,7 +218,6 @@ class RegistryManager:
                     f"{component_name} must define exactly one provider class."
                 )
 
-            # Instantiate and get configuration
             provider_class = provider_classes[0]
             provider_instance = provider_class()
             config = provider_instance.get_registry_config()
@@ -416,49 +237,14 @@ class RegistryManager:
             ) from e
 
     def _load_registry_from_path(self, registry_path: str) -> RegistryConfig:
-        """Load registry from filesystem path using importlib.util.
+        """Load registry from a filesystem path using ``importlib.util``.
 
-        This method provides robust path-based registry loading that works with
-        any file path (absolute or relative). It automatically configures sys.path
-        to enable component imports (context_classes, capabilities, etc.) following
-        the industry-standard pattern used by pytest, sphinx, and other major frameworks.
+        Adds the appropriate parent directory to ``sys.path`` so that registry
+        module references (e.g. ``app_name.context_classes``) resolve correctly.
 
-        The method follows the same provider discovery pattern as _load_registry_from_module,
-        finding exactly one class that implements RegistryConfigProvider and
-        instantiating it to get the registry configuration.
-
-        **Path Management (Industry Standard):**
-
-        When loading a registry from `./src/app_name/registry.py`, the registry will
-        reference modules like `"app_name.context_classes"`. For these imports to work,
-        the `src/` directory must be on sys.path. This method automatically detects
-        the project structure and adds the appropriate directory to sys.path before
-        loading components.
-
-        This follows the established pattern used by:
-        - pytest (adds test directories to sys.path during collection)
-        - sphinx (adds doc directory to sys.path for conf.py imports)
-        - airflow (adds DAG folders to sys.path for cross-DAG imports)
-
-        :param registry_path: Path to registry.py file (absolute or relative)
-        :type registry_path: str
-        :return: Registry configuration from the file
-        :rtype: RegistryConfig
-        :raises RegistryError: If file not found, invalid module, or no provider found
-
-        .. note::
-           This method modifies sys.path to enable application module imports.
-           This is standard behavior for Python application frameworks and is
-           transparent to users (logged at INFO level).
-
-        Examples:
-            Load from relative path::
-
-                >>> config = self._load_registry_from_path("./my_app/registry.py")
-
-            Load from absolute path::
-
-                >>> config = self._load_registry_from_path("/path/to/app/registry.py")
+        :param registry_path: Absolute or relative path to ``registry.py``.
+        :return: Registry configuration from the file.
+        :raises RegistryError: If file not found, invalid, or no provider found.
         """
         import importlib.util
         import sys
@@ -480,47 +266,23 @@ class RegistryManager:
                 f"Registry path is not a file: {registry_path}\nResolved path: {path}"
             )
 
-        # ============================================================================
-        # CONFIGURE SYS.PATH FOR APPLICATION MODULE IMPORTS (Industry Standard)
-        # ============================================================================
-        # Registry files reference modules like "app_name.context_classes" that won't
-        # be importable unless their parent directory is on sys.path.
-        #
-        # This follows the established pattern used by pytest, sphinx, and airflow:
-        # - pytest: Adds test directories during collection
-        # - sphinx: Adds doc directory for conf.py imports
-        # - airflow: Adds DAG folders for cross-DAG imports
-        #
-        # We detect the project structure and add the appropriate directory.
-        # ============================================================================
-
-        # Detect project structure - most generated projects use src/ directory
-        # Example: ./src/app_name/registry.py → need to add ./src/ to sys.path
-        app_dir = path.parent  # Directory containing registry.py (e.g., ./src/app_name/)
+        # Add parent directory to sys.path so registry module references resolve.
+        app_dir = path.parent
         project_root = app_dir.parent  # One level up (e.g., ./src/ or project root)
 
         search_dir = None
         detection_reason = None
 
-        # Pattern 1: Registry inside src/ directory (most common for generated projects)
-        # Path: ./src/app_name/registry.py → Add ./src/ to sys.path
         if project_root.name == "src":
             search_dir = project_root
             detection_reason = "registry is in src/ directory structure"
-
-        # Pattern 2: Registry elsewhere but src/ directory exists
-        # Path: ./app_name/registry.py but ./src/ exists → Add ./src/ to sys.path
         elif (project_root / "src").exists() and (project_root / "src").is_dir():
             search_dir = project_root / "src"
             detection_reason = "src/ directory exists in project root"
-
-        # Pattern 3: Flat structure - registry at app root
-        # Path: ./app_name/registry.py (no src/) → Add ./app_name/ to sys.path
         else:
             search_dir = app_dir
             detection_reason = "flat project structure (no src/ directory)"
 
-        # Add to sys.path if not already present (deduplication)
         search_dir_str = str(search_dir.resolve())
         if search_dir_str not in sys.path:
             sys.path.insert(0, search_dir_str)
@@ -535,11 +297,10 @@ class RegistryManager:
         else:
             logger.debug(f"Registry: {search_dir_str} already in sys.path ({detection_reason})")
 
-        # Load module from file using importlib.util
         try:
             spec = importlib.util.spec_from_file_location(
                 "_dynamic_registry",
-                path,  # Module name (not important for our use)
+                path,
             )
 
             if spec is None or spec.loader is None:
@@ -548,7 +309,6 @@ class RegistryManager:
                     f"This usually indicates a corrupted or invalid Python file."
                 )
 
-            # Create and execute the module
             module = importlib.util.module_from_spec(spec)
             sys.modules["_dynamic_registry"] = module
             spec.loader.exec_module(module)
@@ -559,7 +319,6 @@ class RegistryManager:
                 f"Ensure the file contains valid Python code and no syntax errors."
             ) from e
 
-        # Find RegistryConfigProvider implementation (same pattern as _load_registry_from_module)
         provider_classes = []
         for name in dir(module):
             obj = getattr(module, name)
@@ -570,7 +329,6 @@ class RegistryManager:
             ):
                 provider_classes.append(obj)
 
-        # STRICT ENFORCEMENT: Exactly one provider class required
         if len(provider_classes) == 0:
             raise RegistryError(
                 f"No RegistryConfigProvider implementation found in {registry_path}.\n"
@@ -590,13 +348,11 @@ class RegistryManager:
                 f"Found {len(provider_classes)} classes: {', '.join(class_names)}"
             )
 
-        # Instantiate provider and get configuration
         try:
             provider_class = provider_classes[0]
             provider_instance = provider_class()
             config = provider_instance.get_registry_config()
 
-            # Use parent directory name as application name for logging
             app_name = path.parent.name
             logger.debug(
                 f"Loaded registry via {provider_class.__name__} from {registry_path} "
@@ -646,8 +402,6 @@ class RegistryManager:
                 )
                 continue
 
-            # Filter out excluded components
-            # ContextClassRegistration uses 'context_type' instead of 'name'
             original_count = len(component_collection)
             if component_type == "context_classes":
                 filtered_components = [
@@ -688,15 +442,12 @@ class RegistryManager:
         with the same name. This supports customization and extension patterns.
         Enhanced with robust attribute checking for missing components.
         """
-        # Merge context classes (applications typically define their own)
         context_overrides = []
         existing_context_types = {cls.context_type for cls in merged.context_classes}
 
-        # Safely access context_classes attribute
         app_context_classes = getattr(app_config, "context_classes", [])
         for app_context in app_context_classes:
             if app_context.context_type in existing_context_types:
-                # Remove framework context class and add application override
                 merged.context_classes = [
                     cls
                     for cls in merged.context_classes
@@ -710,20 +461,16 @@ class RegistryManager:
                 f"Application {app_name} overrode framework context classes: {context_overrides}"
             )
 
-        # Handle framework component exclusions first (before overrides)
         framework_exclusions = getattr(app_config, "framework_exclusions", {})
         if framework_exclusions:
             self._apply_framework_exclusions(merged, framework_exclusions, app_name)
 
-        # Merge capabilities (applications typically define their own)
         capability_overrides = []
         existing_capability_names = {cap.name for cap in merged.capabilities}
 
-        # Safely access capabilities attribute
         app_capabilities = getattr(app_config, "capabilities", [])
         for app_capability in app_capabilities:
             if app_capability.name in existing_capability_names:
-                # Remove framework capability and add application override
                 merged.capabilities = [
                     cap for cap in merged.capabilities if cap.name != app_capability.name
                 ]
@@ -771,15 +518,12 @@ class RegistryManager:
                     f"Application {app_name} overrode framework capabilities: {other_overrides}"
                 )
 
-        # Merge data sources with override support
         framework_ds_names = {ds.name for ds in merged.data_sources}
         ds_overrides = []
 
-        # Safely access data_sources attribute
         app_data_sources = getattr(app_config, "data_sources", [])
         for app_ds in app_data_sources:
             if app_ds.name in framework_ds_names:
-                # Remove framework data source and add application override
                 merged.data_sources = [ds for ds in merged.data_sources if ds.name != app_ds.name]
                 ds_overrides.append(app_ds.name)
             merged.data_sources.append(app_ds)
@@ -787,15 +531,12 @@ class RegistryManager:
         if ds_overrides:
             logger.info(f"Application {app_name} overrode framework data sources: {ds_overrides}")
 
-        # Merge core nodes with override support (applications can override framework nodes!)
         framework_node_names = {node.name for node in merged.core_nodes}
         node_overrides = []
 
-        # Safely access core_nodes attribute
         app_core_nodes = getattr(app_config, "core_nodes", [])
         for app_node in app_core_nodes:
             if app_node.name in framework_node_names:
-                # Remove framework node and add application override
                 merged.core_nodes = [
                     node for node in merged.core_nodes if node.name != app_node.name
                 ]
@@ -805,15 +546,12 @@ class RegistryManager:
         if node_overrides:
             logger.info(f"Application {app_name} overrode framework nodes: {node_overrides}")
 
-        # Merge services with override support
         framework_service_names = {service.name for service in merged.services}
         service_overrides = []
 
-        # Safely access services attribute
         app_services = getattr(app_config, "services", [])
         for app_service in app_services:
             if app_service.name in framework_service_names:
-                # Remove framework service and add application override
                 merged.services = [
                     service for service in merged.services if service.name != app_service.name
                 ]
@@ -823,13 +561,9 @@ class RegistryManager:
         if service_overrides:
             logger.info(f"Application {app_name} overrode framework services: {service_overrides}")
 
-        # Add framework prompt providers (no override needed)
-        # Safely access framework_prompt_providers attribute
         app_prompt_providers = getattr(app_config, "framework_prompt_providers", [])
         merged.framework_prompt_providers.extend(app_prompt_providers)
 
-        # Merge providers with override support (applications can add custom providers)
-        # Providers need deduplication based on module_path + class_name combination
         framework_provider_keys = {(p.module_path, p.class_name) for p in merged.providers}
         provider_overrides = []
         providers_added = []
@@ -838,14 +572,12 @@ class RegistryManager:
         for app_provider in app_providers:
             provider_key = (app_provider.module_path, app_provider.class_name)
             if provider_key in framework_provider_keys:
-                # Remove framework provider and add application override
                 merged.providers = [
                     p for p in merged.providers if (p.module_path, p.class_name) != provider_key
                 ]
                 provider_overrides.append(f"{app_provider.module_path}.{app_provider.class_name}")
                 merged.providers.append(app_provider)
             else:
-                # New provider, not in framework
                 providers_added.append(f"{app_provider.module_path}.{app_provider.class_name}")
                 merged.providers.append(app_provider)
 
@@ -856,7 +588,6 @@ class RegistryManager:
         if providers_added:
             logger.info(f"Application {app_name} added {len(providers_added)} new provider(s)")
 
-        # Merge connectors with override support
         framework_connector_names = {conn.name for conn in merged.connectors}
         connector_overrides = []
         connectors_added = []
@@ -864,14 +595,12 @@ class RegistryManager:
         app_connectors = getattr(app_config, "connectors", [])
         for app_connector in app_connectors:
             if app_connector.name in framework_connector_names:
-                # Remove framework connector and add application override
                 merged.connectors = [
                     conn for conn in merged.connectors if conn.name != app_connector.name
                 ]
                 connector_overrides.append(app_connector.name)
                 merged.connectors.append(app_connector)
             else:
-                # New connector, not in framework
                 connectors_added.append(app_connector.name)
                 merged.connectors.append(app_connector)
 
@@ -884,7 +613,6 @@ class RegistryManager:
                 f"Application {app_name} added {len(connectors_added)} new connector(s): {connectors_added}"
             )
 
-        # Merge code generators with override support
         framework_generator_names = {gen.name for gen in merged.code_generators}
         generator_overrides = []
         generators_added = []
@@ -892,14 +620,12 @@ class RegistryManager:
         app_generators = getattr(app_config, "code_generators", [])
         for app_generator in app_generators:
             if app_generator.name in framework_generator_names:
-                # Remove framework generator and add application override
                 merged.code_generators = [
                     gen for gen in merged.code_generators if gen.name != app_generator.name
                 ]
                 generator_overrides.append(app_generator.name)
                 merged.code_generators.append(app_generator)
             else:
-                # New generator, not in framework
                 generators_added.append(app_generator.name)
                 merged.code_generators.append(app_generator)
 
@@ -912,7 +638,6 @@ class RegistryManager:
                 f"Application {app_name} added {len(generators_added)} new code generator(s): {generators_added}"
             )
 
-        # Merge ARIEL module types with override support
         self._merge_named_registrations(
             merged.ariel_search_modules,
             getattr(app_config, "ariel_search_modules", []),
@@ -1015,96 +740,23 @@ class RegistryManager:
             )
 
     def initialize(self, silent: bool = False) -> None:
-        """Initialize all component registries in dependency order.
+        """Load all registered components in dependency order.
 
-        Performs complete initialization of the registry system by loading all
-        registered components in the proper dependency order. This method handles
-        the transition from configuration metadata to actual component instances,
-        importing modules and instantiating classes as needed.
+        Idempotent -- returns immediately if already initialized.
 
-        The initialization process follows strict dependency order to ensure
-        components are available when needed by dependent components:
-
-        1. **Context Classes**: Data structures used by capabilities
-        2. **Data Sources**: External data providers used by capabilities
-        3. **Core Nodes**: Infrastructure components (router, orchestrator, etc.)
-        4. **Services**: Internal service graphs
-        5. **Capabilities**: Domain-specific functionality
-        6. **Framework Prompt Providers**: Application-specific prompt customizations
-
-        During initialization, the registry:
-        - Dynamically imports all component modules using lazy loading
-        - Instantiates classes and functions as specified in registrations
-        - Validates that all components can be loaded successfully
-        - Creates proper cross-references between related components
-        - Sets up prompt provider overrides and customizations
-
-        Component Loading Details:
-            - **Context Classes**: Imported and registered by type identifier
-            - **Data Sources**: Instantiated and optionally health-checked
-            - **Nodes**: Decorator-created functions registered as capability nodes
-            - **Capabilities**: Instantiated with decorator-created node functions
-            - **Services**: Service graphs compiled and made available
-            - **Analyzers**: Policy and domain analyzers prepared for use
-
-        :param silent: If True, suppress INFO and DEBUG logging during initialization.
-            Only ERROR and WARNING messages will be shown. Useful for clean CLI output.
-        :type silent: bool
-        :raises RegistryError: If any component fails to load, import, or initialize.
-            This includes missing modules, invalid class names, or instantiation failures
-        :raises ConfigurationError: If configuration is invalid, has circular dependencies,
-            or contains inconsistent component definitions
-        :raises ImportError: If any component module cannot be imported
-        :raises AttributeError: If any component class or function is not found in its module
-
-        .. note::
-           This method is idempotent - multiple calls have no effect if the registry
-           is already initialized. The initialization state is tracked internally.
-
-        .. warning::
-           All component imports occur during this call. Import failures, missing
-           dependencies, or circular imports will prevent framework operation.
-           Ensure all component modules and dependencies are available.
-
-        Examples:
-            Basic initialization::
-
-                >>> registry = RegistryManager(["als_assistant"])
-                >>> registry.initialize()  # Load all components
-                >>> print(registry.get_stats())  # Check what was loaded
-
-            Handle initialization errors::
-
-                >>> try:
-                ...     registry.initialize()
-                ... except RegistryError as e:
-                ...     print(f"Registry initialization failed: {e}")
-                ...     # Check configuration or fix missing components
-
-            Check initialization status::
-
-                >>> if not registry._initialized:
-                ...     registry.initialize()
-                >>> capability = registry.get_capability("my_capability")
-
-        .. seealso::
-           :meth:`validate_configuration` : Validate configuration before initialization
-           :meth:`get_stats` : Check initialization results and component counts
-           :meth:`clear` : Reset registry to uninitialized state
-           :func:`initialize_registry` : Global function that calls this method
+        :param silent: Suppress INFO/DEBUG logging during init.
+        :raises RegistryError: If any component fails to load.
         """
         if self._initialized:
             logger.debug("Registry already initialized")
             return
 
-        # Handle silent mode - temporarily suppress verbose logging
         original_levels = {}
         if silent:
-            # Suppress INFO and DEBUG output from registry-related loggers
             loggers_to_silence = [
-                "registry",  # Main registry logger
-                "connector_factory",  # Control system connector factory
-                "memory_storage",  # Memory storage system
+                "registry",
+                "connector_factory",
+                "memory_storage",
             ]
             for logger_name in loggers_to_silence:
                 log = logging.getLogger(logger_name)
@@ -1185,7 +837,6 @@ class RegistryManager:
         logger.debug("Initializing context classes...")
         for reg in self.config.context_classes:
             try:
-                # Dynamically import and get the context class
                 module = __import__(reg.module_path, fromlist=[reg.class_name])
                 context_class = getattr(module, reg.class_name)
                 self._registries["contexts"][reg.context_type] = context_class
@@ -1224,7 +875,6 @@ class RegistryManager:
         logger.debug("Initializing data sources...")
         for reg in self.config.data_sources:
             try:
-                # Dynamically import and instantiate the data source provider
                 module = __import__(reg.module_path, fromlist=[reg.class_name])
                 provider_class = getattr(module, reg.class_name)
                 provider_instance = provider_class()
@@ -1267,7 +917,6 @@ class RegistryManager:
 
         pr = get_provider_registry()
 
-        # Register any custom (non-built-in) providers from RegistryConfig
         for registration in self.config.providers:
             if registration.name and registration.name not in pr.list_providers():
                 pr.register_provider(
@@ -1321,11 +970,9 @@ class RegistryManager:
 
         for registration in self.config.connectors:
             try:
-                # Lazy load connector class
                 module = importlib.import_module(registration.module_path)
                 connector_class = getattr(module, registration.class_name)
 
-                # Register with ConnectorFactory based on type
                 if registration.connector_type == "control_system":
                     ConnectorFactory.register_control_system(registration.name, connector_class)
                 elif registration.connector_type == "archiver":
@@ -1336,7 +983,6 @@ class RegistryManager:
                         f"Must be 'control_system' or 'archiver'"
                     )
 
-                # Store in registry for introspection
                 self._registries["connectors"][registration.name] = connector_class
 
                 logger.info(
@@ -1375,11 +1021,9 @@ class RegistryManager:
 
         for registration in self.config.code_generators:
             try:
-                # Lazy load code generator class
                 module = importlib.import_module(registration.module_path)
                 generator_class = getattr(module, registration.class_name)
 
-                # Store in registry for factory discovery
                 self._registries["code_generators"][registration.name] = {
                     "class": generator_class,
                     "registration": registration,
@@ -1395,7 +1039,6 @@ class RegistryManager:
                     )
 
             except ImportError as e:
-                # Check if this is due to optional dependencies
                 if registration.optional_dependencies:
                     logger.warning(
                         f"  ⊘ Skipping code generator '{registration.name}' "
@@ -1405,7 +1048,6 @@ class RegistryManager:
                         f"    To use '{registration.name}', install: pip install {' '.join(registration.optional_dependencies)}"
                     )
                 else:
-                    # Not optional - this is a real error
                     logger.error(f"  ✗ Failed to import code generator '{registration.name}': {e}")
                     raise RegistryError(
                         f"Code generator registration failed for {registration.name}"
@@ -1607,11 +1249,8 @@ class RegistryManager:
         logger.debug("Initializing execution policy analyzers...")
         for reg in self.config.execution_policy_analyzers:
             try:
-                # Dynamically import and instantiate the execution policy analyzer
                 module = __import__(reg.module_path, fromlist=[reg.class_name])
                 analyzer_class = getattr(module, reg.class_name)
-                # Note: analyzer instances need configurable, but we'll handle that in the manager
-                # For now, just register the class for lazy instantiation
                 self._registries["execution_policy_analyzers"][reg.name] = {
                     "class": analyzer_class,
                     "registration": reg,
@@ -1639,11 +1278,8 @@ class RegistryManager:
         logger.debug("Initializing domain analyzers...")
         for reg in self.config.domain_analyzers:
             try:
-                # Dynamically import and instantiate the domain analyzer
                 module = __import__(reg.module_path, fromlist=[reg.class_name])
                 analyzer_class = getattr(module, reg.class_name)
-                # Note: analyzer instances need configurable, but we'll handle that in the manager
-                # For now, just register the class for lazy instantiation
                 self._registries["domain_analyzers"][reg.name] = {
                     "class": analyzer_class,
                     "registration": reg,
@@ -1665,17 +1301,12 @@ class RegistryManager:
         logger.debug("Initializing core nodes...")
         for reg in self.config.core_nodes:
             try:
-                # Dynamically import the module
                 module = __import__(reg.module_path, fromlist=[reg.function_name])
-
-                # Get the node class
                 node_class = getattr(module, reg.function_name)
 
                 if inspect.isclass(node_class):
-                    # The @infrastructure_node decorator should create a registered node
                     if hasattr(node_class, "langgraph_node"):
                         if callable(node_class.langgraph_node):
-                            # Register the node function directly
                             self._registries["nodes"][reg.name] = node_class.langgraph_node
                             logger.debug(f"Registered infrastructure node: {reg.name}")
                         else:
@@ -1710,13 +1341,10 @@ class RegistryManager:
         logger.debug("Initializing services...")
         for reg in self.config.services:
             try:
-                # Dynamically import and instantiate the service
                 module = __import__(reg.module_path, fromlist=[reg.class_name])
                 service_class = getattr(module, reg.class_name)
                 service_instance = service_class()
 
-                # Store the service instance (not just the compiled graph)
-                # This preserves the service's ainvoke method for request handling
                 if hasattr(service_instance, "get_compiled_graph"):
                     # Verify the service can compile its graph
                     self._registries["services"][reg.name] = service_instance
@@ -1747,16 +1375,13 @@ class RegistryManager:
 
         for reg in self.config.capabilities:
             try:
-                # Dynamically import and instantiate the capability
                 module = __import__(reg.module_path, fromlist=[reg.class_name])
                 capability_class = getattr(module, reg.class_name)
                 capability_instance = capability_class()
                 self._registries["capabilities"][reg.name] = capability_instance
 
-                # All capabilities should have @capability_node decorator which creates a registered node
                 if hasattr(capability_class, "langgraph_node"):
                     if callable(capability_class.langgraph_node):
-                        # Register the decorator-created callable function directly
                         self._registries["nodes"][reg.name] = capability_class.langgraph_node
                         logger.debug(f"Registered capability node: {reg.name}")
                     else:
@@ -1774,7 +1399,6 @@ class RegistryManager:
             except Exception as e:
                 failed_caps.append(reg.name)
                 logger.warning(f"Failed to initialize capability {reg.name}: {e}")
-                # Also log the traceback for debugging
                 import traceback
 
                 logger.debug(
@@ -1803,10 +1427,8 @@ class RegistryManager:
         logger.debug("Initializing framework prompt providers...")
         for reg in self.config.framework_prompt_providers:
             try:
-                # Create provider using explicit mapping
                 provider = self._create_explicit_provider(reg)
 
-                # Register the provider
                 from osprey.prompts.loader import _prompt_loader
 
                 provider_key = reg.module_path
@@ -1820,9 +1442,7 @@ class RegistryManager:
             except Exception as e:
                 logger.warning(f"Failed to initialize prompt provider from {reg.module_path}: {e}")
 
-        # Set default provider - use the last registered application provider
         if self.config.framework_prompt_providers:
-            # Use last provider as default (typically the application's provider, not framework defaults)
             default_provider_key = self.config.framework_prompt_providers[-1].module_path
 
             from osprey.prompts.loader import set_default_framework_prompt_provider
@@ -1837,10 +1457,9 @@ class RegistryManager:
     def _create_explicit_provider(self, reg):
         """Create prompt provider by overriding defaults with application-specific builders.
 
-        Follows the professional dependency injection pattern: start with framework defaults,
-        then override specific components based on application registry configuration.
-        This approach minimizes configuration (applications only declare what they customize)
-        while providing graceful fallbacks for everything else.
+        Overrides framework default builders with application-specific builders.
+        Applications only declare what they customize; everything else uses
+        framework defaults as fallbacks.
 
         :param reg: Framework prompt provider registration configuration
         :type reg: FrameworkPromptProviderRegistration
@@ -1851,22 +1470,17 @@ class RegistryManager:
         """
         from osprey.prompts.defaults import DefaultPromptProvider
 
-        # Start with framework defaults for everything
         provider = DefaultPromptProvider()
 
-        # Track successful/failed overrides for logging
         successful_overrides = []
         failed_overrides = []
 
-        # Override specific builders based on application registry
         for prompt_type, class_name in reg.prompt_builders.items():
             try:
-                # Import the application-specific builder class
                 module = __import__(reg.module_path, fromlist=[class_name])
                 builder_class = getattr(module, class_name)
                 builder_instance = builder_class()
 
-                # Override the default builder (follows established naming convention)
                 attr_name = f"_{prompt_type}_builder"
                 setattr(provider, attr_name, builder_instance)
 
@@ -1876,9 +1490,7 @@ class RegistryManager:
             except Exception as e:
                 failed_overrides.append((prompt_type, class_name, str(e)))
                 logger.warning(f"Failed to load prompt builder {class_name}: {e}")
-                # Continue with framework default for this builder
 
-        # Log summary
         total_builders = len(reg.prompt_builders)
         if successful_overrides:
             logger.info(
@@ -1891,7 +1503,6 @@ class RegistryManager:
             for prompt_type, class_name, error in failed_overrides:
                 logger.debug(f"  -> {prompt_type}({class_name}): {error}")
 
-        # Validate the final provider implements the complete interface
         self._validate_prompt_provider(provider, reg.module_path)
 
         return provider
@@ -1930,10 +1541,6 @@ class RegistryManager:
             )
         else:
             logger.debug(f"Prompt provider from {module_path} passed interface validation")
-
-    # ==============================================================================
-    # EXPORT FUNCTIONALITY
-    # ==============================================================================
 
     def export_registry_to_json(self, output_dir: str = None) -> dict[str, Any]:
         """Export registry metadata for external tools and plan editors.
@@ -2066,15 +1673,12 @@ class RegistryManager:
         :raises Exception: If JSON serialization fails
         """
         try:
-            # Create directory if it doesn't exist
             os.makedirs(output_dir, exist_ok=True)
 
-            # Save complete export data
             export_file = Path(output_dir) / "registry_export.json"
             with open(export_file, "w", encoding="utf-8") as f:
                 json.dump(export_data, f, indent=2, ensure_ascii=False)
 
-            # Save individual components for easier access
             components = ["capabilities", "context_types"]
             for component in components:
                 if component in export_data:
@@ -2092,10 +1696,6 @@ class RegistryManager:
         except Exception as e:
             logger.error(f"Failed to save export data: {e}")
             raise
-
-    # ==============================================================================
-    # PUBLIC ACCESS METHODS
-    # ==============================================================================
 
     def get_capability(self, name: str) -> Optional["BaseCapability"]:
         """Retrieve registered capability instance by name.
@@ -2276,10 +1876,6 @@ class RegistryManager:
         """
         return list(self._registries["providers"].keys())
 
-    # ==============================================================================
-    # CONNECTOR ACCESS
-    # ==============================================================================
-
     def get_connector(self, name: str) -> type[Any] | None:
         """Retrieve registered connector class by name.
 
@@ -2328,10 +1924,6 @@ class RegistryManager:
             ...     print(f"{name}: {connector_class}")
         """
         return self._registries["connectors"].copy()
-
-    # ==============================================================================
-    # ARIEL MODULE ACCESS
-    # ==============================================================================
 
     def get_ariel_search_module(self, name: str) -> Any | None:
         """Retrieve an ARIEL search module by registry name.
@@ -2439,7 +2031,6 @@ class RegistryManager:
         for name, registry_entry in self._registries["execution_policy_analyzers"].items():
             try:
                 analyzer_class = registry_entry["class"]
-                # Create instance with empty configurable - will be set properly when used
                 analyzer_instance = analyzer_class({})
                 analyzers.append(analyzer_instance)
             except Exception as e:
@@ -2459,7 +2050,6 @@ class RegistryManager:
         for name, registry_entry in self._registries["domain_analyzers"].items():
             try:
                 analyzer_class = registry_entry["class"]
-                # Create instance with empty configurable - will be set properly when used
                 analyzer_instance = analyzer_class({})
                 analyzers.append(analyzer_instance)
             except Exception as e:
@@ -2484,11 +2074,7 @@ class RegistryManager:
         available = []
         for provider in self._registries["data_sources"].values():
             try:
-                if hasattr(provider, "is_available") and provider.is_available(state):
-                    available.append(provider)
-                else:
-                    # Fallback - assume available if no is_available method
-                    available.append(provider)
+                available.append(provider)
             except Exception as e:
                 logger.warning(f"Failed to check availability for {provider}: {e}")
 
@@ -2546,50 +2132,34 @@ class RegistryManager:
                 >>> print(viz_name)  # "data_visualization" (with warning logged)
         """
         if not hasattr(self, "_capability_names"):
-            # Build registry of known capabilities
             registered_constants = {}
             for cap_reg in self.config.capabilities:
-                # Convert to constant format: "pv_address_finding" -> "PV_ADDRESS_FINDING"
                 const_name = cap_reg.name.upper().replace("-", "_")
                 registered_constants[const_name] = cap_reg.name
 
-            # Create proxy class with graceful fallback
             class CapabilityNamesProxy:
                 def __init__(self, constants):
                     self._constants = constants
 
                 def __getattr__(self, name):
-                    # First check if it's a registered capability
                     if name in self._constants:
                         return self._constants[name]
 
-                    # Graceful fallback for missing capabilities
-                    # Convert from constant back to capability name: "DATA_VISUALIZATION" -> "data_visualization"
                     capability_name = name.lower()
 
-                    # Log warning for debugging
-                    logger.warning(
-                        f"🔧 DEBUG: Accessing unregistered capability '{capability_name}' via registry.capability_names.{name}"
-                    )
-                    logger.warning(
-                        f"🔧 DEBUG: Returning fallback string '{capability_name}' - this capability is not in the registry"
-                    )
-                    logger.warning(
-                        f"🔧 DEBUG: Registered capabilities: {list(self._constants.keys())}"
+                    logger.debug(
+                        "Unregistered capability %r accessed via capability_names.%s",
+                        capability_name,
+                        name,
                     )
 
                     return capability_name
 
                 def __dir__(self):
-                    # For introspection/debugging - show registered capabilities
                     return list(self._constants.keys())
 
             self._capability_names = CapabilityNamesProxy(registered_constants)
         return self._capability_names
-
-    # ==============================================================================
-    # VALIDATION AND DEBUGGING
-    # ==============================================================================
 
     def validate_configuration(self) -> list[str]:
         """Validate registry configuration for consistency and completeness.
@@ -2614,28 +2184,21 @@ class RegistryManager:
         """
         errors = []
 
-        # Check for duplicate capability names
         capability_names = [cap.name for cap in self.config.capabilities]
         if len(capability_names) != len(set(capability_names)):
             errors.append("Duplicate capability names found")
 
-        # Check for duplicate node names
         core_node_names = [node.name for node in self.config.core_nodes]
         if len(core_node_names) != len(set(core_node_names)):
             errors.append("Duplicate core node names found")
 
-        # Check for duplicate context types
         context_types = [ctx.context_type for ctx in self.config.context_classes]
         if len(context_types) != len(set(context_types)):
             errors.append("Duplicate context types found")
 
-        # Check for duplicate data source names
         data_source_names = [ds.name for ds in self.config.data_sources]
         if len(data_source_names) != len(set(data_source_names)):
             errors.append("Duplicate data source names found")
-
-        # Note: Dependencies are tracked through context types (requires/provides)
-        # rather than explicit capability dependencies
 
         return errors
 
@@ -2650,7 +2213,6 @@ class RegistryManager:
         """
         stats = self.get_stats()
 
-        # Build the summary with better formatting
         summary_lines = [
             "Registry initialization complete!",
             "   Components loaded:",
@@ -2707,92 +2269,16 @@ class RegistryManager:
         self._initialized = False
 
 
-# ==============================================================================
-# GLOBAL REGISTRY INSTANCE
-# ==============================================================================
-
 _registry: RegistryManager | None = None
 _registry_config_path: str | None = None
 
 
 def get_registry(config_path: str | None = None) -> RegistryManager:
-    """Retrieve the global registry manager singleton instance.
+    """Return the global registry singleton, creating it on first access.
 
-    Returns the global registry manager instance, creating it automatically if it
-    doesn't exist. This function provides the primary access point for the registry
-    system throughout the framework, ensuring consistent access to the same registry
-    instance across all framework components.
-
-    The registry instance is created from the global configuration. Applications
-    are loaded from the 'applications' configuration key and their registries
-    are loaded using the pattern: applications.{app_name}.registry
-
-    Singleton Behavior:
-        - First call creates the registry instance from configuration
-        - Subsequent calls return the same instance
-        - Registry persists for the lifetime of the application
-        - Thread-safe access to the global instance
-
-    Registry Creation Process:
-        1. Read 'applications' list from global configuration
-        2. Create RegistryManager with configured application names
-        3. Build merged configuration (framework + applications)
-        4. Return uninitialized registry instance
-
-    :param config_path: Optional explicit path to configuration file. If provided
-        on first call, this path is used to create the registry. Subsequent calls
-        ignore this parameter (singleton already exists).
-    :return: The global registry manager singleton instance. The instance may not
-        be initialized - call initialize_registry() or registry.initialize() to
-        load components before accessing them
-    :rtype: RegistryManager
-    :raises ConfigurationError: If global configuration is invalid or applications
-        configuration is malformed
-    :raises RuntimeError: If registry creation fails due to configuration issues
-
-    .. note::
-       The returned registry instance may not be initialized. Components are not
-       available until initialize_registry() or registry.initialize() is called.
-
-    .. warning::
-       This function creates the registry from global configuration on first access.
-       Ensure configuration is properly set before calling this function.
-
-    Examples:
-        Basic registry access::
-
-            >>> from osprey.registry import get_registry, initialize_registry
-            >>>
-            >>> # Initialize first, then access
-            >>> initialize_registry()
-            >>> registry = get_registry()
-            >>> capability = registry.get_capability("pv_address_finding")
-
-        With explicit config path::
-
-            >>> registry = get_registry(config_path="/path/to/config.yml")
-            >>> # Registry created from specific config file
-
-        Check if registry is initialized::
-
-            >>> registry = get_registry()
-            >>> if not registry._initialized:
-            ...     registry.initialize()
-            >>> stats = registry.get_stats()
-
-        Access registry from different modules::
-
-            >>> # Same instance returned everywhere
-            >>> from osprey.registry import get_registry
-            >>> registry1 = get_registry()
-            >>> registry2 = get_registry()
-            >>> assert registry1 is registry2  # Same instance
-
-    .. seealso::
-       :func:`initialize_registry` : Initialize the registry system with components
-       :func:`reset_registry` : Reset the global registry instance
-       :class:`RegistryManager` : The registry manager class returned by this function
-       :doc:`/developer-guides/03_core-framework-systems/03_registry-and-discovery` : Registry access patterns
+    :param config_path: Optional config path used on first creation only.
+    :return: The global :class:`RegistryManager` (may not yet be initialized).
+    :raises RuntimeError: If registry creation fails.
     """
     global _registry, _registry_config_path
 
@@ -2845,8 +2331,6 @@ def _create_registry_from_config(config_path: str | None = None) -> RegistryMana
     try:
         registry_path = None
 
-        # Priority 0: Check environment variable first (for container overrides)
-        # This allows containers to specify absolute paths without modifying config.yml
         env_registry_path = os.environ.get("REGISTRY_PATH")
         if env_registry_path:
             registry_path = env_registry_path
@@ -2855,26 +2339,19 @@ def _create_registry_from_config(config_path: str | None = None) -> RegistryMana
             )
             return RegistryManager(registry_path=registry_path)
 
-        # When using explicit config_path, ensure it becomes the default so components
-        # being instantiated later can access it without passing config_path everywhere
         if config_path:
             from osprey.utils.config import get_config_builder
 
-            # This loads the config and sets it as default for future config access
             get_config_builder(config_path=config_path, set_as_default=True)
             logger.debug(f"Set {config_path} as default configuration")
 
-        # Determine base path for resolving relative registry paths
-        # Priority: 1) project_root from config, 2) config file directory, 3) current directory
         base_path = None
         if config_path:
-            # Try to get project_root from the config (don't need config_path param anymore since it's default)
             project_root = get_config_value("project_root", None)
             if project_root:
                 base_path = Path(project_root)
                 logger.debug(f"Using project_root from config as base path: {base_path}")
             else:
-                # Use config file's directory as base
                 base_path = Path(config_path).resolve().parent
                 logger.debug(f"Using config file directory as base path: {base_path}")
 
@@ -2887,16 +2364,13 @@ def _create_registry_from_config(config_path: str | None = None) -> RegistryMana
                 return str(resolved)
             return path
 
-        # Format 1: Top-level registry_path (simple, recommended)
         registry_path = get_config_value("registry_path", None)
 
-        # Format 2: Nested application.registry_path (also supported)
         if not registry_path:
             application = get_config_value("application", None)
             if application and isinstance(application, dict):
                 registry_path = application.get("registry_path")
 
-        # Resolve path if found
         if registry_path:
             registry_path = resolve_registry_path(registry_path)
             logger.info(f"Using application registry: {registry_path}")
@@ -2913,125 +2387,22 @@ def _create_registry_from_config(config_path: str | None = None) -> RegistryMana
 def initialize_registry(
     auto_export: bool = True, config_path: str | None = None, silent: bool = False
 ) -> None:
-    """Initialize the global registry system with all components.
+    """Initialize the global registry and load all components.
 
-    Performs complete initialization of the global registry system, including
-    loading of application registries, component loading in dependency order,
-    and optional export of registry metadata for external tools. This function
-    should be called once during application startup before accessing any
-    framework components.
+    Idempotent -- subsequent calls are no-ops once initialization succeeds.
 
-    The initialization process:
-    1. Gets or creates the global registry singleton instance
-    2. Loads all components in proper dependency order
-    3. Validates that all components loaded successfully
-    4. Optionally exports registry metadata to JSON files
-    5. Sets up the registry for component access throughout the application
-
-    Component Loading Order:
-        - Context classes (data structures)
-        - Data sources (external data providers)
-        - Core nodes (infrastructure components)
-        - Services (internal service graphs)
-        - Capabilities (domain-specific functionality)
-        - Framework prompt providers (application customizations)
-
-    Auto-Export Functionality:
-        When auto_export is True, the function automatically exports complete
-        registry metadata to JSON files for use by external tools, execution
-        plan editors, and documentation systems. Export includes capability
-        definitions, context types, and component relationships.
-
-    :param auto_export: Whether to automatically export registry metadata to JSON
-        files after successful initialization. Export files are saved to the
-        configured registry_exports_dir location
-    :type auto_export: bool
-    :param config_path: Optional explicit path to configuration file. Used when
-        creating the registry if it doesn't already exist.
-    :type config_path: Optional[str]
-    :param silent: If True, suppress INFO and DEBUG logging output during initialization.
-        Only ERROR and WARNING messages will be shown. Useful for CLI tools that want
-        clean output without verbose registry initialization logs.
-    :type silent: bool
-    :raises RegistryError: If registry initialization fails due to component loading
-        errors, missing modules, or invalid component definitions
-    :raises ConfigurationError: If global configuration is invalid, application
-        configurations are malformed, or dependencies are inconsistent
-    :raises ImportError: If any component module cannot be imported
-    :raises AttributeError: If any component class or function is not found
-
-    .. note::
-       This function is idempotent - multiple calls have no effect if the registry
-       is already initialized. The initialization state persists for the application
-       lifetime.
-
-    .. warning::
-       This function must be called before accessing any framework components.
-       Attempting to access components before initialization will result in
-       empty or incomplete results.
-
-    Examples:
-        Basic application startup::
-
-            >>> from osprey.registry import initialize_registry, get_registry
-            >>>
-            >>> # Initialize during application startup
-            >>> initialize_registry()
-            >>>
-            >>> # Now components are available
-            >>> registry = get_registry()
-            >>> capability = registry.get_capability("pv_address_finding")
-
-        With explicit config path::
-
-            >>> initialize_registry(config_path="/path/to/config.yml")
-            >>> # Registry created and initialized from specific config
-
-        Initialize without metadata export::
-
-            >>> # Skip JSON export for faster initialization
-            >>> initialize_registry(auto_export=False)
-
-        Silent initialization for clean CLI output::
-
-            >>> # Suppress verbose logging during initialization
-            >>> initialize_registry(silent=True)
-
-        Handle initialization errors::
-
-            >>> try:
-            ...     initialize_registry()
-            ...     print("Registry initialized successfully")
-            ... except RegistryError as e:
-            ...     print(f"Registry initialization failed: {e}")
-            ...     # Handle missing components or configuration issues
-
-        Check initialization results::
-
-            >>> initialize_registry()
-            >>> registry = get_registry()
-            >>> stats = registry.get_stats()
-            >>> print(f"Loaded {stats['capabilities']} capabilities")
-
-    .. seealso::
-       :func:`get_registry` : Access the initialized registry instance
-       :func:`reset_registry` : Reset registry for testing or reconfiguration
-       :meth:`RegistryManager.initialize` : Core initialization method called by this function
-       :meth:`RegistryManager.export_registry_to_json` : Export functionality used when auto_export=True
+    :param auto_export: Export registry metadata to JSON after init.
+    :param config_path: Optional config file path for registry creation.
+    :param silent: Suppress INFO/DEBUG logging during init.
+    :raises RegistryError: If component loading fails.
     """
     registry = get_registry(config_path=config_path)
     registry.initialize(silent=silent)
 
-    # Eagerly initialize subsystems that should fail-fast on startup
-    # This validates configuration early and groups initialization logs at startup
     from osprey.approval.approval_manager import get_approval_manager
 
-    get_approval_manager()  # Validates approval config, initializes singleton
+    get_approval_manager()
 
-    # Validate channel limits database if limits checking is enabled
-    # Note: This is a best-effort initialization that logs warnings but doesn't fail
-    # if the limits database is missing or misconfigured. The validator will handle
-    # runtime checks appropriately based on configuration.
     try:
         from osprey.services.python_executor.execution.limits_validator import LimitsValidator
 
@@ -3041,91 +2412,22 @@ def initialize_registry(
                 f"✅ Channel limits database loaded: {len(limits_validator.limits)} channels configured"
             )
     except Exception as e:
-        # Log as warning instead of error - missing limits database is not fatal
-        # The validator will enforce policy at runtime (e.g., block all writes if no database)
         logger.debug(f"Channel limits database not loaded: {e}")
         logger.debug("Runtime limits validation will use safe defaults")
 
-    # Auto-export registry data if requested
     if auto_export:
         try:
-            # Load app config to get proper paths
-            # Build export directory path from config
             export_dir = Path(get_agent_dir("registry_exports_dir"))
             export_dir.mkdir(parents=True, exist_ok=True)
-
-            # Export registry data
             registry.export_registry_to_json(str(export_dir))
-
         except Exception as e:
             logger.warning(f"Failed to auto-export registry data: {e}")
-            # Don't fail initialization if export fails
 
 
 def reset_registry() -> None:
-    """Reset the global registry instance to uninitialized state.
+    """Clear the global registry singleton so the next access creates a fresh one.
 
-    Completely clears the global registry instance and resets it to None,
-    forcing the next call to get_registry() to create a fresh instance.
-    This function is primarily used for testing scenarios where clean
-    registry state is required between test runs.
-
-    The reset process:
-    1. Clears all component registries in the current instance
-    2. Resets the initialization state to False
-    3. Sets the global registry instance to None
-    4. Clears the cached config path
-    5. Next get_registry() call will create a new instance from configuration
-
-    This function provides a clean slate for testing different registry
-    configurations or ensuring test isolation when registry state might
-    affect test outcomes.
-
-    .. warning::
-       This function completely destroys all registry data and component
-       references. Only use for testing scenarios or complete application
-       reset. Production code should never call this function.
-
-    .. note::
-       After calling this function, initialize_registry() must be called
-       again before accessing any framework components.
-
-    Examples:
-        Reset for unit testing::
-
-            >>> # At the start of each test
-            >>> reset_registry()
-            >>> initialize_registry()  # Fresh registry for this test
-            >>> registry = get_registry()
-            >>> # Test registry functionality
-
-        Reset between test configurations::
-
-            >>> # Test with framework-only configuration
-            >>> reset_registry()
-            >>> # Modify global config to have no applications
-            >>> initialize_registry()
-            >>> registry = get_registry()
-            >>> assert len(registry.get_all_capabilities()) == framework_count
-            >>>
-            >>> # Reset and test with applications
-            >>> reset_registry()
-            >>> # Modify global config to include applications
-            >>> initialize_registry()
-            >>> registry = get_registry()
-            >>> assert len(registry.get_all_capabilities()) > framework_count
-
-        Complete application reset::
-
-            >>> # Nuclear option - complete reset
-            >>> reset_registry()
-            >>> # Registry must be reinitialized before use
-            >>> initialize_registry()
-
-    .. seealso::
-       :func:`get_registry` : Access the global registry (creates new after reset)
-       :func:`initialize_registry` : Must be called after reset to use components
-       :meth:`RegistryManager.clear` : Method called internally to clear registry data
+    Primarily used for test isolation.
     """
     global _registry, _registry_config_path
     if _registry:
@@ -3134,22 +2436,14 @@ def reset_registry() -> None:
     _registry_config_path = None
 
 
-# ==============================================================================
-# GLOBAL REGISTRY INSTANCE EXPORT
-# ==============================================================================
-
-
 class _LazyRegistryProxy:
     """Proxy that creates registry only when first accessed to avoid circular imports."""
 
     def __getattr__(self, name):
-        # Always use the global singleton instance from get_registry()
         return getattr(get_registry(), name)
 
     def __call__(self, *args, **kwargs):
-        # Always use the global singleton instance from get_registry()
         return get_registry()(*args, **kwargs)
 
 
-# Export the global registry instance
 registry = _LazyRegistryProxy()

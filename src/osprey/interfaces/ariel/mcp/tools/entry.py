@@ -102,7 +102,7 @@ async def entry_get(
                 )
             )
 
-        # Serialize entry (TypedDict — use dict access)
+        # TypedDict -- dict access, not attribute access
         return json.dumps(
             {
                 "entry_id": entry["entry_id"],
@@ -278,7 +278,6 @@ async def entry_create(
     # a usable path regardless of their working directory.
     all_file_paths = [str(Path(p).resolve()) for p in all_file_paths]
 
-    # Pre-validate attachments before creating the entry/draft
     if all_file_paths:
         from osprey.services.ariel_search.attachments import (
             AttachmentValidationError,

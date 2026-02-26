@@ -168,7 +168,6 @@ def init(
         console.print(f"  📋 Using template: [accent]{template}[/accent]")
         console.print("  🤖 Mode: Claude Code")
 
-        # Detect environment variables
         detected_env = manager._detect_environment_variables()
         if detected_env:
             console.print(f"  🔑 Detected {len(detected_env)} environment variable(s) from system:")
@@ -195,11 +194,8 @@ def init(
                 )
                 raise click.Abort()
 
-        # Always clear Claude Code's cached trust/session state for this path
-        # so the trust prompt appears on first launch.
         _clear_claude_code_project_state(project_path)
 
-        # Create project context
         context = {}
         if provider:
             context["default_provider"] = provider
@@ -214,11 +210,10 @@ def init(
             project_name=project_name,
             output_dir=output_path,
             template_name=template,
-            registry_style="extend",  # Hardcoded default for Claude Code mode
+            registry_style="extend",
             context=context,
         )
 
-        # Generate manifest for migration support
         manifest_context = {
             "default_provider": context.get("default_provider", "cborg"),
             "default_model": context.get("default_model", "haiku"),
@@ -238,7 +233,7 @@ def init(
         console.print("  ✓ Creating project configuration...", style=Styles.SUCCESS)
         console.print("  ✓ Creating Claude Code integration...", style=Styles.SUCCESS)
 
-        # Initialize git repo for Claude Code project isolation
+        # Initialize git repo
         import os
         import subprocess
 

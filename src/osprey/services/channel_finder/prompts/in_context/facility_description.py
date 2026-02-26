@@ -1,15 +1,7 @@
-"""Facility-specific description for UCSB Free Electron Laser.
+"""Facility description for UCSB Free Electron Laser.
 
-This file contains facility-specific information that users should customize
-for their own control system. It describes:
-- What the facility is and how it operates
-- Major subsystems and their functions
-- Beamline classifications
-
-To customize for your facility:
-1. Copy this file to your facility's prompts directory
-2. Replace the content with your facility's description
-3. Update subsystem descriptions to match your accelerator
+Customize this file for your facility: replace the description and
+subsystem information to match your accelerator or beamline.
 """
 
 FACILITY_DESCRIPTION = """

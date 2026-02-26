@@ -35,7 +35,6 @@ from typing import Any
 
 import yaml
 
-# Import centralized styles
 from osprey.cli.styles import (
     Messages,
     Styles,
@@ -53,17 +52,12 @@ except ImportError:
     Choice = None
 
 
-# ============================================================================
-# CONSOLE AND STYLING
-# ============================================================================
+# --- Console And Styling ---
 
-# Use centralized questionary style
 custom_style = get_questionary_style()
 
 
-# ============================================================================
-# BANNER AND BRANDING
-# ============================================================================
+# --- Banner And Branding ---
 
 
 def show_banner(context: str = "interactive", config_path: str | None = None):
@@ -154,9 +148,7 @@ def show_success_art():
     console.print(art, style=Styles.BOLD_SUCCESS)
 
 
-# ============================================================================
-# PROJECT DETECTION
-# ============================================================================
+# --- Project Detection ---
 
 
 def is_project_initialized() -> bool:
@@ -360,10 +352,6 @@ def discover_nearby_projects(max_dirs: int = 50, max_time_ms: int = 100) -> list
     # Return sorted list
     return sorted(projects, key=lambda x: x[0].lower())
 
-
-# ============================================================================
-# PROVIDER METADATA (from Registry)
-# ============================================================================
 
 # Cache for provider metadata (loaded once per TUI session)
 _provider_cache: dict[str, dict[str, Any]] | None = None
@@ -593,9 +581,7 @@ def get_code_generator_metadata() -> dict[str, dict[str, Any]]:
         return {}
 
 
-# ============================================================================
-# MAIN MENU
-# ============================================================================
+# --- Main Menu ---
 
 
 def get_project_menu_choices(exit_action: str = "exit") -> list[Choice]:
@@ -707,9 +693,7 @@ def show_main_menu() -> str | None:
         ).ask()
 
 
-# ============================================================================
-# DIRECTORY SAFETY CHECKS
-# ============================================================================
+# --- Directory Safety Checks ---
 
 
 def check_directory_has_active_mounts(directory: Path) -> tuple[bool, list[str]]:
@@ -782,9 +766,7 @@ def check_directory_has_active_mounts(directory: Path) -> tuple[bool, list[str]]
     return len(mount_details) > 0, mount_details
 
 
-# ============================================================================
-# TEMPLATE SELECTION
-# ============================================================================
+# --- Template Selection ---
 
 
 def select_template(templates: list[str]) -> str | None:
@@ -915,9 +897,7 @@ def select_code_generator(generators: dict[str, dict[str, Any]]) -> str | None:
     ).ask()
 
 
-# ============================================================================
-# PROVIDER AND MODEL SELECTION
-# ============================================================================
+# --- Provider And Model Selection ---
 
 
 def select_provider(providers: dict[str, dict[str, Any]]) -> str | None:
@@ -995,9 +975,7 @@ def select_model(provider: str, providers: dict[str, dict[str, Any]]) -> str | N
     ).ask()
 
 
-# ============================================================================
-# API KEY MANAGEMENT
-# ============================================================================
+# --- Api Key Management ---
 
 
 def get_api_key_name(provider: str) -> str | None:
@@ -1198,9 +1176,7 @@ def show_manual_config_instructions(provider: str, key_name: str, project_path: 
     console.print(f"  4. Set permissions: {Messages.command('chmod 600 .env')}\n")
 
 
-# ============================================================================
-# INTERACTIVE INIT FLOW
-# ============================================================================
+# --- Interactive Init Flow ---
 
 
 def run_interactive_init() -> str:
@@ -1622,9 +1598,7 @@ def run_interactive_init() -> str:
         return "menu"
 
 
-# ============================================================================
-# COMMAND HANDLERS
-# ============================================================================
+# --- Command Handlers ---
 
 
 def handle_project_selection(project_path: Path):
@@ -2556,9 +2530,7 @@ def handle_help_action():
     input("Press ENTER to continue...")
 
 
-# ============================================================================
-# GENERATE MENU
-# ============================================================================
+# --- Generate Menu ---
 
 
 def show_generate_help():
@@ -3532,9 +3504,7 @@ def handle_generate_soft_ioc():
     input("Press ENTER to continue...")
 
 
-# ============================================================================
-# NAVIGATION LOOP
-# ============================================================================
+# --- Navigation Loop ---
 
 
 def navigation_loop():
@@ -3589,9 +3559,7 @@ def navigation_loop():
                 handle_help_action_root()
 
 
-# ============================================================================
-# ENTRY POINT
-# ============================================================================
+# --- Entry Point ---
 
 
 def launch_tui():

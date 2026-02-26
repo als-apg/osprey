@@ -199,20 +199,18 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
         }
         service_mode = mode_map.get(search_req.mode)
 
-        # Merge filter values: advanced_params takes precedence over top-level fields
+        # advanced_params takes precedence over top-level filter fields
         adv = search_req.advanced_params
         start_date = adv.pop("start_date", None) or search_req.start_date
         end_date = adv.pop("end_date", None) or search_req.end_date
         author = adv.pop("author", None) or search_req.author
         source_system = adv.pop("source_system", None) or search_req.source_system
 
-        # Parse date strings from advanced_params if needed
         if isinstance(start_date, str) and start_date:
             start_date = datetime.fromisoformat(start_date)
         if isinstance(end_date, str) and end_date:
             end_date = datetime.fromisoformat(end_date)
 
-        # Build time range if provided
         time_range = None
         if start_date or end_date:
             time_range = (start_date, end_date)
@@ -223,7 +221,6 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
         if source_system:
             adv["source_system"] = source_system
 
-        # Execute search
         result = await service.search(
             query=search_req.query,
             max_results=search_req.max_results,
@@ -234,7 +231,6 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
 
         execution_time = int((time.time() - start_time) * 1000)
 
-        # Convert entries to response format
         entries = [
             _entry_to_response(e, score=e.get("_score"), highlights=e.get("_highlights"))
             for e in result.entries
@@ -281,17 +277,15 @@ async def list_entries(
     service = _require_service(request)
 
     try:
-        # Get total count for pagination
         total = await service.repository.count_entries()
 
-        # Fetch entries (offset calculation would be used when repository supports it)
+        # TODO: add offset pagination when repository supports it
         entries = await service.repository.search_by_time_range(
             start=start_date,
             end=end_date,
             limit=page_size,
         )
 
-        # Convert to response format
         entry_responses = [_entry_to_response(e) for e in entries]
 
         total_pages = (total + page_size - 1) // page_size
@@ -335,11 +329,9 @@ async def create_entry(
     service = _require_service(request)
 
     try:
-        # Generate entry ID
         entry_id = f"ariel-{uuid.uuid4().hex[:12]}"
         now = datetime.now(UTC)
 
-        # Build entry
         entry = {
             "entry_id": entry_id,
             "source_system": "ARIEL Web",
@@ -419,14 +411,11 @@ async def create_entry_with_attachments(
     )
 
     try:
-        # Generate entry ID
         entry_id = f"ariel-{uuid.uuid4().hex[:12]}"
         now = datetime.now(UTC)
 
-        # Parse tags from comma-separated string
         tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
 
-        # Build entry
         entry: dict[str, Any] = {
             "entry_id": entry_id,
             "source_system": "ARIEL Web",
@@ -447,7 +436,6 @@ async def create_entry_with_attachments(
 
         await service.repository.upsert_entry(entry)
 
-        # Process uploaded files
         attachment_count = 0
         if files:
             attachment_infos = []
@@ -579,17 +567,15 @@ async def update_config(req: ConfigUpdateRequest) -> dict:
     if not path.exists():
         raise HTTPException(status_code=404, detail="config.yml not found")
 
-    # Validate YAML
     try:
         yaml.safe_load(req.content)
     except yaml.YAMLError as e:
         raise HTTPException(status_code=400, detail=f"Invalid YAML: {e}") from e
 
-    # Backup
     bak = path.with_suffix(".yml.bak")
     bak.write_text(path.read_text())
 
-    # Write with fsync
+    # fsync for crash safety
     fd = os.open(str(path), os.O_WRONLY | os.O_TRUNC | os.O_CREAT)
     try:
         os.write(fd, req.content.encode())
@@ -664,11 +650,10 @@ async def update_claude_setup_file(file_path: str, req: ClaudeSetupUpdateRequest
     if not target.is_file():
         raise HTTPException(status_code=400, detail="Not a file")
 
-    # Backup
     bak = target.with_suffix(target.suffix + ".bak")
     bak.write_text(target.read_text())
 
-    # Write with fsync
+    # fsync for crash safety
     fd = os.open(str(target), os.O_WRONLY | os.O_TRUNC | os.O_CREAT)
     try:
         os.write(fd, req.content.encode())

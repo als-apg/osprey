@@ -68,7 +68,6 @@ async def create_dashboard(
             )
         )
 
-    # Check Bokeh availability before attempting execution
     try:
         importlib.import_module("bokeh")
     except ImportError:

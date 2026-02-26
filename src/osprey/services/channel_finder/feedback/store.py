@@ -211,7 +211,7 @@ class FeedbackStore:
         return results[:max_results]
 
     def clear(self) -> None:
-        """Wipe all stored feedback data."""
+        """Remove all stored feedback data."""
         with self._locked():
             self._data = {"version": STORE_VERSION, "entries": {}}
             self._save()
@@ -260,7 +260,7 @@ class FeedbackStore:
         return dict(bucket)
 
     def export_data(self) -> dict:
-        """Return deep copy of entire store data for JSON export."""
+        """Return a deep copy of the entire store for JSON export."""
         self._load()
         return json.loads(json.dumps(self._data))
 

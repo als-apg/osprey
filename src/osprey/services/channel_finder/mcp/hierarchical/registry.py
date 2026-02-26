@@ -31,11 +31,9 @@ logger = logging.getLogger("osprey.services.channel_finder.mcp.hierarchical.regi
 class ChannelFinderHierRegistry:
     """Singleton registry for Hierarchical channel finder MCP server state.
 
-    Responsibilities:
-      1. Load and cache config.yml once at startup
-      2. Parse channel_finder.pipelines.hierarchical config section
-      3. Provide a cached HierarchicalChannelDatabase instance
-      4. Expose facility name for tool descriptions
+    Loads config.yml once at startup, provides a cached
+    HierarchicalChannelDatabase instance, and exposes the facility name
+    for tool descriptions.
     """
 
     def __init__(self) -> None:

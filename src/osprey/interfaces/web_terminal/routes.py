@@ -364,8 +364,6 @@ async def session_chat(request: Request):
         return {"turns": [], "count": 0}
 
 
-# ---- Workspace resolution helper ---- #
-
 _UUID_RE = re.compile(r"^[a-f0-9-]{36}$")
 
 

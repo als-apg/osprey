@@ -1,10 +1,4 @@
-"""MCP tool: archiver_read — retrieve historical data from the EPICS archiver.
-
-PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
-  Future: source from FrameworkPromptProvider.get_archiver_retrieval_prompt_builder()
-  Facility-customizable: tool description, available processing modes,
-  archiver-specific terminology, time range examples
-"""
+"""MCP tool: archiver_read — retrieve historical data from the EPICS archiver."""
 
 import json
 import logging
@@ -115,7 +109,7 @@ async def archiver_read(
                 precision_ms=1000 if bin_size is None else bin_size * 1000,
             )
 
-            # Full data payload — goes to file only
+            # Full data payload goes to file; compact summary returned inline
             records = json.loads(df.to_json(orient="split", date_format="iso"))
             data_payload = {
                 "query": {
@@ -128,7 +122,6 @@ async def archiver_read(
                 "dataframe": records,
             }
 
-            # Build compact summary and structural metadata inline
             per_channel = {}
             for ch in channels:
                 if ch in df.columns:

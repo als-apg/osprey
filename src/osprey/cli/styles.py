@@ -34,11 +34,6 @@ except ImportError:
     QUESTIONARY_AVAILABLE = False
 
 
-# ============================================================================
-# THEME CONFIGURATION
-# ============================================================================
-
-
 @dataclass
 class ColorTheme:
     """Defines a complete color theme for the CLI.
@@ -114,15 +109,11 @@ class ColorTheme:
         return f"#{r:02x}{g:02x}{b:02x}"
 
 
-# ============================================================================
-# PREDEFINED THEMES
-# ============================================================================
-
 # Default Osprey theme (purple-teal)
 OSPREY_THEME = ColorTheme()
 
 # Vulcan theme (default Osprey theme - branded name)
-VULCAN_THEME = ColorTheme()
+VULCAN_THEME = OSPREY_THEME
 
 # Theme registry for easy lookup
 THEME_REGISTRY = {
@@ -130,13 +121,6 @@ THEME_REGISTRY = {
     "vulcan": VULCAN_THEME,
 }
 
-# Additional themes can be defined here
-# Example: OCEAN_THEME = ColorTheme(primary="#0077be", accent="#00ccaa", ...)
-
-
-# ============================================================================
-# ACTIVE THEME MANAGEMENT
-# ============================================================================
 
 _active_theme = OSPREY_THEME
 
@@ -307,135 +291,10 @@ def _build_questionary_style(theme: ColorTheme) -> QuestionaryStyle | None:
     )
 
 
-# ============================================================================
-# BACKWARDS COMPATIBILITY - OspreyColors
-# ============================================================================
-
-
-class _OspreyColorsProxy:
-    """Legacy color access - now proxies to active theme.
-
-    Kept for backwards compatibility with existing code.
-    All attributes dynamically reference the active theme.
-    """
-
-    @property
-    def PRIMARY(self) -> str:
-        return _active_theme.primary
-
-    @property
-    def PRIMARY_DARK(self) -> str:
-        return _active_theme.primary_dark
-
-    @property
-    def PRIMARY_LIGHT(self) -> str:
-        return _active_theme.primary_light
-
-    @property
-    def SUCCESS(self) -> str:
-        return _active_theme.success
-
-    @property
-    def SUCCESS_DIM(self) -> str:
-        return _active_theme.success_dim
-
-    @property
-    def ERROR(self) -> str:
-        return _active_theme.error
-
-    @property
-    def ERROR_DIM(self) -> str:
-        return _active_theme.error_dim
-
-    @property
-    def WARNING(self) -> str:
-        return _active_theme.warning
-
-    @property
-    def WARNING_DIM(self) -> str:
-        return _active_theme.warning_dim
-
-    @property
-    def INFO(self) -> str:
-        return _active_theme.info
-
-    @property
-    def INFO_DIM(self) -> str:
-        return _active_theme.info_dim
-
-    @property
-    def COMMAND(self) -> str:
-        return _active_theme.command
-
-    @property
-    def PATH(self) -> str:
-        return _active_theme.path
-
-    @property
-    def ACCENT(self) -> str:
-        return _active_theme.accent
-
-    @property
-    def HEADER(self) -> str:
-        return _active_theme.header
-
-    @property
-    def SUBHEADER(self) -> str:
-        return _active_theme.subheader
-
-    @property
-    def TEXT_PRIMARY(self) -> str:
-        return _active_theme.text_primary
-
-    @property
-    def TEXT_SECONDARY(self) -> str:
-        return _active_theme.text_secondary
-
-    @property
-    def TEXT_DIM(self) -> str:
-        return _active_theme.text_dim
-
-    @property
-    def TEXT_DISABLED(self) -> str:
-        return _active_theme.text_disabled
-
-    @property
-    def BG_HIGHLIGHT(self) -> str:
-        return _active_theme.bg_highlight
-
-    @property
-    def BG_SELECTED(self) -> str:
-        return _active_theme.bg_selected
-
-    @property
-    def BORDER_DEFAULT(self) -> str:
-        return _active_theme.border_default
-
-    @property
-    def BORDER_ACCENT(self) -> str:
-        return _active_theme.border_accent
-
-    @property
-    def BORDER_DIM(self) -> str:
-        return _active_theme.border_dim
-
-
-# Singleton instance for backwards compatibility
-OspreyColors = _OspreyColorsProxy()
-
-
-# ============================================================================
-# RICH THEME & QUESTIONARY STYLES
-# ============================================================================
-
 # Build the initial theme objects from the active theme
 osprey_theme = _build_rich_theme(_active_theme)
 custom_style = _build_questionary_style(_active_theme)
 
-
-# ============================================================================
-# CONSOLE INSTANCE
-# ============================================================================
 
 # Singleton console instance with theme
 # On Windows, force UTF-8 encoding to support Unicode characters (✓, ✗, ⚠️, etc.)
@@ -443,11 +302,6 @@ if sys.platform == "win32":
     console = Console(theme=osprey_theme, force_terminal=True, legacy_windows=False)
 else:
     console = Console(theme=osprey_theme)
-
-
-# ============================================================================
-# QUESTIONARY KEY BINDINGS
-# ============================================================================
 
 
 def get_key_bindings() -> KeyBindings | None:
@@ -480,11 +334,6 @@ def get_questionary_style() -> QuestionaryStyle | None:
         QuestionaryStyle object or None if questionary not installed
     """
     return custom_style
-
-
-# ============================================================================
-# STYLE HELPERS
-# ============================================================================
 
 
 class Styles:
@@ -575,11 +424,6 @@ class Messages:
         return f"[path]{text}[/path]"
 
 
-# ============================================================================
-# THEME CONFIGURATION UTILITIES
-# ============================================================================
-
-
 class ThemeConfig:
     """Configuration utilities for theme customization.
 
@@ -610,10 +454,6 @@ class ThemeConfig:
         return Styles.BANNER
 
 
-# ============================================================================
-# EXPORTS
-# ============================================================================
-
 __all__ = [
     # Theme management
     "ColorTheme",
@@ -624,8 +464,6 @@ __all__ = [
     "set_theme",
     "load_theme_from_config",
     "initialize_theme_from_config",
-    # Backwards compatibility
-    "OspreyColors",
     "osprey_theme",
     # Console and styles
     "console",

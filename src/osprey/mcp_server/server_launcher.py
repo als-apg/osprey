@@ -127,11 +127,6 @@ class ServerLauncher:
             self._launch_in_thread(host, port)
 
 
-# ---------------------------------------------------------------------------
-# Pre-built launchers for the two companion servers
-# ---------------------------------------------------------------------------
-
-
 def _artifact_config() -> tuple[str, int]:
     config = load_osprey_config()
     art = config.get("artifact_server", {})
@@ -193,11 +188,6 @@ def ensure_ariel_server() -> None:
     _ariel_launcher.ensure_running()
 
 
-# ---------------------------------------------------------------------------
-# Tuning panel
-# ---------------------------------------------------------------------------
-
-
 def _tuning_config() -> tuple[str, int]:
     config = load_osprey_config()
     tuning_web = config.get("tuning", {}).get("web", {})
@@ -228,11 +218,6 @@ _tuning_launcher = ServerLauncher(
 def ensure_tuning_server() -> None:
     """Ensure the tuning panel server is running; launch if needed."""
     _tuning_launcher.ensure_running()
-
-
-# ---------------------------------------------------------------------------
-# DePlot service
-# ---------------------------------------------------------------------------
 
 
 def _deplot_config() -> tuple[str, int]:
@@ -271,11 +256,6 @@ _deplot_launcher = ServerLauncher(
 def ensure_deplot_server() -> None:
     """Ensure the DePlot service is running; launch if needed."""
     _deplot_launcher.ensure_running()
-
-
-# ---------------------------------------------------------------------------
-# Channel Finder web interface
-# ---------------------------------------------------------------------------
 
 
 def _channel_finder_config() -> tuple[str, int]:

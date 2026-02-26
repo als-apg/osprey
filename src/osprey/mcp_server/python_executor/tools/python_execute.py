@@ -1,10 +1,4 @@
-"""MCP tool: execute — run user-provided Python code with safety checks.
-
-PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
-  Future: source from FrameworkPromptProvider.get_python_prompt_builder()
-  Facility-customizable: tool description, supported artifact types,
-  execution mode descriptions, write pattern detection terminology
-"""
+"""MCP tool: execute — run user-provided Python code with safety checks."""
 
 import json
 import logging
@@ -62,7 +56,7 @@ async def execute(
             )
         )
 
-    # --- Pre-execution safety checks (syntax, security, imports) ---
+    # Pre-execution safety checks (syntax, security, imports)
     try:
         from osprey.services.python_executor.analysis.safety_checks import quick_safety_check
 
@@ -76,16 +70,17 @@ async def execute(
                 )
             )
     except ImportError:
-        pass  # Framework analysis module unavailable — continue with pattern detection only
+        logger.warning("Safety check module unavailable — executing without pre-checks")
 
-    # --- Pattern detection ---
+    # Pattern detection (block writes in readonly mode)
     try:
         from osprey.services.python_executor.analysis.pattern_detection import (
             detect_control_system_operations,
         )
 
         patterns = detect_control_system_operations(code)
-    except Exception:
+    except ImportError:
+        logger.warning("Pattern detection module unavailable — skipping write detection")
         patterns = {"has_writes": False, "has_reads": False, "detected_patterns": {}}
 
     if patterns.get("has_writes") and execution_mode == "readonly":
@@ -100,7 +95,7 @@ async def execute(
             )
         )
 
-    # --- Execute code via adapter (container / subprocess) ---
+    # Execute code via adapter (container or subprocess)
     artifact_ids: list[str] = []
 
     from osprey.mcp_server.python_executor.executor import execute_code

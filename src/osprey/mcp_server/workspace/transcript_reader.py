@@ -1,9 +1,8 @@
 """Read Claude Code native transcripts to extract OSPREY tool-call and agent events.
 
-Replaces the former PostToolUse audit hook (``osprey_audit.py``) and
-SubagentStart/SubagentStop lifecycle hook (``osprey_subagent_lifecycle.py``).
-Claude Code already logs every tool call to ``~/.claude/projects/<encoded>/``
-as JSONL — this module reads those transcripts on demand.
+Replaces the former PostToolUse/SubagentStart audit hooks. Claude Code already
+logs every tool call to ``~/.claude/projects/<encoded>/`` as JSONL -- this
+module reads those transcripts on demand.
 """
 
 import json

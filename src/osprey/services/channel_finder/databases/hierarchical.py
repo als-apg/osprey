@@ -28,25 +28,17 @@ _HIER_META_KEYS = frozenset(
 
 
 class HierarchicalChannelDatabase(BaseDatabase):
-    """
-    Database for hierarchical channel naming schemes.
+    """Database for hierarchical channel naming schemes.
 
-    Supports flexible hierarchy with arbitrary mixing of:
-    - Tree levels (semantic categories)
-    - Instance levels (numbered/patterned expansions)
+    Supports flexible hierarchy with arbitrary mixing of tree levels
+    (semantic categories) and instance levels (numbered/patterned expansions).
     """
 
     def __init__(self, db_path: str):
-        """
-        Initialize hierarchical database.
-
-        Args:
-            db_path: Path to hierarchical database JSON file
-        """
         super().__init__(db_path)
 
     def load_database(self):
-        """Load hierarchical database from JSON with flexible configuration."""
+        """Load and parse the hierarchical database JSON."""
         import warnings
 
         with open(self.db_path) as f:

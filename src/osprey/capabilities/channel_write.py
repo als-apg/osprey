@@ -4,9 +4,7 @@ Writes values to control system channels via the configured connector.
 All writes require human approval before execution, enforcing the
 safety-first design of the Osprey framework.
 
-Context Flow:
-    Input:  CHANNEL_ADDRESSES (from channel_finding)
-    Output: CHANNEL_WRITE_RESULTS (success/failure per channel)
+Context flow: CHANNEL_ADDRESSES -> CHANNEL_WRITE_RESULTS
 """
 
 from __future__ import annotations
@@ -18,10 +16,6 @@ from pydantic import BaseModel
 from osprey.base.capability import BaseCapability
 from osprey.base.errors import ErrorClassification, ErrorSeverity
 from osprey.context import CapabilityContext
-
-# ---------------------------------------------------------------------------
-# Context classes (inlined per v0.11 convention)
-# ---------------------------------------------------------------------------
 
 
 class WriteVerificationInfo(BaseModel):
@@ -55,14 +49,12 @@ class ChannelWriteResultsContext(CapabilityContext):
     failed_count: int
 
     def get_summary(self) -> str:
-        """Return a human-readable summary."""
         return (
             f"Wrote to {self.total_writes} channel(s): "
             f"{self.successful_count} succeeded, {self.failed_count} failed"
         )
 
     def get_access_details(self, key: str) -> dict:
-        """Return access details for this context."""
         return {
             "context_type": self.CONTEXT_TYPE,
             "key": key,
@@ -70,11 +62,6 @@ class ChannelWriteResultsContext(CapabilityContext):
             "successful_count": self.successful_count,
             "failed_count": self.failed_count,
         }
-
-
-# ---------------------------------------------------------------------------
-# Capability
-# ---------------------------------------------------------------------------
 
 
 class ChannelWriteCapability(BaseCapability):
@@ -90,7 +77,6 @@ class ChannelWriteCapability(BaseCapability):
 
     @staticmethod
     def classify_error(exc: Exception, context: dict) -> ErrorClassification:
-        """Classify channel-write errors."""
         if isinstance(exc, TimeoutError):
             return ErrorClassification(
                 severity=ErrorSeverity.RETRIABLE,

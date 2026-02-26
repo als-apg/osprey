@@ -2,7 +2,7 @@
 Database Validation Tool
 
 Validates channel database JSON files for correctness and compatibility with the system.
-Auto-detects pipeline type (hierarchical vs in_context) and validates accordingly.
+Auto-detects pipeline type (hierarchical, in_context, or middle_layer) and validates accordingly.
 """
 
 import json
@@ -17,6 +17,7 @@ from osprey.services.channel_finder.databases import (
     HierarchicalChannelDatabase,
     TemplateChannelDatabase,
 )
+from osprey.services.channel_finder.utils.detection import detect_pipeline_config
 
 try:
     from osprey.cli.styles import console as osprey_console
@@ -27,33 +28,6 @@ try:
 except ImportError:
     console = Console()
     theme = None
-
-
-def detect_pipeline_config(config):
-    """Detect which pipeline is configured.
-
-    Returns:
-        tuple: (pipeline_type, db_config) where pipeline_type is 'hierarchical' or 'in_context'
-    """
-    cf_config = config.get("channel_finder", {})
-    pipelines = cf_config.get("pipelines", {})
-
-    pipeline_mode = cf_config.get("pipeline_mode")
-
-    hierarchical_config = pipelines.get("hierarchical", {})
-    in_context_config = pipelines.get("in_context", {})
-
-    if pipeline_mode == "in_context" and in_context_config.get("database", {}).get("path"):
-        return "in_context", in_context_config.get("database", {})
-    elif pipeline_mode == "hierarchical" and hierarchical_config.get("database", {}).get("path"):
-        return "hierarchical", hierarchical_config.get("database", {})
-
-    if hierarchical_config.get("database", {}).get("path"):
-        return "hierarchical", hierarchical_config.get("database", {})
-    elif in_context_config.get("database", {}).get("path"):
-        return "in_context", in_context_config.get("database", {})
-    else:
-        return None, None
 
 
 def validate_json_structure(db_path: Path) -> tuple[bool, list[str], list[str]]:

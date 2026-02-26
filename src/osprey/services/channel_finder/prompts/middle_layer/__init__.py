@@ -1,24 +1,8 @@
-"""
-Example Middle Layer Facility Prompts
+"""Middle layer facility prompts for channel finder.
 
-This package contains facility-specific prompts for the example middle layer accelerator.
-
-Modular Structure:
-- facility_description.py: Facility-specific description (CUSTOMIZE THIS)
-- matching_rules.py: Channel matching rules and terminology (CUSTOMIZE AS NEEDED)
-- system.py: Combines the above into facility_description
-- query_splitter.py: Stage 1 query splitting
-
-For middle_layer pipeline:
-Note: Unlike in-context pipeline, middle_layer doesn't use channel_matcher or correction prompts.
-The React agent uses database query tools to explore the functional hierarchy and find channels.
-
-Architecture:
-  - Database (middle_layer.json): Contains ONLY DATA (functional hierarchy, channel addresses)
-  - Prompts: Contains INSTRUCTIONS (query splitting and agent system prompt)
-  - Agent Tools: Provides database exploration capabilities
-
-This maintains clean separation: data vs prompts vs tools.
+Modules: facility_description, matching_rules, system (combined description),
+and query_splitter. Unlike in-context, this pipeline uses a React agent with
+database query tools instead of channel_matcher or correction prompts.
 """
 
 from . import query_splitter

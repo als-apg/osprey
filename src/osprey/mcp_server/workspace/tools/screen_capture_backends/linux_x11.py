@@ -23,10 +23,6 @@ from osprey.mcp_server.workspace.tools.screen_capture_backends.base import (
 class LinuxX11Backend(ScreenCaptureBackend):
     """Screen capture backend for Linux X11 using mss + python-xlib."""
 
-    # ------------------------------------------------------------------
-    # Screenshot helpers (mss)
-    # ------------------------------------------------------------------
-
     def _capture_monitor_sync(self, monitor_index: int, filepath: str) -> ImageInfo:
         """Capture a monitor by index (0 = all monitors combined)."""
         import mss
@@ -58,10 +54,6 @@ class LinuxX11Backend(ScreenCaptureBackend):
                 height=img.height,
                 size_bytes=os.path.getsize(filepath),
             )
-
-    # ------------------------------------------------------------------
-    # Window helpers (python-xlib / EWMH)
-    # ------------------------------------------------------------------
 
     def _get_client_windows_sync(self) -> list[dict]:
         """Query _NET_CLIENT_LIST and return window metadata dicts."""
@@ -192,10 +184,6 @@ class LinuxX11Backend(ScreenCaptureBackend):
         info = self._find_window_by_target_sync(target)
         wid_str = info["wid"]
         return int(wid_str, 16) if isinstance(wid_str, str) else int(wid_str)
-
-    # ------------------------------------------------------------------
-    # ScreenCaptureBackend interface
-    # ------------------------------------------------------------------
 
     async def capture_full(self, filepath: str) -> ImageInfo:
         return await asyncio.to_thread(self._capture_monitor_sync, 0, filepath)

@@ -1,8 +1,5 @@
-"""Shared utilities for OSPREY MCP servers.
-
-Extracted from the original monolithic server.py so that the control-system,
-python-executor, and workspace servers can each import a common set of helpers
-without depending on each other.
+"""Shared utilities for OSPREY MCP servers: config loading, structured errors,
+workspace resolution, and server entry points.
 """
 
 import logging
@@ -84,14 +81,10 @@ def redirect_logging_to_stderr() -> None:
 
     root.addHandler(handler)
 
-    # Reduce third-party noise (mirrors _setup_rich_logging)
+    # Suppress noisy third-party loggers
     for lib in ["httpx", "httpcore", "requests", "urllib3", "LiteLLM"]:
         logging.getLogger(lib).setLevel(logging.WARNING)
 
-
-# ---------------------------------------------------------------------------
-# Config loader (standalone, no LangGraph dependency)
-# ---------------------------------------------------------------------------
 
 _config_cache: dict | None = None
 _config_cache_path: Path | None = None
@@ -174,9 +167,6 @@ def resolve_workspace_root() -> Path:
     return resolved
 
 
-# ---------------------------------------------------------------------------
-# Structured error helper
-# ---------------------------------------------------------------------------
 def make_error(
     error_type: str,
     error_message: str,
@@ -195,9 +185,6 @@ def make_error(
     }
 
 
-# ---------------------------------------------------------------------------
-# Config bridge: prime the main ConfigBuilder
-# ---------------------------------------------------------------------------
 def prime_config_builder() -> None:
     """Prime the main ConfigBuilder with config.yml from OSPREY_CONFIG.
 
@@ -221,9 +208,6 @@ def prime_config_builder() -> None:
             logger.warning("ConfigBuilder priming failed (non-fatal): %s", exc)
 
 
-# ---------------------------------------------------------------------------
-# Workspace singleton initialization
-# ---------------------------------------------------------------------------
 def initialize_workspace_singletons(workspace_root: Path) -> None:
     """Initialize ArtifactStore and MemoryStore singletons for a workspace."""
     from osprey.mcp_server.artifact_store import initialize_artifact_store
@@ -234,9 +218,6 @@ def initialize_workspace_singletons(workspace_root: Path) -> None:
         initialize_memory_store(workspace_root=workspace_root)
 
 
-# ---------------------------------------------------------------------------
-# Gallery URL helper (moved from tools/artifact_save.py)
-# ---------------------------------------------------------------------------
 def gallery_url() -> str:
     """Build the gallery base URL from config."""
     config = load_osprey_config()
@@ -398,9 +379,6 @@ def notify_panel_focus(panel_id: str, url: str | None = None) -> None:
     post_json(f"{base}/api/panel-focus", payload, timeout=2)
 
 
-# ---------------------------------------------------------------------------
-# MCP server entry point helper
-# ---------------------------------------------------------------------------
 def run_mcp_server(server_module: str) -> None:
     """Shared entry point for all MCP servers.
 

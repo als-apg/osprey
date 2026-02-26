@@ -1,16 +1,5 @@
-"""Configuration Management Package.
+"""Osprey configuration and logging utilities."""
 
-This package provides configuration management capabilities
-for the Osprey Framework, supporting both LangGraph contexts
-and standalone execution.
-
-Modules:
-    config: Main configuration builder and access functions
-    logger: Logging configuration utilities (with typed event streaming)
-    log_filter: Flexible logging filter utilities
-"""
-
-# Make the main modules available at package level
 from . import config, log_filter, logger
 
 __all__ = ["config", "logger", "log_filter"]

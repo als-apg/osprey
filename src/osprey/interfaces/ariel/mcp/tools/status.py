@@ -23,7 +23,7 @@ async def status() -> str:
 
         status = await service.get_status()
 
-        # Serialize ARIELStatusResult (dataclass — use attribute access)
+        # ARIELStatusResult is a dataclass -- use attribute access
         return json.dumps(
             {
                 "healthy": status.healthy,

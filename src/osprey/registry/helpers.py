@@ -3,9 +3,6 @@
 This module provides utilities that simplify application registry creation
 by handling the common pattern of extending the framework registry with
 application-specific components.
-
-The helper functions eliminate boilerplate code and provide a clean,
-intuitive API for application developers to define their registries.
 """
 
 from .base import (
@@ -184,7 +181,8 @@ def extend_framework_registry(
        :func:`get_framework_defaults` : Inspect framework components
        :class:`RegistryConfig` : The returned configuration structure
     """
-    # Convert include lists to exclude lists by diffing against framework defaults
+    # Convert include whitelists to exclude blacklists by diffing against
+    # framework defaults -- the merge process only understands exclusions.
     if include_capabilities is not None:
         if exclude_capabilities is not None:
             raise ValueError("Cannot use both include_capabilities and exclude_capabilities")
@@ -199,7 +197,6 @@ def extend_framework_registry(
         all_fw_ctx_types = [c.context_type for c in framework.context_classes]
         exclude_context_classes = [t for t in all_fw_ctx_types if t not in include_context_classes]
 
-    # Build framework exclusions dict for the merge process
     framework_exclusions = {}
 
     if exclude_capabilities:
@@ -232,7 +229,6 @@ def extend_framework_registry(
     if exclude_ariel_ingestion_adapters:
         framework_exclusions["ariel_ingestion_adapters"] = exclude_ariel_ingestion_adapters
 
-    # Combine override and regular components
     all_capabilities = list(capabilities or [])
     if override_capabilities:
         for cap in override_capabilities:
@@ -251,7 +247,8 @@ def extend_framework_registry(
     if override_connectors:
         all_connectors.extend(override_connectors)
 
-    # Return ExtendedRegistryConfig to signal extend mode (framework will be merged by RegistryManager)
+    # ExtendedRegistryConfig signals extend mode to RegistryManager
+    # (framework components are merged in before these app components).
     return ExtendedRegistryConfig(
         core_nodes=all_nodes,
         capabilities=all_capabilities,
@@ -375,10 +372,8 @@ def generate_explicit_registry_code(
             ...
 
     """
-    # Get framework defaults
     framework = get_framework_defaults()
 
-    # Helper function to format a registration as code
     def format_node_registration(reg: NodeRegistration, indent: str = "                ") -> str:
         return f"""{indent}NodeRegistration(
 {indent}    name="{reg.name}",
@@ -442,7 +437,6 @@ def generate_explicit_registry_code(
 {indent}    internal_nodes={reg.internal_nodes}
 {indent})"""
 
-    # Build the code sections
     code_lines = [
         '"""',
         f"Component registry for {app_display_name}.",

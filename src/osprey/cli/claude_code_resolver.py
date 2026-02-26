@@ -15,10 +15,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# ── Provider definitions ────────────────────────────────────────────
-# Each entry defines auth wiring and connection metadata only.
-# Model IDs are NOT here — they live in api.providers[name].models in config.yml.
-
 CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
     "anthropic": {
         "auth_env_var": "ANTHROPIC_API_KEY",  # Claude Code env var that receives the key
@@ -58,8 +54,6 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
     },
 }
 
-# ── Default agent → tier mapping (SSOT) ────────────────────────────
-
 AGENT_DEFAULT_TIERS: dict[str, str] = {
     "channel-finder": "haiku",
     "logbook-search": "sonnet",
@@ -72,9 +66,6 @@ AGENT_DEFAULT_TIERS: dict[str, str] = {
 }
 
 VALID_TIERS = frozenset(("haiku", "sonnet", "opus"))
-
-
-# ── Data classes ────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True)
@@ -118,9 +109,6 @@ class ClaudeCodeModelSpec:
         """Resolve the concrete model ID for a named agent."""
         tier = self.agent_tier(name)
         return self.tier_to_model.get(tier, tier)
-
-
-# ── Resolver ────────────────────────────────────────────────────────
 
 
 class ClaudeCodeModelResolver:

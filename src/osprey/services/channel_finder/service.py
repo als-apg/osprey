@@ -8,7 +8,6 @@ Supports pluggable custom pipelines and databases via registration.
 import logging
 from pathlib import Path
 
-# Use Osprey's config system
 from osprey.utils.config import get_config_builder, get_provider_config
 
 from .core.base_database import BaseDatabase
@@ -28,41 +27,18 @@ logger = logging.getLogger(__name__)
 
 
 class ChannelFinderService:
-    """
-    Unified service interface supporting multiple pipeline architectures.
+    """Unified service interface supporting multiple pipeline architectures.
 
     Automatically selects and initializes the appropriate pipeline based on
     configuration settings. Supports custom pipelines and databases via
     the registration system.
 
-    Custom Extensions:
-        Register custom pipelines and databases before instantiating the service:
+    Built-in pipelines: in_context, hierarchical.
+    Built-in databases: flat, template, hierarchical, middle_layer.
 
-        >>> from my_facility.pipelines.rag import RAGPipeline
-        >>> from my_facility.databases.postgres import PostgreSQLDatabase
-        >>>
-        >>> # Register custom implementations
-        >>> ChannelFinderService.register_pipeline('rag', RAGPipeline)
-        >>> ChannelFinderService.register_database('postgres', PostgreSQLDatabase)
-        >>>
-        >>> # Now use in config.yml:
-        >>> # channel_finder:
-        >>> #   pipeline_mode: "rag"
-        >>> #   pipelines:
-        >>> #     rag:
-        >>> #       database:
-        >>> #         type: "postgres"
-        >>> #         path: "config/postgres.json"
-
-    Built-in Pipelines:
-        - in_context: Semantic search with full database context
-        - hierarchical: Iterative navigation through hierarchy
-
-    Built-in Databases:
-        - flat: Simple flat list format (base implementation for in-context databases)
-        - template: Template-based expansion with dual presentation (extends flat)
-        - hierarchical: Tree structure for large hierarchies
-        - legacy: Alias for 'flat' (backward compatibility)
+    Register custom implementations with ``register_pipeline()`` /
+    ``register_database()`` before instantiation, then reference them
+    by name in config.yml.
     """
 
     # Class-level registries for custom implementations
@@ -71,37 +47,11 @@ class ChannelFinderService:
 
     @classmethod
     def register_pipeline(cls, name: str, pipeline_class: type[BasePipeline]) -> None:
-        """
-        Register a custom pipeline implementation.
-
-        Allows users to add custom channel finding pipelines (e.g., RAG-based,
-        hybrid approaches, vector search) without modifying the channel finder
-        source code.
+        """Register a custom pipeline implementation.
 
         Args:
             name: Unique identifier for the pipeline (used in config.yml)
             pipeline_class: Class implementing BasePipeline interface
-
-        Example:
-            >>> from my_facility.pipelines.rag import RAGChannelPipeline
-            >>>
-            >>> # Register custom pipeline
-            >>> ChannelFinderService.register_pipeline('rag', RAGChannelPipeline)
-            >>>
-            >>> # Use in config.yml:
-            >>> # channel_finder:
-            >>> #   pipeline_mode: "rag"
-            >>> #   pipelines:
-            >>> #     rag:
-            >>> #       database:
-            >>> #         type: "template"
-            >>> #         path: "data/channels.json"
-            >>> #       top_k: 20
-            >>> #       embedding_model: "text-embedding-3-small"
-
-        Note:
-            Registration should happen before service instantiation, typically
-            in your application's __init__.py or registry module.
         """
         if not issubclass(pipeline_class, BasePipeline):
             raise TypeError(
@@ -113,37 +63,11 @@ class ChannelFinderService:
 
     @classmethod
     def register_database(cls, name: str, database_class: type[BaseDatabase]) -> None:
-        """
-        Register a custom database implementation.
-
-        Allows users to add custom database backends (e.g., PostgreSQL, MongoDB,
-        REST API, GraphQL) without modifying the channel finder source code.
+        """Register a custom database implementation.
 
         Args:
             name: Unique identifier for the database (used in config.yml)
             database_class: Class implementing BaseDatabase interface
-
-        Example:
-            >>> from my_facility.databases.postgres import PostgreSQLChannelDatabase
-            >>>
-            >>> # Register custom database
-            >>> ChannelFinderService.register_database('postgres', PostgreSQLChannelDatabase)
-            >>>
-            >>> # Use in config.yml:
-            >>> # channel_finder:
-            >>> #   pipeline_mode: "in_context"
-            >>> #   pipelines:
-            >>> #     in_context:
-            >>> #       database:
-            >>> #         type: "postgres"
-            >>> #         path: "config/postgres_config.json"
-            >>> #         connection_string: "postgresql://..."
-
-        Note:
-            The database class must implement all abstract methods from BaseDatabase.
-            For in_context pipeline, also implement: chunk_database(), format_chunk_for_prompt().
-            For hierarchical pipeline, also implement: get_hierarchy_definition(),
-            get_options_at_level(), build_channels_from_selections().
         """
         if not issubclass(database_class, BaseDatabase):
             raise TypeError(
@@ -183,7 +107,6 @@ class ChannelFinderService:
         """
         databases = {
             "flat": "Built-in: Simple flat list format (base implementation)",
-            "legacy": "Built-in: Alias for 'flat' (backward compatibility)",
             "template": "Built-in: Template-based expansion with dual presentation",
             "hierarchical": "Built-in: Tree structure for large hierarchies",
             "middle_layer": "Built-in: MML functional hierarchy (System→Family→Field)",
@@ -333,8 +256,7 @@ class ChannelFinderService:
             elif db_type == "template":
                 database = TemplateChannelDatabase(db_path, presentation_mode=presentation_mode)
 
-            elif db_type in ("flat", "legacy"):
-                # 'legacy' is an alias for 'flat' (backward compatibility)
+            elif db_type == "flat":
                 database = FlatChannelDatabase(db_path)
 
             else:
@@ -510,8 +432,7 @@ class ChannelFinderService:
                 presentation_mode = db_config.get("presentation_mode", "explicit")
                 database = TemplateChannelDatabase(db_path, presentation_mode=presentation_mode)
 
-            elif db_type in ("flat", "legacy"):
-                # 'legacy' is an alias for 'flat' (backward compatibility)
+            elif db_type == "flat":
                 database = FlatChannelDatabase(db_path)
 
             elif db_type == "hierarchical":

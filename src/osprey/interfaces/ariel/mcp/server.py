@@ -7,10 +7,8 @@ Usage:
     python -m osprey.interfaces.ariel.mcp
 """
 
-import json
 import logging
-from datetime import UTC, datetime
-from pathlib import Path
+from datetime import datetime
 
 from fastmcp import FastMCP
 
@@ -90,44 +88,6 @@ def serialize_entry(entry: dict, text_limit: int = 300) -> dict:
     if "_score" in entry:
         result["score"] = entry["_score"]
     return result
-
-
-# ---------------------------------------------------------------------------
-# Workspace save helper
-# ---------------------------------------------------------------------------
-def save_to_workspace(
-    category: str,
-    data: dict,
-    description: str,
-    tool_name: str,
-) -> Path:
-    """Save tool output to the osprey-workspace directory.
-
-    .. deprecated::
-        Use ``DataContext.save()`` from ``osprey.mcp_server.data_context`` instead.
-        This function is retained for backward compatibility only.
-
-    Args:
-        category: Subdirectory name (e.g., "search_results")
-        data: Data to serialize as JSON
-        description: Human-readable description
-        tool_name: Name of the calling tool
-
-    Returns:
-        Path to the saved file
-    """
-    from osprey.mcp_server.common import resolve_workspace_root
-
-    workspace = resolve_workspace_root() / category
-    workspace.mkdir(parents=True, exist_ok=True)
-
-    ts = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
-    filename = f"{tool_name}_{ts}.json"
-    filepath = workspace / filename
-
-    filepath.write_text(json.dumps(data, indent=2, default=str))
-    logger.debug("Saved %s output to %s", tool_name, filepath)
-    return filepath
 
 
 # ---------------------------------------------------------------------------

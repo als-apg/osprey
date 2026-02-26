@@ -54,14 +54,6 @@ class TestComponentLoggerBasic:
 class TestBackwardCompatibility:
     """Test backward compatibility with old API."""
 
-    def test_deprecated_source_parameter(self):
-        """Test that deprecated source parameter still works with warning."""
-        with pytest.warns(DeprecationWarning):
-            logger = get_logger("test_component", source="framework")
-
-        assert isinstance(logger, ComponentLogger)
-        assert logger.component_name == "test_component"
-
     def test_critical_and_exception_methods(self):
         """Test that critical and exception methods still work."""
         logger = get_logger("test_component")

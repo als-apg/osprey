@@ -1,41 +1,19 @@
-"""
-Configuration utilities for Channel Finder service.
-
-This module provides configuration access for the Channel Finder service,
-wrapping Osprey's centralized config system.
-"""
+"""Configuration utilities for Channel Finder service."""
 
 from pathlib import Path
 from typing import Any
 
-# Use Osprey's public config API
 from osprey.utils.config import get_config_builder
 from osprey.utils.config import load_config as osprey_load_config
 
 
 def get_config() -> dict[str, Any]:
-    """
-    Get default configuration dictionary.
-
-    Returns the raw configuration dictionary from the default config file
-    (config.yml in project root or CONFIG_FILE environment variable).
-
-    Returns:
-        Configuration dictionary as loaded from YAML
-    """
+    """Get default configuration dictionary."""
     return osprey_load_config()
 
 
 def load_config(config_path: str) -> dict[str, Any]:
-    """
-    Load configuration from a specific file path.
-
-    Args:
-        config_path: Path to the configuration YAML file
-
-    Returns:
-        Configuration dictionary as loaded from YAML
-    """
+    """Load configuration from a specific file path."""
     return osprey_load_config(config_path)
 
 

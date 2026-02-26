@@ -30,9 +30,7 @@ except ImportError:
     QUESTIONARY_AVAILABLE = False
 
 
-# ============================================================================
-# PATH UTILITIES
-# ============================================================================
+# --- Path Utilities ---
 
 
 def get_tasks_root() -> Path:
@@ -160,9 +158,7 @@ def get_project_atmention_path(task: str) -> str:
     return f"@.ai-tasks/{task}/instructions.md"
 
 
-# ============================================================================
-# EDITOR UTILITIES
-# ============================================================================
+# --- Editor Utilities ---
 
 
 def detect_editor() -> tuple[str, str] | None:
@@ -217,9 +213,7 @@ def open_in_editor(file_path: Path) -> bool:
         return False
 
 
-# ============================================================================
-# CLIPBOARD UTILITIES
-# ============================================================================
+# --- Clipboard Utilities ---
 
 
 def copy_to_clipboard(text: str) -> bool:
@@ -253,9 +247,7 @@ def copy_to_clipboard(text: str) -> bool:
     return False
 
 
-# ============================================================================
-# INTERACTIVE BROWSER
-# ============================================================================
+# --- Interactive Browser ---
 
 
 def interactive_task_browser():
@@ -468,11 +460,6 @@ def _show_installed_skills():
     console.print(f"\n[dim]Skills directory: {skills_dir}[/dim]")
 
 
-# ============================================================================
-# NON-INTERACTIVE LIST
-# ============================================================================
-
-
 def _print_task_list():
     """Print a simple list of tasks (non-interactive)."""
     task_list = get_available_tasks()
@@ -506,9 +493,7 @@ def _print_task_list():
     console.print("Interactive browser: [command]osprey tasks[/command]\n")
 
 
-# ============================================================================
-# CLI COMMANDS
-# ============================================================================
+# --- Cli Commands ---
 
 
 @click.group(name="tasks", invoke_without_command=True)

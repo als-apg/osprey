@@ -1,27 +1,4 @@
-"""
-Utility for converting MATLAB Middle Layer (MML) exports to Channel Finder format.
-
-This module provides tools to convert MATLAB Accelerator Object (AO) data exports
-into the JSON format required by the middle_layer pipeline. It preserves all
-metadata from the MML exports while organizing the data for the channel finder.
-
-Usage:
-    # From Python MML export files
-    from your_facility.data.MML_ao_SR import MML_ao_SR
-    from your_facility.data.MML_ao_BR import MML_ao_BR
-
-    converter = MMLConverter()
-    converter.add_system("SR", MML_ao_SR)
-    converter.add_system("BR", MML_ao_BR)
-    converter.save_json("data/channel_databases/my_facility.json")
-
-    # Or from a single dictionary
-    ao_data = {
-        "SR": MML_ao_SR,
-        "BR": MML_ao_BR,
-    }
-    MMLConverter.convert_and_save(ao_data, "my_facility.json")
-"""
+"""Convert MATLAB Middle Layer (MML) exports to Channel Finder JSON format."""
 
 import json
 import logging
@@ -32,24 +9,14 @@ logger = logging.getLogger(__name__)
 
 
 class MMLConverter:
-    """
-    Convert MATLAB Middle Layer (MML) accelerator object data to Channel Finder format.
+    """Convert MML accelerator object data to Channel Finder JSON format.
 
-    The MML format uses a functional hierarchy:
-    - System level (e.g., SR, BR, BTS) - added externally when combining
-    - Family level (e.g., BPM, HCM, VCM) - device families
-    - Field level (e.g., Monitor, Setpoint, X, Y) - data fields
-    - Each field contains ChannelNames plus extensive metadata
-
-    The converter preserves all metadata fields from the MML export, including:
-    - DataType, Mode, Units (HW/Physics)
-    - MemberOf, Range, Tolerance
-    - HW2PhysicsParams, Physics2HWParams
-    - And all other custom fields
+    The MML format uses a functional hierarchy: System (e.g. SR, BR) ->
+    Family (e.g. BPM, HCM) -> Field (e.g. Monitor, Setpoint) -> ChannelNames
+    plus extensive metadata. All metadata fields are preserved in the output.
     """
 
     def __init__(self) -> None:
-        """Initialize converter with empty data dict."""
         self.data = {}
 
     def add_system(self, system_name: str, mml_data: dict[str, Any]) -> None:
@@ -81,7 +48,6 @@ class MMLConverter:
         )
 
     def _count_channels(self, mml_data: dict) -> int:
-        """Count total channels in MML data structure."""
         count = 0
         for _family, family_data in mml_data.items():
             if not isinstance(family_data, dict):
@@ -97,7 +63,6 @@ class MMLConverter:
         return count
 
     def _count_nested_channels(self, data: dict) -> int:
-        """Recursively count channels in nested structure."""
         count = 0
         for key, value in data.items():
             if key.lower() in ["setup", "pyat"]:

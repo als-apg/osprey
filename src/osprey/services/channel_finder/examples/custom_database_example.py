@@ -94,16 +94,13 @@ class RESTAPIChannelDatabase(BaseDatabase):
 
     def get_all_channels(self) -> list[dict]:
         """Fetch all channels from API (with caching)."""
-        # Return cached if available
         if self.channels_cache is not None:
             return self.channels_cache
 
         logger.info("Fetching channels from API...")
 
-        # Fetch from API
         response = self._make_request("GET", "/channels")
 
-        # Parse response
         channels = []
         for item in response.get("channels", []):
             channels.append(
@@ -116,7 +113,6 @@ class RESTAPIChannelDatabase(BaseDatabase):
                 }
             )
 
-        # Cache results
         self.channels_cache = channels
         self.channel_map_cache = {ch["channel"]: ch for ch in channels}
 
@@ -167,8 +163,6 @@ class RESTAPIChannelDatabase(BaseDatabase):
             "cached": self.channels_cache is not None,
         }
 
-    # ===== InContextPipeline-specific methods =====
-
     def chunk_database(self, chunk_size: int = 50) -> list[list[dict]]:
         """Split into chunks (required by InContextPipeline if chunking enabled)."""
         all_channels = self.get_all_channels()
@@ -203,10 +197,6 @@ class RESTAPIChannelDatabase(BaseDatabase):
 
         return "\n".join(formatted)
 
-
-# ============================================================================
-# Usage Example
-# ============================================================================
 
 if __name__ == "__main__":
     """

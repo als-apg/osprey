@@ -74,12 +74,10 @@ def query_terminal_color(color_index: int) -> tuple[int, str] | None:
             sys.stdout.write(f"\x1b]4;{color_index};?\x07")
             sys.stdout.flush()
 
-            # Wait for terminal to process and respond
-            time.sleep(0.1)  # 100ms delay for complete response
+            time.sleep(0.1)
 
-            # Read response with overall timeout
             response = ""
-            for _ in range(50):  # Max 50 chars
+            for _ in range(50):
                 ready, _, _ = select.select([sys.stdin], [], [], 0.5)
                 if not ready:
                     break
@@ -87,20 +85,16 @@ def query_terminal_color(color_index: int) -> tuple[int, str] | None:
                 if not char:
                     break
                 response += char
-                # Check for complete response (ends with ST or BEL)
                 if response.endswith("\x1b\\") or response.endswith("\x07"):
                     break
 
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
-        # Parse response with regex
         match = _OSC4_RESPONSE_RE.search(response)
         if match:
-            # Use response_index as the key (may differ from queried index due to timing)
             response_index = int(match.group(1))
 
-            # Convert 4-digit hex to 8-bit (take first 2 digits)
             r_val = int(match.group(2)[:2], 16)
             g_val = int(match.group(3)[:2], 16)
             b_val = int(match.group(4)[:2], 16)

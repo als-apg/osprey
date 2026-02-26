@@ -1,18 +1,8 @@
-"""Service deployment command.
-
-This module provides the 'osprey deploy' command which wraps the existing
-container_manager functionality. It preserves 100% of the original behavior
-while providing a cleaner CLI interface.
-
-IMPORTANT: This is a thin wrapper around osprey.deployment.container_manager.
-All existing functionality is preserved without modification.
-"""
+"""Service deployment CLI command wrapping osprey.deployment.container_manager."""
 
 import click
 
 from osprey.cli.styles import Styles, console
-
-# Import existing container manager functions (Phase 1.5 refactored)
 from osprey.deployment.container_manager import (
     clean_deployment,
     deploy_down,
@@ -118,8 +108,6 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool, ex
       $ osprey deploy rebuild --dev
     """
 
-    # Only show action message for operations that have multiple steps
-    # Status check is quick, don't need the extra line
     if action != "status":
         console.print(f"Service management: [bold]{action}[/bold]")
 
@@ -187,8 +175,6 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool, ex
             console.print("\n   Or use interactive menu: [command]osprey[/command]\n")
             raise click.Abort()
 
-        # Dispatch to existing container_manager functions
-        # These are the ORIGINAL functions from Phase 1.5, behavior unchanged
         if action == "up":
             deploy_up(config_path, detached=detached, dev_mode=dev, expose_network=expose)
 
@@ -220,9 +206,6 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool, ex
 
         elif action == "rebuild":
             rebuild_deployment(config_path, detached=detached, dev_mode=dev, expose_network=expose)
-
-        # Note: The original functions handle all output and error messaging
-        # We don't add extra output to avoid changing user experience
 
     except KeyboardInterrupt:
         console.print("\n⚠️  Operation cancelled by user", style=Styles.WARNING)

@@ -170,15 +170,7 @@ def create_app(project_cwd: str | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Prevent browsers from caching JS/CSS (avoids stale code after updates)
-    from starlette.middleware.base import BaseHTTPMiddleware
-
-    class NoCacheStaticMiddleware(BaseHTTPMiddleware):
-        async def dispatch(self, request, call_next):
-            response = await call_next(request)
-            if request.url.path.startswith("/static/"):
-                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            return response
+    from osprey.interfaces.common_middleware import NoCacheStaticMiddleware
 
     app.add_middleware(NoCacheStaticMiddleware)
 

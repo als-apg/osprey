@@ -4,9 +4,7 @@ Reads current values from control system channels via the configured
 connector (EPICS, mock, etc.). Requires channel addresses to have been
 resolved first by the channel_finding capability.
 
-Context Flow:
-    Input:  CHANNEL_ADDRESSES (from channel_finding)
-    Output: CHANNEL_VALUES (current readings with timestamps and units)
+Context flow: CHANNEL_ADDRESSES -> CHANNEL_VALUES
 """
 
 from __future__ import annotations
@@ -19,10 +17,6 @@ from pydantic import BaseModel
 from osprey.base.capability import BaseCapability
 from osprey.base.errors import ErrorClassification, ErrorSeverity
 from osprey.context import CapabilityContext
-
-# ---------------------------------------------------------------------------
-# Context classes (inlined per v0.11 convention)
-# ---------------------------------------------------------------------------
 
 
 class ChannelValue(BaseModel):
@@ -46,23 +40,16 @@ class ChannelValuesContext(CapabilityContext):
     channel_values: dict[str, ChannelValue]
 
     def get_summary(self) -> str:
-        """Return a human-readable summary."""
         count = len(self.channel_values)
         return f"Read {count} channel value(s)"
 
     def get_access_details(self, key: str) -> dict:
-        """Return access details for this context."""
         return {
             "context_type": self.CONTEXT_TYPE,
             "key": key,
             "channel_count": len(self.channel_values),
             "channels": list(self.channel_values.keys()),
         }
-
-
-# ---------------------------------------------------------------------------
-# Capability
-# ---------------------------------------------------------------------------
 
 
 class ChannelReadCapability(BaseCapability):
@@ -78,7 +65,6 @@ class ChannelReadCapability(BaseCapability):
 
     @staticmethod
     def classify_error(exc: Exception, context: dict) -> ErrorClassification:
-        """Classify channel-read errors."""
         if isinstance(exc, TimeoutError):
             return ErrorClassification(
                 severity=ErrorSeverity.RETRIABLE,

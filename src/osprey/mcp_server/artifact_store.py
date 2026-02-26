@@ -29,11 +29,6 @@ from osprey.mcp_server.base_store import BaseStore
 logger = logging.getLogger("osprey.mcp_server.artifact_store")
 
 
-# ---------------------------------------------------------------------------
-# Backward-compatible listener API
-# ---------------------------------------------------------------------------
-
-
 def register_artifact_listener(fn: Callable[[ArtifactEntry], None]) -> None:
     """Register a callback invoked after every artifact save."""
     ArtifactStore.register_listener(fn)
@@ -42,11 +37,6 @@ def register_artifact_listener(fn: Callable[[ArtifactEntry], None]) -> None:
 def unregister_artifact_listener(fn: Callable[[ArtifactEntry], None]) -> None:
     """Remove a previously registered listener."""
     ArtifactStore.unregister_listener(fn)
-
-
-# ---------------------------------------------------------------------------
-# Artifact entry dataclass
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -101,11 +91,6 @@ class ArtifactEntry:
         if gallery_url:
             resp["gallery_url"] = gallery_url
         return resp
-
-
-# ---------------------------------------------------------------------------
-# Smart serialization helpers
-# ---------------------------------------------------------------------------
 
 
 def _serialize_object(obj: Any, title: str) -> tuple[bytes, str, str, str]:
@@ -200,11 +185,6 @@ def _artifact_type_from_mime(mime: str) -> str:
     if mime.startswith("text/"):
         return "text"
     return "file"
-
-
-# ---------------------------------------------------------------------------
-# ArtifactStore
-# ---------------------------------------------------------------------------
 
 
 class ArtifactStore(BaseStore[ArtifactEntry]):
@@ -478,10 +458,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             return None
         return self._store_dir / entry.filename
 
-
-# ---------------------------------------------------------------------------
-# Module-level singleton
-# ---------------------------------------------------------------------------
 
 _artifact_store: ArtifactStore | None = None
 

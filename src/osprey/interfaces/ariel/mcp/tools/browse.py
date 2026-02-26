@@ -42,30 +42,26 @@ async def browse(
         registry = get_ariel_registry()
         service = await registry.service()
 
-        # Clamp page_size
         page_size = max(1, min(page_size, 100))
 
-        # Parse dates
         parsed_start, parsed_end = parse_date_filters(start_date, end_date)
 
-        # Fetch entries via repository
         entries = await service.repository.search_by_time_range(
             start=parsed_start,
             end=parsed_end,
             limit=page_size,
         )
 
-        # Post-filter by author/source_system (repository doesn't support these filters)
+        # Repository doesn't support author/source_system filters, so filter in Python.
         if author:
             author_lower = author.lower()
             entries = [e for e in entries if author_lower in e.get("author", "").lower()]
         if source_system:
             entries = [e for e in entries if e["source_system"] == source_system]
 
-        # Get total count
         total_count = await service.repository.count_entries()
 
-        # Serialize entries (TypedDict — use dict access)
+        # TypedDict entries -- use dict access, not attribute access
         entries_out = [serialize_entry(e, text_limit=300) for e in entries]
 
         return json.dumps(

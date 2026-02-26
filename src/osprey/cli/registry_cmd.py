@@ -1,21 +1,4 @@
-"""Registry Display Command for Osprey CLI.
-
-This module provides functionality to display the current registry contents,
-showing all registered components including capabilities, nodes, context classes,
-data sources, services, and providers. It provides a formatted view of what
-components are available in the current project.
-
-Key Features:
-    - Display all registered components by category
-    - Show component metadata (descriptions, requirements, etc.)
-    - Rich formatted output with sections and tables
-    - Support for verbose and compact display modes
-
-Architecture:
-    - Uses RegistryManager to access component data
-    - Rich library for beautiful terminal formatting
-    - Categorized component display with metadata
-"""
+"""Registry display for the Osprey CLI (osprey registry)."""
 
 from pathlib import Path
 
