@@ -69,7 +69,7 @@ class _WorkspaceHandler(FileSystemEventHandler):
         if src_path.suffix in _IGNORE_EXTENSIONS:
             return
 
-        # Debounce: skip if same path fired within 100ms
+        # Debounce: skip duplicate events for the same path within 100ms
         now = time.monotonic()
         key = str(src_path)
         last = self._last_event.get(key, 0)
@@ -77,7 +77,6 @@ class _WorkspaceHandler(FileSystemEventHandler):
             return
         self._last_event[key] = now
 
-        # Map watchdog event types to our simpler types
         event_type_map = {
             "created": "created",
             "modified": "modified",

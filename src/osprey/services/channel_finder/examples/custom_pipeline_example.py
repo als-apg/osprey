@@ -67,24 +67,19 @@ class KeywordSearchPipeline(BasePipeline):
 
         logger.info(f"Keyword search query: {query}")
 
-        # Extract keywords
         keywords = self._extract_keywords(query)
         logger.info(f"Extracted keywords: {keywords}")
 
-        # Get all channels
         all_channels = self.database.get_all_channels()
 
-        # Score each channel
         scored_channels = []
         for ch in all_channels:
             score = self._score_channel(ch, keywords)
             if score >= self.min_score:
                 scored_channels.append((score, ch))
 
-        # Sort by score (descending)
         scored_channels.sort(key=lambda x: x[0], reverse=True)
 
-        # Build result
         channel_infos = []
         for _, ch in scored_channels:
             channel_infos.append(
@@ -108,7 +103,6 @@ class KeywordSearchPipeline(BasePipeline):
         )
 
     def _extract_keywords(self, query: str) -> list[str]:
-        """Extract keywords from query."""
         # Simple whitespace split
         if self.case_sensitive:
             return query.split()
@@ -152,7 +146,6 @@ class KeywordSearchPipeline(BasePipeline):
         return min(score, 1.0)  # Cap at 1.0
 
     def get_statistics(self) -> dict[str, Any]:
-        """Return pipeline statistics."""
         db_stats = self.database.get_statistics()
         return {
             "total_channels": db_stats.get("total_channels", 0),
@@ -161,10 +154,6 @@ class KeywordSearchPipeline(BasePipeline):
             "uses_llm": False,
         }
 
-
-# ============================================================================
-# Usage Example
-# ============================================================================
 
 if __name__ == "__main__":
     """

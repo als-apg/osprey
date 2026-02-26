@@ -1,20 +1,4 @@
-"""
-Command Category Implementations for Osprey Framework
-
-This module provides the implementation of all built-in command categories for the
-centralized slash command system. Each category contains specialized command handlers
-that integrate with specific framework subsystems and provide rich user experiences
-across different interface types.
-
-Command Categories:
-    - CLI Commands: Interface control and user experience (help, clear, exit)
-    - Agent Control Commands: Agent behavior and execution control (planning, approval)
-    - Service Commands: Framework service management (status, logs, metrics)
-
-The category system enables organized command discovery, context-aware execution,
-and extensible patterns for application-specific command extensions. Each category
-provides specialized handlers with appropriate error handling and user feedback.
-"""
+"""Built-in command handlers grouped by category (CLI, agent control, service)."""
 
 from typing import Any
 
@@ -28,32 +12,7 @@ from .types import Command, CommandCategory, CommandContext, CommandExecutionErr
 
 
 def register_cli_commands(registry) -> None:
-    """Register CLI interface commands for user experience and interface control.
-
-    Registers essential CLI commands that provide user interface control, help systems,
-    and session management. These commands are designed for interactive terminal
-    interfaces and provide rich formatted output using the Rich library.
-
-    Registered Commands:
-        /help [command]: Display available commands or detailed help for specific command
-        /exit, /quit: Exit the current CLI session
-        /clear: Clear the terminal screen
-
-    :param registry: Command registry instance for command registration
-    :type registry: CommandRegistry
-
-    .. note::
-       CLI commands are interface-specific and may not be available in
-       non-interactive contexts like OpenWebUI or API interfaces.
-
-    Examples:
-        Command usage in CLI::
-
-            /help              # Show all available commands
-            /help planning     # Show detailed help for planning command
-            /clear             # Clear terminal screen
-            /exit              # Exit CLI session
-    """
+    """Register /help, /exit, /clear, /config, and /status commands."""
 
     def help_handler(args: str, context: CommandContext) -> CommandResult:
         """Show available commands or help for specific command."""
@@ -80,7 +39,6 @@ def register_cli_commands(registry) -> None:
             else:
                 console.print(f"❌ Unknown command: /{args.strip()}", style=Styles.ERROR)
         else:
-            # Show all commands organized by category
             commands_by_category = {}
             for cmd in registry.get_all_commands():
                 if cmd.is_valid_for_interface(context.interface_type):
@@ -115,7 +73,6 @@ def register_cli_commands(registry) -> None:
         """Exit direct chat mode or the CLI session."""
         console = context.console or themed_console
 
-        # Check if we're in direct chat mode by checking agent_state
         if context.agent_state:
             session_state = context.agent_state.get("session_state", {})
             if session_state.get("direct_chat_capability"):
@@ -126,9 +83,6 @@ def register_cli_commands(registry) -> None:
                 )
                 console.print("  Returning to normal mode\n", style=Styles.DIM)
 
-                # Create transition marker message for task extraction context
-                # This helps the LLM understand that previous messages were from a
-                # specialized direct chat session and new messages should be treated fresh
                 transition_message = {
                     "role": "system",
                     "content": f"[End of direct chat session with '{capability_name}'. "
@@ -136,7 +90,6 @@ def register_cli_commands(registry) -> None:
                     f"New user messages should be processed as fresh requests.]",
                 }
 
-                # Return session state update and transition marker
                 return {
                     "session_state": {
                         "direct_chat_capability": None,
@@ -145,7 +98,6 @@ def register_cli_commands(registry) -> None:
                     "messages": [transition_message],
                 }
 
-        # Not in direct chat mode - exit CLI session
         console.print("👋 Goodbye!", style=Styles.WARNING)
         return CommandResult.EXIT
 
@@ -154,10 +106,10 @@ def register_cli_commands(registry) -> None:
         console = context.console or themed_console
 
         if context.config:
-            # Handle both direct config and base_config structure
+            # Unwrap "configurable" wrapper if present.
             config = context.config.get("configurable", context.config)
 
-            # SESSION INFORMATION
+            # Session
             session_info = []
             if "thread_id" in config:
                 thread_display = (
@@ -180,7 +132,7 @@ def register_cli_commands(registry) -> None:
             if "chat_id" in config and config["chat_id"]:
                 session_info.append(f"Chat ID: {config['chat_id']}")
 
-            # MODEL CONFIGURATION
+            # Models
             model_info = []
             if "model_configs" in config:
                 models = config["model_configs"]
@@ -193,7 +145,7 @@ def register_cli_commands(registry) -> None:
                     model_info.append(f"    Provider: {provider}")
                     model_info.append(f"    Max Tokens: {max_tokens}")
 
-            # PROVIDER CONFIGURATION
+            # Providers
             provider_info = []
             if "provider_configs" in config:
                 providers = config["provider_configs"]
@@ -202,7 +154,7 @@ def register_cli_commands(registry) -> None:
                     timeout = provider_config.get("timeout", "N/A")
                     provider_info.append(f"  {name}: {base_url} (timeout: {timeout}s)")
 
-            # EXECUTION LIMITS
+            # Execution limits
             execution_info = []
             if "execution_limits" in config:
                 limits = config["execution_limits"]
@@ -221,12 +173,11 @@ def register_cli_commands(registry) -> None:
                     f"Max Concurrent Classifications: {limits.get('max_concurrent_classifications', 'N/A')}"
                 )
 
-            # AGENT CONTROL
+            # Agent control
             agent_info = []
             if "agent_control_defaults" in config:
                 agent_control = config["agent_control_defaults"]
 
-                # Planning and bypass modes
                 planning = agent_control.get("planning_mode_enabled", False)
                 agent_info.append(f"Planning Mode: {'✅ Enabled' if planning else '❌ Disabled'}")
 
@@ -240,13 +191,11 @@ def register_cli_commands(registry) -> None:
                     f"Capability Selection Bypass: {'✅ Enabled' if caps_bypass else '❌ Disabled'}"
                 )
 
-                # EPICS control
                 epics_writes = agent_control.get("epics_writes_enabled", False)
                 agent_info.append(
                     f"EPICS Writes: {'✅ Enabled' if epics_writes else '❌ Disabled'}"
                 )
 
-                # Approval settings
                 approval_global = agent_control.get("approval_global_mode", "N/A")
                 agent_info.append(f"Approval Global Mode: {approval_global}")
 
@@ -263,7 +212,7 @@ def register_cli_commands(registry) -> None:
                     f"Memory Approval: {'✅ Enabled' if memory_approval else '❌ Disabled'}"
                 )
 
-            # PYTHON EXECUTOR
+            # Python executor
             python_info = []
             if "python_executor" in config:
                 py_config = config["python_executor"]
@@ -273,14 +222,14 @@ def register_cli_commands(registry) -> None:
                     execution_mode = py_config.get("execution_mode", "N/A")
                     python_info.append(f"Execution Mode: {execution_mode}")
 
-            # SERVICES
+            # Services
             service_info = []
             if "service_configs" in config:
                 services = config["service_configs"]
                 for service_name in list(services.keys())[:5]:  # Show first 5 services
                     service_info.append(f"  {service_name}")
 
-            # DEVELOPMENT SETTINGS
+            # Development settings
             dev_info = []
             if "development" in config:
                 dev = config["development"]
@@ -300,7 +249,7 @@ def register_cli_commands(registry) -> None:
                         f"Raise Raw Errors: {'✅ Enabled' if raise_raw else '❌ Disabled'}"
                     )
 
-            # PROJECT INFO
+            # Project
             project_info = []
             if "project_root" in config and config["project_root"]:
                 project_info.append(f"Root: {config['project_root']}")
@@ -309,7 +258,6 @@ def register_cli_commands(registry) -> None:
             if "registry_path" in config and config["registry_path"]:
                 project_info.append(f"Registry: {config['registry_path']}")
 
-            # Build output
             output_parts = []
 
             if session_info:
@@ -361,19 +309,14 @@ def register_cli_commands(registry) -> None:
         console = context.console or themed_console
 
         try:
-            # Import and run the health checker with full diagnostics
             from osprey.cli.health_cmd import HealthChecker
 
             console.print("🔍 Running comprehensive system health check...", style=Styles.INFO)
             console.print()
 
-            # Create health checker with full diagnostics enabled
             checker = HealthChecker(verbose=True, full=True)
-
-            # Run all health checks (this already displays the results)
             checker.check_all()
 
-            # Add session-specific information
             console.print()
             session_info = []
 
@@ -391,24 +334,17 @@ def register_cli_commands(registry) -> None:
                 session_info.append("Gateway: ❌ Not connected")
 
             if context.agent_state:
-                # Show more detailed agent state information
                 state_info = "Agent State: ✅ Available"
 
-                # Add some key state details if available
-                try:
-                    if isinstance(context.agent_state, dict):
-                        # Count messages if available
-                        if "messages" in context.agent_state:
-                            msg_count = len(context.agent_state["messages"])
-                            state_info += f" ({msg_count} messages)"
+                if isinstance(context.agent_state, dict):
+                    if "messages" in context.agent_state:
+                        msg_count = len(context.agent_state["messages"])
+                        state_info += f" ({msg_count} messages)"
 
-                        # Show execution status if available
-                        if "execution_step_results" in context.agent_state:
-                            step_count = len(context.agent_state["execution_step_results"])
-                            if step_count > 0:
-                                state_info += f", {step_count} execution steps"
-                except Exception:
-                    pass  # Keep basic info if detailed parsing fails
+                    if "execution_step_results" in context.agent_state:
+                        step_count = len(context.agent_state["execution_step_results"])
+                        if step_count > 0:
+                            state_info += f", {step_count} execution steps"
 
                 session_info.append(state_info)
             else:
@@ -428,7 +364,6 @@ def register_cli_commands(registry) -> None:
 
         return CommandResult.HANDLED
 
-    # Register CLI commands
     registry.register(
         Command(
             name="help",
@@ -461,8 +396,6 @@ def register_cli_commands(registry) -> None:
             handler=exit_handler,
             aliases=["quit", "bye", "q"],
             help_text="Exit direct chat mode (returns to normal mode) or exit the CLI interface.",
-            # Gateway-handled: ensures consistent behavior for exiting direct chat mode
-            # Gateway will return exit_interface=True when not in direct chat
             gateway_handled=True,
         )
     )
@@ -489,40 +422,7 @@ def register_cli_commands(registry) -> None:
 
 
 def register_agent_control_commands(registry) -> None:
-    """Register agent control commands for behavior and execution management.
-
-    Registers commands that control agent execution behavior, planning modes,
-    approval workflows, and performance optimizations. These commands modify
-    the agent control state and affect how the framework processes requests
-    and executes capabilities.
-
-    Registered Commands:
-        /planning:on|off: Enable or disable planning mode for execution coordination
-        /approval:enabled|disabled|selective: Control human approval workflows
-        /task:on|off: Control task extraction bypass for performance
-        /caps:on|off: Control capability selection bypass for performance
-        /chat:<capability>: Enter direct chat mode with a capability's ReAct agent
-
-    :param registry: Command registry instance for command registration
-    :type registry: CommandRegistry
-
-    .. note::
-       Agent control commands return state change dictionaries instead of
-       CommandResult values. These changes are applied to the agent control state.
-
-    .. warning::
-       Agent control changes affect framework behavior and should be used
-       carefully in production environments.
-
-    Examples:
-        Agent control usage::
-
-            /planning:on           # Enable planning mode
-            /approval:selective    # Enable selective approval
-            /task:off             # Bypass task extraction for performance
-            /caps:off             # Bypass capability selection for performance
-            /chat:weather_mcp     # Enter direct chat with weather_mcp capability
-    """
+    """Register /planning, /approval, /task, /caps, and /chat commands."""
 
     def chat_mode_handler(args: str, context: CommandContext) -> CommandResult | dict[str, Any]:
         """Enter direct chat mode with a capability's ReAct agent."""
@@ -532,7 +432,6 @@ def register_agent_control_commands(registry) -> None:
         reg = get_registry()
 
         if not args.strip():
-            # Show available capabilities with ReAct agents (direct_chat_enabled)
             direct_chat_capable = []
             for cap_instance in reg.get_all_capabilities():
                 if getattr(cap_instance, "direct_chat_enabled", False):
@@ -551,7 +450,6 @@ def register_agent_control_commands(registry) -> None:
                 )
                 return CommandResult.HANDLED
 
-            # Display available capabilities
             table = Table(title="Available Direct Chat Capabilities", show_header=True)
             table.add_column("Capability", style=Styles.ACCENT)
             table.add_column("Description", style=Styles.PRIMARY)
@@ -565,14 +463,12 @@ def register_agent_control_commands(registry) -> None:
 
         capability_name = args.strip()
 
-        # Validate capability exists
         cap_instance = reg.get_capability(capability_name)
         if cap_instance is None:
             console.print(f"❌ Unknown capability: {capability_name}", style=Styles.ERROR)
             console.print("💡 Use /chat to list available capabilities", style=Styles.DIM)
             return CommandResult.HANDLED
 
-        # Validate capability supports direct chat
         if not getattr(cap_instance, "direct_chat_enabled", False):
             console.print(
                 f"❌ Capability '{capability_name}' does not support direct chat mode",
@@ -584,19 +480,16 @@ def register_agent_control_commands(registry) -> None:
             )
             return CommandResult.HANDLED
 
-        # Enter direct chat mode
         console.print(
             f"✓ Entering direct chat with [bold]{capability_name}[/bold]",
             style=Styles.SUCCESS,
         )
         console.print("  Type /exit to return to normal mode", style=Styles.DIM)
-        # Show save tip only for regular capabilities, not for state_manager
         if capability_name != "state_manager":
             console.print("  💡 Say 'save that as <key>' to store results\n", style=Styles.DIM)
         else:
             console.print()  # Just add newline for state_manager
 
-        # Return session state change
         return {
             "session_state": {
                 "direct_chat_capability": capability_name,
@@ -651,7 +544,6 @@ def register_agent_control_commands(registry) -> None:
                 f"Invalid option '{args}' for /caps", "caps", "Use 'on' or 'off'"
             )
 
-    # Register agent control commands - all are gateway_handled for consistent state management
     registry.register(
         Command(
             name="planning",
@@ -730,36 +622,5 @@ Examples:
   [Saved to context]""",
             syntax="/chat[:<capability_name>]",
             gateway_handled=True,
-        )
-    )
-
-
-def register_service_commands(registry) -> None:
-    """Register service-specific commands."""
-
-    def logs_handler(args: str, context: CommandContext) -> CommandResult:
-        """Handle log viewer command."""
-        if not context.service_instance:
-            console = context.console or themed_console
-            console.print("❌ Log viewer not available in this context", style=Styles.ERROR)
-            return CommandResult.HANDLED
-
-        # Delegate to service-specific log handling
-        if hasattr(context.service_instance, "_handle_log_command"):
-            # This would be called by the service
-            return CommandResult.HANDLED
-        else:
-            console = context.console or themed_console
-            console.print("❌ Log viewer not implemented", style=Styles.ERROR)
-            return CommandResult.HANDLED
-
-    registry.register(
-        Command(
-            name="logs",
-            category=CommandCategory.SERVICE,
-            description="View service logs",
-            handler=logs_handler,
-            help_text="View and filter service logs.\n\nUsage varies by service implementation.",
-            interface_restrictions=["openwebui"],
         )
     )

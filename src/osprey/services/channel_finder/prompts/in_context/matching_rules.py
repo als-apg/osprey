@@ -1,14 +1,4 @@
-"""Channel matching rules and terminology conventions for in-context pipeline.
-
-This file contains rules for interpreting user queries and matching them
-to the correct channels. These rules are largely reusable across facilities,
-though some synonyms may need customization.
-
-Sections:
-- Channel naming patterns
-- Motor vs ReadBack terminology
-- Control vs Status interpretation
-"""
+"""Channel matching rules for in-context pipeline."""
 
 MATCHING_RULES = """
 IMPORTANT TERMINOLOGY AND CONVENTIONS:

@@ -24,16 +24,13 @@ class PythonExecutorConfig:
         config = configurable or {}
         executor_config = config.get("python_executor", {})
 
-        # Retry configuration - how many times to retry failed operations
         self.max_generation_retries = executor_config.get("max_generation_retries", 3)
         self.max_execution_retries = executor_config.get("max_execution_retries", 3)
 
-        # Timeout configuration - how long to wait for operations
         self.execution_timeout_seconds = executor_config.get(
             "execution_timeout_seconds", 600
         )  # 10 minutes
 
-        # Limits validator - lazy-loaded from config
         self._limits_validator = None
 
     @property

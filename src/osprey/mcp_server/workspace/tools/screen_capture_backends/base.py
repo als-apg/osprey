@@ -1,7 +1,6 @@
 """Abstract base class and domain objects for screen capture backends.
 
 Defines the platform-agnostic interface that macOS and Linux backends implement.
-Follows the ABC + dataclass pattern from ``osprey.connectors.control_system.base``.
 """
 
 from abc import ABC, abstractmethod

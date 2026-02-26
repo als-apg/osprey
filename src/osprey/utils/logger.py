@@ -31,8 +31,7 @@ Usage:
 """
 
 import logging
-from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -40,40 +39,11 @@ from rich.logging import RichHandler
 from osprey.events import ErrorEvent, EventEmitter, OspreyEvent, StatusEvent
 from osprey.utils.config import get_config_value
 
-if TYPE_CHECKING:
-    pass  # For future type-only imports
-
-
 # Hard-coded step mapping for task preparation phases
 # (Moved from deprecated streaming.py module)
 TASK_PREPARATION_STEPS = {
-    "task_extraction": {"step": 1, "total_steps": 3, "phase": "Task Preparation"},
-    "classifier": {"step": 2, "total_steps": 3, "phase": "Task Preparation"},
-    "orchestrator": {"step": 3, "total_steps": 3, "phase": "Task Preparation"},
+    "task_extraction": {"step": 1, "total_steps": 1, "phase": "Task Preparation"},
 }
-
-
-@contextmanager
-def quiet_logging():
-    """Context manager to temporarily suppress INFO-level logs.
-
-    Temporarily raises the root logger level to WARNING, suppressing
-    INFO and DEBUG messages while preserving warnings and errors.
-    Used during direct chat mode for a cleaner conversational experience.
-
-    Example:
-        >>> with quiet_logging():
-        ...     # INFO logs are suppressed here
-        ...     await process_direct_chat()
-        # Normal logging restored after context exits
-    """
-    root_logger = logging.getLogger()
-    original_level = root_logger.level
-    root_logger.setLevel(logging.WARNING)
-    try:
-        yield
-    finally:
-        root_logger.setLevel(original_level)
 
 
 class ComponentLogger:
@@ -162,19 +132,20 @@ class ComponentLogger:
                     stack_trace=kwargs.get("stack_trace"),
                 )
             else:
-                # Map event_type to StatusEvent level
-                level_map = {
-                    "status": "status",
-                    "info": "info",
-                    "debug": "debug",
-                    "warning": "warning",
-                    "success": "success",
-                    "key_info": "key_info",
-                    "timing": "timing",
-                    "approval": "approval",
-                    "resume": "resume",
-                }
-                level = level_map.get(event_type, "info")
+                _valid_levels = frozenset(
+                    {
+                        "status",
+                        "info",
+                        "debug",
+                        "warning",
+                        "success",
+                        "key_info",
+                        "timing",
+                        "approval",
+                        "resume",
+                    }
+                )
+                level = event_type if event_type in _valid_levels else "info"
 
                 event = StatusEvent(
                     component=self.component_name,
@@ -269,56 +240,6 @@ class ComponentLogger:
             key=key,
         )
         self._event_emitter.emit(event)
-
-    def _format_message(self, message: str, style: str, emoji: str = "") -> str:
-        """Format message with Rich markup and emoji prefix."""
-        try:
-            prefix = f"{emoji}{self.component_name.title()}: "
-            if style:
-                return f"[{style}]{prefix}{message}[/{style}]"
-            else:
-                return f"{prefix}{message}"
-        except Exception:
-            # Graceful degradation for environments where Rich markup fails
-            return f"{emoji}{self.component_name.title()}: {message}"
-
-    def _build_extra(self, message: str, log_type: str, **kwargs) -> dict:
-        """Build extra dict with raw message, log type, and all streaming data.
-
-        This embeds all the data that streaming events carry into the Python log,
-        enabling TUI to get all data from a single source (Python logging).
-
-        Args:
-            message: The raw message (without Rich markup)
-            log_type: The log type (status, success, error, info, etc.)
-            **kwargs: Additional data fields (task, capabilities, steps, etc.)
-
-        Returns:
-            Dict to pass as extra= parameter to base_logger
-        """
-        extra = {
-            "raw_message": message,
-            "log_type": log_type,
-        }
-        # Include all streaming data fields (for TUI to extract)
-        for key in [
-            "task",
-            "capabilities",
-            "capability_names",
-            "steps",
-            "phase",
-            "step_num",
-            "step_name",
-            "llm_prompt",
-            "llm_response",
-        ]:
-            if key in kwargs:
-                extra[key] = kwargs[key]
-        # Also include step info from state if available
-        if self._step_info:
-            if "phase" not in extra and "phase" in self._step_info:
-                extra["phase"] = self._step_info.get("phase", "")
-        return extra
 
     def status(self, message: str, *args, **kwargs) -> None:
         """Status update - emits StatusEvent.
@@ -488,7 +409,7 @@ class ComponentLogger:
             kwargs["stack_trace"] = traceback.format_exc()
         self._emit_stream_event(message, *args, event_type="error", error=True, **kwargs)
 
-    # Properties for compatibility
+    # Delegate stdlib Logger interface so callers can treat ComponentLogger as a Logger.
     @property
     def level(self) -> int:
         return self.base_logger.level
@@ -508,12 +429,10 @@ def _setup_rich_logging(level: int = logging.INFO) -> None:
     """Configure Rich logging for the root logger (called once)."""
     root_logger = logging.getLogger()
 
-    # Prevent duplicate handler registration for consistent logging behavior
     for handler in root_logger.handlers:
         if isinstance(handler, RichHandler):
             return
 
-    # Ensure clean handler state to prevent duplicate log messages
     if root_logger.hasHandlers():
         root_logger.handlers.clear()
 
@@ -536,24 +455,24 @@ def _setup_rich_logging(level: int = logging.INFO) -> None:
 
     # Optimize console for containerized and CI/CD environments
     console = Console(
-        force_terminal=True,  # Ensure color output in Docker containers and CI systems
-        width=120,  # Prevent line wrapping in standard terminal sizes
-        color_system="truecolor",  # Enable full color spectrum for component identification
+        force_terminal=True,
+        width=120,
+        color_system="truecolor",
     )
 
     handler = RichHandler(
-        console=console,  # Use our custom console
-        rich_tracebacks=rich_tracebacks,  # Configurable rich tracebacks
-        markup=True,  # Enable [bold], [green], etc. in log messages
-        show_path=show_full_paths,  # Configurable path display
-        show_time=True,  # Show timestamp
-        show_level=True,  # Show log level
-        tracebacks_show_locals=show_traceback_locals,  # Configurable local variables
+        console=console,
+        rich_tracebacks=rich_tracebacks,
+        markup=True,
+        show_path=show_full_paths,
+        show_time=True,
+        show_level=True,
+        tracebacks_show_locals=show_traceback_locals,
     )
 
     root_logger.addHandler(handler)
 
-    # Reduce third-party library noise to focus on application-specific issues
+    # Quiet noisy third-party loggers
     for lib in ["httpx", "httpcore", "requests", "urllib3", "LiteLLM"]:
         logging.getLogger(lib).setLevel(logging.WARNING)
 
@@ -565,8 +484,6 @@ def get_logger(
     state: Any = None,
     name: str = None,
     color: str = None,
-    # Deprecated parameters - kept for backward compatibility
-    source: str = None,
 ) -> ComponentLogger:
     """
     Get a unified logger that handles both CLI logging and event streaming.
@@ -603,36 +520,13 @@ def get_logger(
 
         # Custom logger
         logger = get_logger(name="test_logger", color="blue")
-
-    .. deprecated::
-        The two-parameter API get_logger(source, component_name) is deprecated.
-        Use get_logger(component_name) instead. The flat configuration structure
-        (logging.logging_colors.{component_name}) replaces the old nested structure.
     """
-    import warnings
-
-    # Initialize logging infrastructure with Rich formatting support
     _setup_rich_logging(level)
 
-    # Handle explicit API for custom logger creation (tests, utilities)
     if name is not None:
-        # Direct logger creation bypasses convention-based color assignment
         base_logger = logging.getLogger(name)
         actual_color = color or "white"
         return ComponentLogger(base_logger, name, actual_color, state=state)
-
-    # Handle deprecated two-parameter API: get_logger("framework", "component")
-    # This maintains backward compatibility while warning users to migrate
-    if source is not None:
-        warnings.warn(
-            f"The two-parameter API get_logger('{source}', '{component_name}') is deprecated. "
-            f"Use get_logger('{component_name}') instead. The 'source' parameter is no longer needed "
-            f"as the configuration uses a flat structure: logging.logging_colors.{component_name}",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        # For backward compatibility, still accept the old format but ignore source
-        # component_name is already set from the second positional argument
 
     # Validate that component_name is provided
     if component_name is None:
@@ -641,12 +535,9 @@ def get_logger(
             "get_logger(name='custom_name', color='blue')"
         )
 
-    # Use component name as logger identifier for hierarchical organization
     base_logger = logging.getLogger(component_name)
 
-    # Retrieve component-specific color from flat configuration structure
     try:
-        # New flat structure: logging.logging_colors.{component_name}
         config_path = f"logging.logging_colors.{component_name}"
         color = get_config_value(config_path)
 
@@ -654,7 +545,6 @@ def get_logger(
             color = "white"
 
     except Exception as e:
-        # Graceful degradation ensures logging continues even with config issues
         color = "white"
         # Only show warning in debug mode to reduce noise
         import os
@@ -664,5 +554,4 @@ def get_logger(
                 f"⚠️  WARNING: Failed to load color config for {component_name}: {e}. Using white as fallback."
             )
 
-    # Pass state to enable streaming
     return ComponentLogger(base_logger, component_name, color, state=state)

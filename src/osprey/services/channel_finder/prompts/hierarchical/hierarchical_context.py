@@ -1,20 +1,9 @@
+"""Hierarchical navigation context for LLM tree traversal.
+
+Contains high-level instructions guiding the LLM at each hierarchy level.
+Specific option descriptions come from the database at runtime, maintaining
+clean separation between data (hierarchical_database.json) and prompts.
 """
-Hierarchical Navigation Context for Example Accelerator
-
-Provides high-level LLM instructions for navigating the hierarchical channel database.
-
-Architecture:
-  - Database (hierarchical_database.json): Contains DATA (tree structure, descriptions)
-  - Prompts (this file): Contains INSTRUCTIONS (navigation guidance for LLM)
-
-This maintains clean separation between data and prompt logic.
-"""
-
-# =============================================================================
-# HIERARCHICAL NAVIGATION INSTRUCTIONS
-# =============================================================================
-# High-level guidance for LLM when navigating each hierarchy level.
-# Specific descriptions come from the database options at runtime.
 
 hierarchical_context = {
     "system": """
@@ -116,13 +105,5 @@ hierarchical_context = {
 
 
 def get_hierarchical_context() -> dict[str, str]:
-    """
-    Get hierarchical navigation instructions.
-
-    These instructions guide the LLM when selecting options at each level
-    of the hierarchy. Specific descriptions come from the database at runtime.
-
-    Returns:
-        Dictionary mapping level names to high-level instruction strings
-    """
+    """Return a copy of the hierarchical navigation instructions."""
     return hierarchical_context.copy()

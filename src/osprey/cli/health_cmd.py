@@ -44,7 +44,7 @@ class HealthChecker:
         self.full = full
         self.results: list[HealthCheckResult] = []
         self.cwd = project_path if project_path else Path.cwd()
-        self.config = {}  # Initialize empty config, will be populated in check_configuration()
+        self.config = {}
 
         # Load .env file early so environment variables are available for all checks
         self._load_env_file()
@@ -87,16 +87,13 @@ class HealthChecker:
             if self.verbose:
                 console.print(f"  [dim]Could not initialize registry: {e}[/dim]")
 
-        # Phase 1: Core checks (always run)
         self.check_configuration()
         self.check_file_system()
         self.check_python_environment()
 
-        # Phase 2: Container and provider checks (always run)
         self.check_containers()
         self.check_api_providers()
 
-        # Phase 3: Full model testing (only in full mode)
         if self.full:
             self.check_model_chat_completions()
 
@@ -127,7 +124,6 @@ class HealthChecker:
         self.add_result("config_file_exists", "ok", f"Found at {config_path}")
         console.print(f"  {Messages.success('config.yml found')}")
 
-        # Try to load and parse YAML
         try:
             import yaml
 
@@ -166,7 +162,6 @@ class HealthChecker:
     def _check_config_structure(self, config: dict):
         """Check configuration structure and required sections."""
 
-        # Check required framework models (8 total)
         required_models = [
             "orchestrator",
             "response",
@@ -267,7 +262,6 @@ class HealthChecker:
         """Check if environment variables referenced in config are set."""
         import re
 
-        # Find all ${VAR_NAME} patterns in config
         config_str = str(config)
         env_vars = re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", config_str)
         env_vars = list(set(env_vars))  # Remove duplicates
@@ -466,12 +460,8 @@ class HealthChecker:
 
         missing_deps = []
         for dep in core_deps:
-            # Handle special cases
-            import_name = dep
-            if dep == "yaml":
-                import_name = "yaml"
             try:
-                __import__(import_name)
+                __import__(dep)
             except ImportError:
                 missing_deps.append(dep)
 
@@ -601,7 +591,6 @@ class HealthChecker:
                     console.print(f"  {Messages.warning(f' {service}: not deployed')}")
 
         except Exception as e:
-            # Don't fail the health check if container status can't be determined
             if self.verbose:
                 console.print(f"  [dim]Could not check container status: {e}[/dim]")
 
@@ -674,13 +663,6 @@ class HealthChecker:
         else:
             self.add_result(f"provider_{provider_name}", "warning", f"{provider_name}: {message}")
             console.print(f"  {Messages.warning(f' {provider_name}: {message}')}")
-
-    def _resolve_api_key(self, api_key: str) -> str:
-        """Resolve API key if it's an environment variable reference."""
-        if api_key.startswith("${") and api_key.endswith("}"):
-            var_name = api_key[2:-1]
-            return os.environ.get(var_name, "")
-        return api_key
 
     def check_model_chat_completions(self):
         """Test actual chat completions with each unique model (full mode only)."""

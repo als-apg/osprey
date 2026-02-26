@@ -64,21 +64,15 @@ class BaseStore(Generic[T]):
         self._index_mtime: float = 0.0
         self._load_index()
 
-    # -- Entry serialization (subclass must implement) ----------------------
-
     def _entry_from_dict(self, d: dict) -> T:
         raise NotImplementedError
 
     def _entry_to_dict(self, entry: T) -> dict:
         raise NotImplementedError
 
-    # -- Directory management -----------------------------------------------
-
     def _ensure_dirs(self) -> None:
         """Create the store directory if it doesn't exist."""
         self._store_dir.mkdir(parents=True, exist_ok=True)
-
-    # -- Cross-process locking ---------------------------------------------
 
     @property
     def _lock_file(self) -> Path:
@@ -101,8 +95,6 @@ class BaseStore(Generic[T]):
             yield
         finally:
             fd.close()  # Releases lock
-
-    # -- Index loading / saving ---------------------------------------------
 
     def _load_index(self) -> None:
         """Load the index from disk, if present."""
@@ -158,8 +150,6 @@ class BaseStore(Generic[T]):
             "entry_count": len(self._entries),
             "entries": [self._entry_to_dict(e) for e in self._entries],
         }
-
-    # -- Listener infrastructure -------------------------------------------
 
     @classmethod
     def register_listener(cls, fn: Callable[[Any], None]) -> None:

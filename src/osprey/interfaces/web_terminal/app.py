@@ -16,9 +16,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
 
+from osprey.interfaces.common_middleware import NoCacheStaticMiddleware
 from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster, WorkspaceWatcher
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
@@ -245,25 +244,12 @@ def _create_lifespan(
         app.state.watcher = WorkspaceWatcher(workspace_dir, app.state.broadcaster)
         app.state.watcher.start()
 
-        # Auto-launch the artifact gallery server
         _launch_artifact_server(app)
-
-        # Auto-launch the ARIEL logbook server
         _launch_ariel_server(app)
-
-        # Auto-launch the tuning panel server
         _launch_tuning_server(app)
-
-        # Auto-launch the CUI server
         _launch_cui_server(app)
-
-        # Auto-launch the DePlot graph extraction service
         _launch_deplot_server(app)
-
-        # Auto-launch the Channel Finder web server
         _launch_channel_finder_server(app)
-
-        # Auto-launch the agentsview session analytics server
         _launch_agentsview_server(app)
 
         # Hook debug env — propagated to PTY/SDK sessions like OTEL
@@ -333,14 +319,6 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-    # Prevent browsers from caching JS/CSS (avoids stale code after updates)
-    class NoCacheStaticMiddleware(BaseHTTPMiddleware):
-        async def dispatch(self, request: Request, call_next):
-            response = await call_next(request)
-            if request.url.path.startswith("/static/"):
-                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            return response
 
     app.add_middleware(NoCacheStaticMiddleware)
 

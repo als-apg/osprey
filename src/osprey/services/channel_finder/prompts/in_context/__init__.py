@@ -1,19 +1,9 @@
-"""
-UCSB FEL In-Context Facility Prompts
+"""In-context facility prompts (UCSB FEL example).
 
-This package contains facility-specific prompts for the UCSB Free Electron Laser.
-
-Modular Structure:
-- facility_description.py: Facility-specific description (CUSTOMIZE THIS)
-- matching_rules.py: Channel matching rules and terminology (CUSTOMIZE AS NEEDED)
-- system.py: Combines the above into facility_description
-- query_splitter.py: Stage 1 query splitting
-- channel_matcher.py: Stage 2 channel matching
-- correction.py: Stage 3 correction prompts
-
-For in-context pipeline:
-The in-context pipeline uses semantic matching against the full channel database.
-Best suited for smaller control systems (<1,000 channels).
+Modules: facility_description, matching_rules, system (combined description),
+query_splitter, channel_matcher, and correction. Best suited for smaller
+control systems (<1,000 channels) using semantic matching against the full
+channel database.
 """
 
 from . import channel_matcher, correction, query_splitter

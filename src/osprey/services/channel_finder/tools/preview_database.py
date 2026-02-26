@@ -21,10 +21,11 @@ from osprey.services.channel_finder.databases import (
     MiddleLayerDatabase,
     TemplateChannelDatabase,
 )
+from osprey.services.channel_finder.utils.detection import detect_pipeline_config
 
 
 def _resolve_path(path_str: str) -> Path:
-    """Resolve a database path. Absolute paths returned as-is; relative paths resolved via config."""
+    """Resolve a database path."""
     path = Path(path_str)
     if path.is_absolute():
         return path
@@ -45,43 +46,6 @@ try:
 except ImportError:
     console = Console()
     theme = None
-
-
-def detect_pipeline_config(config) -> tuple[str | None, dict | None]:
-    """Detect which pipeline is configured.
-
-    Returns:
-        tuple: (pipeline_type, db_config)
-    """
-    cf_config = config.get("channel_finder", {})
-    pipelines = cf_config.get("pipelines", {})
-
-    pipeline_mode = cf_config.get("pipeline_mode")
-
-    hierarchical_config = pipelines.get("hierarchical", {})
-    in_context_config = pipelines.get("in_context", {})
-    middle_layer_config = pipelines.get("middle_layer", {})
-
-    if pipeline_mode == "in_context" and in_context_config.get("database", {}).get("path"):
-        return "in_context", in_context_config.get("database", {})
-    elif pipeline_mode == "hierarchical" and hierarchical_config.get("database", {}).get("path"):
-        return "hierarchical", hierarchical_config.get("database", {})
-    elif pipeline_mode == "middle_layer" and middle_layer_config.get("database", {}).get("path"):
-        return "middle_layer", middle_layer_config.get("database", {})
-
-    if middle_layer_config.get("database", {}).get("path"):
-        return "middle_layer", middle_layer_config.get("database", {})
-    elif hierarchical_config.get("database", {}).get("path"):
-        return "hierarchical", hierarchical_config.get("database", {})
-    elif in_context_config.get("database", {}).get("path"):
-        return "in_context", in_context_config.get("database", {})
-    else:
-        return None, None
-
-
-# ============================================================================
-# Middle Layer Preview
-# ============================================================================
 
 
 def preview_middle_layer(
@@ -334,11 +298,6 @@ def _add_middle_layer_nodes(parent, data, level, max_depth, max_items) -> None:
 
         if isinstance(node_data, dict) and level + 1 < max_depth:
             _add_middle_layer_nodes(branch, node_data, level + 1, max_depth, max_items)
-
-
-# ============================================================================
-# Hierarchical Preview
-# ============================================================================
 
 
 def preview_hierarchical(
@@ -760,11 +719,6 @@ def _count_channels_at_path(database, hierarchy_levels, path_values, current_lev
     return count
 
 
-# ============================================================================
-# In-Context Preview
-# ============================================================================
-
-
 def preview_in_context(db_path: str, presentation_mode: str, show_full: bool = False):
     """Preview in-context database with formatted channel list."""
 
@@ -846,11 +800,6 @@ def preview_in_context(db_path: str, presentation_mode: str, show_full: bool = F
         )
     )
     console.print()
-
-
-# ============================================================================
-# Main Entry Point
-# ============================================================================
 
 
 def preview_database(

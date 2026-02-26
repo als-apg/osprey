@@ -30,11 +30,6 @@ from osprey.mcp_server.base_store import BaseStore
 logger = logging.getLogger("osprey.mcp_server.memory_store")
 
 
-# ---------------------------------------------------------------------------
-# Backward-compatible listener API
-# ---------------------------------------------------------------------------
-
-
 def register_memory_listener(fn: Callable[[MemoryEntry], None]) -> None:
     """Register a callback invoked after every memory entry save."""
     MemoryStore.register_listener(fn)
@@ -43,11 +38,6 @@ def register_memory_listener(fn: Callable[[MemoryEntry], None]) -> None:
 def unregister_memory_listener(fn: Callable[[MemoryEntry], None]) -> None:
     """Remove a previously registered listener."""
     MemoryStore.unregister_listener(fn)
-
-
-# ---------------------------------------------------------------------------
-# Memory entry dataclass
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -92,11 +82,6 @@ class MemoryEntry:
         if self.linked_label is not None:
             resp["linked_label"] = self.linked_label
         return resp
-
-
-# ---------------------------------------------------------------------------
-# MemoryStore
-# ---------------------------------------------------------------------------
 
 
 class MemoryStore(BaseStore[MemoryEntry]):
@@ -278,10 +263,6 @@ class MemoryStore(BaseStore[MemoryEntry]):
                     return True
         return False
 
-
-# ---------------------------------------------------------------------------
-# Module-level singleton
-# ---------------------------------------------------------------------------
 
 _memory_store: MemoryStore | None = None
 

@@ -51,9 +51,7 @@ def view_examples(keywords: str | None = None) -> str:
         exact_hints = store.get_hints(keywords, facility)
         if exact_hints:
             result["exact_match"] = [
-                format_success(
-                    {"selections": h["selections"], "channel_count": h["channel_count"]}
-                )
+                format_success({"selections": h["selections"], "channel_count": h["channel_count"]})
                 for h in exact_hints
             ]
 

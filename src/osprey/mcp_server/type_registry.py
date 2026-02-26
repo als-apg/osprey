@@ -25,10 +25,7 @@ class TypeDef:
     color: str  # hex colour for badges
 
 
-# ---------------------------------------------------------------------------
-# Artifact types (11) — matches JS typeBadge()
-# ---------------------------------------------------------------------------
-
+# Artifact types
 ARTIFACT_TYPES: dict[str, TypeDef] = {
     "plot_html": TypeDef("plot_html", "Plotly", "#8b5cf6"),
     "plot_png": TypeDef("plot_png", "Matplotlib", "#e8c9a0"),
@@ -71,10 +68,7 @@ DATA_TYPES: dict[str, TypeDef] = {
     "mml_research": TypeDef("mml_research", "MML Research", "#fb923c"),
 }
 
-# ---------------------------------------------------------------------------
-# Categories (21) — unified from DATA_TYPES for the artifact gallery
-# ---------------------------------------------------------------------------
-
+# Categories
 CATEGORIES: dict[str, TypeDef] = {
     "archiver_data": TypeDef("archiver_data", "Archiver Data", "#2563eb"),
     "channel_values": TypeDef("channel_values", "Channel Values", "#14b8a6"),
@@ -99,10 +93,7 @@ CATEGORIES: dict[str, TypeDef] = {
     "user_artifact": TypeDef("user_artifact", "User Artifact", "#94a3b8"),
 }
 
-# ---------------------------------------------------------------------------
-# Tool types (31) — matches JS toolLabel()
-# ---------------------------------------------------------------------------
-
+# Tool types
 TOOL_TYPES: dict[str, TypeDef] = {
     "channel_read": TypeDef("channel_read", "Channel Read", "#4fd1c5"),
     "channel_write": TypeDef("channel_write", "Channel Write", "#e8c9a0"),
@@ -138,11 +129,6 @@ TOOL_TYPES: dict[str, TypeDef] = {
     "create_dashboard": TypeDef("create_dashboard", "Dashboard", "#06b6d4"),
     "create_document": TypeDef("create_document", "Document", "#a3e635"),
 }
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 
 
 def get_artifact_types() -> dict[str, TypeDef]:

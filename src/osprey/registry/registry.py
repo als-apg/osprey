@@ -1,50 +1,9 @@
-"""Framework Registry Provider.
+"""Framework registry provider.
 
-This module contains the framework's registry provider implementation,
-following the same RegistryConfigProvider interface pattern used by all
-applications. It registers the shared infrastructure components that
-Osprey projects depend on.
+Registers shared infrastructure (connectors, code generators, ARIEL modules)
+that all Osprey applications build upon.
 
-The framework registry provides:
-
-Shared Infrastructure:
-    - **Connectors**: Control system (EPICS, mock) and archiver connectors
-    - **Code Generators**: Python code generation backends (basic LLM, Claude Code SDK)
-    - **ARIEL Modules**: Search, enhancement, pipeline, and ingestion components
-    - **Providers**: AI model provider configuration
-
-This registry serves as the baseline configuration that gets merged with
-application-specific registries. Applications can override framework components
-by registering components with the same names.
-
-Architecture Benefits:
-    - **Consistent Interface**: Uses the same RegistryConfigProvider pattern as applications
-    - **Extensible Foundation**: Applications build upon these core components
-    - **Override Support**: Applications can replace framework components as needed
-    - **Dependency Management**: Components are initialized in proper dependency order
-
-The framework registry is loaded first during registry initialization,
-ensuring core infrastructure is available before application components are loaded.
-
-.. note::
-   This registry provides the minimal set of components required for framework
-   operation. Applications should not depend on implementation details of these
-   components, only their public interfaces.
-
-.. warning::
-   Overriding framework components should be done carefully as it may affect
-   the behavior of other framework subsystems that depend on these components.
-
-Examples:
-    Framework registry is loaded automatically::
-
-        >>> from osprey.registry import initialize_registry, get_registry
-        >>> initialize_registry()  # Loads framework registry first
-        >>> registry = get_registry()
-
-.. seealso::
-   :class:`RegistryConfigProvider` : Interface implemented by this provider
-   :class:`RegistryManager` : Manager that loads and merges this registry
+.. seealso:: :class:`RegistryConfigProvider`, :class:`RegistryManager`
 """
 
 from .base import (
@@ -62,75 +21,16 @@ from .base import (
 
 
 class FrameworkRegistryProvider(RegistryConfigProvider):
-    """Framework registry provider implementing the standard interface pattern.
+    """Provides the baseline framework registry configuration.
 
-    This provider generates the framework-only registry configuration containing
-    shared infrastructure components: connectors, code generators, ARIEL modules,
-    and AI model providers. It follows the same RegistryConfigProvider interface
-    pattern used by applications, ensuring consistency across the registry system.
-
-    Component Categories Provided:
-        - **Connectors**: Control system and archiver connectors (EPICS, mock)
-        - **Code Generators**: Python code generation backends
-        - **ARIEL Search Modules**: Keyword and semantic search
-        - **ARIEL Enhancement Modules**: Semantic processing and text embedding
-        - **ARIEL Pipelines**: RAG pipeline
-        - **ARIEL Ingestion Adapters**: Facility-specific logbook adapters
-
-    The registry configuration returned by this provider serves as the baseline
-    that gets merged with application registries. Applications can override any
-    framework component by registering a component with the same name.
-
-    Initialization Priority:
-        This framework registry is always loaded first during registry initialization,
-        ensuring core infrastructure is available before application components are
-        processed.
-
-    .. note::
-       This provider is used by the registry system during framework initialization.
-       Manual instantiation is not required or recommended.
-
-    .. warning::
-       Changes to this registry affect all applications using the framework.
-       New components should be added carefully with consideration for backward
-       compatibility.
-
-    Examples:
-        The framework registry is used automatically::
-
-            >>> from osprey.registry import initialize_registry, get_registry
-            >>> initialize_registry()
-            >>> registry = get_registry()
-
-    .. seealso::
-       :class:`RegistryConfigProvider` : Interface implemented by this class
-       :class:`RegistryManager` : Manager that uses this provider
+    Loaded automatically during registry initialization before any application
+    registries. Applications can override framework components by name.
     """
 
     def get_registry_config(self) -> RegistryConfig:
-        """Create framework registry configuration.
+        """Return framework registry configuration.
 
-        Generates the registry configuration for shared infrastructure
-        components: connectors, code generators, ARIEL modules, and
-        providers. This configuration serves as the foundation that
-        applications build upon and can selectively override.
-
-        Components:
-            - **Connectors**: EPICS and mock connectors for control systems and archivers
-            - **Code Generators**: Basic LLM and Claude Code SDK generators
-            - **ARIEL Search**: Keyword and semantic search modules
-            - **ARIEL Enhancement**: Semantic processing and text embedding
-            - **ARIEL Pipelines**: RAG pipeline
-            - **ARIEL Ingestion**: Facility-specific logbook adapters (ALS, JLab, ORNL, generic)
-
-        :return: Framework registry configuration with connectors, code generators,
-            ARIEL modules, and providers
         :rtype: RegistryConfig
-
-        .. note::
-           This method is called once during registry initialization. The returned
-           configuration is merged with application registries, with applications
-           able to override any framework component by name.
         """
         return RegistryConfig(
             core_nodes=[],

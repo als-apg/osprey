@@ -25,21 +25,9 @@ from osprey.services.channel_finder.service import ChannelFinderService
 
 
 class ChannelFinderCLI:
-    """Command Line Interface for Channel Finder.
-
-    Provides an interactive terminal interface with:
-    - Persistent command history
-    - Auto-suggestions from previous queries
-    - Rich formatted output
-    - Key bindings (Ctrl+L to clear, arrow keys for history)
-    - Clean, focused user experience
-
-    Can be used standalone (calls initialize() internally) or with
-    pre-initialized state when launched from the osprey CLI.
-    """
+    """Interactive terminal interface for Channel Finder with history and rich output."""
 
     def __init__(self):
-        """Initialize the CLI interface."""
         self.service = None
         self.console = Console()
 
@@ -59,7 +47,6 @@ class ChannelFinderCLI:
         )
 
     def _create_key_bindings(self):
-        """Create custom key bindings for CLI shortcuts."""
         bindings = KeyBindings()
 
         @bindings.add("c-l")  # Ctrl+L to clear screen
@@ -70,7 +57,6 @@ class ChannelFinderCLI:
         return bindings
 
     def _create_prompt_session(self):
-        """Create a prompt_toolkit session with history and auto-suggestions."""
         return PromptSession(
             history=FileHistory(self.history_file),
             auto_suggest=AutoSuggestFromHistory(),
@@ -133,7 +119,6 @@ class ChannelFinderCLI:
             raise
 
     async def run(self):
-        """Execute the main CLI interaction loop."""
         await self.initialize()
 
         while True:
@@ -167,7 +152,6 @@ class ChannelFinderCLI:
                 continue
 
     async def _process_query(self, query: str):
-        """Process a channel finder query and display results."""
         try:
             self.console.print(f'\nProcessing: "{query}"', style="blue")
 
@@ -187,7 +171,6 @@ class ChannelFinderCLI:
             self.console.print()
 
     def _display_results(self, result):
-        """Display query results in a formatted table."""
         self.console.print(f"\nFound {result.total_channels} channel(s)", style="green")
 
         table = Table(show_header=True, header_style="bold cyan", border_style="dim")

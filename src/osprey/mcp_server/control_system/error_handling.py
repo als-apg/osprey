@@ -46,7 +46,7 @@ async def connector_error_handler(
     try:
         yield
     except ToolError:
-        raise  # Already a formatted response — re-raise
+        raise  # Already a formatted response — re-raise as-is
     except ConnectionError as exc:
         from osprey.mcp_server.control_system.registry import get_mcp_registry
 

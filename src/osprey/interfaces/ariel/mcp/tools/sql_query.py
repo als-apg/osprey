@@ -59,16 +59,15 @@ async def sql_query(
         )
 
     try:
-        # Validate before touching the service (fail fast)
+        # Fail fast before acquiring a DB connection
         validate_sql_query(query)
 
         registry = get_ariel_registry()
         service = await registry.service()
 
-        # Execute (validation already done, but execute_sql_query re-validates)
+        # execute_sql_query re-validates internally
         rows = await execute_sql_query(service.pool, query, max_rows=max_rows)
 
-        # Format for response
         formatted = format_sql_result(rows)
 
         response = {

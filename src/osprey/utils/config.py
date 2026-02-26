@@ -1,13 +1,7 @@
-"""
-Configuration System
+"""Configuration system.
 
-Professional configuration system for standalone execution. Features:
-- Single-file YAML loading with environment resolution
-- Pre-computed structures, context awareness
-- Single source of truth with automatic context detection
-- Flat structure: framework and application settings coexist via unique naming
-
-Clean, modern configuration architecture supporting standalone execution.
+Loads a single YAML config file, resolves environment variables,
+and provides dot-path access to values.
 """
 
 import logging
@@ -18,8 +12,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-
-get_config = None
 
 # Use standard logging (not get_logger) to avoid circular imports with logger.py
 # The short name 'CONFIG' enables easy filtering: quiet_logger(['registry', 'CONFIG'])
@@ -72,50 +64,20 @@ def resolve_env_vars(data: Any) -> Any:
 
 
 class ConfigBuilder:
-    """
-    Configuration builder with clean, modern architecture.
+    """Loads a YAML config, resolves ``${VAR}`` env-var placeholders, and
+    pre-computes a ``configurable`` dict for LangGraph and standalone use.
 
-    Features:
-    - Single-file YAML loading with validation and error handling
-    - Environment variable resolution
-    - Pre-computed nested dictionaries for performance
-    - Explicit fail-fast behavior for required configurations
-    - Flat structure supporting framework + application settings via unique naming
+    Singleton access: use :func:`get_config_builder` or :func:`_get_config`.
     """
 
-    # Sentinel object to distinguish between "no default provided" and "default is None"
+    # Sentinel to distinguish "no default given" from "default is None".
     _REQUIRED = object()
 
     def _require_config(self, path: str, default: Any = _REQUIRED) -> Any:
-        """
-        Get configuration value with explicit control over required vs. optional settings.
+        """Get config value, raising ValueError if required (no default) and missing.
 
-        This helper function provides three levels of configuration handling:
-        1. Required settings (no default) - fail fast if missing
-        2. Optional settings with visibility (default provided) - warn when default is used
-        3. Silent optional settings - use standard self.get() for truly optional configs
-
-        Args:
-            path: Dot-separated configuration path (e.g., "execution.limits.max_retries")
-            default: Default value to use if config is missing. If not provided,
-                    the configuration is considered required and will raise ValueError.
-                    If provided, logs a warning when the default is used.
-
-        Returns:
-            The configuration value, or default if provided and config is missing
-
-        Raises:
-            ValueError: If required configuration (no default) is missing or None
-
-        Examples:
-            # Required configuration - will fail if missing
-            max_steps = self._require_config('execution_control.limits.max_steps')
-
-            # Optional configuration with explicit default and visibility
-            max_retries = self._require_config('execution_control.limits.max_step_retries', 0)
-
-            # Silent optional configuration - use standard get() for noise-free defaults
-            debug_mode = self.get('development.debug', False)
+        When *default* is provided, uses it with a warning. When *default* is
+        omitted (_REQUIRED sentinel), raises on missing/None values.
         """
         value = self.get(path)
 
@@ -123,8 +85,7 @@ class ConfigBuilder:
             if default is self._REQUIRED:
                 # No default provided - this is a required configuration
                 raise ValueError(
-                    f"Missing required configuration: '{path}' must be explicitly set in config.yml. "
-                    f"This setting has no default value and must be configured explicitly."
+                    f"Missing required configuration: '{path}'. Set this value in config.yml."
                 )
             else:
                 # Default provided - use it but warn for visibility
@@ -142,8 +103,6 @@ class ConfigBuilder:
         Raises:
             FileNotFoundError: If config.yml is not found and no path is provided.
         """
-        # Load .env file from current working directory
-        # This ensures environment variables are available for config resolution
         try:
             from dotenv import load_dotenv
 
@@ -157,12 +116,10 @@ class ConfigBuilder:
             logger.warning("python-dotenv not available, skipping .env file loading")
 
         if config_path is None:
-            # Check current working directory (where user ran the command)
             cwd_config = Path.cwd() / "config.yml"
             if cwd_config.exists():
                 config_path = cwd_config
             else:
-                # NO FALLBACK - Fail fast with clear error
                 raise FileNotFoundError(
                     f"No config.yml found in current directory: {Path.cwd()}\n\n"
                     f"Please run this command from a project directory containing config.yml,\n"
@@ -215,13 +172,10 @@ class ConfigBuilder:
         """
         import copy
 
-        # Load the config file
         config = self._load_yaml_file(self.config_path)
 
-        # Store unexpanded config for deployment use (deep copy to prevent mutations)
         unexpanded_config = copy.deepcopy(config)
 
-        # Apply environment variable substitution
         expanded_config = self._resolve_env_vars(config)
 
         logger.info(f"Loaded configuration from {self.config_path}")
@@ -259,8 +213,7 @@ class ConfigBuilder:
             return approval_config
 
         # Otherwise, provide sensible defaults for tutorial/development mode
-        logger.warning("⚠️  'approval' section missing from config.yml, using framework defaults")
-        logger.warning("⚠️  For production use, please add an 'approval' section to your config.yml")
+        logger.warning("'approval' section missing from config.yml; using defaults")
 
         # Sensible defaults for tutorial/development environments
         return {
@@ -290,18 +243,14 @@ class ConfigBuilder:
         if execution_config:
             return execution_config
 
-        # Otherwise, provide sensible defaults for tutorial/development mode
-        logger.warning("⚠️  'execution' section missing from config.yml, using framework defaults")
-        logger.warning("⚠️  Using local Python execution (no container/Jupyter support)")
+        logger.warning(
+            "'execution' section missing from config.yml; defaulting to local Python execution"
+        )
 
-        # Import here to avoid circular dependencies
-        import sys
-
-        # Sensible defaults for tutorial environments (local execution only)
         return {
             "execution_method": "local",
-            "python_env_path": sys.executable,  # Use current Python interpreter
-            "code_generator": "basic",  # Use basic LLM code generator
+            "python_env_path": sys.executable,
+            "code_generator": "basic",
             "generators": {
                 "basic": {"model_config_name": "python_code_generator"}  # Reference models section
             },
@@ -372,38 +321,26 @@ class ConfigBuilder:
     def _build_configurable(self) -> dict[str, Any]:
         """Build the configurable dictionary with pre-computed nested structures."""
         configurable = {
-            # ===== SESSION INFORMATION =====
             "user_id": None,
             "chat_id": None,
             "session_id": None,
             "thread_id": None,
             "session_url": None,
-            # ===== EXECUTION LIMITS =====
             "execution_limits": self._build_execution_limits(),
-            # ===== AGENT CONTROL DEFAULTS =====
             "agent_control_defaults": self._build_agent_control_defaults(),
-            # ===== COMPLEX NESTED STRUCTURES =====
             "model_configs": self._build_model_configs(),
             "provider_configs": self._build_provider_configs(),
             "service_configs": self._build_service_configs(),
-            # ===== FRAMEWORK EXECUTION CONFIGURATION =====
-            # Python execution settings and executor service configuration
             "execution": self._get_execution_config(),
             "python_executor": self._get_python_executor_config(),
-            # ===== LOGGING CONFIGURATION =====
             "logging": self.get("logging", {}),
-            # ===== SIMPLE FLAT CONFIGS =====
             "development": self.get("development", {}),
             "epics_config": self.get("execution.epics", {}),
             "approval_config": self._get_approval_config(),
-            # ===== PROJECT CONFIGURATION =====
-            # Essential for absolute path resolution across deployment environments
             "project_root": self.get("project_root"),
-            # ===== APPLICATION CONTEXT =====
             "applications": self.get("applications", []),
             "current_application": self._get_current_application(),
             "registry_path": self.get("registry_path"),
-            # ===== FACILITY TIMEZONE =====
             "facility_timezone": self.get("system.timezone", "UTC"),
         }
 
@@ -495,16 +432,8 @@ class ConfigBuilder:
             return default
 
 
-# =============================================================================
-# GLOBAL CONFIGURATION
-# =============================================================================
-
-# Global configuration instances
-# Default config (singleton pattern for backward compatibility)
 _default_config: ConfigBuilder | None = None
 _default_configurable: dict[str, Any] | None = None
-
-# Per-path config cache for explicit config paths
 _config_cache: dict[str, ConfigBuilder] = {}
 
 
@@ -536,31 +465,26 @@ def _get_config(config_path: str | None = None, set_as_default: bool = False) ->
     """
     global _default_config, _default_configurable
 
-    # If no explicit path, use default singleton behavior
     if config_path is None:
         if _default_config is None:
-            # Check for environment variable override
             config_file = os.environ.get("CONFIG_FILE")
             if config_file:
                 _default_config = ConfigBuilder(config_file)
             else:
                 _default_config = ConfigBuilder()
 
-            # Cache configurable for efficient non-LangGraph contexts
             _default_configurable = _default_config.configurable.copy()
 
             logger.info("Initialized default configuration system")
 
         return _default_config
 
-    # For explicit path, cache per path to avoid reloading
     resolved_path = str(Path(config_path).resolve())
 
     if resolved_path not in _config_cache:
         logger.info(f"Loading configuration from explicit path: {resolved_path}")
         _config_cache[resolved_path] = ConfigBuilder(resolved_path)
 
-    # If requested, also set this as the default config
     if set_as_default:
         _default_config = _config_cache[resolved_path]
         _default_configurable = _default_config.configurable.copy()
@@ -584,23 +508,15 @@ def _get_configurable(
     Returns:
         Complete configuration dictionary with all configurable values
     """
-    # Use cached configurable for standalone execution
     config = _get_config(config_path, set_as_default=set_as_default)
 
-    # For default config, use cached configurable for performance
     if config_path is None:
         global _default_configurable
         if _default_configurable is None:
             _default_configurable = config.configurable.copy()
         return _default_configurable
 
-    # For explicit paths, return configurable directly
     return config.configurable
-
-
-# =============================================================================
-# PUBLIC CONFIGURATION ACCESS
-# =============================================================================
 
 
 def get_config_builder(
@@ -663,11 +579,6 @@ def load_config(config_path: str | None = None) -> dict[str, Any]:
         >>> channels = config.get("channel_finder", {})
     """
     return _get_config(config_path).raw_config
-
-
-# =============================================================================
-# CONTEXT-AWARE UTILITY FUNCTIONS
-# =============================================================================
 
 
 def get_model_config(model_name: str, config_path: str | None = None) -> dict[str, Any]:
@@ -886,46 +797,35 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
     """
     config = _get_config()
 
-    # Get project root and file paths configuration
     project_root = config.get("project_root")
     main_file_paths = config.get("file_paths", {})
     agent_data_dir = main_file_paths.get("agent_data_dir", "_agent_data")
 
-    # Check both main config and current application config for file paths
     current_app = get_current_application()
     sub_dir_path = None
 
-    # First check main config file_paths
     if sub_dir in main_file_paths:
         sub_dir_path = main_file_paths[sub_dir]
         logger.debug(f"Found {sub_dir} in main file_paths: {sub_dir_path}")
 
-    # Then check current application's file_paths (takes precedence)
     if current_app:
         app_file_paths = config.get(f"applications.{current_app}.file_paths", {})
         if sub_dir in app_file_paths:
             sub_dir_path = app_file_paths[sub_dir]
             logger.debug(f"Found {sub_dir} in {current_app} file_paths: {sub_dir_path}")
 
-    # Fallback to the sub_dir name itself if not found anywhere
     if sub_dir_path is None:
         sub_dir_path = sub_dir
         logger.debug(f"Using fallback path for {sub_dir}: {sub_dir_path}")
 
-    # Construct absolute path with explicit validation
-
     if project_root:
         project_root_path = Path(project_root)
 
-        # Handle host_path override
         if host_path:
-            # Force host path regardless of current environment
             logger.debug(f"Forcing host path resolution for: {sub_dir}")
             path = project_root_path / agent_data_dir / sub_dir_path
         else:
-            # Container-aware path resolution
             if not project_root_path.exists():
-                # Detect if we're running in a container environment
                 container_project_roots = ["/app", "/pipelines", "/jupyter"]
                 detected_container_root = None
 
@@ -936,32 +836,23 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
                         break
 
                 if detected_container_root:
-                    # Container environment detected - use container project root
                     logger.debug(
                         f"Container environment detected: using {detected_container_root} instead of {project_root}"
                     )
                     path = detected_container_root / agent_data_dir / sub_dir_path
                 else:
-                    # Not in a known container environment - fall back to relative paths
                     logger.warning(f"Configured project root does not exist: {project_root}")
                     logger.warning("Falling back to relative path resolution")
                     path = Path(agent_data_dir) / sub_dir_path
                     path = path.resolve()
             else:
-                # Host environment - use configured project root
                 path = project_root_path / agent_data_dir / sub_dir_path
     else:
-        # Support development environments without explicit project root configuration
         logger.warning("No project root configured, using relative path for agent data directory")
         path = Path(agent_data_dir) / sub_dir_path
-        path = path.resolve()  # Ensure absolute path for consistent behavior
+        path = path.resolve()
 
     return str(path)
-
-
-# =============================================================================
-# CONFIGURATION ACCESS
-# =============================================================================
 
 
 def get_config_value(path: str, default: Any = None, config_path: str | None = None) -> Any:
@@ -995,7 +886,6 @@ def get_config_value(path: str, default: Any = None, config_path: str | None = N
 
     configurable = _get_configurable(config_path)
 
-    # Navigate through dot-separated path in configurable dict
     keys = path.split(".")
     value = configurable
 
@@ -1003,7 +893,6 @@ def get_config_value(path: str, default: Any = None, config_path: str | None = N
         if isinstance(value, dict) and key in value:
             value = value[key]
         else:
-            # Not found in configurable, try raw config as fallback
             config = _get_config(config_path)
             return config.get(path, default)
 
@@ -1038,7 +927,6 @@ def get_classification_config() -> dict[str, Any]:
     """
     configurable = _get_configurable()
 
-    # Get classification concurrency limit from execution_control.limits (consistent with other limits)
     max_concurrent = configurable.get("execution_limits", {}).get(
         "max_concurrent_classifications", 5
     )
@@ -1077,18 +965,13 @@ def get_full_configuration(config_path: str | None = None) -> dict[str, Any]:
         >>> # Subsequent calls without path use this config
         >>> other_value = get_config_value("some.setting")
     """
-    # If explicit path provided, set as default for future access
     set_as_default = config_path is not None
     return _get_configurable(config_path, set_as_default=set_as_default)
 
 
-# Initialize the global configuration on import (skip for documentation/tests)
-# This provides convenience for module-level logger initialization, but is not
-# strictly required since logger.py has graceful fallbacks for missing config.
+# Eager-init config on import; deferred init is OK if config.yml is absent.
 try:
     if "sphinx" not in sys.modules and not os.environ.get("SPHINX_BUILD"):
         _get_config()
 except FileNotFoundError:
-    # Allow deferred initialization if config not available at import time
-    # Config will be initialized on first access via the singleton pattern
     pass

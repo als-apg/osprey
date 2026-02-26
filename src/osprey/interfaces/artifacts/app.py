@@ -381,7 +381,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Store references for route handlers
     app.state.artifact_store = store
     app.state.focused_artifact_id = None  # None = show latest
     app.state.memory_store = memory_store
@@ -737,15 +736,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     app.include_router(logbook_router)
 
-    # Prevent browsers from caching JS/CSS (avoids stale code after updates)
-    from starlette.middleware.base import BaseHTTPMiddleware
-
-    class NoCacheStaticMiddleware(BaseHTTPMiddleware):
-        async def dispatch(self, request, call_next):
-            response = await call_next(request)
-            if request.url.path.startswith("/static/"):
-                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            return response
+    from osprey.interfaces.common_middleware import NoCacheStaticMiddleware
 
     app.add_middleware(NoCacheStaticMiddleware)
 

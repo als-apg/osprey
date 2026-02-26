@@ -1,11 +1,7 @@
 """Convert HTML files to images using Playwright (headless Chromium).
 
-Provides a graceful fallback when Playwright is not installed —
-callers get a clear ``PlaywrightNotInstalledError`` instead of a raw
-``ImportError``.
-
-On first use, Chromium is auto-installed if the browser binary is
-missing — no manual ``playwright install chromium`` step required.
+Auto-installs Chromium on first use. Raises ``PlaywrightNotInstalledError``
+instead of a raw ``ImportError`` when Playwright is missing.
 """
 
 from __future__ import annotations

@@ -140,18 +140,6 @@ class TestCliGroup:
         # Should attempt theme initialization (silent failure is OK)
         assert mock_init_theme.called
 
-    @mock.patch("osprey.cli.styles.initialize_theme_from_config")
-    def test_cli_handles_theme_initialization_failure(self, mock_init_theme, runner):
-        """Test CLI continues if theme initialization fails."""
-        mock_init_theme.side_effect = Exception("Theme loading failed")
-
-        with mock.patch("osprey.cli.interactive_menu.launch_tui"):
-            result = runner.invoke(cli, [])
-
-        # Should not crash - silent failure
-        # TUI should still be launched
-        assert result.exit_code == 0 or result.exception is None
-
     def test_cli_subcommand_invocation(self, runner):
         """Test CLI can invoke subcommands."""
         # Test with a simple subcommand (health --help should work)

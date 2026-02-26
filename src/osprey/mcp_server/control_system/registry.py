@@ -79,26 +79,19 @@ class MCPServerConfig:
 
 
 class MCPRegistry:
-    """Singleton registry for MCP server state.
+    """Singleton registry that caches config and control-system connectors for MCP tools.
 
     Responsibilities:
       1. Load and cache config.yml once at startup
       2. Register connector types with ConnectorFactory
       3. Provide cached connector instances (lazy-created, auto-reconnect)
       4. Expose config sections to tools
-
-    Mirrors patterns from osprey.registry.manager.RegistryManager:
-      - Singleton access via module-level get_mcp_registry()
-      - Lazy initialization of heavy resources (connectors)
-      - Centralized config with typed accessors
     """
 
     def __init__(self) -> None:
         self._config: MCPServerConfig | None = None
         self._connectors: dict[str, ConnectorEntry] = {}
         self._initialized = False
-
-    # -- Initialization ----------------------------------------------------
 
     def initialize(self) -> None:
         """Load config and register connector types.
@@ -136,8 +129,6 @@ class MCPRegistry:
             self._config.writes_enabled,
         )
 
-    # -- Config access -----------------------------------------------------
-
     @property
     def config(self) -> MCPServerConfig:
         """Full parsed configuration."""
@@ -157,8 +148,6 @@ class MCPRegistry:
             if value is None:
                 return default
         return value
-
-    # -- Connector access (lazy + cached) ----------------------------------
 
     async def control_system(self) -> ControlSystemConnector:
         """Get or create the cached control-system connector."""
@@ -201,13 +190,9 @@ class MCPRegistry:
             entry.instance = None
             logger.info("MCPRegistry: invalidated %s connector", name)
 
-    # -- Channel finder config ---------------------------------------------
-
     def channel_finder_config(self) -> dict[str, Any]:
         """Config section for ChannelFinderService."""
         return self.config.channel_finder
-
-    # -- Internal helpers --------------------------------------------------
 
     @staticmethod
     def _load_config() -> MCPServerConfig:

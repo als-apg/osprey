@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 
 def test_reject_records_failure_in_feedback_store(pending_review_client):
     store = pending_review_client.app.state.pending_review_store

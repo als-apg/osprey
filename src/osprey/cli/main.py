@@ -2,20 +2,13 @@
 
 This module provides the main CLI group that organizes all osprey
 commands under the `osprey` command namespace.
-
-Note: This will become 'osprey' in Phase 8 of the migration.
-
-Performance Note: Uses lazy imports to avoid loading heavy dependencies
-until a command is actually invoked.
-This keeps `osprey --help` fast.
 """
 
 import sys
 
 import click
 
-# Fix Windows console encoding to support Unicode characters (✓, ✗, ⚠️, etc.)
-# This must be done before any output that uses Unicode characters
+# Ensure UTF-8 on Windows for Unicode CLI output
 if sys.platform == "win32":
     try:
         # Reconfigure stdout and stderr to use UTF-8 encoding
@@ -36,16 +29,10 @@ if sys.platform == "win32":
         # The CLI should still work, just without fancy Unicode characters
         pass
 
-# Import version from osprey package
 try:
     from osprey import __version__
 except ImportError:
     __version__ = "0.11.5"
-
-
-# PERFORMANCE OPTIMIZATION: Lazy command loading
-# Commands are imported only when invoked, not at module load time.
-# This keeps --help fast and avoids loading heavy dependencies unnecessarily.
 
 
 class LazyGroup(click.Group):
@@ -73,13 +60,10 @@ class LazyGroup(click.Group):
         if cmd_name not in commands:
             return None
 
-        # Lazy import - only loads when command is actually used
         import importlib
 
         mod = importlib.import_module(commands[cmd_name])
 
-        # Get the command function from the module
-        # Convention: module name without _cmd suffix
         if cmd_name == "config":
             cmd_func = mod.config
         elif cmd_name == "channel-finder":
@@ -99,7 +83,6 @@ class LazyGroup(click.Group):
 
     def list_commands(self, ctx):
         """Return list of available commands (for --help)."""
-        # Note: 'workflows' and 'assist' are deprecated but kept in commands dict for backward compat
         return [
             "init",
             "config",
@@ -144,17 +127,10 @@ def cli(ctx):
       osprey claude install <task>    Install Claude Code skill
       osprey channel-finder           Interactive channel search
     """
-    # Initialize theme from config if available (best-effort, silent failure)
-    try:
-        from .styles import initialize_theme_from_config
+    from .styles import initialize_theme_from_config
 
-        initialize_theme_from_config()
-    except Exception:
-        # Silent failure - default theme will be used
-        # CLI must work even if theme loading fails
-        pass
+    initialize_theme_from_config()
 
-    # NEW: If no command provided, launch interactive menu
     if ctx.invoked_subcommand is None:
         from .interactive_menu import launch_tui
 

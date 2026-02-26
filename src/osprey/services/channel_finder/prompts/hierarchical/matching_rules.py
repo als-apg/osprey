@@ -1,15 +1,7 @@
 """Channel matching rules and terminology conventions.
 
-This file contains rules for interpreting user queries and matching them
-to the correct channels. These rules are largely reusable across facilities,
-though some synonyms may need customization.
-
-Sections:
-- Setpoint vs Readback terminology
-- Position and axis conventions
-- Status field conventions
-- Common synonyms
-- Operational guidelines
+Covers setpoint vs readback terminology, position/axis conventions,
+status fields, and common synonyms. Largely reusable across facilities.
 """
 
 MATCHING_RULES = """

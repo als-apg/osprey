@@ -62,11 +62,9 @@ async def semantic_search(
         registry = get_ariel_registry()
         service = await registry.service()
 
-        # Parse dates
         parsed_start, parsed_end = parse_date_filters(start_date, end_date)
         time_range = (parsed_start, parsed_end) if parsed_start or parsed_end else None
 
-        # Build advanced params
         adv: dict = {}
         if author:
             adv["author"] = author
@@ -79,7 +77,6 @@ async def semantic_search(
         exclude_ids = set(exclude_entry_ids or [])
         fetch_count = max_results + len(exclude_ids) if exclude_ids else max_results
 
-        # Execute search
         result = await service.search(
             query,
             max_results=fetch_count,
@@ -88,11 +85,9 @@ async def semantic_search(
             advanced_params=adv,
         )
 
-        # Post-filter excluded entry IDs
         entries = [e for e in result.entries if e["entry_id"] not in exclude_ids]
         entries = entries[:max_results]
 
-        # Serialize
         entries_out = [serialize_entry(e, text_limit=500) for e in entries]
 
         response = {

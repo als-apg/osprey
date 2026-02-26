@@ -1,15 +1,7 @@
-"""Facility-specific description for Example Hierarchical Accelerator.
+"""Facility description for Example Hierarchical Accelerator.
 
-This file contains facility-specific information that users should customize
-for their own control system. It describes:
-- What the facility is
-- Channel naming structure
-- Device naming conventions
-
-To customize for your facility:
-1. Copy this file to your facility's prompts directory
-2. Replace the content with your facility's description
-3. Update device naming conventions to match your PV naming scheme
+Customize this file for your facility: replace the description, channel
+naming structure, and device naming conventions to match your PV scheme.
 """
 
 FACILITY_DESCRIPTION = """

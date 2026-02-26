@@ -26,7 +26,6 @@ LegacyChannelDatabase = FlatChannelDatabase
 
 __all__ = [
     "FlatChannelDatabase",
-    "LegacyChannelDatabase",  # Backward compatibility
     "TemplateChannelDatabase",
     "HierarchicalChannelDatabase",
     "MiddleLayerDatabase",

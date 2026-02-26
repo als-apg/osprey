@@ -19,9 +19,6 @@ from pathlib import Path
 logger = logging.getLogger("osprey.mcp_server.python_executor.executor")
 
 
-# ---------------------------------------------------------------------------
-# Result dataclass
-# ---------------------------------------------------------------------------
 @dataclass
 class ExecutionResult:
     """Structured result from code execution via the adapter."""
@@ -36,9 +33,6 @@ class ExecutionResult:
     error_message: str | None = None
 
 
-# ---------------------------------------------------------------------------
-# Config helpers
-# ---------------------------------------------------------------------------
 def _read_config() -> dict:
     """Read execution-related config values from config.yml."""
     from osprey.mcp_server.common import load_osprey_config
@@ -110,9 +104,6 @@ def _load_limits_validator():
         return None
 
 
-# ---------------------------------------------------------------------------
-# Container execution
-# ---------------------------------------------------------------------------
 async def _execute_via_container(
     code: str,
     execution_mode: str,
@@ -170,9 +161,6 @@ async def _execute_via_container(
     )
 
 
-# ---------------------------------------------------------------------------
-# Local subprocess execution
-# ---------------------------------------------------------------------------
 async def _execute_via_local(
     code: str,
     execution_mode: str,
@@ -204,9 +192,8 @@ async def _execute_via_local(
     timeout = config["timeout"]
     start_time = time.time()
 
-    # Use the project root as cwd so user code can access workspace files
-    # via relative paths (e.g., "osprey-workspace/data/002_archiver_read.json").
-    # The wrapper handles chdir to execution_folder for its own output files.
+    # cwd = project root so user code can access workspace files via relative
+    # paths (e.g. "osprey-workspace/data/002_archiver_read.json")
     project_root = _resolve_project_root()
 
     try:
@@ -264,9 +251,6 @@ async def _execute_via_local(
     )
 
 
-# ---------------------------------------------------------------------------
-# File-based result helpers
-# ---------------------------------------------------------------------------
 def _read_execution_metadata(execution_folder: Path) -> dict | None:
     """Read execution_metadata.json from the execution folder."""
     import json
@@ -328,9 +312,6 @@ def _collect_artifacts(execution_folder: Path) -> list[dict]:
     return artifacts
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 async def execute_code(
     code: str,
     execution_mode: str,

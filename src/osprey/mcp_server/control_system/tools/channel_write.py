@@ -1,9 +1,7 @@
 """MCP tool: channel_write — write values to control-system channels.
 
-PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
-  Future: source from FrameworkPromptProvider.get_channel_write_prompt_builder()
-  Facility-customizable: tool description, safety instructions, verification level
-  descriptions, protocol terminology (EPICS vs Tango vs LabVIEW)
+Safety: PreToolUse hooks enforce human approval before this tool runs.
+Tool docstring is the static prompt visible to Claude Code.
 """
 
 import json
@@ -42,7 +40,7 @@ async def channel_write(
             )
         )
 
-    # --- Limits validation (additional safety layer inside the tool) ---
+    # Limits validation (additional safety layer inside the tool)
     try:
         from osprey.services.python_executor.execution.limits_validator import LimitsValidator
     except ImportError:
@@ -85,7 +83,7 @@ async def channel_write(
             )
         )
 
-    # --- Execute writes ---
+    # Execute writes
     try:
         async with connector_error_handler("channel_write"):
             from osprey.mcp_server.control_system.registry import get_mcp_registry

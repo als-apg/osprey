@@ -18,7 +18,6 @@ from pathlib import Path
 
 
 def load_csv(csv_path: Path, delimiter: str = ",") -> list[dict]:
-    """Load CSV, skipping comment lines."""
     channels = []
     with open(csv_path, encoding="utf-8") as f:
         reader = csv.DictReader(f, delimiter=delimiter)
@@ -36,7 +35,6 @@ def load_csv(csv_path: Path, delimiter: str = ",") -> list[dict]:
 
 
 def group_by_family(channels: list[dict]) -> tuple:
-    """Group channels by family_name."""
     families = defaultdict(list)
     standalone = []
 
@@ -51,10 +49,7 @@ def group_by_family(channels: list[dict]) -> tuple:
 
 
 def find_common_description(descriptions: list[str]) -> str:
-    """Find the common part of all descriptions.
-
-    Uses the longest common substring approach.
-    """
+    """Find the common prefix across all descriptions for a device family."""
     if not descriptions:
         return ""
 

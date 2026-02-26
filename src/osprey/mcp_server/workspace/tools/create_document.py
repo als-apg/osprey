@@ -183,7 +183,6 @@ async def create_document(
 
         store._save_index()
 
-    # Return artifact info (PDF + source already saved to ArtifactStore above)
     response: dict = {
         "status": "success",
         "title": title,

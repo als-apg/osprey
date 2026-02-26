@@ -3,8 +3,6 @@
 Uses ``screencapture`` for screenshots, inline Swift (CGWindowListCopyWindowInfo)
 for window listing, ``sips`` for image dimensions, and ``osascript`` (AppleScript)
 for window management.
-
-Extracted from the original monolithic ``screen_capture.py``.
 """
 
 import asyncio
@@ -61,10 +59,6 @@ _APP_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9 ._-]+$")
 
 class MacOSBackend(ScreenCaptureBackend):
     """Screen capture backend for macOS using native system tools."""
-
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
 
     async def _list_windows_raw(self) -> list[dict]:
         """Run the Swift CGWindowList script and return parsed JSON array."""
@@ -156,10 +150,6 @@ class MacOSBackend(ScreenCaptureBackend):
                 "Invalid app name. Only alphanumeric characters, spaces, dots, "
                 "underscores, and hyphens are allowed."
             )
-
-    # ------------------------------------------------------------------
-    # ScreenCaptureBackend interface
-    # ------------------------------------------------------------------
 
     async def capture_full(self, filepath: str) -> ImageInfo:
         return await self._run_screencapture([], filepath)

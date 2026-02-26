@@ -1,13 +1,7 @@
-"""LLM-based Channel Name Generator.
+"""LLM-based channel name generator using structured output.
 
-This module provides intelligent channel name generation using language models.
-It takes short technical names and natural language descriptions to create
-descriptive, intuitive channel names that are self-documenting.
-
-Key Features:
-- Batch processing for efficiency
-- Configurable LLM providers
-- Validation and quality checks
+Takes short technical PV names and natural language descriptions to
+create descriptive, self-documenting channel names via batch LLM calls.
 """
 
 import logging

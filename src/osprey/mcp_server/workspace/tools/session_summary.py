@@ -8,6 +8,7 @@ individual files.
 
 import json
 import logging
+from collections import Counter
 from pathlib import Path
 
 from osprey.mcp_server.common import make_error, resolve_workspace_root
@@ -37,14 +38,7 @@ def _extract_channels(entry) -> list[str]:
             if isinstance(val, list):
                 channels.extend(str(c) for c in val)
 
-    # Deduplicate while preserving order
-    seen: set[str] = set()
-    unique: list[str] = []
-    for ch in channels:
-        if ch not in seen:
-            seen.add(ch)
-            unique.append(ch)
-    return unique
+    return list(dict.fromkeys(channels))
 
 
 @mcp.tool()
@@ -94,19 +88,9 @@ async def session_summary() -> str:
         )
 
     # --- Totals ---
-    category_counts: dict[str, int] = {}
-    tool_counts: dict[str, int] = {}
-    artifact_type_counts: dict[str, int] = {}
-    for e in entries:
-        cat = e["category"]
-        if cat:
-            category_counts[cat] = category_counts.get(cat, 0) + 1
-        t = e["tool"]
-        if t:
-            tool_counts[t] = tool_counts.get(t, 0) + 1
-        at = e["artifact_type"]
-        if at:
-            artifact_type_counts[at] = artifact_type_counts.get(at, 0) + 1
+    category_counts = dict(Counter(e["category"] for e in entries if e["category"]))
+    tool_counts = dict(Counter(e["tool"] for e in entries if e["tool"]))
+    artifact_type_counts = dict(Counter(e["artifact_type"] for e in entries if e["artifact_type"]))
 
     result = {
         "entries": entries,

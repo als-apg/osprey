@@ -11,10 +11,6 @@ Usage:
 """
 
 import sys
-from pathlib import Path
-
-# Ensure we can import from the local src directory
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from rich.panel import Panel  # isort: skip
 from rich.table import Table  # isort: skip
@@ -30,9 +26,7 @@ from osprey.cli.styles import (  # isort: skip
 )
 
 
-# ============================================================================
-# PREDEFINED THEMES FOR COMPARISON
-# ============================================================================
+# --- Predefined Themes For Comparison ---
 
 THEMES = {
     "osprey": ColorTheme(
@@ -73,9 +67,7 @@ THEMES = {
 }
 
 
-# ============================================================================
-# PREVIEW SECTIONS
-# ============================================================================
+# --- Preview Sections ---
 
 
 def show_theme_header(theme_name: str, theme: ColorTheme):
@@ -311,9 +303,7 @@ def show_banner():
     console.print()
 
 
-# ============================================================================
-# MAIN PREVIEW FUNCTIONS
-# ============================================================================
+# --- Main Preview Functions ---
 
 
 def preview_theme(theme_name: str, theme: ColorTheme, show_banner_art: bool = True):
@@ -441,9 +431,7 @@ def create_custom_theme():
         console.print(f"\n[{Styles.WARNING}]⚠[/{Styles.WARNING}] Theme creation cancelled\n")
 
 
-# ============================================================================
-# CLI ENTRY POINT
-# ============================================================================
+# --- Cli Entry Point ---
 
 
 def main():

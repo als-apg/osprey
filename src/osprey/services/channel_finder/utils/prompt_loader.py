@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Use Osprey's config system for path resolution
 from osprey.utils.config import get_config_builder
 
 logger = logging.getLogger(__name__)
@@ -69,7 +68,6 @@ def load_prompts(config: dict, require_query_splitter: bool = True) -> Any:
         logger.info(f"[dim]✓ Using built-in default prompts for {pipeline_mode} pipeline[/dim]")
         return prompts
 
-    # 4. No prompts found at all - this should not happen
     logger.error("❌ No prompts could be loaded! Check configuration.")
     logger.error("   Expected: channel_finder.pipelines.<mode>.prompts.path in config.yml")
     raise RuntimeError(
@@ -252,19 +250,7 @@ def _try_load_facility_prompts(
 def _try_load_builtin_prompts(
     pipeline_mode: str = "in_context", require_query_splitter: bool = True
 ) -> Any | None:
-    """Load built-in default prompts shipped with the framework service.
-
-    These are the generic prompts at osprey.services.channel_finder.prompts.<mode>.
-    They serve as sensible defaults when no facility-specific or pipeline-specific
-    prompts are configured.
-
-    Args:
-        pipeline_mode: Pipeline mode ('in_context', 'hierarchical', or 'middle_layer')
-        require_query_splitter: Whether query_splitter is required
-
-    Returns:
-        Prompts module if found, None otherwise
-    """
+    """Load built-in default prompts for the given pipeline mode."""
     try:
         import importlib
 

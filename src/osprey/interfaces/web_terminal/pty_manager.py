@@ -215,7 +215,7 @@ class PtyRegistry:
         self._attached: set[str] = set()
         self._max_background = max_background
 
-    # ---- Pool methods (new) ---- #
+    # ---- Pool methods ---- #
 
     def get_or_create_session(
         self,
@@ -304,7 +304,7 @@ class PtyRegistry:
         session.start(initial_rows=rows, initial_cols=cols, extra_env=extra_env)
         return session
 
-    # ---- Legacy methods (backward compat for operator sessions, tests) ---- #
+    # ---- Session methods (kept for operator sessions and tests) ---- #
 
     def create_session(
         self,

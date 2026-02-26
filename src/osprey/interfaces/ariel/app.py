@@ -26,7 +26,6 @@ if TYPE_CHECKING:
 
 logger = get_logger("ariel")
 
-# Static files directory (relative to this module)
 STATIC_DIR = Path(__file__).parent / "static"
 
 
@@ -198,17 +197,14 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Mount API routes
     app.include_router(api_router)
     app.include_router(draft_router)
 
-    # Root route - serve index.html
     @app.get("/")
     async def root():
         """Serve main index.html."""
         return FileResponse(STATIC_DIR / "index.html")
 
-    # Health check endpoint
     @app.get("/health")
     async def health():
         """Simple health check endpoint."""
@@ -221,15 +217,7 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
             "message": "Database unavailable — drafts, UI, and settings work",
         }
 
-    # Prevent browsers from caching JS/CSS (avoids stale code after updates)
-    from starlette.middleware.base import BaseHTTPMiddleware
-
-    class NoCacheStaticMiddleware(BaseHTTPMiddleware):
-        async def dispatch(self, request, call_next):
-            response = await call_next(request)
-            if request.url.path.startswith("/static/"):
-                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            return response
+    from osprey.interfaces.common_middleware import NoCacheStaticMiddleware
 
     app.add_middleware(NoCacheStaticMiddleware)
 
@@ -258,8 +246,8 @@ def run_web(
     """
     import uvicorn
 
-    # For reload mode, we need to use string reference
     if reload:
+        # Reload mode requires a string import path (uvicorn re-imports on change)
         uvicorn.run(
             "osprey.interfaces.ariel.app:create_app",
             factory=True,
@@ -269,7 +257,6 @@ def run_web(
             log_level="info",
         )
     else:
-        # For non-reload mode, we can pass the app directly
         app = create_app(config_path)
         uvicorn.run(
             app,

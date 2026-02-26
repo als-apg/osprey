@@ -27,7 +27,7 @@ from ruamel.yaml import YAML
 
 logger = logging.getLogger(__name__)
 
-# Shared YAML instance — round-trip mode preserves comments, order, and quoting.
+# Round-trip mode ("rt") preserves comments, key order, and quoting style.
 _yaml = YAML(typ="rt")
 _yaml.preserve_quotes = True
 _yaml.width = 200  # prevent aggressive line-wrapping

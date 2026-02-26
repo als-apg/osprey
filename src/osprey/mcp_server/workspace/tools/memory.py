@@ -2,10 +2,6 @@
 
 Persistent session memory with enriched data model (note/pin types, tags,
 importance, cross-domain links). Data stored via MemoryStore.
-
-PROMPT-PROVIDER: Tool docstrings are static prompts visible to Claude Code.
-  Future: source from FrameworkPromptProvider.get_memory_extraction_prompt_builder()
-  Facility-customizable: category tag examples, memory usage guidance
 """
 
 import json

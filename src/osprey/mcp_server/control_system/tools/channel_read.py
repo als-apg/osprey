@@ -1,10 +1,4 @@
-"""MCP tool: channel_read — read one or more control-system channels.
-
-PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
-  Future: source from FrameworkPromptProvider.get_channel_read_prompt_builder()
-  Facility-customizable: tool description, parameter examples (PV name format),
-  protocol terminology (EPICS vs Tango vs LabVIEW)
-"""
+"""MCP tool: channel_read — read one or more control-system channels."""
 
 import json
 import logging
@@ -52,7 +46,6 @@ async def channel_read(
             else:
                 readings = await connector.read_multiple_channels(channels)
 
-            # Build serialisable readings dict for the data file
             results = {}
             for addr, cv in readings.items():
                 entry: dict = {"value": cv.value, "timestamp": str(cv.timestamp)}
@@ -68,7 +61,6 @@ async def channel_read(
                     }
                 results[addr] = entry
 
-            # Build compact summary inline
             readings_summary: dict = {}
             for addr, cv in readings.items():
                 readings_summary[addr] = {

@@ -155,7 +155,6 @@ async def text_to_png(source: Path, output_dir: Path) -> Path:
     from osprey.mcp_server.export.converter import convert_html_to_image
 
     text = source.read_text(encoding="utf-8")
-    # Escape HTML entities
     escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     body = f"<h2>{source.name}</h2>\n<pre>{escaped}</pre>"
     html = _wrap_in_html(source.stem, body)

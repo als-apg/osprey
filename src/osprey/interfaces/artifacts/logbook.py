@@ -336,7 +336,6 @@ def _build_user_prompt(ctx: ComposedContext) -> str:
 
 def _clean_llm_json(text: str) -> str:
     """Strip markdown code fences and preamble from an LLM JSON response."""
-    # Strip markdown code fences
     if text.startswith("```json"):
         text = text[7:]
     elif text.startswith("```"):
@@ -345,7 +344,6 @@ def _clean_llm_json(text: str) -> str:
         text = text[:-3]
     text = text.strip()
 
-    # If text still doesn't start with { or [, try to extract JSON object
     if not text.startswith("{") and not text.startswith("["):
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
@@ -445,12 +443,10 @@ async def compose_entry(
             model_id=model_id,
         )
 
-        # Clean markdown fences / preamble before parsing JSON
         raw = str(text).strip()
         raw = _clean_llm_json(raw)
         parsed = json.loads(raw)
 
-        # Collect artifact IDs from all context artifacts
         artifact_ids: list[str] = []
         for meta in ctx.artifacts_meta:
             aid = meta.get("id")

@@ -44,7 +44,6 @@ def build_data_loading_code(data_source: str) -> str:
     """
     resolved_path = resolve_data_source(data_source)
     return f"""\
-# Load data from file (resolved from data_source={data_source!r})
 import os
 _data_path = {resolved_path!r}
 if not os.path.exists(_data_path):
@@ -69,7 +68,6 @@ def build_data_reader(data_source: str) -> str:
     return (
         loading
         + """\
-# Auto-detect format and load into `data` (pandas DataFrame for tabular sources)
 if _data_path.endswith('.csv'):
     data = pd.read_csv(_data_path)
 elif _data_path.endswith('.json'):
@@ -100,8 +98,6 @@ else:
     except Exception:
         with open(_data_path) as _f:
             data = _f.read()
-# -- data_source loading complete --
-# `data` is a pandas DataFrame (columns: {list(data.columns) if hasattr(data, 'columns') else 'N/A'})
 if hasattr(data, 'shape'):
     print(f"data_source loaded: {type(data).__name__} with shape {data.shape}, columns: {list(data.columns)}")
 """
@@ -173,57 +169,6 @@ def build_viz_response(artifact_ids: list[str], title: str, stdout: str = "") ->
     }
     if stdout:
         response["stdout"] = stdout
-    if artifact_ids:
-        try:
-            from osprey.mcp_server.common import gallery_url
-
-            response["gallery_url"] = gallery_url()
-        except Exception:
-            pass
-    return response
-
-
-def save_visualization_data(
-    tool: str,
-    title: str,
-    description: str,
-    code: str,
-    artifact_ids: list[str],
-    stdout: str,
-    data_source: str | None = None,
-    data_type: str = "visualization",
-) -> dict:
-    """Save visualization result to ArtifactStore and return tool response dict."""
-    from osprey.mcp_server.artifact_store import get_artifact_store
-
-    store = get_artifact_store()
-    entry = store.save_data(
-        tool=tool,
-        data={
-            "title": title,
-            "description": description,
-            "code": code,
-            "data_source": data_source,
-            "artifact_ids": artifact_ids,
-            "stdout": stdout,
-        },
-        title=f"{tool}: {title}",
-        description=f"{tool}: {title}",
-        summary={
-            "title": title,
-            "artifact_count": len(artifact_ids),
-            "artifact_ids": artifact_ids,
-        },
-        access_details={
-            "format": data_type,
-            "artifact_ids": artifact_ids,
-            "data_source": data_source,
-        },
-        category=data_type,
-    )
-
-    response = entry.to_tool_response()
-    response["artifact_ids"] = artifact_ids
     if artifact_ids:
         try:
             from osprey.mcp_server.common import gallery_url
