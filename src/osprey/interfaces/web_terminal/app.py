@@ -173,6 +173,28 @@ def _launch_cui_server(app: FastAPI) -> None:
         app.state.cui_server_url = None
 
 
+def _load_custom_panels() -> list[dict]:
+    """Read web.panels from config.yml and return panel definitions."""
+    try:
+        from osprey.mcp_server.common import load_osprey_config
+
+        config = load_osprey_config()
+    except Exception:
+        return []
+    panels_config = config.get("web", {}).get("panels", {})
+    result = []
+    for panel_id, spec in panels_config.items():
+        result.append(
+            {
+                "id": panel_id,
+                "label": spec.get("label", panel_id.upper()),
+                "url": spec.get("url", ""),
+                "healthEndpoint": spec.get("health_endpoint"),
+            }
+        )
+    return result
+
+
 def _load_web_config(config_path: str | Path | None = None) -> dict:
     """Load web_terminal config section from config.yml."""
     config_paths = [
@@ -251,6 +273,9 @@ def _create_lifespan(
         _launch_deplot_server(app)
         _launch_channel_finder_server(app)
         _launch_agentsview_server(app)
+
+        # Load custom panels from config
+        app.state.custom_panels = _load_custom_panels()
 
         # Hook debug env — propagated to PTY/SDK sessions like OTEL
         app.state.hooks_env = {}

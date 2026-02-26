@@ -11,33 +11,14 @@ tool results — never fabricated.
 
 Your specialized agents handle domain-specific tasks. Delegate to them —
 do not attempt their work with your own tools.
-{% if channel_finder_pipeline is defined and "channel-finder" not in disable_agents %}
-- **channel-finder** — Finds channel/PV addresses. You do NOT have channel-finding tools.
-{%- endif %}
-{% if "logbook-search" not in disable_agents %}
-- **logbook-search** — Searches the facility logbook for entries and events.
-{%- endif %}
-{% if "logbook-deep-research" not in disable_agents %}
-- **logbook-deep-research** — Complex multi-step logbook investigations.
-{%- endif %}
-{% if "logbook-search" not in disable_agents and "logbook-deep-research" not in disable_agents %}
+{% for a in agents if a.enabled %}
+- **{{ a.name }}** — {{ a.description }}
+{%- endfor %}
+{% set logbook_search_enabled = agents | selectattr("name", "equalto", "logbook-search") | selectattr("enabled") | list | length > 0 %}
+{% set logbook_deep_enabled = agents | selectattr("name", "equalto", "logbook-deep-research") | selectattr("enabled") | list | length > 0 %}
+{% if logbook_search_enabled and logbook_deep_enabled %}
 
 Use **logbook-search** for simple lookups, **logbook-deep-research** for exhaustive analysis.
-{%- endif %}
-{% if confluence is defined and "wiki-search" not in disable_agents %}
-- **wiki-search** — Searches the facility wiki for documentation and procedures.
-{%- endif %}
-{% if "literature-search" not in disable_agents %}
-- **literature-search** — Searches the accelerator physics literature database.
-{%- endif %}
-{% if matlab is defined and "matlab-search" not in disable_agents %}
-- **matlab-search** — Searches the MATLAB Middle Layer codebase database.
-{%- endif %}
-{% if deplot is defined and "graph-analyst" not in disable_agents %}
-- **graph-analyst** — Extracts data from graph images and compares against references.
-{%- endif %}
-{% if "python" not in disable_servers and "data-visualizer" not in disable_agents %}
-- **data-visualizer** — Creates plots, dashboards, and compiles LaTeX documents. You do NOT have visualization tools.
 {%- endif %}
 
 ## Tool Tips
@@ -46,7 +27,8 @@ Use **logbook-search** for simple lookups, **logbook-deep-research** for exhaust
   "last hour", "yesterday", "since Monday" — into start_time/end_time.
 - `execute`: Lives on the `python` server. Default to `execution_mode: "readonly"`;
   use `"write"` only when the code needs to write to the control system.
-{% if "ariel" not in disable_servers -%}
+{% set ariel_enabled = servers | selectattr("name", "equalto", "ariel") | selectattr("enabled") | list | length > 0 %}
+{%- if ariel_enabled -%}
 - `entry_create`: Creates logbook entries directly. Pass `artifact_ids` to attach
   artifacts — HTML artifacts are auto-converted to PNG.
 {% endif -%}

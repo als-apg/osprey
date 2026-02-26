@@ -11,102 +11,27 @@
   "_PROMPT_PROVIDER_NOTE": "PROMPT-PROVIDER: section=permissions_policy. Future: source from FrameworkPromptProvider.get_permissions_policy(). Facility-customizable: allow/deny/ask tool lists, file access paths, additional facility-specific tools or restrictions.",
   "permissions": {
     "allow": [
-{#- Build allow list as entries, then join with commas -#}
+{#- Build allow list from server registry -#}
 {%- set allow_entries = [] -%}
 {%- set _ = allow_entries.append('"Read(_agent_data/**)"') -%}
 {%- set _ = allow_entries.append('"Read(osprey-workspace/data/**)"') -%}
 {%- set _ = allow_entries.append('"Read(osprey-workspace/memory/**)"') -%}
 {%- set _ = allow_entries.append('"Read(osprey-workspace/plots/**)"') -%}
 {%- set _ = allow_entries.append('"Read(osprey-workspace/results/**)"') -%}
-{%- if "controls" not in disable_servers -%}
-{#- channel_read, archiver_read, channel_find: NOT in allow list.
-    The approval hook handles them dynamically — explicit allow in selective mode,
-    ask in all_capabilities mode. This prevents the allow list from short-circuiting
-    the can_use_tool callback. -#}
-{%- endif -%}
-{%- if "workspace" not in disable_servers -%}
-{%- set _ = allow_entries.append('"mcp__workspace__facility_description"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__screenshot_capture"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__list_windows"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__manage_window"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__submit_response"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__data_list"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__data_read"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__artifact_get"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__artifact_focus"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__artifact_export"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__graph_extract"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__graph_compare"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__graph_save_reference"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__create_static_plot"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__create_interactive_plot"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__create_dashboard"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__create_document"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__artifact_save"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__session_log"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__session_summary"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__archiver_downsample"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__setup_inspect"') -%}
-{%- endif -%}
-{%- if "ariel" not in disable_servers -%}
-{%- set _ = allow_entries.append('"mcp__ariel__keyword_search"') -%}
-{%- set _ = allow_entries.append('"mcp__ariel__semantic_search"') -%}
-{%- set _ = allow_entries.append('"mcp__ariel__sql_query"') -%}
-{%- set _ = allow_entries.append('"mcp__ariel__entries_by_ids"') -%}
-{%- set _ = allow_entries.append('"mcp__ariel__browse"') -%}
-{%- set _ = allow_entries.append('"mcp__ariel__entry_get"') -%}
-{%- set _ = allow_entries.append('"mcp__ariel__capabilities"') -%}
-{%- set _ = allow_entries.append('"mcp__ariel__status"') -%}
-{%- set _ = allow_entries.append('"mcp__ariel__filter_options"') -%}
-{%- endif -%}
+{#- Per-server tool permissions -#}
+{%- for s in servers if s.enabled -%}
+{%- for tool in s.permissions_allow -%}
+{%- set _ = allow_entries.append('"mcp__' ~ s.name ~ '__' ~ tool ~ '"') -%}
+{%- endfor -%}
+{%- for entry in s.fixed_allow -%}
+{%- set _ = allow_entries.append('"' ~ entry ~ '"') -%}
+{%- endfor -%}
+{%- endfor -%}
 {%- set _ = allow_entries.append('"NotebookEdit(osprey-workspace/artifacts/**)"') -%}
-{%- if "channel-finder" not in disable_agents and channel_finder_pipeline is defined -%}
-{%- set _ = allow_entries.append('"Task(channel-finder)"') -%}
-{%- endif -%}
-{%- if "logbook-search" not in disable_agents -%}
-{%- set _ = allow_entries.append('"Task(logbook-search)"') -%}
-{%- endif -%}
-{%- if "logbook-deep-research" not in disable_agents -%}
-{%- set _ = allow_entries.append('"Task(logbook-deep-research)"') -%}
-{%- endif -%}
-{%- if "literature-search" not in disable_agents -%}
-{%- set _ = allow_entries.append('"Task(literature-search)"') -%}
-{%- endif -%}
-{%- if "accelpapers" not in disable_servers -%}
-{%- set _ = allow_entries.append('"mcp__accelpapers__papers_search"') -%}
-{%- set _ = allow_entries.append('"mcp__accelpapers__papers_get"') -%}
-{%- set _ = allow_entries.append('"mcp__accelpapers__papers_browse"') -%}
-{%- set _ = allow_entries.append('"mcp__accelpapers__papers_list_conferences"') -%}
-{%- set _ = allow_entries.append('"mcp__accelpapers__papers_search_author"') -%}
-{%- set _ = allow_entries.append('"mcp__accelpapers__papers_stats"') -%}
-{%- endif -%}
-{%- if matlab is defined and "matlab" not in disable_servers -%}
-{%- set _ = allow_entries.append('"mcp__matlab__mml_search"') -%}
-{%- set _ = allow_entries.append('"mcp__matlab__mml_get"') -%}
-{%- set _ = allow_entries.append('"mcp__matlab__mml_browse"') -%}
-{%- set _ = allow_entries.append('"mcp__matlab__mml_dependencies"') -%}
-{%- set _ = allow_entries.append('"mcp__matlab__mml_path"') -%}
-{%- set _ = allow_entries.append('"mcp__matlab__mml_list_groups"') -%}
-{%- set _ = allow_entries.append('"mcp__matlab__mml_stats"') -%}
-{%- endif -%}
-{%- if matlab is defined and "matlab-search" not in disable_agents -%}
-{%- set _ = allow_entries.append('"Task(matlab-search)"') -%}
-{%- endif -%}
-{%- if channel_finder_pipeline is defined and "channel-finder" not in disable_servers -%}
-{%- set _ = allow_entries.append('"mcp__channel-finder"') -%}
-{%- endif -%}
-{%- if confluence is defined and "confluence" not in disable_servers -%}
-{%- set _ = allow_entries.append('"mcp__confluence"') -%}
-{%- endif -%}
-{%- if confluence is defined and "wiki-search" not in disable_agents -%}
-{%- set _ = allow_entries.append('"Task(wiki-search)"') -%}
-{%- endif -%}
-{%- if deplot is defined and "graph-analyst" not in disable_agents -%}
-{%- set _ = allow_entries.append('"Task(graph-analyst)"') -%}
-{%- endif -%}
-{%- if "python" not in disable_servers and "data-visualizer" not in disable_agents -%}
-{%- set _ = allow_entries.append('"Task(data-visualizer)"') -%}
-{%- endif -%}
+{#- Per-agent Task() permissions -#}
+{%- for a in agents if a.enabled -%}
+{%- set _ = allow_entries.append('"Task(' ~ a.name ~ ')"') -%}
+{%- endfor -%}
 {% for entry in allow_entries %}      {{ entry }}{% if not loop.last %},{% endif %}
 {% endfor %}    ],
     "deny": [
@@ -119,22 +44,13 @@
     ],
     "ask": [
 {%- set ask_entries = [] -%}
-{%- if "controls" not in disable_servers -%}
-{%- set _ = ask_entries.append('"mcp__controls__channel_write"') -%}
-{%- endif -%}
-{%- if "python" not in disable_servers -%}
-{%- set _ = ask_entries.append('"mcp__python__execute"') -%}
-{%- endif -%}
-{%- if "ariel" not in disable_servers -%}
-{%- set _ = ask_entries.append('"mcp__ariel__entry_create"') -%}
-{%- endif -%}
-{%- if "workspace" not in disable_servers -%}
-{%- set _ = ask_entries.append('"mcp__workspace__setup_patch"') -%}
-{%- endif -%}
-{%- for name in extra_servers -%}
-{%- if name not in disable_servers -%}
-{%- set _ = ask_entries.append('"mcp__' ~ name ~ '"') -%}
-{%- endif -%}
+{%- for s in servers if s.enabled -%}
+{%- for tool in s.permissions_ask -%}
+{%- set _ = ask_entries.append('"mcp__' ~ s.name ~ '__' ~ tool ~ '"') -%}
+{%- endfor -%}
+{%- for entry in s.fixed_ask -%}
+{%- set _ = ask_entries.append('"' ~ entry ~ '"') -%}
+{%- endfor -%}
 {%- endfor -%}
 {% for entry in ask_entries %}      {{ entry }}{% if not loop.last %},{% endif %}
 {% endfor %}    ]
@@ -161,150 +77,51 @@
             "timeout": 5
           }
         ]
-      }{% if "controls" not in disable_servers or "python" not in disable_servers %},{% endif %}
-{% if "controls" not in disable_servers %}      {
-        "matcher": "mcp__controls__channel_write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_writes_check.py\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_limits.py\"",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_approval.py\"",
-            "timeout": 5
-          }
-        ]
-      }{% if "python" not in disable_servers or "controls" not in disable_servers %},{% endif %}
-{% endif %}{% if "python" not in disable_servers %}      {
-        "matcher": "mcp__python__execute",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_writes_check.py\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_approval.py\"",
-            "timeout": 5
-          }
-        ]
-      }{% if "controls" not in disable_servers %},{% endif %}
-{% endif %}{% if "controls" not in disable_servers %}      {
-        "matcher": "mcp__controls__channel_read",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_approval.py\"",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__controls__archiver_read",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_approval.py\"",
-            "timeout": 5
-          }
-        ]
       }
-{% endif %}    ],
+{%- set pre_rules = [] -%}
+{%- for s in servers if s.enabled -%}
+{%- for rule in s.hooks_pre -%}
+{%- set _ = pre_rules.append(rule) -%}
+{%- endfor -%}
+{%- endfor -%}
+{%- if pre_rules %},{% endif %}
+{%- for rule in pre_rules %}
+      {
+        "matcher": "{{ rule.matcher }}",
+        "hooks": [
+{%- for h in rule.hooks %}
+          {
+            "type": "{{ h.type }}",
+            "command": {{ h.command | tojson }},
+            "timeout": {{ h.timeout }}
+          }{% if not loop.last %},{% endif %}
+{%- endfor %}
+        ]
+      }{% if not loop.last %},{% endif %}
+{%- endfor %}
+    ],
     "PostToolUse": [
-{% if "controls" not in disable_servers %}      {
-        "matcher": "mcp__controls__.*",
+{%- set post_rules = [] -%}
+{%- for s in servers if s.enabled -%}
+{%- for rule in s.hooks_post -%}
+{%- set _ = post_rules.append(rule) -%}
+{%- endfor -%}
+{%- endfor -%}
+{%- for rule in post_rules %}
+      {
+        "matcher": "{{ rule.matcher }}",
         "hooks": [
+{%- for h in rule.hooks %}
           {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_error_guidance.py\"",
-            "timeout": 5
-          }
+            "type": "{{ h.type }}",
+            "command": {{ h.command | tojson }},
+            "timeout": {{ h.timeout }}
+          }{% if not loop.last %},{% endif %}
+{%- endfor %}
         ]
       },
-{% endif %}{% if "python" not in disable_servers %}      {
-        "matcher": "mcp__python__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_error_guidance.py\"",
-            "timeout": 5
-          }
-        ]
-      },
-{% endif %}{% if "workspace" not in disable_servers %}      {
-        "matcher": "mcp__workspace__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_error_guidance.py\"",
-            "timeout": 5
-          }
-        ]
-      },
-{% endif %}{% if "ariel" not in disable_servers %}      {
-        "matcher": "mcp__ariel__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_error_guidance.py\"",
-            "timeout": 5
-          }
-        ]
-      },
-{% endif %}{% if "accelpapers" not in disable_servers %}      {
-        "matcher": "mcp__accelpapers__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_error_guidance.py\"",
-            "timeout": 5
-          }
-        ]
-      },
-{% endif %}{% if matlab is defined and "matlab" not in disable_servers %}      {
-        "matcher": "mcp__matlab__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_error_guidance.py\"",
-            "timeout": 5
-          }
-        ]
-      },
-{% endif %}{% if channel_finder_pipeline is defined and "channel-finder" not in disable_servers %}      {
-        "matcher": "mcp__channel-finder__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_error_guidance.py\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_cf_feedback_capture.py\"",
-            "timeout": 10
-          }
-        ]
-      },
-{% endif %}{% if confluence is defined and "confluence" not in disable_servers %}      {
-        "matcher": "mcp__confluence__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_error_guidance.py\"",
-            "timeout": 5
-          }
-        ]
-      },
-{% endif %}      {
+{%- endfor %}
+      {
         "matcher": "NotebookEdit",
         "hooks": [
           {

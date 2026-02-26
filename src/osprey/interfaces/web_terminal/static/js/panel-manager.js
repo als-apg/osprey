@@ -101,6 +101,9 @@ export function initPanelManager(panelId) {
     initPanel(panel);
   }
 
+  // Fetch and merge custom panels from config (fire-and-forget)
+  _loadCustomPanels();
+
   // Listen for panel_focus events via SSE (uses raw EventSource to avoid
   // conflicts with the module-level sseState in api.js)
   const es = new EventSource('/api/files/events');
@@ -395,6 +398,44 @@ function createIframe(panelId) {
     }
   });
   observer.observe(contentEl);
+}
+
+// ---- Custom Panels ----
+
+async function _loadCustomPanels() {
+  try {
+    const customPanels = await fetchJSON('/api/custom-panels');
+    for (const cp of customPanels) {
+      if (PANELS.some(p => p.id === cp.id)) continue;  // skip duplicates
+      const panel = {
+        id: cp.id,
+        label: cp.label || cp.id.toUpperCase(),
+        configEndpoint: null,
+        healthEndpoint: cp.healthEndpoint || undefined,
+        statusBarId: null,
+      };
+      PANELS.push(panel);
+      panelState[panel.id] = {
+        url: cp.url || null,
+        healthy: false,
+        iframe: null,
+        pollTimer: null,
+        polling: false,
+        configLoaded: true,
+      };
+      renderTabs();
+      if (cp.url) {
+        if (!cp.healthEndpoint) {
+          panelState[panel.id].healthy = true;
+          enableTab(panel.id);
+        } else {
+          startHealthPolling(panel);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Could not load custom panels:', e);
+  }
 }
 
 // ---- Empty State ----

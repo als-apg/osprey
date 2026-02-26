@@ -8,6 +8,7 @@ system for unified component management and lazy loading.
 Related to Issue #18 - Control System Abstraction (Layer 2 - Factory)
 """
 
+import importlib
 from typing import Any
 
 from osprey.connectors.archiver.base import ArchiverConnector
@@ -109,10 +110,25 @@ class ConnectorFactory:
         connector_class = cls._control_system_connectors.get(connector_type)
 
         if not connector_class:
-            available = list(cls._control_system_connectors.keys())
-            raise ValueError(
-                f"Unknown control system type: '{connector_type}'. Available types: {available}"
-            )
+            if "." in connector_type:
+                module_path, class_name = connector_type.rsplit(".", 1)
+                try:
+                    module = importlib.import_module(module_path)
+                    connector_class = getattr(module, class_name)
+                except ImportError as e:
+                    raise ValueError(
+                        f"Could not import connector module '{module_path}': {e}"
+                    ) from e
+                except AttributeError as e:
+                    raise ValueError(f"Module '{module_path}' has no class '{class_name}'") from e
+                cls._control_system_connectors[connector_type] = connector_class
+            else:
+                available = list(cls._control_system_connectors.keys())
+                raise ValueError(
+                    f"Unknown control system type: '{connector_type}'. "
+                    f"Available types: {available}. "
+                    f"Use a dotted module path for custom connectors."
+                )
 
         # Create connector instance
         connector = connector_class()
@@ -169,10 +185,25 @@ class ConnectorFactory:
         connector_class = cls._archiver_connectors.get(connector_type)
 
         if not connector_class:
-            available = list(cls._archiver_connectors.keys())
-            raise ValueError(
-                f"Unknown archiver type: '{connector_type}'. Available types: {available}"
-            )
+            if "." in connector_type:
+                module_path, class_name = connector_type.rsplit(".", 1)
+                try:
+                    module = importlib.import_module(module_path)
+                    connector_class = getattr(module, class_name)
+                except ImportError as e:
+                    raise ValueError(
+                        f"Could not import connector module '{module_path}': {e}"
+                    ) from e
+                except AttributeError as e:
+                    raise ValueError(f"Module '{module_path}' has no class '{class_name}'") from e
+                cls._archiver_connectors[connector_type] = connector_class
+            else:
+                available = list(cls._archiver_connectors.keys())
+                raise ValueError(
+                    f"Unknown archiver type: '{connector_type}'. "
+                    f"Available types: {available}. "
+                    f"Use a dotted module path for custom connectors."
+                )
 
         # Create connector instance
         connector = connector_class()
