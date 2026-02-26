@@ -59,10 +59,6 @@ def display_registry_contents(verbose: bool = False):
         if stats["capability_names"]:
             _display_capabilities_table(registry, verbose)
 
-        # Display infrastructure nodes (filtered to exclude capability nodes)
-        if stats["node_names"]:
-            _display_nodes_table(registry, verbose)
-
         # Display context classes (verbose only - redundant with Capabilities "Provides")
         if verbose and stats["context_types"]:
             _display_context_classes_table(registry, verbose)
@@ -126,38 +122,6 @@ def _display_capabilities_table(registry, verbose: bool):
             table.add_row(cap.name, provides, requires, cap.description or "")
         else:
             table.add_row(cap.name, provides, requires)
-
-    console.print(table)
-    console.print()
-
-
-def _display_nodes_table(registry, verbose: bool):
-    """Display infrastructure nodes in a formatted table.
-
-    Filters out capability nodes to avoid duplication with the Capabilities table,
-    showing only framework infrastructure nodes (classifier, orchestrator, router, etc.).
-    """
-    console.print(f"[{Styles.HEADER}]Infrastructure Nodes[/{Styles.HEADER}]\n")
-
-    table = Table(
-        show_header=True, header_style=Styles.HEADER, border_style=Styles.DIM, expand=False
-    )
-
-    table.add_column("Name", style=Styles.ACCENT, no_wrap=True)
-    table.add_column("Type", style=Styles.VALUE)
-
-    # Get capability names to filter them out
-    capability_names = {cap.name for cap in registry.get_all_capabilities()}
-
-    # Only show infrastructure nodes (non-capability nodes)
-    nodes = registry.get_all_nodes()
-    infrastructure_nodes = {
-        name: node for name, node in nodes.items() if name not in capability_names
-    }
-
-    for name, node in sorted(infrastructure_nodes.items()):
-        node_type = type(node).__name__ if node else "Unknown"
-        table.add_row(name, node_type)
 
     console.print(table)
     console.print()

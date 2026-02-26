@@ -78,9 +78,9 @@ async def submit_response(
             )
         )
 
-    from osprey.mcp_server.type_registry import valid_category_keys, valid_data_type_keys
+    from osprey.mcp_server.type_registry import valid_category_keys
 
-    valid = valid_data_type_keys() | valid_category_keys()
+    valid = valid_category_keys()
     if data_type not in valid:
         return json.dumps(
             make_error(

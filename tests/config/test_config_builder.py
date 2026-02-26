@@ -140,30 +140,7 @@ execution_control:
         assert builder.configurable is not None
         assert isinstance(builder.configurable, dict)
         assert "model_configs" in builder.configurable
-        assert "execution_limits" in builder.configurable
         assert "project_root" in builder.configurable
-
-    def test_execution_limits_loaded(self, tmp_path):
-        """Test that execution limits are loaded and accessible."""
-        config_file = tmp_path / "config.yml"
-        config_file.write_text(
-            """
-execution_control:
-  limits:
-    max_reclassifications: 2
-    max_planning_attempts: 3
-    max_step_retries: 5
-    max_execution_time_seconds: 600
-"""
-        )
-
-        builder = ConfigBuilder(str(config_file))
-
-        limits = builder.configurable["execution_limits"]
-        assert limits["max_reclassifications"] == 2
-        assert limits["max_planning_attempts"] == 3
-        assert limits["max_step_retries"] == 5
-        assert limits["max_execution_time_seconds"] == 600
 
     def test_model_configs_loaded(self, tmp_path):
         """Test that model configurations are loaded correctly."""

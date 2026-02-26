@@ -95,16 +95,6 @@ class EditExpansionRequest(BaseModel):
     range_end: int | None = None
 
 
-class ImpactRequest(BaseModel):
-    """Request body for previewing delete impact."""
-
-    level: str | None = None
-    selections: dict[str, str] = {}
-    name: str | None = None
-    system: str | None = None
-    family: str | None = None
-
-
 class AddFamilyRequest(BaseModel):
     """Request body for adding a middle-layer family."""
 

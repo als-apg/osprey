@@ -12,7 +12,6 @@ from osprey.cli.registry_cmd import (
     _display_capabilities_table,
     _display_context_classes_table,
     _display_data_sources_table,
-    _display_nodes_table,
     _display_providers_table,
     _display_services_table,
     display_registry_contents,
@@ -177,29 +176,6 @@ class TestDisplayCapabilitiesTable:
 
         # Should not raise exception
         _display_capabilities_table(mock_registry, verbose=False)
-
-
-class TestDisplayNodesTable:
-    """Test _display_nodes_table function."""
-
-    def test_displays_infrastructure_nodes(self, mock_registry):
-        """Test displaying infrastructure nodes table."""
-        # Should not raise exception
-        _display_nodes_table(mock_registry, verbose=False)
-
-        # Should get capabilities to filter them out
-        assert mock_registry.get_all_capabilities.called
-        # Should get nodes
-        assert mock_registry.get_all_nodes.called
-
-    def test_filters_out_capability_nodes(self, mock_registry):
-        """Test that capability nodes are filtered from infrastructure nodes."""
-        # Add a node with same name as capability
-        nodes = mock_registry.get_all_nodes.return_value
-        nodes["test_capability"] = MagicMock()
-
-        # Should not raise exception
-        _display_nodes_table(mock_registry, verbose=False)
 
 
 class TestDisplayContextClassesTable:

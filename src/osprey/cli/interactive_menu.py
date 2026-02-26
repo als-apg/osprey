@@ -19,9 +19,9 @@ Architecture:
 - Integrates with registry system for provider metadata
 - Calls underlying functions directly (not Click commands)
 
-The TUI is optional - users can still use direct commands like:
+The interactive menu is optional - users can still use direct commands like:
     osprey init my-project
-    osprey chat
+    osprey web
     osprey deploy up
 
 """
@@ -1553,7 +1553,7 @@ def run_interactive_init() -> str:
                     f"  1. Navigate to project: {Messages.command(f'cd {project_path.name}')}"
                 )
                 console.print("  2. # .env already configured with API key")
-                console.print(f"  3. Start chatting: {Messages.command('osprey chat')}")
+                console.print(f"  3. Launch web terminal: {Messages.command('osprey web')}")
                 console.print(f"  4. Start services: {Messages.command('osprey deploy up')}")
                 console.print()
                 return "exit"
@@ -1565,7 +1565,7 @@ def run_interactive_init() -> str:
             console.print(
                 f"  2. Configure API key: {Messages.command('cp .env.example .env')} (then edit)"
             )
-            console.print(f"  3. Start chatting: {Messages.command('osprey chat')}")
+            console.print(f"  3. Launch web terminal: {Messages.command('osprey web')}")
             console.print(f"  4. Start services: {Messages.command('osprey deploy up')}")
 
             console.print("\n[dim]Press ENTER to continue...[/dim]")
@@ -1673,7 +1673,7 @@ def show_deploy_help():
     console.print("  • Creates volumes and networks as needed")
     console.print("  • Runs services in detached mode (background)")
     console.print(
-        f"  • [{Styles.DIM}]Use this to start your web UI services (Open WebUI, Jupyter, etc.)[/{Styles.DIM}]"
+        f"  • [{Styles.DIM}]Use this to start your web terminal and other services[/{Styles.DIM}]"
     )
     console.print()
 
@@ -2187,35 +2187,11 @@ def handle_help_action():
     console.print(f"\n{Messages.header('Project Menu - Help')}\n")
 
     # chat
-    console.print(f"[{Styles.HEADER}][>] chat - Start CLI conversation[/{Styles.HEADER}]")
-    console.print()
-    console.print("  • Opens an interactive chat session with your AI agent")
-    console.print("  • Use natural language to query data, execute code, or control systems")
-    console.print("  • Supports slash commands (type /help in chat for details)")
-    console.print(
-        f"  • [{Styles.DIM}]Perfect for: Testing your agent, exploring capabilities, debugging[/{Styles.DIM}]"
-    )
-    console.print()
-
-    # chat-tui
-    console.print(
-        f"[{Styles.HEADER}][>] chat (tui) - Start TUI conversation (experimental)[/{Styles.HEADER}]"
-    )
-    console.print()
-    console.print("  • Full-screen terminal interface built with Textual")
-    console.print("  • Real-time streaming with step-by-step visualization")
-    console.print("  • Theme support, command palette (Ctrl+P), slash commands")
-    console.print("  • Requires: uv pip install osprey-framework\\[tui]")
-    console.print(
-        f"  • [{Styles.DIM}]Perfect for: Visual debugging, monitoring agent reasoning[/{Styles.DIM}]"
-    )
-    console.print()
-
     # deploy
     console.print(f"[{Styles.HEADER}][>] deploy - Manage services (web UIs)[/{Styles.HEADER}]")
     console.print()
     console.print("  • Start, stop, and manage containerized services")
-    console.print("  • Launch web interfaces (Open WebUI, Jupyter notebooks)")
+    console.print("  • Launch web terminal and other interfaces")
     console.print("  • View service status and logs")
     console.print(f"  • [{Styles.DIM}]Perfect for: Production deployments[/{Styles.DIM}]")
     console.print()

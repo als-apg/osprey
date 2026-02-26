@@ -52,10 +52,6 @@ class CapabilityRegistration:
     :type provides: list[str]
     :param requires: List of context types this capability needs
     :type requires: list[str]
-    :param always_active: Whether capability is always active (no classification needed), defaults to False
-    :type always_active: bool
-    :param functional_node: Name of the functional node for execution (from capability.node attribute)
-    :type functional_node: str
     :param example_usage: Example of how this capability is used
     :type example_usage: str
 
@@ -67,8 +63,6 @@ class CapabilityRegistration:
     description: str
     provides: list[str]
     requires: list[str]
-    always_active: bool = False
-    functional_node: str = None
     example_usage: str = ""
     _is_explicit_override: bool = False
 
@@ -260,8 +254,6 @@ class ServiceRegistration:
     :type provides: list[str]
     :param requires: List of context types this service needs
     :type requires: list[str]
-    :param internal_nodes: List of node names internal to this service
-    :type internal_nodes: list[str]
     """
 
     name: str
@@ -270,7 +262,6 @@ class ServiceRegistration:
     description: str
     provides: list[str] = field(default_factory=list)
     requires: list[str] = field(default_factory=list)
-    internal_nodes: list[str] = field(default_factory=list)
 
 
 @dataclass

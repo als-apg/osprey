@@ -21,16 +21,8 @@ from osprey.utils.logger import get_logger
 
 from .base import RegistryConfig, RegistryConfigProvider
 
-try:
-    from osprey.prompts.defaults import DefaultPromptProvider
-    from osprey.prompts.loader import _prompt_loader, set_default_framework_prompt_provider
-except ImportError:
-    _prompt_loader = None
-    set_default_framework_prompt_provider = None
-    DefaultPromptProvider = None
-
 if TYPE_CHECKING:
-    from osprey.base import BaseCapability, BaseCapabilityNode
+    from osprey.base import BaseCapability
     from osprey.context import CapabilityContext
 
 logger = get_logger(name="registry", color="sky_blue2")
@@ -95,7 +87,6 @@ class RegistryManager:
             "ariel_ingestion_adapters": {},
         }
 
-        self._provider_registrations = {}
         # Provider exclusions are deferred: names are only known after class
         # introspection at init time, not at merge time.
         self._excluded_provider_names = []
@@ -135,6 +126,12 @@ class RegistryManager:
             app_config = self._load_registry_from_path(self.registry_path)
             app_name = Path(self.registry_path).resolve().parent.name
 
+            if app_config is None:
+                raise RegistryError(
+                    f"Registry provider in '{app_name}' returned None. "
+                    f"get_registry_config() must return a RegistryConfig instance."
+                )
+
             if isinstance(app_config, ExtendedRegistryConfig):
                 logger.info(f"Extending framework registry with application '{app_name}'")
 
@@ -166,7 +163,6 @@ class RegistryManager:
                 logger.info(
                     f"Using standalone registry from application '{app_name}' (framework registry skipped)"
                 )
-                self._validate_standalone_registry(app_config, app_name)
                 return app_config
 
         except Exception as e:
@@ -701,44 +697,6 @@ class RegistryManager:
                 f"Application {app_name} added {len(additions)} new {type_label}(s): {additions}"
             )
 
-    def _validate_standalone_registry(self, config: RegistryConfig, app_name: str) -> None:
-        """Validate that standalone registry has required framework components.
-
-        Standalone registries must provide all essential framework infrastructure
-        for the framework to function correctly. This method validates presence of
-        critical components and logs warnings for missing ones.
-
-        :param config: Standalone registry configuration to validate
-        :param app_name: Application name for logging
-        """
-        # Required core infrastructure nodes
-        required_nodes = {"router", "classifier", "orchestrator", "error", "task_extraction"}
-        provided_nodes = {node.name for node in config.core_nodes}
-        missing_nodes = required_nodes - provided_nodes
-
-        if missing_nodes:
-            logger.warning(
-                f"Standalone registry '{app_name}' missing framework infrastructure nodes: {sorted(missing_nodes)}. "
-                f"Framework may not function correctly without these core components."
-            )
-
-        # Required communication capabilities
-        required_capabilities = {"respond", "clarify"}
-        provided_caps = {cap.name for cap in config.capabilities}
-        missing_caps = required_capabilities - provided_caps
-
-        if missing_caps:
-            logger.warning(
-                f"Standalone registry '{app_name}' missing critical communication capabilities: {sorted(missing_caps)}. "
-                f"Framework requires these for user interaction."
-            )
-
-        # Log validation success if all required components present
-        if not missing_nodes and not missing_caps:
-            logger.debug(
-                f"Standalone registry '{app_name}' validation passed - all required components present"
-            )
-
     def initialize(self, silent: bool = False) -> None:
         """Load all registered components in dependency order.
 
@@ -796,8 +754,6 @@ class RegistryManager:
             self._initialize_data_sources()
         elif component_type == "providers":
             self._initialize_providers()
-        elif component_type == "core_nodes":
-            self._initialize_core_nodes()
         elif component_type == "services":
             self._initialize_services()
         elif component_type == "capabilities":
@@ -1289,52 +1245,12 @@ class RegistryManager:
 
         logger.info(f"Registered {len(self._registries['domain_analyzers'])} domain analyzers")
 
-    def _initialize_core_nodes(self) -> None:
-        """Initialize core infrastructure nodes.
-
-        Dynamically imports and registers all infrastructure nodes.
-        All infrastructure nodes are expected to use the @infrastructure_node decorator
-        which creates a callable node function in the 'capability_node' attribute.
-        :raises Exception: Core node initialization failures cause registry failure
-        """
-        logger.debug("Initializing core nodes...")
-        for reg in self.config.core_nodes:
-            try:
-                module = __import__(reg.module_path, fromlist=[reg.function_name])
-                node_class = getattr(module, reg.function_name)
-
-                if inspect.isclass(node_class):
-                    if hasattr(node_class, "langgraph_node"):
-                        if callable(node_class.langgraph_node):
-                            self._registries["nodes"][reg.name] = node_class.langgraph_node
-                            logger.debug(f"Registered infrastructure node: {reg.name}")
-                        else:
-                            logger.error(
-                                f"Infrastructure node {reg.name} has invalid node attribute - expected callable from @infrastructure_node decorator"
-                            )
-                    else:
-                        logger.error(
-                            f"Infrastructure node {reg.name} missing node attribute - ensure @infrastructure_node decorator is applied"
-                        )
-                else:
-                    logger.error(
-                        f"Infrastructure node {reg.name} is not a class - expected decorated class"
-                    )
-
-            except Exception as e:
-                logger.error(
-                    f"Failed to load core node {reg.name} from {reg.module_path}.{reg.function_name}: {e}"
-                )
-                raise
-
-        logger.info(f"Registered {len(self.config.core_nodes)} core nodes")
-
     def _initialize_services(self) -> None:
-        """Initialize service registry with service graphs.
+        """Initialize service registry.
 
-        Services are separate graphs that provide specialized functionality
-        while maintaining their internal node flow. Services are registered as
-        callable graph instances that can be invoked by capabilities.
+        Services provide specialized functionality that can be invoked by capabilities.
+        Each service is instantiated and registered for runtime access.
+
         :raises Exception: Service initialization failures are logged but don't fail registry
         """
         logger.debug("Initializing services...")
@@ -1343,14 +1259,7 @@ class RegistryManager:
                 module = __import__(reg.module_path, fromlist=[reg.class_name])
                 service_class = getattr(module, reg.class_name)
                 service_instance = service_class()
-
-                if hasattr(service_instance, "get_compiled_graph"):
-                    # Verify the service can compile its graph
-                    self._registries["services"][reg.name] = service_instance
-                    logger.debug(f"Registered service instance: {reg.name} with compiled graph")
-                else:
-                    logger.error(f"Service {reg.name} missing get_compiled_graph method")
-
+                self._registries["services"][reg.name] = service_instance
                 logger.debug(f"Registered service: {reg.name}")
 
             except Exception as e:
@@ -1362,8 +1271,6 @@ class RegistryManager:
         """Initialize capability registry.
 
         Dynamically imports and registers all domain-specific capabilities.
-        All capabilities are expected to use the @capability_node decorator which
-        creates a callable node function in the 'langgraph_node' attribute.
 
         Failed capability initialization is logged as warning but does not fail
         the entire registry, allowing partial system functionality.
@@ -1378,19 +1285,6 @@ class RegistryManager:
                 capability_class = getattr(module, reg.class_name)
                 capability_instance = capability_class()
                 self._registries["capabilities"][reg.name] = capability_instance
-
-                if hasattr(capability_class, "langgraph_node"):
-                    if callable(capability_class.langgraph_node):
-                        self._registries["nodes"][reg.name] = capability_class.langgraph_node
-                        logger.debug(f"Registered capability node: {reg.name}")
-                    else:
-                        logger.error(
-                            f"Capability {reg.name} has invalid node attribute - expected callable from @capability_node decorator"
-                        )
-                else:
-                    logger.error(
-                        f"Capability {reg.name} missing node attribute - ensure @capability_node decorator is applied"
-                    )
 
                 logger.debug(f"Registered capability: {reg.name}")
                 successful_count += 1
@@ -1706,14 +1600,6 @@ class RegistryManager:
         """
         return self._registries["capabilities"].get(name)
 
-    def get_always_active_capability_names(self) -> list[str]:
-        """Get names of capabilities marked as always active.
-
-        :return: List of capability names that are always active
-        :rtype: List[str]
-        """
-        return [cap_reg.name for cap_reg in self.config.capabilities if cap_reg.always_active]
-
     def get_all_capabilities(self) -> list["BaseCapability"]:
         """Retrieve all registered capability instances.
 
@@ -1721,34 +1607,6 @@ class RegistryManager:
         :rtype: list[framework.base.BaseCapability]
         """
         return list(self._registries["capabilities"].values())
-
-    def get_capabilities_overview(self) -> str:
-        """Generate a text overview of all registered capabilities.
-
-        :return: Human-readable overview of capabilities and their descriptions
-        :rtype: str
-        """
-        capabilities = self.get_all_capabilities()
-        if not capabilities:
-            return "No capabilities currently available."
-
-        overview_lines = ["Available Capabilities:"]
-        for capability in capabilities:
-            name = getattr(capability, "name", "Unknown")
-            description = getattr(capability, "description", "No description available")
-            overview_lines.append(f"• {name}: {description}")
-
-        return "\n".join(overview_lines)
-
-    def get_node(self, name: str) -> Optional["BaseCapabilityNode"]:
-        """Retrieve registered node instance by name.
-
-        :param name: Unique node name from registration
-        :type name: str
-        :return: Node instance if registered, None otherwise
-        :rtype: framework.base.BaseCapabilityNode, optional
-        """
-        return self._registries["nodes"].get(name)
 
     def get_all_nodes(self) -> dict[str, Any]:
         """Retrieve all registered nodes as (name, callable) pairs.
@@ -1767,37 +1625,6 @@ class RegistryManager:
         :rtype: Type[framework.base.CapabilityContext], optional
         """
         return self._registries["contexts"].get(context_type)
-
-    def get_context_class_by_name(self, class_name: str):
-        """Retrieve context class by class name identifier.
-
-        :param class_name: Python class name (e.g., 'PVAddresses')
-        :type class_name: str
-        :return: Context class if found, None otherwise
-        :rtype: Type[framework.base.CapabilityContext], optional
-        """
-        for ctx_reg in self.config.context_classes:
-            if ctx_reg.class_name == class_name:
-                return self.get_context_class(ctx_reg.context_type)
-        return None
-
-    def is_valid_context_type(self, context_type: str) -> bool:
-        """Check if a context type is registered in the registry.
-
-        :param context_type: Context type identifier (e.g., 'PV_ADDRESSES')
-        :type context_type: str
-        :return: True if context type is registered, False otherwise
-        :rtype: bool
-        """
-        return context_type in self._registries["contexts"]
-
-    def get_all_context_types(self) -> list[str]:
-        """Get list of all registered context types.
-
-        :return: List of all registered context type identifiers
-        :rtype: list[str]
-        """
-        return list(self._registries["contexts"].keys())
 
     def get_all_context_classes(self) -> dict[str, type["CapabilityContext"]]:
         """Get dictionary of all registered context classes by context type.
@@ -1856,16 +1683,6 @@ class RegistryManager:
             return get_provider_registry().get_provider(name)
 
         return self._registries["providers"].get(name)
-
-    def get_provider_registration(self, name: str) -> Any | None:
-        """Get provider registration metadata.
-
-        :param name: Provider name
-        :type name: str
-        :return: Provider registration if found, None otherwise
-        :rtype: ProviderRegistration or None
-        """
-        return self._provider_registrations.get(name)
 
     def list_providers(self) -> list[str]:
         """Get list of all registered provider names.
@@ -2055,30 +1872,6 @@ class RegistryManager:
                 logger.warning(f"Failed to instantiate domain analyzer {name}: {e}")
         return analyzers
 
-    def get_available_data_sources(self, state: Any) -> list[Any]:
-        """Retrieve available data sources for current execution context.
-
-        Filters all registered data sources based on their availability for the
-        current agent state and returns them in registration order (framework
-        providers first, then applications).
-
-        :param state: Current agent state for availability checking
-        :type state: framework.state.AgentState
-        :return: Available data source providers in registration order
-        :rtype: list[Any]
-
-        .. note::
-           Providers without is_available() method are assumed to be available.
-        """
-        available = []
-        for provider in self._registries["data_sources"].values():
-            try:
-                available.append(provider)
-            except Exception as e:
-                logger.warning(f"Failed to check availability for {provider}: {e}")
-
-        return available
-
     @property
     def context_types(self):
         """Dynamic object providing context type constants as attributes.
@@ -2107,100 +1900,6 @@ class RegistryManager:
             )()
         return self._context_types
 
-    @property
-    def capability_names(self):
-        """Dynamic object providing capability names as constants with debug fallback.
-
-        Creates a dynamic object where each registered capability name is accessible
-        as an uppercase constant attribute. If a capability name is not registered,
-        returns the expected string and logs a warning (useful for development).
-
-        :return: Object with capability names as constant attributes
-        :rtype: object
-
-        Examples:
-            Access capability names as constants::
-
-                >>> registry = get_registry()
-                >>> pv_finding = registry.capability_names.PV_ADDRESS_FINDING
-                >>> print(pv_finding)  # "pv_address_finding"
-
-            Graceful fallback for missing capabilities::
-
-                >>> viz_name = registry.capability_names.DATA_VISUALIZATION  # Not registered
-                >>> print(viz_name)  # "data_visualization" (with warning logged)
-        """
-        if not hasattr(self, "_capability_names"):
-            registered_constants = {}
-            for cap_reg in self.config.capabilities:
-                const_name = cap_reg.name.upper().replace("-", "_")
-                registered_constants[const_name] = cap_reg.name
-
-            class CapabilityNamesProxy:
-                def __init__(self, constants):
-                    self._constants = constants
-
-                def __getattr__(self, name):
-                    if name in self._constants:
-                        return self._constants[name]
-
-                    capability_name = name.lower()
-
-                    logger.debug(
-                        "Unregistered capability %r accessed via capability_names.%s",
-                        capability_name,
-                        name,
-                    )
-
-                    return capability_name
-
-                def __dir__(self):
-                    return list(self._constants.keys())
-
-            self._capability_names = CapabilityNamesProxy(registered_constants)
-        return self._capability_names
-
-    def validate_configuration(self) -> list[str]:
-        """Validate registry configuration for consistency and completeness.
-
-        Performs comprehensive validation of the registry configuration including
-        duplicate name checking, dependency validation, and structural consistency.
-        This method should be called before initialization to catch configuration
-        errors early.
-
-        :return: List of validation error messages, empty if valid
-        :rtype: list[str]
-
-        Examples:
-            Validate before initialization::
-
-                >>> registry = get_registry()
-                >>> errors = registry.validate_configuration()
-                >>> if errors:
-                ...     print(f"Configuration errors: {errors}")
-                ... else:
-                ...     registry.initialize()
-        """
-        errors = []
-
-        capability_names = [cap.name for cap in self.config.capabilities]
-        if len(capability_names) != len(set(capability_names)):
-            errors.append("Duplicate capability names found")
-
-        core_node_names = [node.name for node in self.config.core_nodes]
-        if len(core_node_names) != len(set(core_node_names)):
-            errors.append("Duplicate core node names found")
-
-        context_types = [ctx.context_type for ctx in self.config.context_classes]
-        if len(context_types) != len(set(context_types)):
-            errors.append("Duplicate context types found")
-
-        data_source_names = [ds.name for ds in self.config.data_sources]
-        if len(data_source_names) != len(set(data_source_names)):
-            errors.append("Duplicate data source names found")
-
-        return errors
-
     def _get_initialization_summary(self) -> str:
         """Generate user-friendly initialization summary.
 
@@ -2216,7 +1915,6 @@ class RegistryManager:
             "Registry initialization complete!",
             "   Components loaded:",
             f"      • {stats['capabilities']} capabilities: {', '.join(stats['capability_names'])}",
-            f"      • {stats['nodes']} nodes (including {len(self.config.core_nodes)} core infrastructure)",
             f"      • {stats['context_classes']} context types: {', '.join(stats['context_types'])}",
             f"      • {stats['data_sources']} data sources: {', '.join(stats['data_source_names'])}",
             f"      • {stats['services']} services: {', '.join(stats['service_names'])}",
@@ -2433,16 +2131,3 @@ def reset_registry() -> None:
         _registry.clear()
     _registry = None
     _registry_config_path = None
-
-
-class _LazyRegistryProxy:
-    """Proxy that creates registry only when first accessed to avoid circular imports."""
-
-    def __getattr__(self, name):
-        return getattr(get_registry(), name)
-
-    def __call__(self, *args, **kwargs):
-        return get_registry()(*args, **kwargs)
-
-
-registry = _LazyRegistryProxy()

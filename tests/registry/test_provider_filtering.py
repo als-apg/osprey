@@ -122,7 +122,6 @@ class TestInitializeProvidersFiltering:
         manager = RegistryManager.__new__(RegistryManager)
         manager.config = config
         manager._registries = {"providers": {}}
-        manager._provider_registrations = {}
         manager._excluded_provider_names = set()
         return manager
 

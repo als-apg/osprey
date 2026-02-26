@@ -394,10 +394,6 @@ def generate_explicit_registry_code(
             f"{indent}    provides={reg.provides},",
             f"{indent}    requires={reg.requires},",
         ]
-        if hasattr(reg, "always_active") and reg.always_active:
-            lines.append(f"{indent}    always_active=True,")
-        if hasattr(reg, "functional_node") and reg.functional_node:
-            lines.append(f'{indent}    functional_node="{reg.functional_node}",')
         # Remove trailing comma from last line before closing paren
         if lines[-1].endswith(","):
             lines[-1] = lines[-1][:-1]
@@ -433,8 +429,7 @@ def generate_explicit_registry_code(
 {indent}    class_name="{reg.class_name}",
 {indent}    description="{reg.description}",
 {indent}    provides={reg.provides},
-{indent}    requires={reg.requires},
-{indent}    internal_nodes={reg.internal_nodes}
+{indent}    requires={reg.requires}
 {indent})"""
 
     code_lines = [

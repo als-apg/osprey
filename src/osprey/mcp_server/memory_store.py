@@ -56,7 +56,6 @@ class MemoryEntry:
     importance: str = "normal"  # "normal" | "important"
     timestamp: str = ""  # ISO 8601
     linked_artifact_id: str | None = None  # Pin -> ArtifactEntry.id
-    linked_context_id: int | None = None  # Pin -> DataContextEntry.id
     linked_label: str | None = None  # Display label for link target
     category: str | None = None  # Backward compat with old memories
 
@@ -77,8 +76,6 @@ class MemoryEntry:
         }
         if self.linked_artifact_id is not None:
             resp["linked_artifact_id"] = self.linked_artifact_id
-        if self.linked_context_id is not None:
-            resp["linked_context_id"] = self.linked_context_id
         if self.linked_label is not None:
             resp["linked_label"] = self.linked_label
         return resp
@@ -143,7 +140,6 @@ class MemoryStore(BaseStore[MemoryEntry]):
         tags: list[str] | None = None,
         importance: str = "normal",
         linked_artifact_id: str | None = None,
-        linked_context_id: int | None = None,
         linked_label: str | None = None,
         category: str | None = None,
     ) -> MemoryEntry:
@@ -155,7 +151,6 @@ class MemoryStore(BaseStore[MemoryEntry]):
             tags: Classification tags (e.g. ``["procedure", "beam"]``).
             importance: ``"normal"`` or ``"important"``.
             linked_artifact_id: For pins — the linked artifact ID.
-            linked_context_id: For pins — the linked data context entry ID.
             linked_label: Human-readable label for the link target.
             category: Legacy category field (backward compat).
 
@@ -175,7 +170,6 @@ class MemoryStore(BaseStore[MemoryEntry]):
                 importance=importance,
                 timestamp=now,
                 linked_artifact_id=linked_artifact_id,
-                linked_context_id=linked_context_id,
                 linked_label=linked_label,
                 category=category,
             )

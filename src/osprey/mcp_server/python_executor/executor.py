@@ -3,8 +3,8 @@
 Delegates code execution to ContainerExecutor (Jupyter containers) or local subprocess
 with ExecutionWrapper, adding limits monkeypatch, process isolation, and timeout.
 
-This module does NOT modify or depend on LangGraph state — it reuses the existing
-execution infrastructure (container_engine, wrapper, limits_validator) as-is.
+This module reuses the existing execution infrastructure (container_engine,
+wrapper, limits_validator) as-is.
 """
 
 import asyncio

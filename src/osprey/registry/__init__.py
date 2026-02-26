@@ -34,7 +34,7 @@ from .helpers import (
     generate_explicit_registry_code,
     get_framework_defaults,
 )
-from .manager import RegistryManager, get_registry, initialize_registry, registry, reset_registry
+from .manager import RegistryManager, get_registry, initialize_registry, reset_registry
 
 __all__ = [
     # Core registry system
@@ -42,7 +42,6 @@ __all__ = [
     "get_registry",
     "initialize_registry",
     "reset_registry",
-    "registry",
     # Configuration classes for applications
     "RegistryConfigProvider",
     "NodeRegistration",
