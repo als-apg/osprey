@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated, Any, TypedDict
 
 from pydantic import BaseModel, Field
@@ -68,7 +68,7 @@ def preserve_once_set(existing: Any | None, new: Any | None) -> Any | None:
 # =============================================================================
 
 
-class MachineState(str, Enum):
+class MachineState(StrEnum):
     """Machine states for optimization readiness.
 
     NOTE: These are placeholders. Actual states will be determined
@@ -87,7 +87,7 @@ class MachineState(str, Enum):
     # INTERLOCK_ACTIVE = "interlock_active"
 
 
-class XOptStrategy(str, Enum):
+class XOptStrategy(StrEnum):
     """Optimization strategy to execute."""
 
     EXPLORATION = "exploration"  # Explore parameter space

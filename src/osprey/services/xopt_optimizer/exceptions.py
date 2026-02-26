@@ -13,11 +13,11 @@ Error Categories:
     - WORKFLOW: Service-level workflow issues
 """
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class ErrorCategory(str, Enum):
+class ErrorCategory(StrEnum):
     """Categorization of errors for retry logic."""
 
     MACHINE_STATE = "machine_state"  # Machine not ready - may retry after delay
