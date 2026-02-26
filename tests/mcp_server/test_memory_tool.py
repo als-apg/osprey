@@ -142,34 +142,6 @@ class TestMemorySaveNote:
 class TestMemorySavePin:
     """Tests for memory_save creating pins (linked memories)."""
 
-    async def test_pin_auto_detection_context(self, tmp_path, monkeypatch):
-        """Providing linked_context_id creates a pin, not a note."""
-        monkeypatch.chdir(tmp_path)
-
-        fn = _get_memory_save()
-        result = await fn(
-            content="This reading shows beam loss",
-            linked_context_id=42,
-        )
-
-        data = json.loads(result)
-        assert data["status"] == "success"
-        assert data["memory_type"] == "pin"
-
-    async def test_pin_deprecated_context_link_accepted(self, tmp_path, monkeypatch):
-        """linked_context_id is deprecated but accepted (creates a pin)."""
-        monkeypatch.chdir(tmp_path)
-
-        fn = _get_memory_save()
-        result = await fn(
-            content="This reading shows beam loss",
-            linked_context_id=999,
-        )
-
-        data = json.loads(result)
-        assert data["status"] == "success"
-        assert data["memory_type"] == "pin"
-
     async def test_pin_invalid_artifact_link(self, tmp_path, monkeypatch):
         """Linking to a nonexistent artifact returns not_found error."""
         monkeypatch.chdir(tmp_path)
@@ -228,9 +200,22 @@ class TestMemoryRecall:
         save_fn = _get_memory_save()
         recall_fn = _get_memory_recall()
 
-        # Save a note and a pin both containing "beam"
+        # Save a note both containing "beam" — a plain note and a note tagged as pin-like
         await save_fn(content="beam current note")
-        await save_fn(content="beam pin annotation", linked_context_id=42)
+        # Create a pin by linking to a valid artifact
+        from osprey.mcp_server.artifact_store import get_artifact_store
+
+        store = get_artifact_store()
+        entry = store.save_file(
+            file_content=b"beam data",
+            filename="beam.txt",
+            artifact_type="text",
+            title="Beam data",
+            description="test",
+            mime_type="text/plain",
+            tool_source="test",
+        )
+        await save_fn(content="beam pin annotation", linked_artifact_id=entry.id)
 
         # Filter for pins only
         result = await recall_fn(query="beam", memory_type="pin")

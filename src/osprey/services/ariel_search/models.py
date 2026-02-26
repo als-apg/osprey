@@ -258,7 +258,6 @@ class ARIELSearchRequest:
         facility: Facility filter
         max_results: Maximum results to return (default: 10, range: 1-100)
         include_images: Include image attachments (default: False)
-        capability_context_data: Context from main graph state
     """
 
     query: str
@@ -267,7 +266,6 @@ class ARIELSearchRequest:
     facility: str | None = None
     max_results: int = 10
     include_images: bool = False
-    capability_context_data: dict[str, Any] = field(default_factory=dict)
     advanced_params: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

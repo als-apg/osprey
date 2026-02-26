@@ -19,22 +19,20 @@ async def memory_save(
     tags: list[str] | None = None,
     importance: str | None = None,
     linked_artifact_id: str | None = None,
-    linked_context_id: int | None = None,
     category: str | None = None,
 ) -> str:
     """Save a piece of information to persistent OSPREY session memory.
 
     Creates either a Note (text-first: observations, findings, procedures) or
-    a Pin (link-first: bookmark a specific artifact or context entry). Memory
-    type is auto-detected: if a linked_artifact_id or linked_context_id is
-    provided, the memory becomes a Pin; otherwise it's a Note.
+    a Pin (link-first: bookmark a specific artifact). Memory type is
+    auto-detected: if a linked_artifact_id is provided, the memory becomes a
+    Pin; otherwise it's a Note.
 
     Args:
         content: The information to remember (note body or pin annotation).
         tags: Optional tags for organic taxonomy (e.g. ["procedure", "beam"]).
         importance: "normal" (default) or "important" for priority filtering.
         linked_artifact_id: Artifact ID to link (creates a Pin).
-        linked_context_id: Context entry ID to link (creates a Pin).
         category: Deprecated. Use tags instead. Kept for backward compatibility.
 
     Returns:
@@ -65,7 +63,7 @@ async def memory_save(
         store = get_memory_store()
 
         # Auto-detect memory type
-        has_link = linked_artifact_id is not None or linked_context_id is not None
+        has_link = linked_artifact_id is not None
         memory_type = "pin" if has_link else "note"
 
         # Validate linked targets exist and resolve labels
@@ -84,14 +82,6 @@ async def memory_save(
                 )
             linked_label = art.title
 
-        if linked_context_id is not None:
-            # Deprecated: linked_context_id accepted for backward compat
-            # but no longer validated against DataContext (which is removed)
-            logger.info(
-                "linked_context_id=%s is deprecated; use linked_artifact_id instead",
-                linked_context_id,
-            )
-
         # Merge category into tags for backward compat
         effective_tags = list(tags) if tags else []
         if category and category not in effective_tags:
@@ -103,7 +93,6 @@ async def memory_save(
             tags=effective_tags,
             importance=importance,
             linked_artifact_id=linked_artifact_id,
-            linked_context_id=linked_context_id,
             linked_label=linked_label,
             category=category,
         )

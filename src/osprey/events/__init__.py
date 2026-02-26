@@ -12,33 +12,12 @@ Usage:
 """
 
 # Event emission
-from .emitter import (
-    EventEmitter,
-    clear_fallback_handlers,
-    register_fallback_handler,
-)
+from .emitter import EventEmitter
 from .types import (
-    ApprovalReceivedEvent,
-    ApprovalRequiredEvent,
     BaseEvent,
-    CapabilitiesSelectedEvent,
-    CapabilityCompleteEvent,
-    CapabilityStartEvent,
-    CodeExecutedEvent,
-    CodeGeneratedEvent,
-    CodeGenerationStartEvent,
     ErrorEvent,
-    LLMRequestEvent,
-    LLMResponseEvent,
     OspreyEvent,
-    PhaseCompleteEvent,
-    PhaseStartEvent,
-    PlanCreatedEvent,
-    ResultEvent,
     StatusEvent,
-    TaskExtractedEvent,
-    ToolResultEvent,
-    ToolUseEvent,
 )
 
 __all__ = [
@@ -47,33 +26,8 @@ __all__ = [
     "OspreyEvent",
     # Status
     "StatusEvent",
-    # Phase Lifecycle
-    "PhaseStartEvent",
-    "PhaseCompleteEvent",
-    # Data Output
-    "TaskExtractedEvent",
-    "CapabilitiesSelectedEvent",
-    "PlanCreatedEvent",
-    # Capability
-    "CapabilityStartEvent",
-    "CapabilityCompleteEvent",
-    # LLM
-    "LLMRequestEvent",
-    "LLMResponseEvent",
-    # Tool/Code
-    "ToolUseEvent",
-    "ToolResultEvent",
-    "CodeGeneratedEvent",
-    "CodeGenerationStartEvent",
-    "CodeExecutedEvent",
-    # Control Flow
-    "ApprovalRequiredEvent",
-    "ApprovalReceivedEvent",
     # Results
-    "ResultEvent",
     "ErrorEvent",
     # Emitter
     "EventEmitter",
-    "register_fallback_handler",
-    "clear_fallback_handlers",
 ]

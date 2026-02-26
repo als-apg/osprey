@@ -1,10 +1,10 @@
 """Self-contained ReAct agent executor for ARIEL search.
 
 Implements a ReAct (Reason + Act) loop using Osprey's built-in
-completion API (LiteLLM tool-calling) — no LangGraph or LangChain required.
+completion API (LiteLLM tool-calling).
 
 Search tools are auto-discovered from the Osprey registry via
-SearchToolDescriptor, same as the previous LangGraph-based agent.
+SearchToolDescriptor.
 """
 
 from __future__ import annotations

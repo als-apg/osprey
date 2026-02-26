@@ -17,15 +17,10 @@ import logging
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
 
-from osprey.base import (
-    BaseCapability, capability_node,
-    OrchestratorGuide, OrchestratorExample, PlannedStep,
-    ClassifierActions, ClassifierExample, TaskClassifierGuide
-)
+from osprey.base import BaseCapability
 from osprey.base.errors import ErrorClassification, ErrorSeverity
 from osprey.models import get_chat_completion
 from osprey.registry import get_registry
-from osprey.state import AgentState, StateManager
 from osprey.utils.config import get_model_config
 
 from {{ package_name }}.context_classes import CurrentWeatherContext

@@ -70,7 +70,7 @@ def configure_from_context(context) -> None:
     3. If both fail, raise clear error
 
     Args:
-        context: ContextManager instance from load_context()
+        context: Context data instance from load_context()
 
     Note:
         This function is called automatically by the execution wrapper.

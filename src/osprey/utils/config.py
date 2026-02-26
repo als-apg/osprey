@@ -326,7 +326,6 @@ class ConfigBuilder:
             "session_id": None,
             "thread_id": None,
             "session_url": None,
-            "execution_limits": self._build_execution_limits(),
             "agent_control_defaults": self._build_agent_control_defaults(),
             "model_configs": self._build_model_configs(),
             "provider_configs": self._build_provider_configs(),
@@ -358,27 +357,6 @@ class ConfigBuilder:
         """Get service configs from flat structure."""
         return self.get("services", {})
 
-    def _build_execution_limits(self) -> dict[str, Any]:
-        """Build execution limits"""
-
-        return {
-            "max_reclassifications": self._require_config(
-                "execution_control.limits.max_reclassifications", 1
-            ),
-            "max_planning_attempts": self._require_config(
-                "execution_control.limits.max_planning_attempts", 2
-            ),
-            "max_step_retries": self._require_config(
-                "execution_control.limits.max_step_retries", 0
-            ),
-            "max_execution_time_seconds": self._require_config(
-                "execution_control.limits.max_execution_time_seconds", 300
-            ),
-            "max_concurrent_classifications": self._require_config(
-                "execution_control.limits.max_concurrent_classifications", 5
-            ),
-        }
-
     def _build_agent_control_defaults(self) -> dict[str, Any]:
         """Build agent control defaults with explicit configuration control."""
 
@@ -406,8 +384,6 @@ class ConfigBuilder:
             "capability_selection_bypass_enabled": self._require_config(
                 "execution_control.agent_control.capability_selection_bypass_enabled", False
             ),
-            # Note: Execution limits (max_reclassifications, max_planning_attempts, etc.)
-            # are now centralized in get_execution_limits() utility function
         }
 
     def _get_current_application(self) -> str | None:
@@ -669,115 +645,6 @@ def get_framework_service_config(
     return service_configs.get(service_name, {})
 
 
-def get_application_service_config(app_name: str, service_name: str) -> dict[str, Any]:
-    """Get application service configuration with automatic context detection."""
-    configurable = _get_configurable()
-    service_configs = configurable.get("service_configs", {})
-    # Try new flat format first (single-config)
-    if service_name in service_configs:
-        return service_configs.get(service_name, {})
-    # Fall back to legacy nested format
-    logger.warning(
-        f"DEPRECATED: Using legacy nested config format for applications.{app_name}.services.{service_name}. "
-        f"Please migrate to flat config structure with services at top level."
-    )
-    app_services = service_configs.get("applications", {}).get(app_name, {})
-    return app_services.get(service_name, {})
-
-
-def get_pipeline_config(app_name: str = None) -> dict[str, Any]:
-    """Get pipeline configuration with automatic context detection."""
-    configurable = _get_configurable()
-    config = _get_config()
-
-    # Try new flat format first (single-config)
-    pipeline_config = config.get("pipeline", {})
-    if pipeline_config:
-        return pipeline_config
-
-    # Fall back to legacy nested format
-    if app_name is None:
-        app_name = configurable.get("current_application")
-
-    if app_name:
-        logger.warning(
-            f"DEPRECATED: Using legacy nested config format for applications.{app_name}.pipeline. "
-            f"Please migrate to flat config structure with pipeline at top level."
-        )
-        app_path = f"applications.{app_name}.pipeline"
-        app_config = config.get(app_path, {})
-        if app_config:
-            return app_config
-
-    # Fall back to framework pipeline config
-    logger.warning(
-        "DEPRECATED: Using legacy nested config format for osprey.pipeline. "
-        "Please migrate to flat config structure with pipeline at top level."
-    )
-    framework = configurable.get("osprey", {})
-    return framework.get("pipeline", {})
-
-
-def get_execution_limits() -> dict[str, Any]:
-    """Get execution limits with automatic context detection."""
-    configurable = _get_configurable()
-    execution_limits = configurable.get("execution_limits")
-
-    if execution_limits is None:
-        raise RuntimeError(
-            "Execution limits configuration not found. Please ensure 'execution_limits' is properly "
-            "configured in your config.yml or environment settings with the following required fields: "
-            "max_reclassifications, max_planning_attempts, max_step_retries, max_execution_time_seconds"
-        )
-
-    return execution_limits
-
-
-def get_agent_control_defaults() -> dict[str, Any]:
-    """Get agent control defaults with automatic context detection."""
-    configurable = _get_configurable()
-    return configurable.get("agent_control_defaults", {})
-
-
-def get_session_info() -> dict[str, Any]:
-    """Get session information with automatic context detection."""
-    configurable = _get_configurable()
-    return {
-        "user_id": configurable.get("user_id"),
-        "chat_id": configurable.get("chat_id"),
-        "session_id": configurable.get("session_id"),
-        "thread_id": configurable.get("thread_id"),
-        "session_url": configurable.get("session_url"),
-    }
-
-
-def get_interface_context() -> str:
-    """
-    Get interface context indicating which user interface is being used.
-
-    The interface context determines how responses are formatted and which
-    features are available (e.g., figure rendering, notebook links, command buttons).
-
-    Returns:
-        str: The interface type, one of:
-            - "openwebui": Open WebUI interface with rich rendering capabilities
-            - "cli": Command-line interface with text-only output
-            - "unknown": Interface type not detected or not set
-
-    Example:
-        >>> interface = get_interface_context()
-        >>> if interface == "openwebui":
-        ...     print("Rich UI features available")
-
-    Note:
-        This is set automatically by each interface implementation during initialization.
-        The value is used by response generators to provide interface-appropriate
-        guidance about figures, notebooks, and executable commands.
-    """
-    configurable = _get_configurable()
-    return configurable.get("interface_context", "unknown")
-
-
 def get_current_application() -> str | None:
     """Get current application with automatic context detection."""
     configurable = _get_configurable()
@@ -909,29 +776,6 @@ def get_facility_timezone():
 
     tz_name = get_config_value("facility_timezone", "UTC")
     return ZoneInfo(tz_name)
-
-
-def get_classification_config() -> dict[str, Any]:
-    """
-    Get classification configuration with sensible defaults.
-
-    Controls parallel LLM-based capability classification to prevent API flooding
-    while maintaining reasonable performance during task analysis.
-
-    Returns:
-        Dictionary with classification configuration including concurrency limits
-
-    Examples:
-        >>> config = get_classification_config()
-        >>> max_concurrent = config.get('max_concurrent_classifications', 5)
-    """
-    configurable = _get_configurable()
-
-    max_concurrent = configurable.get("execution_limits", {}).get(
-        "max_concurrent_classifications", 5
-    )
-
-    return {"max_concurrent_classifications": max_concurrent}
 
 
 def get_full_configuration(config_path: str | None = None) -> dict[str, Any]:

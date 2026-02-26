@@ -1,9 +1,7 @@
 """MCP tool: resolve_addresses -- resolve channel names to PV addresses.
 
-Mirrors the address-resolution step in the LangGraph in-context pipeline
-(pipelines/in_context/pipeline.py _aggregate_results), which calls
-database.get_channel(name)["address"] to translate descriptive channel
-names into actual EPICS PV addresses.
+Resolves descriptive channel names into actual EPICS PV addresses by calling
+database.get_channel(name)["address"].
 """
 
 import json

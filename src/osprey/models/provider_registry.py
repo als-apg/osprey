@@ -1,7 +1,7 @@
 """Lightweight Provider Registry — lazy-loaded provider class resolution.
 
 Standalone singleton that resolves provider names to BaseProvider subclasses
-without depending on the full RegistryManager or any LangGraph infrastructure.
+without depending on the full RegistryManager.
 
 Any component needing LLM access (MCP tools, FastAPI routes, CLI commands) can
 call ``get_provider_registry().get_provider("cborg")`` to obtain the provider

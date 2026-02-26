@@ -117,14 +117,11 @@ def cli(ctx):
       osprey                          Launch interactive menu
       osprey init my-project          Create new project
       osprey config                   Manage configuration (show, export, set)
-      osprey generate capability ...  Generate capability from MCP server
-      osprey generate mcp-server      Generate demo MCP server
-      osprey remove capability ...    Remove capability from project
       osprey deploy up                Start services
-      osprey chat                     Interactive conversation
+      osprey claude install <task>    Install Claude Code skill
+      osprey web                      Launch web terminal
       osprey health                   Check system health
       osprey tasks                    Browse AI assistant tasks
-      osprey claude install <task>    Install Claude Code skill
       osprey channel-finder           Interactive channel search
     """
     from .styles import initialize_theme_from_config

@@ -54,14 +54,12 @@ class TestARIELSearchRequest:
             facility="ALS",
             max_results=50,
             include_images=True,
-            capability_context_data={"key": "value"},
         )
         assert request.modes == [SearchMode.KEYWORD, SearchMode.SEMANTIC]
         assert request.time_range == time_range
         assert request.facility == "ALS"
         assert request.max_results == 50
         assert request.include_images is True
-        assert request.capability_context_data == {"key": "value"}
 
     def test_empty_query_raises(self) -> None:
         """Test that empty query raises ValueError."""

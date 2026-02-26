@@ -23,7 +23,7 @@ Architecture:
     The system supports two service categories:
 
     1. Framework Services: Core infrastructure services like databases,
-       web interfaces, and development tools (jupyter, open-webui, pipelines)
+       web interfaces, and development tools (jupyter, web-terminal)
 
     2. Application Services: Domain-specific services tied to particular
        applications (als_assistant.mongo, als_assistant.pv_finder)

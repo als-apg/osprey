@@ -52,7 +52,6 @@ from osprey.prompts.defaults import (
     ExtractedTask,
     TaskExtractionExample,
 )
-from osprey.state import MessageUtils, UserMemories
 
 
 class ControlSystemTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilder):
@@ -149,21 +148,23 @@ class ControlSystemTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilde
         # Task extraction identifies the dependency on previously found channels
         # NOTE: Channel addresses are stored in execution context, NOT parsed from messages
 
-        self.examples.append(TaskExtractionExample(
-            messages=[
-                MessageUtils.create_user_message("Find the beam current monitor channel"),
-                MessageUtils.create_assistant_message(
-                    "I found the beam current monitor channel and it's ready to use."
+        self.examples.append(
+            TaskExtractionExample(
+                messages=[
+                    MessageUtils.create_user_message("Find the beam current monitor channel"),
+                    MessageUtils.create_assistant_message(
+                        "I found the beam current monitor channel and it's ready to use."
+                    ),
+                    MessageUtils.create_user_message("What's the current value?"),
+                ],
+                user_memory=UserMemories(entries=[]),
+                expected_output=ExtractedTask(
+                    task="Read the current value of the beam current monitor channel that was just found",
+                    depends_on_chat_history=True,
+                    depends_on_user_memory=False,
                 ),
-                MessageUtils.create_user_message("What's the current value?"),
-            ],
-            user_memory=UserMemories(entries=[]),
-            expected_output=ExtractedTask(
-                task="Read the current value of the beam current monitor channel that was just found",
-                depends_on_chat_history=True,
-                depends_on_user_memory=False
             )
-        ))
+        )
 
         # ===================================================================
         # PATTERN 2: Temporal Reference Resolution for Historical Data
@@ -171,21 +172,23 @@ class ControlSystemTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilde
         # Historical queries require precise time resolution
         # "an hour ago" must resolve to actual timestamp
 
-        self.examples.append(TaskExtractionExample(
-            messages=[
-                MessageUtils.create_user_message("What is the current beam current?"),
-                MessageUtils.create_assistant_message(
-                    "The current beam current is 350.2 mA, measured at 14:23:15."
+        self.examples.append(
+            TaskExtractionExample(
+                messages=[
+                    MessageUtils.create_user_message("What is the current beam current?"),
+                    MessageUtils.create_assistant_message(
+                        "The current beam current is 350.2 mA, measured at 14:23:15."
+                    ),
+                    MessageUtils.create_user_message("What was it an hour ago?"),
+                ],
+                user_memory=UserMemories(entries=[]),
+                expected_output=ExtractedTask(
+                    task="Retrieve historical data for the beam current channel from approximately one hour ago (around 13:23:15)",
+                    depends_on_chat_history=True,
+                    depends_on_user_memory=False,
                 ),
-                MessageUtils.create_user_message("What was it an hour ago?"),
-            ],
-            user_memory=UserMemories(entries=[]),
-            expected_output=ExtractedTask(
-                task="Retrieve historical data for the beam current channel from approximately one hour ago (around 13:23:15)",
-                depends_on_chat_history=True,
-                depends_on_user_memory=False
             )
-        ))
+        )
 
         # ===================================================================
         # PATTERN 3: Device Family Reference with Context Carry-Forward
@@ -193,22 +196,26 @@ class ControlSystemTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilde
         # Users explore device families incrementally
         # Task must maintain device context across turns
 
-        self.examples.append(TaskExtractionExample(
-            messages=[
-                MessageUtils.create_user_message("Show me all quadrupole magnet current setpoints"),
-                MessageUtils.create_assistant_message(
-                    "I found 12 quadrupole magnet current setpoint channels. "
-                    "These control the current settings for the focusing quadrupole magnets."
+        self.examples.append(
+            TaskExtractionExample(
+                messages=[
+                    MessageUtils.create_user_message(
+                        "Show me all quadrupole magnet current setpoints"
+                    ),
+                    MessageUtils.create_assistant_message(
+                        "I found 12 quadrupole magnet current setpoint channels. "
+                        "These control the current settings for the focusing quadrupole magnets."
+                    ),
+                    MessageUtils.create_user_message("What about the readbacks?"),
+                ],
+                user_memory=UserMemories(entries=[]),
+                expected_output=ExtractedTask(
+                    task="Find all quadrupole magnet current readback channels (corresponding readbacks for the quadrupole setpoints just found)",
+                    depends_on_chat_history=True,
+                    depends_on_user_memory=False,
                 ),
-                MessageUtils.create_user_message("What about the readbacks?"),
-            ],
-            user_memory=UserMemories(entries=[]),
-            expected_output=ExtractedTask(
-                task="Find all quadrupole magnet current readback channels (corresponding readbacks for the quadrupole setpoints just found)",
-                depends_on_chat_history=True,
-                depends_on_user_memory=False
             )
-        ))
+        )
 
         # ===================================================================
         # PATTERN 4: Multi-Turn Workflow - Current → Historical → Comparison
@@ -216,22 +223,24 @@ class ControlSystemTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilde
         # Common control system workflow: check current, look at history, compare
         # Task must extract time references; channel addresses come from execution context
 
-        self.examples.append(TaskExtractionExample(
-            messages=[
-                MessageUtils.create_user_message("What's the vacuum pressure in sector 3?"),
-                MessageUtils.create_assistant_message(
-                    "The vacuum pressure in sector 3 is currently 2.3e-9 Torr, "
-                    "which is within normal operating range."
+        self.examples.append(
+            TaskExtractionExample(
+                messages=[
+                    MessageUtils.create_user_message("What's the vacuum pressure in sector 3?"),
+                    MessageUtils.create_assistant_message(
+                        "The vacuum pressure in sector 3 is currently 2.3e-9 Torr, "
+                        "which is within normal operating range."
+                    ),
+                    MessageUtils.create_user_message("Has it been stable over the last 24 hours?"),
+                ],
+                user_memory=UserMemories(entries=[]),
+                expected_output=ExtractedTask(
+                    task="Retrieve and analyze historical data for the sector 3 vacuum pressure channel over the last 24 hours to assess stability",
+                    depends_on_chat_history=True,
+                    depends_on_user_memory=False,
                 ),
-                MessageUtils.create_user_message("Has it been stable over the last 24 hours?"),
-            ],
-            user_memory=UserMemories(entries=[]),
-            expected_output=ExtractedTask(
-                task="Retrieve and analyze historical data for the sector 3 vacuum pressure channel over the last 24 hours to assess stability",
-                depends_on_chat_history=True,
-                depends_on_user_memory=False
             )
-        ))
+        )
 
         # ===================================================================
         # PATTERN 5: System-Level Query with Implicit Reference
@@ -239,21 +248,25 @@ class ControlSystemTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilde
         # Users often refer to "it" or "there" meaning a system or location
         # Task must resolve implicit references to specific context
 
-        self.examples.append(TaskExtractionExample(
-            messages=[
-                MessageUtils.create_user_message("Find all vacuum pressure channels in sector 2"),
-                MessageUtils.create_assistant_message(
-                    "I found 5 vacuum pressure channels in sector 2 and they're ready to monitor."
+        self.examples.append(
+            TaskExtractionExample(
+                messages=[
+                    MessageUtils.create_user_message(
+                        "Find all vacuum pressure channels in sector 2"
+                    ),
+                    MessageUtils.create_assistant_message(
+                        "I found 5 vacuum pressure channels in sector 2 and they're ready to monitor."
+                    ),
+                    MessageUtils.create_user_message("Are there any issues there?"),
+                ],
+                user_memory=UserMemories(entries=[]),
+                expected_output=ExtractedTask(
+                    task="Read current values of the sector 2 vacuum pressure channels that were just found and check for any abnormal readings indicating vacuum issues",
+                    depends_on_chat_history=True,
+                    depends_on_user_memory=False,
                 ),
-                MessageUtils.create_user_message("Are there any issues there?"),
-            ],
-            user_memory=UserMemories(entries=[]),
-            expected_output=ExtractedTask(
-                task="Read current values of the sector 2 vacuum pressure channels that were just found and check for any abnormal readings indicating vacuum issues",
-                depends_on_chat_history=True,
-                depends_on_user_memory=False
             )
-        ))
+        )
 
         # ===================================================================
         # PATTERN 6: Comparative Analysis with Specific Time Reference
@@ -261,22 +274,26 @@ class ControlSystemTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilde
         # Users want to compare current state with specific past state
         # Task must extract both the current requirement and historical reference
 
-        self.examples.append(TaskExtractionExample(
-            messages=[
-                MessageUtils.create_user_message("Show me the dipole magnet currents"),
-                MessageUtils.create_assistant_message(
-                    "The dipole magnet currents are currently all around 125 A, "
-                    "within 0.2% of the nominal 125 A setting."
+        self.examples.append(
+            TaskExtractionExample(
+                messages=[
+                    MessageUtils.create_user_message("Show me the dipole magnet currents"),
+                    MessageUtils.create_assistant_message(
+                        "The dipole magnet currents are currently all around 125 A, "
+                        "within 0.2% of the nominal 125 A setting."
+                    ),
+                    MessageUtils.create_user_message(
+                        "Compare these with the values from yesterday at this time"
+                    ),
+                ],
+                user_memory=UserMemories(entries=[]),
+                expected_output=ExtractedTask(
+                    task="Retrieve historical data for the dipole magnet current channels from 24 hours ago and compare with current values to identify any drift",
+                    depends_on_chat_history=True,
+                    depends_on_user_memory=False,
                 ),
-                MessageUtils.create_user_message("Compare these with the values from yesterday at this time"),
-            ],
-            user_memory=UserMemories(entries=[]),
-            expected_output=ExtractedTask(
-                task="Retrieve historical data for the dipole magnet current channels from 24 hours ago and compare with current values to identify any drift",
-                depends_on_chat_history=True,
-                depends_on_user_memory=False
             )
-        ))
+        )
 
         # ===================================================================
         # PATTERN 7: Fresh Request with No Context Needed
@@ -284,17 +301,21 @@ class ControlSystemTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilde
         # Not all queries need history - some are standalone
         # This demonstrates when depends_on_chat_history should be False
 
-        self.examples.append(TaskExtractionExample(
-            messages=[
-                MessageUtils.create_user_message("Find all magnet power supply status channels"),
-            ],
-            user_memory=UserMemories(entries=[]),
-            expected_output=ExtractedTask(
-                task="Find all magnet power supply status channels in the control system",
-                depends_on_chat_history=False,
-                depends_on_user_memory=False
+        self.examples.append(
+            TaskExtractionExample(
+                messages=[
+                    MessageUtils.create_user_message(
+                        "Find all magnet power supply status channels"
+                    ),
+                ],
+                user_memory=UserMemories(entries=[]),
+                expected_output=ExtractedTask(
+                    task="Find all magnet power supply status channels in the control system",
+                    depends_on_chat_history=False,
+                    depends_on_user_memory=False,
+                ),
             )
-        ))
+        )
 
         # ===================================================================
         # PATTERN 8: Progressive Problem Refinement
@@ -302,29 +323,31 @@ class ControlSystemTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilde
         # Users progressively narrow down issues through conversation
         # Task must incorporate all relevant context from the dialogue
 
-        self.examples.append(TaskExtractionExample(
-            messages=[
-                MessageUtils.create_user_message("I'm seeing some instability in the beam"),
-                MessageUtils.create_assistant_message(
-                    "I can help investigate the beam instability. Which parameter are you "
-                    "observing the instability in - position, current, or something else?"
+        self.examples.append(
+            TaskExtractionExample(
+                messages=[
+                    MessageUtils.create_user_message("I'm seeing some instability in the beam"),
+                    MessageUtils.create_assistant_message(
+                        "I can help investigate the beam instability. Which parameter are you "
+                        "observing the instability in - position, current, or something else?"
+                    ),
+                    MessageUtils.create_user_message("The beam position is oscillating"),
+                    MessageUtils.create_assistant_message(
+                        "I understand you're seeing beam position oscillations. Which location "
+                        "are you monitoring - can you specify the sector or beam position monitor (BPM)?"
+                    ),
+                    MessageUtils.create_user_message(
+                        "It's at the BPM in sector 7, started about 30 minutes ago"
+                    ),
+                ],
+                user_memory=UserMemories(entries=[]),
+                expected_output=ExtractedTask(
+                    task="Find the Beam Position Monitor (BPM) channel for sector 7 and retrieve historical data from 30 minutes ago to present to analyze beam position oscillations",
+                    depends_on_chat_history=True,
+                    depends_on_user_memory=False,
                 ),
-                MessageUtils.create_user_message("The beam position is oscillating"),
-                MessageUtils.create_assistant_message(
-                    "I understand you're seeing beam position oscillations. Which location "
-                    "are you monitoring - can you specify the sector or beam position monitor (BPM)?"
-                ),
-                MessageUtils.create_user_message(
-                    "It's at the BPM in sector 7, started about 30 minutes ago"
-                ),
-            ],
-            user_memory=UserMemories(entries=[]),
-            expected_output=ExtractedTask(
-                task="Find the Beam Position Monitor (BPM) channel for sector 7 and retrieve historical data from 30 minutes ago to present to analyze beam position oscillations",
-                depends_on_chat_history=True,
-                depends_on_user_memory=False
             )
-        ))
+        )
 
         # ===================================================================
         # PATTERN 9: Memory-Based Channel Preferences
@@ -332,19 +355,23 @@ class ControlSystemTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilde
         # Users save frequently-monitored channels
         # Task must incorporate stored channel information from memory
 
-        self.examples.append(TaskExtractionExample(
-            messages=[
-                MessageUtils.create_user_message("Check my critical channels"),
-            ],
-            user_memory=UserMemories(entries=[
-                "[2025-01-15] Critical channels to monitor: BEAM:CURRENT:RB, VACUUM:SECT3:PRESSURE:RB, RF:CAVITY:POWER:RB"
-            ]),
-            expected_output=ExtractedTask(
-                task="Read current values of critical monitoring channels: BEAM:CURRENT:RB, VACUUM:SECT3:PRESSURE:RB, and RF:CAVITY:POWER:RB",
-                depends_on_chat_history=False,
-                depends_on_user_memory=True
+        self.examples.append(
+            TaskExtractionExample(
+                messages=[
+                    MessageUtils.create_user_message("Check my critical channels"),
+                ],
+                user_memory=UserMemories(
+                    entries=[
+                        "[2025-01-15] Critical channels to monitor: BEAM:CURRENT:RB, VACUUM:SECT3:PRESSURE:RB, RF:CAVITY:POWER:RB"
+                    ]
+                ),
+                expected_output=ExtractedTask(
+                    task="Read current values of critical monitoring channels: BEAM:CURRENT:RB, VACUUM:SECT3:PRESSURE:RB, and RF:CAVITY:POWER:RB",
+                    depends_on_chat_history=False,
+                    depends_on_user_memory=True,
+                ),
             )
-        ))
+        )
 
         # ===================================================================
         # PATTERN 10: Memory-Based Operational Baselines
@@ -352,20 +379,26 @@ class ControlSystemTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilde
         # Users store baseline values for comparison
         # Task must extract baseline from memory and specify comparison
 
-        self.examples.append(TaskExtractionExample(
-            messages=[
-                MessageUtils.create_user_message("Compare current beam current with my baseline"),
-            ],
-            user_memory=UserMemories(entries=[
-                "[2025-01-10 09:00] Baseline beam current: 400 mA ± 2 mA (BEAM:CURRENT:RB)",
-                "[2025-01-10 09:05] Baseline vacuum pressure: 1.5e-9 Torr (VACUUM:SECT3:PRESSURE:RB)"
-            ]),
-            expected_output=ExtractedTask(
-                task="Read current value of BEAM:CURRENT:RB and compare with baseline of 400 mA ± 2 mA to check if current beam current is within acceptable range",
-                depends_on_chat_history=False,
-                depends_on_user_memory=True
+        self.examples.append(
+            TaskExtractionExample(
+                messages=[
+                    MessageUtils.create_user_message(
+                        "Compare current beam current with my baseline"
+                    ),
+                ],
+                user_memory=UserMemories(
+                    entries=[
+                        "[2025-01-10 09:00] Baseline beam current: 400 mA ± 2 mA (BEAM:CURRENT:RB)",
+                        "[2025-01-10 09:05] Baseline vacuum pressure: 1.5e-9 Torr (VACUUM:SECT3:PRESSURE:RB)",
+                    ]
+                ),
+                expected_output=ExtractedTask(
+                    task="Read current value of BEAM:CURRENT:RB and compare with baseline of 400 mA ± 2 mA to check if current beam current is within acceptable range",
+                    depends_on_chat_history=False,
+                    depends_on_user_memory=True,
+                ),
             )
-        ))
+        )
 
         # ===================================================================
         # PATTERN 11: Memory + History - Recurring Issue Detection
@@ -373,20 +406,24 @@ class ControlSystemTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilde
         # Users track recurring problems and want to check if they're happening again
         # Task must combine memory context with current state assessment
 
-        self.examples.append(TaskExtractionExample(
-            messages=[
-                MessageUtils.create_user_message("Is that cooling issue happening again?"),
-            ],
-            user_memory=UserMemories(entries=[
-                "[2025-01-12 14:30] Cooling issue pattern: RF cavity temperature (RF:CAVITY:TEMP:RB) spikes above 45°C when RF power exceeds 250 kW",
-                "[2025-01-12 14:35] Monitor both RF:CAVITY:TEMP:RB and RF:CAVITY:POWER:RB together when investigating"
-            ]),
-            expected_output=ExtractedTask(
-                task="Read current values of RF:CAVITY:TEMP:RB and RF:CAVITY:POWER:RB to check if the cooling issue pattern is occurring (temperature above 45°C when power exceeds 250 kW)",
-                depends_on_chat_history=False,
-                depends_on_user_memory=True
+        self.examples.append(
+            TaskExtractionExample(
+                messages=[
+                    MessageUtils.create_user_message("Is that cooling issue happening again?"),
+                ],
+                user_memory=UserMemories(
+                    entries=[
+                        "[2025-01-12 14:30] Cooling issue pattern: RF cavity temperature (RF:CAVITY:TEMP:RB) spikes above 45°C when RF power exceeds 250 kW",
+                        "[2025-01-12 14:35] Monitor both RF:CAVITY:TEMP:RB and RF:CAVITY:POWER:RB together when investigating",
+                    ]
+                ),
+                expected_output=ExtractedTask(
+                    task="Read current values of RF:CAVITY:TEMP:RB and RF:CAVITY:POWER:RB to check if the cooling issue pattern is occurring (temperature above 45°C when power exceeds 250 kW)",
+                    depends_on_chat_history=False,
+                    depends_on_user_memory=True,
+                ),
             )
-        ))
+        )
 
         # ===================================================================
         # PATTERN 12: Conversational Query (No Technical Action)
@@ -394,22 +431,26 @@ class ControlSystemTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilde
         # Not all queries require channel operations
         # This helps distinguish conversation from actionable tasks
 
-        self.examples.append(TaskExtractionExample(
-            messages=[
-                MessageUtils.create_user_message("Hi, what can you help me with?"),
-                MessageUtils.create_assistant_message(
-                    "I'm your control system assistant! I can help you find channels, "
-                    "read current values, retrieve historical data, analyze trends, and more."
+        self.examples.append(
+            TaskExtractionExample(
+                messages=[
+                    MessageUtils.create_user_message("Hi, what can you help me with?"),
+                    MessageUtils.create_assistant_message(
+                        "I'm your control system assistant! I can help you find channels, "
+                        "read current values, retrieve historical data, analyze trends, and more."
+                    ),
+                    MessageUtils.create_user_message(
+                        "What's the difference between setpoint and readback channels?"
+                    ),
+                ],
+                user_memory=UserMemories(entries=[]),
+                expected_output=ExtractedTask(
+                    task="Explain the difference between setpoint (SP) and readback (RB) channels in control systems",
+                    depends_on_chat_history=False,
+                    depends_on_user_memory=False,
                 ),
-                MessageUtils.create_user_message("What's the difference between setpoint and readback channels?"),
-            ],
-            user_memory=UserMemories(entries=[]),
-            expected_output=ExtractedTask(
-                task="Explain the difference between setpoint (SP) and readback (RB) channels in control systems",
-                depends_on_chat_history=False,
-                depends_on_user_memory=False
             )
-        ))
+        )
 
         # ===================================================================
         # PATTERN 13: Write Based on Previous Context
@@ -417,21 +458,23 @@ class ControlSystemTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilde
         # Users reference values from previous conversation when writing
         # Task must extract the actual value from conversation context
 
-        self.examples.append(TaskExtractionExample(
-            messages=[
-                MessageUtils.create_user_message("What's the optimal corrector current?"),
-                MessageUtils.create_assistant_message(
-                    "Based on the beam parameters, the optimal corrector current is 12.5 A."
+        self.examples.append(
+            TaskExtractionExample(
+                messages=[
+                    MessageUtils.create_user_message("What's the optimal corrector current?"),
+                    MessageUtils.create_assistant_message(
+                        "Based on the beam parameters, the optimal corrector current is 12.5 A."
+                    ),
+                    MessageUtils.create_user_message("Set it to that value"),
+                ],
+                user_memory=UserMemories(entries=[]),
+                expected_output=ExtractedTask(
+                    task="Set the corrector magnet current to the calculated optimal value of 12.5 A",
+                    depends_on_chat_history=True,
+                    depends_on_user_memory=False,
                 ),
-                MessageUtils.create_user_message("Set it to that value"),
-            ],
-            user_memory=UserMemories(entries=[]),
-            expected_output=ExtractedTask(
-                task="Set the corrector magnet current to the calculated optimal value of 12.5 A",
-                depends_on_chat_history=True,
-                depends_on_user_memory=False
             )
-        ))
+        )
 
         # ===================================================================
         # PATTERN 14: Visualization/Plotting Request
@@ -440,14 +483,16 @@ class ControlSystemTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilde
         # Task states the GOAL (create plot), not the steps (find → retrieve → plot)
         # Orchestrator determines the workflow
 
-        self.examples.append(TaskExtractionExample(
-            messages=[
-                MessageUtils.create_user_message("Plot the beam current over the last 2 hours"),
-            ],
-            user_memory=UserMemories(entries=[]),
-            expected_output=ExtractedTask(
-                task="Create a time-series plot of beam current data for the last 2 hours",
-                depends_on_chat_history=False,
-                depends_on_user_memory=False
+        self.examples.append(
+            TaskExtractionExample(
+                messages=[
+                    MessageUtils.create_user_message("Plot the beam current over the last 2 hours"),
+                ],
+                user_memory=UserMemories(entries=[]),
+                expected_output=ExtractedTask(
+                    task="Create a time-series plot of beam current data for the last 2 hours",
+                    depends_on_chat_history=False,
+                    depends_on_user_memory=False,
+                ),
             )
-        ))
+        )

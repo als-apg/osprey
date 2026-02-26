@@ -4,11 +4,7 @@ import pytest
 import yaml
 
 from osprey.generators.config_updater import (
-    add_capability_react_to_config,
     get_all_model_configs,
-    get_capability_react_config,
-    has_capability_react_model,
-    remove_capability_react_from_config,
     update_all_models,
     update_yaml_file,
 )
@@ -43,139 +39,6 @@ def updater_temp_config(tmp_path, sample_config_content):
     config_file = tmp_path / "config.yml"
     config_file.write_text(sample_config_content)
     return config_file
-
-
-def test_has_capability_react_model(updater_temp_config):
-    """Test checking if capability has react model configured."""
-    assert has_capability_react_model(updater_temp_config, "weather_demo")
-    assert has_capability_react_model(updater_temp_config, "slack_mcp")
-    assert not has_capability_react_model(updater_temp_config, "nonexistent")
-
-
-def test_remove_capability_react_from_config(updater_temp_config):
-    """Test removing capability react model from config."""
-    # Remove weather_demo_react
-    backup_path, preview, found = remove_capability_react_from_config(
-        updater_temp_config, "weather_demo"
-    )
-
-    # Check that it was found
-    assert found
-    assert "REMOVE" in preview
-    assert "weather_demo_react" in preview
-
-    # Check that it's removed from the file
-    updated_content = updater_temp_config.read_text()
-    assert "weather_demo_react" not in updated_content
-
-    # Check that other models are still there
-    assert "orchestrator:" in updated_content
-    assert "slack_mcp_react:" in updated_content
-
-
-def test_remove_nonexistent_model(updater_temp_config):
-    """Test removing a model that doesn't exist."""
-    original_content = updater_temp_config.read_text()
-
-    backup_path, preview, found = remove_capability_react_from_config(
-        updater_temp_config, "nonexistent"
-    )
-
-    # Should not be found
-    assert not found
-    assert "found" in preview.lower()  # Message says "No config entry found"
-    assert backup_path is None  # No backup created when not found
-
-    # Content should be unchanged
-    assert updater_temp_config.read_text() == original_content
-
-
-def test_get_capability_react_config(updater_temp_config):
-    """Test getting capability react model configuration."""
-    config = get_capability_react_config(updater_temp_config, "weather_demo")
-
-    assert config is not None
-    assert config["provider"] == "anthropic"
-    assert config["model_id"] == "claude-haiku-4-5-20251001"
-    assert config["max_tokens"] == 4096
-
-
-def test_get_nonexistent_config(updater_temp_config):
-    """Test getting config for nonexistent capability."""
-    config = get_capability_react_config(updater_temp_config, "nonexistent")
-    assert config is None
-
-
-def test_add_then_remove_model(updater_temp_config):
-    """Test adding a model and then removing it."""
-    # Add new model
-    template_config = {"provider": "anthropic", "model_id": "claude-sonnet-4", "max_tokens": 4096}
-    backup_path, add_preview = add_capability_react_to_config(
-        updater_temp_config, capability_name="jira_mcp", template_config=template_config
-    )
-
-    # Verify it was added
-    assert has_capability_react_model(updater_temp_config, "jira_mcp")
-
-    # Remove it
-    backup_path2, remove_preview, found = remove_capability_react_from_config(
-        updater_temp_config, "jira_mcp"
-    )
-
-    # Verify it was removed
-    assert found
-    assert "jira_mcp_react" in remove_preview
-
-    # Verify it's no longer there
-    assert not has_capability_react_model(updater_temp_config, "jira_mcp")
-
-    # But original models should still be there
-    assert has_capability_react_model(updater_temp_config, "weather_demo")
-    assert has_capability_react_model(updater_temp_config, "slack_mcp")
-
-
-def test_remove_preserves_structure(updater_temp_config):
-    """Test that removal preserves the overall config structure."""
-    # Remove one model
-    backup_path, _, _ = remove_capability_react_from_config(updater_temp_config, "weather_demo")
-
-    # Read updated content
-    updated_content = updater_temp_config.read_text()
-
-    # Check that the models section is still there
-    assert "models:" in updated_content
-    assert "orchestrator:" in updated_content
-
-    # Check that other sections are preserved
-    assert "registry_path:" in updated_content
-
-    # Check that other capability models are intact
-    assert "slack_mcp_react:" in updated_content
-
-
-def test_remove_multiple_models_sequentially(updater_temp_config):
-    """Test removing multiple models one after another."""
-    # Remove first model
-    _, _, found1 = remove_capability_react_from_config(updater_temp_config, "weather_demo")
-    assert found1
-
-    # Remove second model
-    _, _, found2 = remove_capability_react_from_config(updater_temp_config, "slack_mcp")
-    assert found2
-
-    # Verify both are removed
-    assert not has_capability_react_model(updater_temp_config, "weather_demo")
-    assert not has_capability_react_model(updater_temp_config, "slack_mcp")
-
-    # But orchestrator should still be there
-    final_content = updater_temp_config.read_text()
-    assert "orchestrator:" in final_content
-    assert "models:" in final_content
-
-
-# =============================================================================
-# Model Configuration Tests (update_all_models and get_all_model_configs)
-# =============================================================================
 
 
 def test_get_all_model_configs(updater_temp_config):
@@ -292,27 +155,6 @@ def test_update_all_models_preserves_structure(updater_temp_config):
     # Check that other sections are preserved
     assert "registry_path:" in updated_content
     assert updated_content.count("registry_path:") == original_content.count("registry_path:")
-
-
-def test_update_all_models_works_with_added_model(updater_temp_config):
-    """Test updating models after adding a new capability model."""
-    # First, add a new model
-    template_config = {"provider": "anthropic", "model_id": "claude-haiku-4", "max_tokens": 2048}
-    _, _ = add_capability_react_to_config(updater_temp_config, "new_capability", template_config)
-
-    # Now update all models
-    updated_content, _ = update_all_models(updater_temp_config, "openai", "gpt-3.5-turbo")
-
-    # Verify the new model was also updated
-    assert "provider: openai" in updated_content
-    assert updated_content.count("provider: openai") == 4  # Including the newly added one
-
-    # Verify via get_all_model_configs
-    models = get_all_model_configs(updater_temp_config)
-
-    assert models["new_capability_react"]["provider"] == "openai"
-    assert models["new_capability_react"]["model_id"] == "gpt-3.5-turbo"
-    assert models["new_capability_react"]["max_tokens"] == 2048  # Preserved
 
 
 def test_update_all_models_multiple_times(updater_temp_config):
