@@ -67,6 +67,20 @@ AGENT_DEFAULT_TIERS: dict[str, str] = {
 
 VALID_TIERS = frozenset(("haiku", "sonnet", "opus"))
 
+# Env vars that settings.json controls — scrubbed from shell before execvp
+# so the per-project env block is authoritative.
+MANAGED_ENV_VARS = frozenset(
+    {
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    }
+)
+
 
 @dataclass(frozen=True)
 class ClaudeCodeModelSpec:
@@ -90,6 +104,8 @@ class ClaudeCodeModelSpec:
     agent_overrides: dict[str, str] = field(default_factory=dict)
     default_model_tier: str = "sonnet"
     shell_exports: tuple[str, ...] = ()
+    auth_env_var: str = ""
+    auth_secret_env: str = ""
 
     def agent_tier(self, name: str) -> str:
         """Resolve the tier alias for a named agent (for Claude Code model: frontmatter).
@@ -109,6 +125,14 @@ class ClaudeCodeModelSpec:
         """Resolve the concrete model ID for a named agent."""
         tier = self.agent_tier(name)
         return self.tier_to_model.get(tier, tier)
+
+    def detect_env_conflicts(self, environ: dict[str, str]) -> dict[str, tuple[str, str]]:
+        """Return {var: (shell_value, settings_value)} for vars where shell != settings.json."""
+        conflicts = {}
+        for var, settings_val in self.env_block.items():
+            if var in environ and environ[var] != settings_val:
+                conflicts[var] = (environ[var], settings_val)
+        return conflicts
 
 
 class ClaudeCodeModelResolver:
@@ -239,6 +263,8 @@ class ClaudeCodeModelResolver:
             agent_overrides=agent_overrides,
             default_model_tier=default_tier,
             shell_exports=tuple(shell_exports),
+            auth_env_var=auth_env_var,
+            auth_secret_env=auth_secret_env,
         )
 
     @staticmethod
