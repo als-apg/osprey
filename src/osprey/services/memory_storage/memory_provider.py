@@ -28,14 +28,13 @@ Key Features:
    :class:`osprey.data_management.manager.DataSourceManager` : Provider registration system
 """
 
-import logging
-
 from osprey.data_management.providers import DataSourceContext, DataSourceProvider
 from osprey.data_management.request import DataSourceRequest
+from osprey.utils.logger import get_logger
 
 from .storage_manager import get_memory_storage_manager
 
-logger = logging.getLogger(__name__)
+logger = get_logger("memory_provider")
 
 
 class UserMemoryProvider(DataSourceProvider):

@@ -96,7 +96,7 @@ def show_banner(context: str = "interactive", config_path: str | None = None):
     try:
         # Check if config exists before trying to load
         # Suppress config loading messages in interactive menu
-        with quiet_logger(["REGISTRY", "CONFIG"]):
+        with quiet_logger(["registry", "CONFIG"]):
             if config_path:
                 banner_text = get_config_value("cli.banner", None, config_path)
             elif (Path.cwd() / "config.yml").exists():
@@ -642,7 +642,7 @@ def show_main_menu() -> str | None:
     """
     if not questionary:
         console.print(Messages.error("questionary package not installed."))
-        console.print(f"Install with: {Messages.command('pip install questionary')}")
+        console.print(f"Install with: {Messages.command('uv pip install questionary')}")
         return None
 
     if not is_project_initialized():
@@ -875,7 +875,7 @@ def select_code_generator(generators: dict[str, dict[str, Any]]) -> str | None:
         console.print(f"\n{Messages.error('No code generators available')}")
         console.print(Messages.warning("Osprey could not load any code generators."))
         console.print(
-            f"[dim]Check that osprey is properly installed: {Messages.command('pip install -e .[all]')}[/dim]\n"
+            f"[dim]Check that osprey is properly installed: {Messages.command('uv sync --all-extras')}[/dim]\n"
         )
         return None
 
@@ -938,7 +938,7 @@ def select_provider(providers: dict[str, dict[str, Any]]) -> str | None:
         console.print(f"\n{Messages.error('No providers available')}")
         console.print(Messages.warning("Osprey could not load any AI providers."))
         console.print(
-            f"[dim]Check that osprey is properly installed: {Messages.command('pip install -e .[all]')}[/dim]\n"
+            f"[dim]Check that osprey is properly installed: {Messages.command('uv sync --all-extras')}[/dim]\n"
         )
         return None
 
@@ -1015,6 +1015,7 @@ def get_api_key_name(provider: str) -> str | None:
     """
     key_names = {
         "cborg": "CBORG_API_KEY",
+        "amsc": "AMSC_I2_API_KEY",
         "stanford": "STANFORD_API_KEY",
         "argo": "ARGO_API_KEY",
         "anthropic": "ANTHROPIC_API_KEY",
@@ -1265,11 +1266,63 @@ def run_interactive_init() -> str:
         if channel_finder_mode is None:
             return "menu"
 
-    # 2c. Code generator selection (for templates that use Python execution)
+    # 2c. Control capabilities selection (native framework capabilities)
+    control_capabilities = None
+    if template == "control_assistant":
+        console.print("\n[bold]Step 4: Control System Capabilities[/bold]\n")
+        console.print(
+            "[dim]The framework provides these native capabilities (all enabled by default):[/dim]\n"
+        )
+
+        all_caps = [
+            Choice(
+                "channel_finding     - Find control system channels by description",
+                value="channel_finding",
+                checked=True,
+            ),
+            Choice(
+                "channel_read        - Read current channel values",
+                value="channel_read",
+                checked=True,
+            ),
+            Choice(
+                "channel_write       - Write values to channels (with safety controls)",
+                value="channel_write",
+                checked=True,
+            ),
+            Choice(
+                "archiver_retrieval  - Query historical time-series data",
+                value="archiver_retrieval",
+                checked=True,
+            ),
+        ]
+
+        selected = questionary.checkbox(
+            "Control capabilities:",
+            choices=all_caps,
+            style=custom_style,
+        ).ask()
+
+        if selected is None:
+            return "menu"
+
+        # Validate: channel_finding required if any others are selected
+        if selected and "channel_finding" not in selected:
+            other_caps = [c for c in selected if c != "channel_finding"]
+            if other_caps:
+                console.print(
+                    f"\n{Messages.warning('channel_finding is required when using: ' + ', '.join(other_caps))}"
+                )
+                selected.insert(0, "channel_finding")
+                console.print(f"{Messages.info('Automatically included channel_finding')}\n")
+
+        control_capabilities = selected if selected else None
+
+    # 2d. Code generator selection (for templates that use Python execution)
     # Skip for hello_world_weather (simple example), include for control_assistant
     code_generator = None
     if template == "control_assistant":
-        step_num = 4  # After channel finder
+        step_num = 5  # After channel finder + capabilities
         console.print(f"\n[bold]Step {step_num}: Code Generator[/bold]\n")
         code_generator = select_code_generator(code_generators)
         if code_generator is None:
@@ -1409,7 +1462,7 @@ def run_interactive_init() -> str:
 
     # 3. Registry style (step number adjusts based on previous steps)
     if template == "control_assistant":
-        step_num = 5  # After template, name, channel_finder, code_generator
+        step_num = 6  # After template, name, channel_finder, capabilities, code_generator
     else:
         step_num = 3  # After template, name
     console.print(f"\n[bold]Step {step_num}: Registry Style[/bold]\n")
@@ -1429,7 +1482,7 @@ def run_interactive_init() -> str:
 
     # 4. Provider selection (step number adjusts)
     if template == "control_assistant":
-        step_num = 6  # After template, name, channel_finder, code_generator, registry
+        step_num = 7  # After template, name, channel_finder, capabilities, code_generator, registry
     else:
         step_num = 4  # After template, name, registry
     console.print(f"\n[bold]Step {step_num}: AI Provider[/bold]\n")
@@ -1439,7 +1492,7 @@ def run_interactive_init() -> str:
 
     # 5. Model selection (step number adjusts)
     if template == "control_assistant":
-        step_num = 7  # After template, name, channel_finder, code_generator, registry, provider
+        step_num = 8  # After template, name, channel_finder, capabilities, code_generator, registry, provider
     else:
         step_num = 5  # After template, name, registry, provider
     console.print(f"\n[bold]Step {step_num}: Model Selection[/bold]\n")
@@ -1453,6 +1506,9 @@ def run_interactive_init() -> str:
     console.print(f"  Template:      [value]{template}[/value]")
     if channel_finder_mode:
         console.print(f"  Pipeline:      [value]{channel_finder_mode}[/value]")
+    if control_capabilities is not None:
+        caps_str = ", ".join(control_capabilities) if control_capabilities else "none"
+        console.print(f"  Capabilities:  [value]{caps_str}[/value]")
     if code_generator:
         console.print(f"  Code Gen:      [value]{code_generator}[/value]")
     console.print(f"  Registry:      [value]{registry_style}[/value]")
@@ -1480,6 +1536,8 @@ def run_interactive_init() -> str:
         context = {"default_provider": provider, "default_model": model}
         if channel_finder_mode:
             context["channel_finder_mode"] = channel_finder_mode
+        if control_capabilities is not None:
+            context["control_capabilities"] = control_capabilities
         if code_generator:
             context["code_generator"] = code_generator
 
@@ -1492,6 +1550,15 @@ def run_interactive_init() -> str:
             force=True,
         )
 
+        # Generate manifest for migration support
+        manager.generate_manifest(
+            project_dir=project_path,
+            project_name=project_name,
+            template_name=template,
+            registry_style=registry_style,
+            context=context,
+        )
+
         msg = Messages.success("Project created at:")
         path = Messages.path(str(project_path))
         console.print(f"\n{msg} {path}\n")
@@ -1500,6 +1567,7 @@ def run_interactive_init() -> str:
         detected_env = manager._detect_environment_variables()
         api_keys = [
             "CBORG_API_KEY",
+            "AMSC_I2_API_KEY",
             "OPENAI_API_KEY",
             "ANTHROPIC_API_KEY",
             "GOOGLE_API_KEY",
@@ -1697,16 +1765,18 @@ def handle_chat_action(project_path: Path | None = None):
             )
             console.print("[bold]Possible solutions:[/bold]")
             console.print("  1. Upgrade typing_extensions:")
-            console.print(f"     {Messages.command('pip install --upgrade typing-extensions')}\n")
+            console.print(
+                f"     {Messages.command('uv pip install --upgrade typing-extensions')}\n"
+            )
             console.print("  2. Upgrade pydantic:")
             console.print(
-                f"     {Messages.command('pip install --upgrade pydantic pydantic-core')}\n"
+                f"     {Messages.command('uv pip install --upgrade pydantic pydantic-core')}\n"
             )
             console.print("  3. Or upgrade to Python 3.12+\n")
         else:
             console.print(Messages.warning("There was an error loading the chat dependencies."))
             console.print(
-                f"[dim]Try reinstalling osprey dependencies: {Messages.command('pip install -e .[all]')}[/dim]\n"
+                f"[dim]Try reinstalling osprey dependencies: {Messages.command('uv sync --all-extras')}[/dim]\n"
             )
 
         if os.environ.get("DEBUG"):
@@ -1808,7 +1878,9 @@ def handle_chat_tui_action(project_path: Path | None = None):
         console.print(f"\n{Messages.error('TUI not available')}")
         console.print(f"[dim]{e}[/dim]\n")
         console.print("The TUI requires the 'textual' package which is not installed.")
-        console.print("Install with: [bold cyan]pip install osprey-framework\\[tui][/bold cyan]\n")
+        console.print(
+            "Install with: [bold cyan]uv pip install osprey-framework\\[tui][/bold cyan]\n"
+        )
         input("\nPress ENTER to continue...")
         return
     except Exception as e:
@@ -1816,7 +1888,7 @@ def handle_chat_tui_action(project_path: Path | None = None):
         console.print(f"\n{Messages.error(f'Dependency Error: {error_msg}')}\n")
         console.print(Messages.warning("There was an error loading the TUI dependencies."))
         console.print(
-            "Try reinstalling: [bold cyan]pip install osprey-framework\\[tui][/bold cyan]\n"
+            "Try reinstalling: [bold cyan]uv pip install osprey-framework\\[tui][/bold cyan]\n"
         )
 
         if os.environ.get("DEBUG"):
@@ -2183,7 +2255,7 @@ def handle_health_action(project_path: Path | None = None):
 
         # Create and run health checker (full mode by default)
         # Suppress config/registry initialization messages
-        with quiet_logger(["REGISTRY", "CONFIG"]):
+        with quiet_logger(["registry", "CONFIG"]):
             checker = HealthChecker(verbose=False, full=True)
             success = checker.check_all()
 
@@ -2224,7 +2296,7 @@ def handle_workflows_action():
         console.print(Messages.error("Workflow files not found in installed package"))
         console.print(
             f"[{Styles.DIM}]This might indicate a packaging issue. "
-            f"Try reinstalling: pip install --force-reinstall osprey-framework[/{Styles.DIM}]"
+            f"Try reinstalling: uv pip install --force-reinstall osprey-framework[/{Styles.DIM}]"
         )
         input("\nPress ENTER to continue...")
         return
@@ -2442,7 +2514,7 @@ def handle_help_action():
     console.print("  • Full-screen terminal interface built with Textual")
     console.print("  • Real-time streaming with step-by-step visualization")
     console.print("  • Theme support, command palette (Ctrl+P), slash commands")
-    console.print("  • Requires: pip install osprey-framework\\[tui]")
+    console.print("  • Requires: uv pip install osprey-framework\\[tui]")
     console.print(
         f"  • [{Styles.DIM}]Perfect for: Visual debugging, monitoring agent reasoning[/{Styles.DIM}]"
     )
@@ -2558,7 +2630,7 @@ def show_generate_help():
     console.print("  • FastMCP-based HTTP server")
     console.print("  • Includes example tools (get_weather, get_forecast)")
     console.print(
-        f"  • Ready to run: just [{Styles.VALUE}]pip install fastmcp && python server.py[/{Styles.VALUE}]"
+        f"  • Ready to run: just [{Styles.VALUE}]uv pip install fastmcp && python server.py[/{Styles.VALUE}]"
     )
     console.print(
         f"  • [{Styles.DIM}]Perfect for: Testing capability generation, learning MCP protocol[/{Styles.DIM}]"
@@ -2578,6 +2650,23 @@ def show_generate_help():
     console.print("  • Includes tool definitions and execution limits")
     console.print(
         f"  • [{Styles.DIM}]Required for: Using claude_code generator in Python execution[/{Styles.DIM}]"
+    )
+    console.print()
+
+    # soft-ioc option
+    console.print(
+        f"[{Styles.HEADER}][→] soft-ioc - Simulated control system for development[/{Styles.HEADER}]"
+    )
+    console.print()
+    console.print("  • Generates caproto-based EPICS soft IOC from channel database")
+    console.print("  • Uses channel database from your channel_finder config")
+    console.print("  • Auto-detects PV types and access modes from naming conventions")
+    console.print("  • Supports mock_style (simulated values) or passthrough backends")
+    console.print(
+        f"  • Ready to run: just [{Styles.VALUE}]uv pip install caproto && python <ioc>.py[/{Styles.VALUE}]"
+    )
+    console.print(
+        f"  • [{Styles.DIM}]Perfect for: Testing without real hardware, development mode[/{Styles.DIM}]"
     )
     console.print()
 
@@ -2645,6 +2734,10 @@ def show_generate_menu() -> str | None:
             Choice(
                 "[→] claude-config  - Claude Code generator configuration",
                 value="generate_claude_config",
+            ),
+            Choice(
+                "[→] soft-ioc       - Simulated control system for development",
+                value="generate_soft_ioc",
             ),
             Choice("─" * 60, value=None, disabled=True),
             Choice("[?] help           - Detailed descriptions and usage guide", value="show_help"),
@@ -2769,11 +2862,34 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
     input("\nPress ENTER to continue...")
 
 
+def _check_simulation_ioc_running(host: str = "localhost", port: int = 5064) -> bool:
+    """Check if a simulation IOC is running on the specified port.
+
+    Args:
+        host: Host address to check
+        port: Port number to check
+
+    Returns:
+        True if port is open and accepting connections, False otherwise
+    """
+    import socket
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1.0)
+            result = sock.connect_ex((host, port))
+            return result == 0
+    except OSError:
+        return False
+
+
 def handle_set_epics_gateway(project_path: Path | None = None) -> None:
     """Handle interactive EPICS gateway configuration."""
     from osprey.generators.config_updater import (
         find_config_file,
+        get_control_system_type,
         get_facility_from_gateway_config,
+        set_control_system_type,
         set_epics_gateway_config,
     )
     from osprey.templates.data import FACILITY_PRESETS
@@ -2861,6 +2977,20 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
         # Use preset
         new_content, preview = set_epics_gateway_config(config_path, facility)
 
+        # Check if simulation IOC is running when using simulation preset
+        if facility == "simulation":
+            preset = FACILITY_PRESETS[facility]
+            host = preset["gateways"]["read_only"]["address"]
+            port = preset["gateways"]["read_only"]["port"]
+
+            if not _check_simulation_ioc_running(host, port):
+                console.print(f"\n{Messages.warning(f'⚠ No IOC detected on {host}:{port}')}")
+                console.print(
+                    "\n[dim]To start the simulation IOC:[/dim]"
+                    "\n[dim]  1. Generate IOC: osprey generate soft-ioc[/dim]"
+                    "\n[dim]  2. Run IOC: python generated_iocs/<ioc_name>_ioc.py[/dim]"
+                )
+
     # Show preview
     console.print("\n" + preview)
 
@@ -2871,9 +3001,33 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
         # Use UTF-8 encoding explicitly to support Unicode characters on Windows
         config_path.write_text(new_content, encoding="utf-8")
         console.print(f"\n{Messages.success('✓ EPICS gateway configuration updated!')}")
-        console.print(
-            "\n[dim]Remember to also set control_system.type to 'epics' for production use[/dim]"
-        )
+
+        # Check if mode is still 'mock' and offer to switch
+        current_type = get_control_system_type(config_path)
+        if current_type in (None, "mock"):
+            # None means missing config key, treat same as mock
+            if questionary.confirm(
+                "\nYour control system is set to 'mock' mode. Switch to 'epics' to use this "
+                "gateway?",
+                default=True,
+                style=custom_style,
+            ).ask():
+                type_content, _ = set_control_system_type(config_path, "epics")
+                config_path.write_text(type_content, encoding="utf-8")
+                console.print(f"{Messages.success('✓ Switched to epics mode!')}")
+            else:
+                console.print(
+                    "\n[dim]Note: Gateway configured but mode is still 'mock'. "
+                    "Use 'set-control-system' to switch when ready.[/dim]"
+                )
+        elif current_type == "epics":
+            console.print("[dim]Control system already set to 'epics' mode.[/dim]")
+        else:
+            # Other types like 'tango', 'labview' - don't auto-switch
+            console.print(
+                f"[dim]Note: Control system is set to '{current_type}'. "
+                "This gateway config applies when using 'epics' mode.[/dim]"
+            )
     else:
         console.print(f"\n{Messages.warning('✗ Configuration not changed')}")
 
@@ -2976,6 +3130,8 @@ def handle_generate_action():
             handle_generate_mcp_server()
         elif action == "generate_claude_config":
             handle_generate_claude_config()
+        elif action == "generate_soft_ioc":
+            handle_generate_soft_ioc()
         elif action == "show_help":
             show_generate_help()
             # Loop continues - returns to generate menu after help
@@ -3144,7 +3300,7 @@ def handle_generate_mcp_server():
         console.print(f"[{Styles.HEADER}]Usage Instructions:[/{Styles.HEADER}]")
         if not fastmcp_installed:
             console.print(
-                f"  1. Install dependencies: [{Styles.ACCENT}]pip install fastmcp[/{Styles.ACCENT}]"
+                f"  1. Install dependencies: [{Styles.ACCENT}]uv pip install fastmcp[/{Styles.ACCENT}]"
             )
             console.print(
                 f"  2. Run the server: [{Styles.ACCENT}]python {output_path}[/{Styles.ACCENT}]"
@@ -3177,7 +3333,7 @@ def handle_generate_mcp_server():
         else:
             choices = [
                 Choice(
-                    "[!] Cannot launch - fastmcp not installed (pip install fastmcp)",
+                    "[!] Cannot launch - fastmcp not installed (uv pip install fastmcp)",
                     value="install",
                     disabled=True,
                 ),
@@ -3342,6 +3498,71 @@ def handle_generate_claude_config():
         input("Press ENTER to continue...")
 
 
+def handle_generate_soft_ioc():
+    """Handle interactive soft IOC generation."""
+    console.clear()
+    console.print(f"\n{Messages.header('Generate Soft IOC')}\n")
+    console.print("[dim]Creates a simulated control system from your channel database[/dim]\n")
+
+    from pathlib import Path
+
+    import click
+
+    from osprey.cli.generate_cmd import soft_ioc
+
+    # Check for config.yml
+    config_path = Path.cwd() / "config.yml"
+    if not config_path.exists():
+        console.print(f"\n{Messages.error('No config.yml found in current directory')}")
+        console.print()
+        console.print("  Run [accent]osprey init[/accent] to create a project first.")
+        console.print()
+        input("Press ENTER to continue...")
+        return
+
+    # Ask about options
+    use_init = questionary.confirm(
+        "Run interactive setup wizard?",
+        default=True,
+        style=custom_style,
+    ).ask()
+
+    if use_init is None:
+        return
+
+    dry_run = questionary.confirm(
+        "Dry-run mode (preview without writing files)?",
+        default=False,
+        style=custom_style,
+    ).ask()
+
+    if dry_run is None:
+        return
+
+    try:
+        # Build CLI args
+        args = []
+        if use_init:
+            args.append("--init")
+        if dry_run:
+            args.append("--dry-run")
+
+        # Invoke the command
+        ctx = click.Context(soft_ioc)
+        ctx.invoke(soft_ioc, config_path=None, output_file=None, dry_run=dry_run, init=use_init)
+
+    except click.Abort:
+        console.print(f"\n{Messages.info('Generation cancelled by user.')}")
+    except Exception as e:
+        console.print(f"\n{Messages.error(f'Generation failed: {e}')}")
+        import traceback
+
+        console.print(f"[dim]{traceback.format_exc()}[/dim]")
+
+    console.print()
+    input("Press ENTER to continue...")
+
+
 # ============================================================================
 # NAVIGATION LOOP
 # ============================================================================
@@ -3410,9 +3631,9 @@ def launch_tui():
     if not questionary:
         console.print(Messages.error("Missing required dependency 'questionary'"))
         console.print("\nInstall with:")
-        console.print(f"  {Messages.command('pip install questionary')}")
+        console.print(f"  {Messages.command('uv pip install questionary')}")
         console.print("\nOr install full osprey dependencies:")
-        console.print(f"  {Messages.command('pip install -e .[all]')}\n")
+        console.print(f"  {Messages.command('uv sync --all-extras')}\n")
         sys.exit(1)
 
     try:

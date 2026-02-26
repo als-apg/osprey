@@ -1,11 +1,13 @@
 """Processing block widgets for the TUI."""
 
 import textwrap
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.message import Message
 from textual.widgets import Collapsible, Static
 
 if TYPE_CHECKING:
@@ -49,7 +51,7 @@ class ProcessingBlock(Static):
         # Input preview for collapsible toggle
         self._input_preview: str = ""
         # LOG section - streaming messages for debugging
-        self._log_messages: list[tuple[str, str]] = []  # [(status, message), ...]
+        self._log_messages: list[tuple[str, str, datetime | None]] = []
         # Track if IN was populated from streaming (vs placeholder)
         self._input_set: bool = False
         # Data dict for extracted information (task, capabilities, steps, etc.)
@@ -305,15 +307,18 @@ class ProcessingBlock(Static):
         # DON'T stop breathing or change header indicator
         # Block remains "active" with breathing animation
 
-    def add_log(self, message: str, status: str = "status") -> None:
+    def add_log(
+        self, message: str, status: str = "status", timestamp: datetime | None = None
+    ) -> None:
         """Add a message to the LOG section.
 
         Args:
             message: The message text.
             status: The message status ('status', 'success', 'error', 'warning').
+            timestamp: Optional timestamp for the log entry.
         """
         if message:
-            self._log_messages.append((status, message))
+            self._log_messages.append((status, message, timestamp))
             self._update_log_display()
             # Track last error message for OUT section on block close
             if status == "error":
@@ -328,7 +333,8 @@ class ProcessingBlock(Static):
         if not self._log_messages:
             return ""
         lines = []
-        for msg_status, msg in self._log_messages:
+        for entry in self._log_messages:
+            msg_status, msg = entry[0], entry[1]
             # Map log_type to Textual CSS theme variables
             # These adapt automatically when theme changes
             color_map = {
@@ -514,6 +520,15 @@ class ProcessingStep(Static):
     Includes a "logs" link to view full log history in a modal.
     """
 
+    class LogAdded(Message):
+        """Posted when a new log is added to this step."""
+
+        def __init__(self, status: str, message: str, timestamp: datetime | None) -> None:
+            super().__init__()
+            self.status = status
+            self.message = message
+            self.timestamp = timestamp
+
     # Same indicators as ProcessingBlock for consistency
     INDICATOR_PENDING = "·"
     INDICATOR_ACTIVE = "*"
@@ -539,8 +554,8 @@ class ProcessingStep(Static):
         # Breathing animation state
         self._breathing_timer = None
         self._breathing_index = 0
-        # Internal log storage (for debugging, not displayed)
-        self._log_messages: list[tuple[str, str]] = []
+        # Internal log storage (displayed via LogViewer modal)
+        self._log_messages: list[tuple[str, str, datetime | None]] = []
         # Data dict for extracted information
         self._data: dict[str, Any] = {}
         # Track if input was set (for compatibility)
@@ -777,15 +792,18 @@ class ProcessingStep(Static):
             output.set_content(output_msg)
             output.display = True
 
-    def add_log(self, message: str, status: str = "status") -> None:
+    def add_log(
+        self, message: str, status: str = "status", timestamp: datetime | None = None
+    ) -> None:
         """Store log message and show logs link on first log.
 
         Args:
             message: The message text.
             status: The message status.
+            timestamp: Optional timestamp for the log entry.
         """
         if message:
-            self._log_messages.append((status, message))
+            self._log_messages.append((status, message, timestamp))
             # Show logs link as soon as first log arrives
             if self._mounted and len(self._log_messages) == 1:
                 logs_link = self.query_one("#step-logs-link", LogsLink)
@@ -794,6 +812,10 @@ class ProcessingStep(Static):
             if status == "error":
                 self._output_message = message
                 self._last_error_msg = message
+            # Direct call to registered LogViewer (if watching this step)
+            viewer = getattr(self.app, "_active_log_viewer", None)
+            if viewer is not None and viewer._log_source is self:
+                viewer.receive_log(status, message, timestamp)
 
     def _get_output_width(self) -> int:
         """Get the actual width available for output text wrapping.
@@ -1000,6 +1022,8 @@ class TodoList(Vertical):
         """
         super().__init__(**kwargs)
         self._items: list[TodoItem] = []
+        self._todos: list[dict] = []
+        self._states: list[str] = []
 
     def set_todos(self, todos: list[dict], states: list[str]) -> None:
         """Set all todos, replacing existing items.
@@ -1008,20 +1032,44 @@ class TodoList(Vertical):
             todos: List of todo dicts with 'task_objective' key.
             states: List of states ("pending", "current", "done").
         """
+        # Store for later reference
+        self._todos = todos
+        self._states = states.copy()
+
         # Clear existing items
         for item in self._items:
             item.remove()
         self._items.clear()
 
-        # Add new items
-        for todo, state in zip(todos, states, strict=True):
-            text = todo.get("task_objective", "")
-            item = TodoItem(text, state)
-            self._items.append(item)
-            self.mount(item)
+        # Batch all mounts to avoid multiple layout passes
+        # This prevents the "expand then shrink" visual jump
+        with self.app.batch_update():
+            for todo, state in zip(todos, states, strict=True):
+                text = todo.get("task_objective", "")
+                item = TodoItem(text, state)
+                self._items.append(item)
+                self.mount(item)
+            # Show the list within the batch
+            self.display = True
 
-        # Show the list now that it has content
-        self.display = True
+    def update_states(self, states: list[str]) -> None:
+        """Update states in-place without rebuilding widgets.
+
+        Only updates items whose state has changed. More efficient than
+        calling set_todos() when the structure hasn't changed.
+
+        Args:
+            states: New list of states ("pending", "current", "done").
+        """
+        if len(states) != len(self._items):
+            # Mismatch - can't update in place
+            return
+
+        with self.app.batch_update():
+            for item, old_state, new_state in zip(self._items, self._states, states, strict=True):
+                if old_state != new_state:
+                    item.set_state(new_state)
+        self._states = states.copy()
 
 
 class OrchestrationStep(ProcessingStep):
@@ -1120,104 +1168,6 @@ class OrchestrationStep(ProcessingStep):
             logs_link.display = True
 
 
-class TodoUpdateStep(ProcessingStep):
-    """Semi-step widget for showing todo list updates.
-
-    Used to display todo list progress during execution. Shows as a
-    minimal step with "Update Todos" title and the formatted todo list
-    as output. Can be styled separately from "real" processing steps later.
-
-    Uses TodoList widget for proper CSS-based styling of todo items.
-    Handles deferred initialization if set_todos() is called before mount.
-    """
-
-    def __init__(self, **kwargs):
-        """Initialize todo update step."""
-        super().__init__("Update Todos", **kwargs)
-        self._pending_todos: tuple[list[dict], list[str]] | None = None
-
-    def compose(self) -> ComposeResult:
-        """Compose the step with title line, output, and todo list."""
-        with Horizontal(id="step-header"):
-            yield Static(
-                f"[bold]{self.INDICATOR_PENDING} {self.title}[/bold]",
-                id="step-title",
-            )
-            # No logs/prompt/response links for semi-steps
-        # Summary line with "╰" prefix (like other steps)
-        yield WrappedStatic(
-            "",
-            initial_indent=f"  {self.OUTPUT_GUIDE} ",
-            subsequent_indent="    ",
-            id="step-output",
-        )
-        # TodoList with indent to align with text after "╰ "
-        yield TodoList(id="todo-list")
-
-    def on_mount(self) -> None:
-        """Apply pending state and schedule deferred todos."""
-        self._mounted = True
-        # Hide output line initially
-        output = self.query_one("#step-output", WrappedStatic)
-        output.display = False
-        # Start breathing animation
-        self._start_breathing()
-        # Apply pending todos AFTER first layout pass
-        if self._pending_todos:
-            steps, states = self._pending_todos
-            self._pending_todos = None
-            self.call_after_refresh(self._apply_todos, steps, states)
-
-    def _apply_todos(self, steps: list[dict], states: list[str]) -> None:
-        """Apply todos after widget is laid out.
-
-        Args:
-            steps: List of step dicts with 'task_objective'.
-            states: List of states ("pending", "current", "done").
-        """
-        # Stop breathing animation
-        self._stop_breathing()
-
-        # Update title with success styling
-        indicator = self.INDICATOR_SUCCESS
-        title_markup = f"[$success]{indicator}[/$success] [bold]{self.title}[/bold]"
-        title_line = self.query_one("#step-title", Static)
-        title_line.update(title_markup)
-
-        # Count progress for summary
-        done_count = states.count("done")
-        total_count = len(states)
-
-        # Show summary in output line with "╰" prefix
-        output = self.query_one("#step-output", WrappedStatic)
-        output.set_content(f"{done_count}/{total_count} complete")
-        output.display = True
-
-        # Update todo list
-        todo_list = self.query_one("#todo-list", TodoList)
-        todo_list.set_todos(steps, states)
-
-        # Update styling
-        self.remove_class("step-active")
-        self.add_class("step-success")
-
-    def set_todos(self, steps: list[dict], step_states: list[str]) -> None:
-        """Set the todo list content.
-
-        If called before widget is mounted, stores todos for deferred
-        application after the first layout pass.
-
-        Args:
-            steps: List of step dicts with 'task_objective'.
-            step_states: List of states ("pending", "current", "done").
-        """
-        if self._mounted:
-            self._apply_todos(steps, step_states)
-        else:
-            # Store for later application in on_mount
-            self._pending_todos = (steps, step_states)
-
-
 class ExecutionStep(ProcessingStep):
     """Step widget for execution phase - same style as T/C/O steps.
 
@@ -1276,6 +1226,21 @@ class ExecutionStep(ProcessingStep):
 
         self.remove_class("step-active")
         self.add_class(f"step-{status}")
+
+    def set_partial_output(self, text: str, status: str = "pending") -> None:
+        """Show partial output while block is still active (keeps breathing).
+
+        Unlike set_output()/set_complete(), this doesn't mark the block as complete.
+        Used for real-time status updates during streaming (e.g., "Response streaming...").
+
+        Args:
+            text: The output text to display.
+            status: The status for styling (ignored, block stays active).
+        """
+        if self._mounted and text:
+            output = self.query_one("#step-output", WrappedStatic)
+            output.set_content(text)
+            output.display = True
 
     def set_llm_prompt(self, prompt: str | dict[str, str]) -> None:
         """Override to mark as smart/infrastructure step."""

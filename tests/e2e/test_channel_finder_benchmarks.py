@@ -263,12 +263,8 @@ async def _run_benchmark(project, pipeline_mode: str):
         reset_registry()
         initialize_registry(config_path=str(project.config_path))
 
-        # Import the benchmark runner
-        runner_module = __import__(
-            f"{package_name}.services.channel_finder.benchmarks.runner",
-            fromlist=["BenchmarkRunner"],
-        )
-        BenchmarkRunner = runner_module.BenchmarkRunner
+        # Import the benchmark runner from the native framework service
+        from osprey.services.channel_finder.benchmarks.runner import BenchmarkRunner
 
         # Create runner and run benchmark
         runner = BenchmarkRunner()

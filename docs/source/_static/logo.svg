@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="64" height="64" xmlns="http://www.w3.org/2000/svg">
   <rect width="64" height="64" fill="#2980b9" rx="8"/>
-  <text x="32" y="46" font-family="Arial, sans-serif" font-size="40" 
+  <text x="32" y="46" font-family="Arial, sans-serif" font-size="40"
         text-anchor="middle" fill="white">🦅</text>
-</svg> 
+</svg>

@@ -1,0 +1,171 @@
+# Troubleshooting Guide
+
+This guide helps resolve common issues you may encounter with {{ project_name }}.
+
+## Streaming Not Working in Open WebUI
+
+### Symptom
+- Responses appear all at once instead of word-by-word
+- No real-time token streaming during LLM responses
+- Logs show old format with timestamps: `[02/04/26 13:46:17] LLM response received`
+
+### Cause
+Container is using outdated osprey from PyPI instead of local version with unified event system.
+
+### Solution
+
+```bash
+# 1. Install build module (one-time setup)
+uv pip install build
+# OR
+pip install build
+
+# 2. Redeploy with --dev flag
+framework deploy down
+framework deploy up --dev
+
+# 3. Verify fix
+docker exec pipelines grep "emit_llm_request" /usr/local/lib/python3.11/site-packages/osprey/infrastructure/respond_node.py
+# Should find: logger.emit_llm_request(prompt)
+
+docker exec pipelines grep "LLM response received" /usr/local/lib/python3.11/site-packages/osprey/infrastructure/respond_node.py
+# Should find nothing (SUCCESS)
+```
+
+### Why This Happens
+- Default deployment installs osprey from PyPI (via requirements.txt)
+- PyPI version may be behind local development version
+- `--dev` flag builds and installs local osprey wheel in container
+- This ensures containers use the latest framework code with all features
+
+### Expected Result After Fix
+- ✅ Tokens stream in real-time, appearing word-by-word
+- ✅ Status events continue to work as before
+- ✅ Code generation (if used) appears with syntax highlighting
+- ✅ Logs show new format without timestamps
+
+## Models Not Appearing in Open WebUI
+
+### Symptom
+- Open WebUI shows empty model list
+- No agents/pipelines available to select
+
+### Possible Causes & Solutions
+
+#### 1. Pipeline Service Not Started
+```bash
+# Check if pipelines container is running
+docker ps | grep pipelines
+
+# If not running, start services
+framework deploy up
+```
+
+#### 2. Pipeline Class Failed to Load
+```bash
+# Check pipeline logs for errors
+docker logs pipelines --tail 100
+
+# Look for errors like:
+# - "No Pipeline class found"
+# - "ModuleNotFoundError"
+# - Import errors
+
+# If you see errors, check your pipeline code in services/pipelines/main.py
+```
+
+#### 3. Configuration Issues
+```bash
+# Verify config.yml has deployed_services
+grep -A 5 "deployed_services" config.yml
+
+# Should include pipelines:
+# deployed_services:
+#   - pipelines
+#   - open_webui
+```
+
+## Services Won't Start
+
+### Symptom
+- `framework deploy up` fails or containers crash
+
+### Solutions
+
+#### 1. Port Already in Use
+```bash
+# Check what's using the port
+lsof -i :8080  # Open WebUI port
+lsof -i :9099  # Pipelines port
+
+# Kill the process or change ports in config.yml
+```
+
+#### 2. Missing API Keys
+```bash
+# Copy example env file
+cp .env.example .env
+
+# Edit .env and add your API keys:
+# OPENAI_API_KEY=sk-...
+# ANTHROPIC_API_KEY=sk-...
+```
+
+#### 3. Container Runtime Issues
+```bash
+# Verify Docker/Podman is running
+docker ps
+# OR
+podman ps
+
+# Restart container runtime if needed
+```
+
+## Container Build Failures
+
+### Symptom
+- `framework deploy up --dev` fails during wheel building
+- Error: "No module named 'build'"
+
+### Solution
+```bash
+# Install build module
+uv pip install build
+# OR
+pip install build
+
+# Retry deployment
+framework deploy up --dev
+```
+
+## Import Errors in Application Code
+
+### Symptom
+- Your capability code fails with ImportError
+- Missing dependencies in container
+
+### Solution
+
+```bash
+# Add missing dependencies to requirements.txt
+echo "your-package>=1.0.0" >> requirements.txt
+
+# Rebuild and redeploy
+framework deploy down
+framework deploy up
+```
+
+## Getting Help
+
+If you encounter issues not covered here:
+
+1. **Check logs**: `docker logs <container-name>`
+2. **Verify configuration**: Review config.yml for typos or missing sections
+3. **Search documentation**: [Framework docs](https://als-apg.github.io/osprey)
+4. **Report issues**: [GitHub Issues](https://github.com/als-apg/osprey/issues)
+
+Include in your bug report:
+- Error messages from logs
+- Your config.yml (remove sensitive data)
+- Steps to reproduce
+- Expected vs actual behavior

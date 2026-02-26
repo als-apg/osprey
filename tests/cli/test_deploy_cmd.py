@@ -69,6 +69,11 @@ class TestDeployCommandBasics:
         result = cli_runner.invoke(deploy, ["--help"])
         assert "--dev" in result.output
 
+    def test_command_has_expose_option(self, cli_runner):
+        """Verify command has --expose option (Issue #126 security fix)."""
+        result = cli_runner.invoke(deploy, ["--help"])
+        assert "--expose" in result.output
+
 
 class TestDeployCommandActions:
     """Test deploy command action dispatch."""
@@ -202,6 +207,34 @@ class TestDeployCommandOptions:
 
                 call_kwargs = mock_deploy_up.call_args[1]
                 assert call_kwargs["dev_mode"] is True
+
+    def test_expose_flag_passed_to_deploy_up(self, cli_runner, tmp_path):
+        """Test that --expose flag is passed to deploy_up (Issue #126 fix)."""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text("# test")
+
+        with patch("osprey.cli.deploy_cmd.deploy_up") as mock_deploy_up:
+            with patch("osprey.cli.deploy_cmd.resolve_config_path") as mock_resolve:
+                mock_resolve.return_value = config_file
+
+                cli_runner.invoke(deploy, ["up", "--expose", "--config", str(config_file)])
+
+                call_kwargs = mock_deploy_up.call_args[1]
+                assert call_kwargs["expose_network"] is True
+
+    def test_expose_flag_not_set_by_default(self, cli_runner, tmp_path):
+        """Test that expose_network is False by default (secure by default - Issue #126)."""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text("# test")
+
+        with patch("osprey.cli.deploy_cmd.deploy_up") as mock_deploy_up:
+            with patch("osprey.cli.deploy_cmd.resolve_config_path") as mock_resolve:
+                mock_resolve.return_value = config_file
+
+                cli_runner.invoke(deploy, ["up", "--config", str(config_file)])
+
+                call_kwargs = mock_deploy_up.call_args[1]
+                assert call_kwargs["expose_network"] is False
 
 
 class TestDeployCommandErrorHandling:

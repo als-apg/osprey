@@ -16,7 +16,7 @@ Claude SDK.
 .. seealso::
    :class:`osprey.services.python_executor.generation.interface.CodeGenerator`
    :class:`osprey.services.python_executor.generation.factory.create_code_generator`
-   :func:`osprey.models.get_chat_completion`
+   :func:`osprey.models.get_langchain_model`
 
 Examples:
     Using the basic generator directly::
@@ -40,11 +40,13 @@ Examples:
 """
 
 import re
-import textwrap
 from pathlib import Path
 from typing import Any
 
-from osprey.models import get_chat_completion
+import yaml
+from langchain_core.messages import HumanMessage
+
+from osprey.models import get_langchain_model
 from osprey.utils.config import get_model_config
 from osprey.utils.logger import get_logger
 
@@ -62,9 +64,17 @@ class BasicLLMCodeGenerator:
     execution request, includes error feedback for iterative improvement, and
     automatically cleans up common LLM formatting issues.
 
-    The generator uses the framework's standard LLM interface (get_chat_completion)
-    with configurable model settings. It handles all aspects of prompt construction,
+    The generator uses LangChain models with streaming support via get_langchain_model()
+    for real-time token streaming. It handles all aspects of prompt construction,
     code generation, and post-processing to produce clean, executable Python code.
+
+    Configuration:
+        The generator can be configured via an external YAML file (basic_generator_config.yml)
+        or uses sensible defaults. The config file allows customization of:
+        - system_role: The generator's identity ("You are...")
+        - core_requirements: Output format requirements
+        - system_prompt_extensions: Domain-specific guidance
+        - fallback_guidance: Used when no capability_prompts provided
 
     :param model_config: Optional model configuration dict. If None, uses the
                         default "python_code_generator" configuration from the
@@ -77,8 +87,31 @@ class BasicLLMCodeGenerator:
 
     .. seealso::
        :class:`CodeGenerator` : Protocol interface this class implements
-       :func:`osprey.models.get_chat_completion` : LLM interface used for generation
+       :func:`osprey.models.get_langchain_model` : LLM interface used for streaming generation
     """
+
+    # Default prompts (used when no config file exists)
+    DEFAULT_SYSTEM_ROLE = "You are an expert Python code generator."
+
+    DEFAULT_CORE_REQUIREMENTS = """\
+CRITICAL REQUIREMENTS:
+1. Generate ONLY executable Python code (no markdown, no explanations)
+2. Store computed results in a dictionary variable named 'results'
+3. Include all necessary imports at the top
+4. Use actual values from the provided 'context' object - NEVER simulate, hardcode, or fabricate data
+5. Prefer direct, simple solutions - if data is available in context, use it directly rather than building complex systems to fetch or generate it"""
+
+    DEFAULT_FALLBACK_GUIDANCE = """\
+GUIDANCE:
+- Write clean, working Python code for the task
+- Use clear variable names and add comments
+- Handle common edge cases appropriately"""
+
+    DEFAULT_ERROR_HEADER = """\
+=== PREVIOUS ATTEMPT(S) FAILED - LEARN FROM THESE ERRORS ===
+Analyze what went wrong and fix the root cause, not just symptoms."""
+
+    DEFAULT_ERROR_FOOTER = "Generate IMPROVED code that fixes these issues."
 
     def __init__(self, model_config=None):
         """Initialize basic generator with optional model configuration.
@@ -90,10 +123,71 @@ class BasicLLMCodeGenerator:
         self._provided_model_config = model_config
         self._model_config = None
 
+        # Load prompt configuration from file or defaults
+        self.prompt_config = self._load_prompt_config()
+
         # Save prompts: save all prompts and responses for transparency
-        self._save_prompts = (model_config or {}).get("save_prompts", False)
+        self._save_prompts = self.prompt_config.get(
+            "save_prompts", (model_config or {}).get("save_prompts", False)
+        )
         self._prompt_data: dict[str, Any] = {}  # Stores prompts/responses for inspection
         self._execution_folder: Path | None = None  # Set during generation
+
+        # Log configuration status
+        if self.prompt_config.get("_from_file"):
+            logger.info(
+                f"Basic generator: loaded prompts from {self.prompt_config.get('_config_path')}"
+            )
+        else:
+            logger.debug("Basic generator: using default prompts (no config file)")
+
+    def _load_prompt_config(self) -> dict[str, Any]:
+        """Load prompt configuration from YAML file or use defaults.
+
+        Checks for basic_generator_config.yml in the current directory.
+        If found, loads prompts from file. Otherwise, uses built-in defaults.
+
+        Returns:
+            Configuration dictionary with prompt settings
+        """
+        config_path = (self._provided_model_config or {}).get(
+            "basic_config_path", "basic_generator_config.yml"
+        )
+
+        if Path(config_path).exists():
+            try:
+                with open(config_path) as f:
+                    file_config = yaml.safe_load(f) or {}
+
+                return {
+                    "system_role": file_config.get("system_role", self.DEFAULT_SYSTEM_ROLE).strip(),
+                    "core_requirements": file_config.get(
+                        "core_requirements", self.DEFAULT_CORE_REQUIREMENTS
+                    ).strip(),
+                    "system_prompt_extensions": file_config.get(
+                        "system_prompt_extensions", ""
+                    ).strip(),
+                    "fallback_guidance": file_config.get(
+                        "fallback_guidance", self.DEFAULT_FALLBACK_GUIDANCE
+                    ).strip(),
+                    "error_feedback": file_config.get("error_feedback", {}),
+                    "save_prompts": file_config.get("save_prompts", False),
+                    "_from_file": True,
+                    "_config_path": config_path,
+                }
+            except Exception as e:
+                logger.warning(f"Failed to load {config_path}: {e}, using defaults")
+
+        # Default configuration
+        return {
+            "system_role": self.DEFAULT_SYSTEM_ROLE,
+            "core_requirements": self.DEFAULT_CORE_REQUIREMENTS,
+            "system_prompt_extensions": "",
+            "fallback_guidance": self.DEFAULT_FALLBACK_GUIDANCE,
+            "error_feedback": {},
+            "save_prompts": False,
+            "_from_file": False,
+        }
 
     @property
     def model_config(self):
@@ -115,7 +209,23 @@ class BasicLLMCodeGenerator:
             else:
                 # No config provided - use default
                 logger.info("No model config provided, using default 'python_code_generator'")
-                self._model_config = get_model_config("python_code_generator")
+                cfg = get_model_config("python_code_generator")
+                if not cfg or not cfg.get("provider"):
+                    logger.warning(
+                        "models.python_code_generator missing or incomplete; falling back to response/orchestrator config"
+                    )
+                    for fallback_name in ("response", "orchestrator"):
+                        fallback_cfg = get_model_config(fallback_name)
+                        if fallback_cfg and fallback_cfg.get("provider"):
+                            cfg = fallback_cfg
+                            logger.info(f"Using fallback model config: {fallback_name}")
+                            break
+                if not cfg or not cfg.get("provider"):
+                    raise ValueError(
+                        "No valid model configuration found for python code generation. "
+                        "Please set models.python_code_generator in config.yml."
+                    )
+                self._model_config = cfg
         return self._model_config
 
     async def generate_code(
@@ -167,8 +277,19 @@ class BasicLLMCodeGenerator:
             if self._save_prompts:
                 self._prompt_data["generation_prompt"] = prompt
 
-            # Generate code (model_config loaded lazily)
-            generated_code = get_chat_completion(model_config=self.model_config, message=prompt)
+            # Get LangChain model for streaming (same pattern as respond node)
+            model = get_langchain_model(model_config=self.model_config)
+            messages = [HumanMessage(content=prompt)]
+
+            # Stream tokens using native LangGraph streaming
+            # LangGraph automatically captures these tokens via "messages" stream mode
+            # with subgraphs=True and routes them by metadata["langgraph_node"]
+            response_chunks: list[str] = []
+            async for chunk in model.astream(messages):
+                if chunk.content:
+                    response_chunks.append(chunk.content)
+
+            generated_code = "".join(response_chunks)
 
             if not generated_code or not generated_code.strip():
                 raise CodeGenerationError(
@@ -239,23 +360,16 @@ class BasicLLMCodeGenerator:
         """
         prompt_parts = []
 
-        # === MINIMAL SYSTEM ROLE ===
-        prompt_parts.append("You are an expert Python code generator.")
+        # === SYSTEM ROLE (configurable) ===
+        prompt_parts.append(self.prompt_config["system_role"])
 
-        # === CRITICAL OUTPUT CONSTRAINTS (safety net) ===
-        # These are essential constraints that MUST always be enforced
-        prompt_parts.append(
-            textwrap.dedent(
-                """
-            CRITICAL REQUIREMENTS:
-            1. Generate ONLY executable Python code (no markdown, no explanations)
-            2. Store computed results in a dictionary variable named 'results'
-            3. Include all necessary imports at the top
-            4. Use actual values from the provided 'context' object - NEVER simulate, hardcode, or fabricate data
-            5. Prefer direct, simple solutions - if data is available in context, use it directly rather than building complex systems to fetch or generate it
-            """
-            ).strip()
-        )
+        # === CORE REQUIREMENTS (configurable) ===
+        prompt_parts.append(self.prompt_config["core_requirements"])
+
+        # === SYSTEM PROMPT EXTENSIONS (configurable, for domain-specific guidance) ===
+        extensions = self.prompt_config.get("system_prompt_extensions", "")
+        if extensions:
+            prompt_parts.append(f"\n{extensions}")
 
         # Task details
         # Note: task_objective is the STEP-SPECIFIC objective from the orchestrator's execution plan
@@ -273,32 +387,25 @@ class BasicLLMCodeGenerator:
                 if prompt:
                     prompt_parts.append(prompt)
         else:
-            # Fallback if no capability prompts provided
-            prompt_parts.append(
-                textwrap.dedent(
-                    """
-                GUIDANCE:
-                - Write clean, working Python code for the task
-                - Use clear variable names and add comments
-                - Handle common edge cases appropriately
-                """
-                ).strip()
-            )
+            # Fallback if no capability prompts provided (configurable)
+            prompt_parts.append(self.prompt_config["fallback_guidance"])
 
-        # Structured error feedback
+        # Structured error feedback (configurable)
         if error_chain:
-            prompt_parts.append("\n=== PREVIOUS ATTEMPT(S) FAILED - LEARN FROM THESE ERRORS ===")
-            prompt_parts.append(
-                "Analyze what went wrong and fix the root cause, not just symptoms."
-            )
+            error_config = self.prompt_config.get("error_feedback", {})
+            max_errors = error_config.get("max_errors", 2)
+            error_header = error_config.get("header", self.DEFAULT_ERROR_HEADER)
+            error_footer = error_config.get("footer", self.DEFAULT_ERROR_FOOTER)
 
-            # Show last 2 attempts with full structured context
-            for error in error_chain[-2:]:
+            prompt_parts.append(f"\n{error_header}")
+
+            # Show last N attempts with full structured context
+            for error in error_chain[-max_errors:]:
                 prompt_parts.append(f"\n{'=' * 60}")
                 prompt_parts.append(error.to_prompt_text())
 
             prompt_parts.append(f"\n{'=' * 60}")
-            prompt_parts.append("Generate IMPROVED code that fixes these issues.")
+            prompt_parts.append(error_footer)
 
         prompt_parts.append("\nGenerate ONLY the Python code.")
 

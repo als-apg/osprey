@@ -21,16 +21,17 @@ guide me through the complete release process for version X.X.X.
 
 Walk me through each step and verify completion before moving to the next:
 
-STEP 0A - Review CHANGELOG (CRITICAL - DO THIS FIRST):
-1. Read the ## [Unreleased] section in CHANGELOG.md
-2. Summarize what this release is about (major features, theme)
-3. Verify the changelog accurately reflects all changes
-4. Confirm the release theme and title with me before proceeding
+STEP 0A - Review and Sanitize CHANGELOG (CRITICAL - DO THIS FIRST):
+1. Sanitize CHANGELOG: check for duplicates, entries in wrong sections, modifications to released versions
+2. Read the ## [Unreleased] section in CHANGELOG.md
+3. Summarize what this release is about (major features, theme)
+4. Verify the changelog accurately reflects all changes
+5. Confirm the release theme and title with me before proceeding
 
-STEP 0B - Pre-Release Testing:
-1. Check that venv is activated
-2. Run unit tests: pytest tests/ --ignore=tests/e2e -v
-3. Run e2e tests: pytest tests/e2e/ -v
+STEP 0B - Pre-Release Testing (Clean Environment):
+1. Install from scratch: uv sync --extra dev
+2. Run unit tests: uv run pytest tests/ --ignore=tests/e2e -v
+3. Run e2e tests: uv run pytest tests/e2e/ -v
 4. Verify all tests pass before proceeding
 
 STEP 1 - Version Updates (BEFORE creating tag):
@@ -71,34 +72,50 @@ If any step fails, help me troubleshoot before continuing.
 
 ## 📋 Correct Release Workflow
 
-### **Step 0A: Review CHANGELOG (CRITICAL - DO THIS FIRST!)**
+### **Step 0A: Review and Sanitize CHANGELOG (CRITICAL - DO THIS FIRST!)**
 
 **⚠️ CRITICAL**: Before doing ANYTHING else, understand what you're releasing!
 
-1. **Read the `## [Unreleased]` section in `CHANGELOG.md`**
+1. **Sanitize the CHANGELOG**
+
+   When multiple PRs are merged, the CHANGELOG can develop issues. Check for and fix:
+   - **Duplicate entries**: Same change listed multiple times
+   - **Entries in wrong sections**: Changes that ended up in previous version sections instead of `[Unreleased]`
+   - **Modifications to released versions**: Previous `## [X.Y.Z]` sections should never be modified
+   - **Formatting inconsistencies**: Missing blank lines, inconsistent bullet styles
+   - **Orphaned entries**: Items outside of any section header
+
+   ```bash
+   # Review the CHANGELOG structure
+   grep -n "^## \[" CHANGELOG.md
+   ```
+
+   If any issues are found, fix them before proceeding.
+
+2. **Read the `## [Unreleased]` section in `CHANGELOG.md`**
    - What are the major features?
    - What's the theme/focus of this release?
    - Are there breaking changes?
 
-2. **Determine Release Theme and Title**
+4. **Determine Release Theme and Title**
    - Create a descriptive title based on the main features
    - Examples:
      - "Middle Layer Pipeline for Channel Finder"
      - "Developer Experience & CI/CD Improvements"
      - "Performance Optimizations & Bug Fixes"
 
-3. **Verify Completeness**
+5. **Verify Completeness**
    - All merged PRs documented?
    - All breaking changes noted?
    - Migration steps included if needed?
 
-4. **Check for Breaking Changes → Migration Document**
+6. **Check for Breaking Changes → Migration Document**
    - Does CHANGELOG "Changed" or "Removed" section affect public API?
    - If YES: Follow the migration workflow to create migration document
    - Migration document must be committed before tagging release
    - See: `src/osprey/assist/tasks/migrate/authoring/README.md`
 
-5. **Plan Release Notes**
+7. **Plan Release Notes**
    - Identify the top 3-5 features to highlight
    - Note any important upgrade instructions
    - Prepare user-facing descriptions
@@ -109,10 +126,16 @@ If any step fails, help me troubleshoot before continuing.
 
 **⚠️ IMPORTANT**: Always run tests before starting the release process.
 
-1. **Activate Virtual Environment**
+1. **Create Clean Virtual Environment (Dependency Verification)**
+
+   **⚠️ CRITICAL**: Your development venv may have packages installed that aren't in `pyproject.toml`. A clean venv catches missing dependencies before users encounter them.
+
    ```bash
-   source venv/bin/activate
+   # Install osprey with dev dependencies from scratch
+   uv sync --extra dev
    ```
+
+   **Why this matters**: We've had CI failures where tests passed locally but failed in CI because developers had manually installed packages (like `langchain-openai`, `fastmcp`) that weren't declared as dependencies.
 
 2. **Run Unit & Integration Tests**
    ```bash
@@ -164,6 +187,11 @@ If any step fails, help me troubleshoot before continuing.
    - If tests fail, fix issues first
    - Re-run tests until all pass
    - Commit fixes before proceeding
+
+6. **Cleanup Test Environment**
+   ```bash
+   # No cleanup needed - uv sync manages the .venv automatically
+   ```
 
 ### **Step 1: Pre-Release Version Updates (CRITICAL)**
 
@@ -231,7 +259,7 @@ gh run list --limit 5
 2. **Check GitHub Release** - Release should appear at: `https://github.com/als-apg/osprey/releases/tag/v0.9.9`
 3. **Test installation**:
    ```bash
-   pip install --upgrade osprey-framework
+   uv pip install --upgrade osprey-framework
    python -c "import osprey; print(osprey.__version__)"  # Should print: 0.9.9
    ```
 
@@ -246,16 +274,16 @@ If the automated workflow fails, you can manually publish:
 rm -rf dist/ build/ src/*.egg-info/
 
 # 2. Build the package
-python -m build
+uv build
 
 # 3. Check the built package
-twine check dist/*
+uvx twine check dist/*
 
 # 4. Upload to PyPI (requires PyPI credentials)
-twine upload dist/*
+uvx twine upload dist/*
 
 # Optional: Upload to test PyPI first for verification
-# twine upload --repository testpypi dist/*
+# uvx twine upload --repository testpypi dist/*
 ```
 
 ## 🔧 Technical Implementation

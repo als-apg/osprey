@@ -67,5 +67,5 @@ For backward compatibility only. New code should use the unified logging system 
 
 .. seealso::
 
-   :doc:`../../developer-guides/01_understanding-the-framework/04_orchestrator-first-philosophy`
+   :doc:`../../developer-guides/01_understanding-the-framework/04_orchestration-architecture`
        Development utilities integration patterns and configuration conventions

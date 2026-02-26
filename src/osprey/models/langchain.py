@@ -20,6 +20,7 @@ Native LangChain providers (require provider-specific packages):
 
 OpenAI-compatible providers (use ChatOpenAI with custom base_url):
     - **cborg**: LBNL's CBORG proxy (https://api.cborg.lbl.gov)
+    - **amsc**: American Science Cloud (https://api.i2-core.american-science-cloud.org)
     - **vllm**: Local vLLM server (OpenAI-compatible API)
     - **stanford**: Stanford AI Playground (https://aiapi-prod.stanford.edu/v1)
     - **argo**: ANL's Argo proxy (https://argo-bridge.cels.anl.gov)
@@ -41,14 +42,78 @@ Example:
 
 from __future__ import annotations
 
-import logging
 import os
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
 
-logger = logging.getLogger(__name__)
+from osprey.utils.logger import get_logger
+
+logger = get_logger("langchain")
+
+
+# =============================================================================
+# Retry Budget
+# =============================================================================
+
+# Cumulative sleep tracked per request (keyed by id(options) which is stable
+# across retries within a single request() call).
+_retry_cumulative: dict[int, float] = {}
+_RETRY_BUDGET = 5.0
+
+
+def _patch_openai_retry_budget(budget: float = _RETRY_BUDGET) -> None:
+    """Cap total retry wait time per request to ``budget`` seconds.
+
+    Two-layer approach:
+    1. ``_should_retry``: skip retries where the Retry-After header alone
+       exceeds the budget (e.g. CBORG 429 with Retry-After: 60 → skip immediately).
+    2. ``_calculate_retry_timeout``: track cumulative sleep and cap the
+       remaining wait so the total never exceeds ``budget``.
+
+    This preserves fast recovery for transient 5xx errors (0.5-1s backoff)
+    while preventing long blocking on rate limits or other time-costly retries.
+    """
+    try:
+        from openai._base_client import AsyncAPIClient, SyncAPIClient
+    except ImportError:
+        return
+
+    orig_should_retry = SyncAPIClient._should_retry
+    orig_calc_timeout = SyncAPIClient._calculate_retry_timeout
+
+    def _budgeted_should_retry(self, response):
+        if not orig_should_retry(self, response):
+            return False
+        # If Retry-After alone exceeds budget, skip retry entirely
+        retry_after = self._parse_retry_after_header(response.headers)
+        if retry_after is not None and retry_after > budget:
+            return False
+        return True
+
+    def _budgeted_calc_timeout(self, remaining_retries, options, response_headers=None):
+        timeout = orig_calc_timeout(self, remaining_retries, options, response_headers)
+        key = id(options)  # Same input_options object across retries
+        cumulative = _retry_cumulative.get(key, 0.0)
+        remaining = max(0, budget - cumulative)
+        if remaining <= 0:
+            _retry_cumulative.pop(key, None)
+            return 0  # Budget exhausted
+        capped = min(timeout, remaining)
+        _retry_cumulative[key] = cumulative + capped
+        # Prevent unbounded dict growth
+        if len(_retry_cumulative) > 100:
+            _retry_cumulative.clear()
+        return capped
+
+    SyncAPIClient._should_retry = _budgeted_should_retry
+    AsyncAPIClient._should_retry = _budgeted_should_retry
+    SyncAPIClient._calculate_retry_timeout = _budgeted_calc_timeout
+    AsyncAPIClient._calculate_retry_timeout = _budgeted_calc_timeout
+
+
+_patch_openai_retry_budget()
 
 
 # =============================================================================
@@ -110,6 +175,22 @@ _OPENAI_COMPATIBLE_PROVIDERS = {
         "api_key_from_user": True,  # Uses $USER as API key if not specified
         "base_url_env": "ARGO_BASE_URL",
         "description": "ANL Argo proxy",
+    },
+    "asksage": {
+        "default_base_url": "https://api.civ.asksage.ai/server/v1",
+        "api_key_env": "ASKSAGE_API_KEY",
+        "description": "AskSage proxy",
+        "model_kwargs": {
+            "system_prompt": "-",
+            "dataset": "none",
+            "live": 0,
+            "limit_references": 0,
+        },
+    },
+    "amsc": {
+        "default_base_url": "https://api.i2-core.american-science-cloud.org/v1",
+        "api_key_env": "AMSC_I2_API_KEY",
+        "description": "American Science Cloud proxy",
     },
 }
 
@@ -173,7 +254,7 @@ def get_langchain_model(
 
     :param provider: AI provider name. Supported providers:
         - Native: 'anthropic', 'openai', 'google', 'ollama'
-        - OpenAI-compatible: 'cborg', 'vllm', 'stanford', 'argo'
+        - OpenAI-compatible: 'cborg', 'amsc', 'vllm', 'stanford', 'argo'
     :param model_id: Specific model identifier (e.g., 'claude-sonnet-4-5-20250929', 'gpt-4o')
     :param model_config: Optional dict with 'provider', 'model_id', 'max_tokens' keys
     :param provider_config: Optional provider config dict with 'api_key', 'base_url', etc.
@@ -360,7 +441,7 @@ def _create_openai_compatible_model(
     temperature: float | None,
     **kwargs: Any,
 ) -> BaseChatModel:
-    """Create an OpenAI-compatible model (CBORG, vLLM, Stanford, Argo)."""
+    """Create an OpenAI-compatible model (CBORG, AMSC, vLLM, Stanford, Argo)."""
     config = _OPENAI_COMPATIBLE_PROVIDERS[provider]
 
     # Import ChatOpenAI
@@ -402,6 +483,9 @@ def _create_openai_compatible_model(
                 f"API key required for '{provider}' provider. "
                 f"Set via provider_config, osprey config, or {api_key_env} environment variable."
             )
+
+    if config.get("model_kwargs"):
+        model_kwargs["model_kwargs"] = config["model_kwargs"]
 
     logger.debug(
         f"Creating OpenAI-compatible LangChain model: provider={provider}, "

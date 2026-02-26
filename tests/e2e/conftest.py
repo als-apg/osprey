@@ -5,10 +5,8 @@ See tests/e2e/README.md for details.
 """
 
 import asyncio
-import logging
 import os
 import sys
-from io import StringIO
 from pathlib import Path
 
 import pytest
@@ -198,20 +196,6 @@ class E2EProject:
         original_cwd = os.getcwd()
         os.chdir(self.project_dir)
 
-        # Set up log capture for execution trace
-        log_capture = StringIO()
-        log_handler = logging.StreamHandler(log_capture)
-        log_handler.setLevel(logging.INFO)
-
-        # Attach to root logger to capture all capability logs
-        root_logger = logging.getLogger()
-        original_level = root_logger.level
-        root_logger.setLevel(logging.INFO)
-        root_logger.addHandler(log_handler)
-
-        # Note: We don't add a console handler for verbose mode because
-        # RichHandler (from osprey.utils.logger) already outputs to console
-        # Adding another handler causes duplicate logs with raw Rich markup
         if self.verbose:
             print(f"\n🔄 Executing query: '{message}'")
 
@@ -276,18 +260,14 @@ class E2EProject:
         except Exception as e:
             error = f"{type(e).__name__}: {str(e)}"
             response_text = f"ERROR: {error}"
+            final_state = None
             if self.verbose:
                 print(f"  ❌ Error: {error}")
 
-        finally:
-            # Remove log handler and restore original level
-            root_logger.removeHandler(log_handler)
-            root_logger.setLevel(original_level)
-
         execution_time = asyncio.get_event_loop().time() - start_time
 
-        # Get execution trace from logs
-        execution_trace = log_capture.getvalue()
+        # Build execution trace from graph state
+        execution_trace = self._build_execution_trace(final_state)
 
         # Collect artifacts (figures, notebooks) while still in project directory
         artifacts = self._collect_artifacts()
@@ -315,6 +295,57 @@ class E2EProject:
                 artifacts.extend(agent_data_dir.glob(pattern))
 
         return sorted(artifacts)
+
+    def _build_execution_trace(self, final_state: dict | None) -> str:
+        """Reconstruct execution trace from graph state.
+
+        Replaces the previous Python logging capture which no longer works
+        after the unified events migration (PR #153).
+        """
+        if not final_state:
+            return ""
+        trace_parts = []
+
+        # Task description
+        task = final_state.get("task_current_task", "")
+        if task:
+            trace_parts.append(f"Task: {task}")
+
+        # Capabilities selected by classifier
+        active_caps = final_state.get("planning_active_capabilities", [])
+        if active_caps:
+            trace_parts.append(f"Active capabilities: {', '.join(active_caps)}")
+
+        # Execution plan steps
+        plan = final_state.get("planning_execution_plan")
+        if plan and isinstance(plan, dict):
+            for i, step in enumerate(plan.get("steps", [])):
+                cap = step.get("capability", "unknown")
+                obj = step.get("task_objective", "")
+                trace_parts.append(f"Planned step {i + 1}: {cap} - {obj}")
+
+        # Executed capability results
+        step_results = final_state.get("execution_step_results", {})
+        if step_results:
+            ordered = sorted(
+                step_results.items(),
+                key=lambda x: x[1].get("step_index", 0),
+            )
+            for _key, result in ordered:
+                capability = result.get("capability", "unknown")
+                objective = result.get("task_objective", "")
+                success = result.get("success", True)
+                status = "SUCCESS" if success else "FAILED"
+                trace_parts.append(f"Executed: {capability} - {objective} [{status}]")
+
+        # Error details
+        error_info = final_state.get("control_error_info")
+        if error_info:
+            node = error_info.get("capability_name") or error_info.get("node_name", "")
+            original_error = error_info.get("original_error", "")
+            trace_parts.append(f"Error in {node}: {original_error}")
+
+        return "\n".join(trace_parts)
 
     def cleanup(self):
         """Clean up project resources."""
@@ -360,7 +391,7 @@ async def e2e_project_factory(tmp_path, request):
             name: Project name
             template: Template to use (minimal, hello_world_weather, control_assistant)
             registry_style: Registry style (extend/standalone)
-            provider: AI provider (anthropic, openai, google, cborg, ollama)
+            provider: AI provider (anthropic, openai, google, cborg, ollama, amsc)
             model: Model identifier
             output_dir: Where to create project (defaults to tmp_path)
 

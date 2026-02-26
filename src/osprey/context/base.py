@@ -5,14 +5,15 @@ Clean, production-ready context system using Pydantic for automatic serializatio
 validation, and type safety. Eliminates complex custom serialization logic.
 """
 
-import logging
 from abc import abstractmethod
 from datetime import datetime
 from typing import ClassVar
 
 from pydantic import BaseModel
 
-logger = logging.getLogger(__name__)
+from osprey.utils.logger import get_logger
+
+logger = get_logger("context_base")
 
 
 class CapabilityContext(BaseModel):

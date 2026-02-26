@@ -26,7 +26,7 @@ except (RuntimeError, ImportError):
     get_config = None
 
 # Use standard logging (not get_logger) to avoid circular imports with logger.py
-# The short name 'CONFIG' enables easy filtering: quiet_logger(['REGISTRY', 'CONFIG'])
+# The short name 'CONFIG' enables easy filtering: quiet_logger(['registry', 'CONFIG'])
 logger = logging.getLogger("CONFIG")
 
 
@@ -130,7 +130,7 @@ class ConfigBuilder:
                 )
 
         self.config_path = Path(config_path)
-        self.raw_config = self._load_config()
+        self.raw_config, self._unexpanded_config = self._load_config()
 
         # Pre-compute nested structures for efficient runtime access
         self.configurable = self._build_configurable()
@@ -200,16 +200,42 @@ class ConfigBuilder:
         else:
             return data
 
-    def _load_config(self) -> dict[str, Any]:
-        """Load configuration from single file."""
+    def _load_config(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Load configuration from single file.
+
+        Returns:
+            Tuple of (expanded_config, unexpanded_config) where:
+            - expanded_config: Config with ${VAR} placeholders resolved to actual values
+            - unexpanded_config: Config with ${VAR} placeholders preserved (for deployment)
+        """
+        import copy
+
         # Load the config file
         config = self._load_yaml_file(self.config_path)
 
+        # Store unexpanded config for deployment use (deep copy to prevent mutations)
+        unexpanded_config = copy.deepcopy(config)
+
         # Apply environment variable substitution
-        config = self._resolve_env_vars(config)
+        expanded_config = self._resolve_env_vars(config)
 
         logger.info(f"Loaded configuration from {self.config_path}")
-        return config
+        return expanded_config, unexpanded_config
+
+    def get_unexpanded_config(self) -> dict[str, Any]:
+        """Get configuration with environment variable placeholders preserved.
+
+        Returns the configuration as loaded from YAML, without expanding
+        ${VAR_NAME} placeholders. This is useful for deployment scenarios
+        where secrets should NOT be written to disk - instead, the placeholders
+        are preserved and resolved at container runtime.
+
+        Returns:
+            dict: Configuration with ${VAR} placeholders intact
+        """
+        import copy
+
+        return copy.deepcopy(self._unexpanded_config)
 
     def _get_approval_config(self) -> dict[str, Any]:
         """Get approval configuration with sensible defaults.
@@ -577,6 +603,73 @@ def _get_configurable(
 
         # For explicit paths, return configurable directly
         return config.configurable
+
+
+# =============================================================================
+# PUBLIC CONFIGURATION ACCESS
+# =============================================================================
+
+
+def get_config_builder(
+    config_path: str | None = None, set_as_default: bool = False
+) -> ConfigBuilder:
+    """Get configuration builder instance for full config access.
+
+    This is the primary public API for accessing the configuration system.
+    Returns a ConfigBuilder instance that provides access to both raw configuration
+    data and pre-computed configurable structures.
+
+    Args:
+        config_path: Optional explicit path to configuration file. If provided,
+                    loads configuration from this path. If None, uses the default
+                    singleton (CONFIG_FILE env var or cwd/config.yml).
+        set_as_default: If True and config_path is provided, also set this config
+                       as the default singleton for future calls without config_path.
+
+    Returns:
+        ConfigBuilder instance with access to:
+        - .raw_config: The raw YAML configuration dictionary
+        - .configurable: Pre-computed configuration for LangGraph
+        - .get(path, default): Dot-notation access to config values
+
+    Examples:
+        >>> # Default configuration
+        >>> config = get_config_builder()
+        >>> timeout = config.get("execution.timeout", 30)
+
+        >>> # Load from specific path
+        >>> config = get_config_builder("/path/to/config.yml")
+        >>> raw = config.raw_config
+
+        >>> # Load and set as default for subsequent calls
+        >>> config = get_config_builder("/path/to/config.yml", set_as_default=True)
+    """
+    return _get_config(config_path, set_as_default)
+
+
+def load_config(config_path: str | None = None) -> dict[str, Any]:
+    """Load raw configuration dictionary from YAML file.
+
+    Convenience function that returns the raw configuration dictionary
+    as loaded from the YAML file, with environment variables resolved.
+
+    Args:
+        config_path: Optional path to configuration file. If None, uses the
+                    default configuration (CONFIG_FILE env var or cwd/config.yml).
+
+    Returns:
+        Raw configuration dictionary with all values from the YAML file.
+
+    Examples:
+        >>> # Load default configuration
+        >>> config = load_config()
+        >>> api_key = config.get("api", {}).get("key")
+
+        >>> # Load from specific path
+        >>> config = load_config("/path/to/config.yml")
+        >>> channels = config.get("channel_finder", {})
+    """
+    return _get_config(config_path).raw_config
 
 
 # =============================================================================

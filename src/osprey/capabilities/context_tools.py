@@ -95,7 +95,7 @@ def create_context_tools(state: AgentState, capability_name: str) -> list:
                 if context_obj:
                     # Use the context's built-in summary method if available
                     if hasattr(context_obj, "get_summary"):
-                        summary = context_obj.get_summary(context_key)
+                        summary = context_obj.get_summary()
                     else:
                         # Fallback to model_dump for Pydantic models
                         summary = (
@@ -155,7 +155,7 @@ def create_context_tools(state: AgentState, capability_name: str) -> list:
                     ctx_obj = context_mgr.get_context(context_type, key)
                     if ctx_obj and hasattr(ctx_obj, "get_summary"):
                         try:
-                            ctx_summary = ctx_obj.get_summary(key)
+                            ctx_summary = ctx_obj.get_summary()
                             desc = (
                                 ctx_summary.get("description", "N/A")
                                 if isinstance(ctx_summary, dict)

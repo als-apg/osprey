@@ -40,7 +40,7 @@ else
   echo "✓ No obvious secrets"
 fi
 
-if ! pytest tests/ --ignore=tests/e2e -x --tb=no -q >/dev/null 2>&1; then
+if ! uv run pytest tests/ --ignore=tests/e2e -x --tb=no -q >/dev/null 2>&1; then
   echo "✗ Tests failing"
   ERRORS=$((ERRORS + 1))
 else
@@ -87,14 +87,14 @@ fi
 
 # MEDIUM checks
 echo -e "\n=== MEDIUM ==="
-if black --check src/ tests/ >/dev/null 2>&1; then
-  echo "✓ Black formatted"
+if uv run ruff format --check src/ tests/ >/dev/null 2>&1; then
+  echo "✓ Ruff formatted"
 else
-  echo "⚠ Black formatting needed"
+  echo "⚠ Ruff formatting needed"
   WARNINGS=$((WARNINGS + 1))
 fi
 
-if ruff check src/ tests/ --quiet >/dev/null 2>&1; then
+if uv run ruff check src/ tests/ --quiet >/dev/null 2>&1; then
   echo "✓ Ruff clean"
 else
   echo "⚠ Ruff issues found"
@@ -117,4 +117,3 @@ else
   echo "See: src/osprey/assist/tasks/pre-merge-cleanup/instructions.md for detailed guidance"
   exit 1
 fi
-

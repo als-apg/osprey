@@ -37,6 +37,7 @@ including streaming, configuration management, error handling, and checkpoint su
    :class:`osprey.approval.ApprovalManager` : Code execution approval workflows
 """
 
+from pathlib import Path
 from typing import Any, ClassVar
 
 from langgraph.types import Command
@@ -543,6 +544,11 @@ class PythonCapability(BaseCapability):
         figure_count = len(results_context.figure_paths)
         logger.success(f"Python execution complete - {execution_time:.2f}s, {figure_count} figures")
 
+        # Also emit as key_info for final result display in TUI
+        logger.key_info(
+            f"Python execution complete - {execution_time:.2f}s, {figure_count} figures"
+        )
+
         # Store context using StateManager
         result_updates = StateManager.store_context(
             self._state, "PYTHON_RESULTS", step.get("context_key"), results_context
@@ -554,11 +560,13 @@ class PythonCapability(BaseCapability):
 
         # Register figures as IMAGE artifacts
         for figure_path in results_context.figure_paths:
+            # Ensure absolute path for CLI display (fix for issue #96)
+            abs_path = Path(figure_path).resolve()
             artifact_update = StateManager.register_artifact(
                 self._state,
                 artifact_type=ArtifactType.IMAGE,
                 capability="python_executor",
-                data={"path": str(figure_path), "format": figure_path.suffix[1:].lower()},
+                data={"path": str(abs_path), "format": abs_path.suffix[1:].lower()},
                 display_name="Python Execution Figure",
                 metadata={
                     "execution_folder": results_context.folder_path,
@@ -572,12 +580,14 @@ class PythonCapability(BaseCapability):
 
         # Register notebook as NOTEBOOK artifact
         if results_context.notebook_link:
+            # Ensure absolute path for consistency (fix for issue #96)
+            abs_notebook_path = Path(results_context.notebook_path).resolve()
             artifact_update = StateManager.register_artifact(
                 self._state,
                 artifact_type=ArtifactType.NOTEBOOK,
                 capability="python_executor",
                 data={
-                    "path": str(results_context.notebook_path),
+                    "path": str(abs_notebook_path),
                     "url": results_context.notebook_link,
                 },
                 display_name="Python Execution Notebook",

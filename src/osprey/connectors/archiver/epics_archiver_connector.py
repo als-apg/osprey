@@ -135,14 +135,24 @@ class EPICSArchiverConnector(ArchiverConnector):
             # Use asyncio.wait_for for timeout, asyncio.to_thread for async execution
             data = await asyncio.wait_for(asyncio.to_thread(fetch_data), timeout=timeout)
 
-            # Ensure datetime index
-            if isinstance(data, pd.DataFrame) and hasattr(data, "index"):
+            if not isinstance(data, pd.DataFrame):
+                raise ValueError(f"Unexpected data format: {type(data)}")
+
+            # archivertools returns DataFrame with columns [secs, nanos, PV1, PV2, ...]
+            # Convert secs/nanos to DatetimeIndex and drop those columns
+            if "secs" in data.columns and "nanos" in data.columns:
+                # Combine seconds and nanoseconds into datetime
+                timestamps = pd.to_datetime(data["secs"], unit="s") + pd.to_timedelta(
+                    data["nanos"], unit="ns"
+                )
+                data = data.drop(columns=["secs", "nanos"])
+                data.index = timestamps
+            elif not isinstance(data.index, pd.DatetimeIndex):
+                # Fallback: try to convert existing index to datetime
                 data.index = pd.to_datetime(data.index)
 
-                logger.debug(f"Retrieved archiver data: {len(data)} points for {len(pv_list)} PVs")
-                return data
-            else:
-                raise ValueError(f"Unexpected data format: {type(data)}")
+            logger.debug(f"Retrieved archiver data: {len(data)} points for {len(pv_list)} PVs")
+            return data
 
         except TimeoutError as e:
             raise TimeoutError(f"Archiver request timed out after {timeout}s") from e

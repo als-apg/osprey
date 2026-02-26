@@ -37,7 +37,7 @@ def display_registry_contents(verbose: bool = False):
         from osprey.utils.log_filter import quiet_logger
 
         # Get registry (initialize if needed) - suppress initialization logs
-        with quiet_logger(["REGISTRY", "CONFIG"]):
+        with quiet_logger(["registry", "CONFIG"]):
             registry = get_registry()
             if not registry._initialized:
                 console.print("\n[dim]Initializing registry...[/dim]")

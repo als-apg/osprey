@@ -199,6 +199,195 @@ class TestCLIIntegration:
         assert "osprey deploy up" in result.output
         assert "osprey chat" in result.output
 
+    def test_init_command_with_channel_finder_mode(self, tmp_path):
+        """Test init command with --channel-finder-mode option."""
+        runner = CliRunner()
+
+        result = runner.invoke(
+            init,
+            [
+                "cf-app",
+                "--template",
+                "control_assistant",
+                "--channel-finder-mode",
+                "in_context",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
+
+        assert result.exit_code == 0
+
+        # Check manifest has the option
+        import json
+
+        manifest_path = tmp_path / "cf-app" / ".osprey-manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        assert manifest["init_args"]["channel_finder_mode"] == "in_context"
+        assert "--channel-finder-mode in_context" in manifest["reproducible_command"]
+
+    def test_init_command_with_code_generator(self, tmp_path):
+        """Test init command with --code-generator option."""
+        runner = CliRunner()
+
+        result = runner.invoke(
+            init,
+            [
+                "gen-app",
+                "--template",
+                "control_assistant",
+                "--code-generator",
+                "basic",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
+
+        assert result.exit_code == 0
+
+        # Check manifest has the option
+        import json
+
+        manifest_path = tmp_path / "gen-app" / ".osprey-manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        assert manifest["init_args"]["code_generator"] == "basic"
+        assert "--code-generator basic" in manifest["reproducible_command"]
+
+    def test_init_command_reproducible_command_complete(self, tmp_path):
+        """Test that reproducible_command includes all options."""
+        runner = CliRunner()
+
+        result = runner.invoke(
+            init,
+            [
+                "full-app",
+                "--template",
+                "control_assistant",
+                "--provider",
+                "cborg",
+                "--model",
+                "anthropic/claude-haiku",
+                "--channel-finder-mode",
+                "hierarchical",
+                "--code-generator",
+                "claude_code",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
+
+        assert result.exit_code == 0
+
+        import json
+
+        manifest_path = tmp_path / "full-app" / ".osprey-manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+
+        cmd = manifest["reproducible_command"]
+        assert "--template control_assistant" in cmd
+        assert "--provider cborg" in cmd
+        assert "--model anthropic/claude-haiku" in cmd
+        assert "--channel-finder-mode hierarchical" in cmd
+        assert "--code-generator claude_code" in cmd
+
+
+class TestGeneratorConfigRendering:
+    """Test code generator config file rendering."""
+
+    def test_claude_code_generator_config_rendered(self, tmp_path):
+        """Test that claude_code generator creates config file."""
+        manager = TemplateManager()
+
+        project_dir = manager.create_project(
+            project_name="claude-app",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+            context={"code_generator": "claude_code"},
+        )
+
+        config_file = project_dir / "claude_generator_config.yml"
+
+        # Should exist
+        assert config_file.exists(), "claude_generator_config.yml should be created"
+
+        # Should have expected content
+        content = config_file.read_text()
+        assert "profile:" in content or "phases:" in content
+        # Should have system prompt extensions section
+        assert "system_prompt_extensions" in content
+
+    def test_basic_generator_config_rendered(self, tmp_path):
+        """Test that basic generator creates config file."""
+        manager = TemplateManager()
+
+        project_dir = manager.create_project(
+            project_name="basic-app",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+            context={"code_generator": "basic"},
+        )
+
+        config_file = project_dir / "basic_generator_config.yml"
+
+        # Should exist
+        assert config_file.exists(), "basic_generator_config.yml should be created"
+
+        # Should have expected content
+        content = config_file.read_text()
+        assert "system_role:" in content
+        assert "core_requirements:" in content
+        assert "system_prompt_extensions:" in content
+
+    def test_no_generator_config_for_default(self, tmp_path):
+        """Test that no generator config is created when generator not specified."""
+        manager = TemplateManager()
+
+        project_dir = manager.create_project(
+            project_name="default-app",
+            output_dir=tmp_path,
+            template_name="minimal",
+            # No code_generator in context
+        )
+
+        # Neither config should exist
+        assert not (project_dir / "claude_generator_config.yml").exists()
+        assert not (project_dir / "basic_generator_config.yml").exists()
+
+    def test_generator_configs_mutually_exclusive(self, tmp_path):
+        """Test that only one generator config is created at a time."""
+        manager = TemplateManager()
+
+        # Create with claude_code
+        project_dir = manager.create_project(
+            project_name="exclusive-app",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+            context={"code_generator": "claude_code"},
+        )
+
+        # Only claude config should exist
+        assert (project_dir / "claude_generator_config.yml").exists()
+        assert not (project_dir / "basic_generator_config.yml").exists()
+
+    def test_generator_config_excluded_from_app_package(self, tmp_path):
+        """Test that generator config is at project root, not in src/."""
+        manager = TemplateManager()
+
+        project_dir = manager.create_project(
+            project_name="placement-test",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+            context={"code_generator": "basic"},
+        )
+
+        # Should be at project root
+        assert (project_dir / "basic_generator_config.yml").exists()
+
+        # Should NOT be in src/ directory
+        src_dir = project_dir / "src" / "placement_test"
+        assert not (src_dir / "basic_generator_config.yml").exists()
+        assert not (src_dir / "basic_generator_config.yml.j2").exists()
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -36,8 +36,9 @@ from osprey.interfaces.cli.direct_conversation import run_cli
 @click.option(
     "--tui", is_flag=True, default=False, help="Launch Terminal User Interface (TUI) instead of CLI"
 )
-def chat(project: str, config: str, tui: bool):
-    """Start interactive conversation interface (CLI or TUI).
+@click.option("--web", is_flag=True, default=False, help="Launch Web Debug UI instead of CLI")
+def chat(project: str, config: str, tui: bool, web: bool):
+    """Start interactive conversation interface (CLI, TUI, or Web).
 
     Opens an interactive chat session with the agent. The interface
     provides command history, auto-suggestions, and real-time streaming
@@ -46,6 +47,9 @@ def chat(project: str, config: str, tui: bool):
     Use --tui flag to launch the Terminal User Interface (TUI) instead
     of the default CLI interface. The TUI provides a full-screen terminal
     experience with enhanced visual display.
+
+    Use --web flag to launch the Web Debug UI, a browser-based interface
+    for monitoring Osprey events in real-time with filtering and search.
 
     This command wraps the existing direct_conversation interface,
     preserving all its functionality including:
@@ -73,6 +77,9 @@ def chat(project: str, config: str, tui: bool):
       # Start TUI chat
       $ osprey chat --tui
 
+      # Start Web Debug UI
+      $ osprey chat --web
+
       # Start chat in specific project
       $ osprey chat --project ~/projects/my-agent
 
@@ -85,6 +92,7 @@ def chat(project: str, config: str, tui: bool):
 
     Note: Ensure services are running first (osprey deploy up)
     Note: TUI requires textual package: pip install osprey-framework[tui]
+    Note: Web requires fastapi/uvicorn: pip install osprey-framework[web]
     """
     from .project_utils import resolve_config_path
 
@@ -98,7 +106,24 @@ def chat(project: str, config: str, tui: bool):
 
         os.environ["CONFIG_FILE"] = str(config_path)
 
-        if tui:
+        if web:
+            # Launch Web Debug UI
+            console.print("Starting Osprey Web Debug UI...")
+            console.print("   URL: http://127.0.0.1:8080")
+            console.print("   Press Ctrl+C to stop\n")
+
+            try:
+                from osprey.interfaces.web import run_server
+
+                run_server(config_path=config_path)
+            except ImportError as e:
+                console.print(
+                    f"\n❌ Web dependencies not available: {e}\n"
+                    "   Install with: pip install osprey-framework[web]",
+                    style=Styles.ERROR,
+                )
+                raise click.Abort() from e
+        elif tui:
             # Launch TUI interface
             console.print("Starting Osprey TUI interface...")
             console.print("   Press 'q' or Ctrl+C to exit\n")

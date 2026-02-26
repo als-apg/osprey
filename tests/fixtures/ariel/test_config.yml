@@ -1,0 +1,63 @@
+# Minimal ARIEL E2E Test Configuration
+# Used by tests/e2e/test_ariel_search.py
+# Provides only what's needed for LLM calls (RAG search)
+
+project_name: "ariel-e2e-test"
+
+# No registry needed - use framework defaults
+registry_path: null
+
+# API Configuration for LLM calls
+api:
+  providers:
+    cborg:
+      api_key: ${CBORG_API_KEY}
+      base_url: https://api.cborg.lbl.gov/v1
+    ollama:
+      api_key: ollama
+      base_url: http://localhost:11434
+
+# Minimal model config for RAG
+models:
+  response:
+    provider: cborg
+    model_id: anthropic/claude-haiku
+
+# ARIEL configuration (matches my-control-assistant)
+# Provider credentials are defined in api.providers above.
+# ARIEL references providers by name.
+ariel:
+  database:
+    uri: postgresql://ariel:ariel@localhost:5432/ariel_e2e_test
+
+  search_modules:
+    keyword:
+      enabled: true
+    semantic:
+      enabled: true
+      provider: ollama  # References api.providers.ollama
+      model: nomic-embed-text
+    rag:
+      enabled: true
+      provider: ollama  # References api.providers.ollama
+      model: nomic-embed-text  # This is the embedding model for retrieval
+
+  enhancement_modules:
+    text_embedding:
+      enabled: true
+      provider: ollama  # References api.providers.ollama
+      models:
+        - name: nomic-embed-text
+          dimension: 768
+
+  # Default embedding provider
+  embedding:
+    provider: ollama
+
+  # LLM config for RAG answer generation and agent reasoning
+  # provider references api.providers for credentials
+  reasoning:
+    provider: cborg  # References api.providers.cborg
+    model_id: anthropic/claude-haiku
+    max_iterations: 5
+    temperature: 0.1

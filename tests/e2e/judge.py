@@ -133,6 +133,76 @@ expectations are met. Critical failures (crashes, wrong outputs, no response) sh
 
 Provide a clear pass/fail decision with detailed reasoning. Be specific about what worked well and what didn't."""
 
+    async def evaluate_text(
+        self,
+        result_text: str,
+        expectations: str,
+        query: str,
+    ) -> JudgeEvaluation:
+        """Evaluate arbitrary text against expectations.
+
+        Useful for search result evaluation, RAG output validation, etc.
+
+        Args:
+            result_text: The text to evaluate (search results, generated answer, etc.)
+            expectations: Plain text description of what should be present/true
+            query: The original query that produced this result
+
+        Returns:
+            Structured evaluation with pass/fail and reasoning
+        """
+        prompt = f"""Evaluate the following search/retrieval result:
+
+QUERY:
+{query}
+
+RESULT:
+{result_text}
+
+EXPECTATIONS:
+{expectations}
+
+Evaluate whether the result meets the expectations. Consider:
+1. Are the expected items/concepts present?
+2. Is the result relevant to the query?
+3. Are there any factual errors or hallucinations?
+4. Is important information missing?
+
+Provide a clear PASS or FAIL decision with detailed reasoning."""
+
+        if self.verbose:
+            print("\n" + "=" * 80)
+            print("LLM JUDGE TEXT EVALUATION")
+            print("=" * 80)
+            print(prompt)
+            print("=" * 80 + "\n")
+
+        # Get LLM evaluation using structured output
+        full_prompt = f"{self._get_system_prompt()}\n\n{prompt}"
+
+        evaluation = get_chat_completion(
+            message=full_prompt,
+            provider=self.provider,
+            model_id=self.model,
+            output_model=JudgeEvaluation,
+            max_tokens=8096,
+        )
+
+        if self.verbose:
+            print("\n" + "=" * 80)
+            print("JUDGE DECISION")
+            print("=" * 80)
+            print(f"Passed: {evaluation.passed}")
+            print(f"Confidence: {evaluation.confidence}")
+            print(f"\nReasoning:\n{evaluation.reasoning}")
+            if evaluation.warnings:
+                print("\nWarnings:")
+                for warning in evaluation.warnings:
+                    print(f"  - {warning}")
+            print("=" * 80 + "\n")
+
+        return evaluation
+
     def _build_evaluation_prompt(self, result: WorkflowResult, expectations: str) -> str:
         """Build the evaluation prompt from result and expectations."""
         # Format artifacts list

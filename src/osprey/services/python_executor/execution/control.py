@@ -67,11 +67,12 @@ Examples:
         ...     print(f"Configuration warnings: {warnings}")
 """
 
-import logging
 from dataclasses import dataclass
 from enum import Enum
 
-logger = logging.getLogger(__name__)
+from osprey.utils.logger import get_logger
+
+logger = get_logger("execution_control")
 
 
 class ExecutionMode(Enum):

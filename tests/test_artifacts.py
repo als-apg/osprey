@@ -30,8 +30,8 @@ class TestArtifactType:
         assert ArtifactType.FILE.value == "file"
 
     def test_artifact_type_is_string_enum(self):
-        """ArtifactType should be usable as string."""
-        assert str(ArtifactType.IMAGE) == "ArtifactType.IMAGE"
+        """ArtifactType should be usable as string (StrEnum returns value directly)."""
+        assert str(ArtifactType.IMAGE) == "image"
         assert ArtifactType.IMAGE.value == "image"
 
     def test_artifact_type_from_string(self):
@@ -151,17 +151,17 @@ class TestGetArtifactTypeIcon:
 
     def test_returns_correct_icons(self):
         """get_artifact_type_icon should return correct icons for each type."""
-        assert get_artifact_type_icon(ArtifactType.IMAGE) == "🖼"
-        assert get_artifact_type_icon(ArtifactType.NOTEBOOK) == "📓"
-        assert get_artifact_type_icon(ArtifactType.COMMAND) == "🔗"
-        assert get_artifact_type_icon(ArtifactType.HTML) == "🌐"
-        assert get_artifact_type_icon(ArtifactType.FILE) == "📄"
+        assert get_artifact_type_icon(ArtifactType.IMAGE) == "\u25eb"
+        assert get_artifact_type_icon(ArtifactType.NOTEBOOK) == "\u2261"
+        assert get_artifact_type_icon(ArtifactType.COMMAND) == "\u25c7"
+        assert get_artifact_type_icon(ArtifactType.HTML) == "\u25c7"
+        assert get_artifact_type_icon(ArtifactType.FILE) == "\u25a1"
 
     def test_accepts_string_type(self):
         """get_artifact_type_icon should accept string type values."""
-        assert get_artifact_type_icon("image") == "🖼"
-        assert get_artifact_type_icon("notebook") == "📓"
-        assert get_artifact_type_icon("command") == "🔗"
+        assert get_artifact_type_icon("image") == "\u25eb"
+        assert get_artifact_type_icon("notebook") == "\u2261"
+        assert get_artifact_type_icon("command") == "\u25c7"
 
 
 class TestValidateArtifactData:

@@ -58,11 +58,13 @@ Examples:
    settings will default to the most secure option (approval required).
 """
 
-import logging
 from dataclasses import dataclass
 from enum import Enum
 
-logger = logging.getLogger(__name__)
+from osprey.events import EventEmitter, StatusEvent
+from osprey.utils.logger import get_logger
+
+logger = get_logger("config_models")
 
 
 class ApprovalMode(Enum):
@@ -209,10 +211,16 @@ class PythonExecutionApprovalConfig:
         if not isinstance(data, dict):
             raise ValueError(f"Python execution approval config must be dict, got {type(data)}")
 
+        emitter = EventEmitter("approval_config")
+
         # Default to secure mode (approval enabled) for safety
         if "enabled" not in data:
-            logger.warning(
-                "⚠️  Python execution approval 'enabled' not specified in config, defaulting to True"
+            emitter.emit(
+                StatusEvent(
+                    component="approval_config",
+                    message="Python execution approval 'enabled' not specified in config, defaulting to True",
+                    level="warning",
+                )
             )
         enabled = data.get("enabled", True)
         if not isinstance(enabled, bool):
@@ -222,17 +230,31 @@ class PythonExecutionApprovalConfig:
 
         # Default to most restrictive mode for security compliance
         if "mode" not in data:
-            logger.warning(
-                "⚠️  Python execution approval 'mode' not specified in config, defaulting to 'all_code'. Consider setting to 'control_writes' for better performance."
+            emitter.emit(
+                StatusEvent(
+                    component="approval_config",
+                    message="Python execution approval 'mode' not specified in config, defaulting to 'all_code'. Consider setting to 'control_writes' for better performance.",
+                    level="warning",
+                )
             )
         mode_str = data.get("mode", "all_code")
 
         # Backward compatibility: map old mode names to new ones
         if mode_str == "epics_writes":
-            logger.warning(
-                "⚠️  DEPRECATED: approval mode 'epics_writes' is deprecated. Please use 'control_writes' instead for control-system-agnostic configuration."
+            emitter.emit(
+                StatusEvent(
+                    component="approval_config",
+                    message="DEPRECATED: approval mode 'epics_writes' is deprecated. Please use 'control_writes' instead for control-system-agnostic configuration.",
+                    level="warning",
+                )
             )
-            logger.info("   Automatically mapping 'epics_writes' → 'control_writes'")
+            emitter.emit(
+                StatusEvent(
+                    component="approval_config",
+                    message="Automatically mapping 'epics_writes' → 'control_writes'",
+                    level="info",
+                )
+            )
             mode_str = "control_writes"
 
         try:
@@ -326,8 +348,13 @@ class MemoryApprovalConfig:
         elif isinstance(data, dict):
             # Security-first default: enable approval when configuration is ambiguous
             if "enabled" not in data:
-                logger.warning(
-                    "⚠️  Memory approval 'enabled' not specified in config, defaulting to True"
+                emitter = EventEmitter("approval_config")
+                emitter.emit(
+                    StatusEvent(
+                        component="approval_config",
+                        message="Memory approval 'enabled' not specified in config, defaulting to True",
+                        level="warning",
+                    )
                 )
             enabled = data.get("enabled", True)
             if not isinstance(enabled, bool):
@@ -448,21 +475,35 @@ class GlobalApprovalConfig:
         if not isinstance(capabilities, dict):
             raise ValueError(f"Approval capabilities must be dict, got {type(capabilities)}")
 
+        emitter = EventEmitter("approval_config")
+
         # Parse Python execution config with explicit warning
         if "python_execution" not in capabilities:
-            logger.warning(
-                "⚠️  'python_execution' section missing from approval config, using defaults. This may cause unexpected approval behavior!"
+            emitter.emit(
+                StatusEvent(
+                    component="approval_config",
+                    message="'python_execution' section missing from approval config, using defaults. This may cause unexpected approval behavior!",
+                    level="warning",
+                )
             )
-            logger.warning(
-                "⚠️  Consider adding: approval.capabilities.python_execution = {enabled: true, mode: 'epics_writes'}"
+            emitter.emit(
+                StatusEvent(
+                    component="approval_config",
+                    message="Consider adding: approval.capabilities.python_execution = {enabled: true, mode: 'epics_writes'}",
+                    level="warning",
+                )
             )
         python_data = capabilities.get("python_execution", {"enabled": True, "mode": "all_code"})
         python_config = PythonExecutionApprovalConfig.from_dict(python_data)
 
         # Memory approval config with secure defaults for data protection
         if "memory" not in capabilities:
-            logger.warning(
-                "⚠️  'memory' section missing from approval config, defaulting to enabled=True"
+            emitter.emit(
+                StatusEvent(
+                    component="approval_config",
+                    message="'memory' section missing from approval config, defaulting to enabled=True",
+                    level="warning",
+                )
             )
         memory_data = capabilities.get("memory", {"enabled": True})
         memory_config = MemoryApprovalConfig.from_dict(memory_data)

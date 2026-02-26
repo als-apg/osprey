@@ -16,7 +16,8 @@ import os
 import uuid
 from typing import Any
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
+from langchain_core.messages import AIMessageChunk
 from langgraph.checkpoint.memory import MemorySaver
 
 # Modern CLI dependencies
@@ -29,6 +30,7 @@ from prompt_toolkit.shortcuts import clear
 from prompt_toolkit.styles import Style
 from rich.box import HEAVY
 from rich.panel import Panel
+from rich.syntax import Syntax
 
 # Centralized styles
 from osprey.cli.styles import OspreyColors, Styles, console
@@ -36,15 +38,19 @@ from osprey.cli.styles import OspreyColors, Styles, console
 # Centralized command system
 from osprey.commands import CommandContext, CommandResult, get_command_registry
 from osprey.commands.completer import UnifiedCommandCompleter
+from osprey.events import parse_event
+from osprey.events.emitter import register_fallback_handler
 from osprey.graph import create_graph
 from osprey.infrastructure.gateway import Gateway
+from osprey.interfaces.cli.event_handler import CLIEventHandler
 from osprey.registry import get_registry, initialize_registry
 from osprey.state.artifacts import ArtifactType, get_artifact_type_icon
 from osprey.utils.config import get_full_configuration
-from osprey.utils.logger import get_logger, quiet_logging
+from osprey.utils.logger import get_logger
 
-# Load environment variables after imports
-load_dotenv()
+# Load environment variables from current directory only (not parent directories)
+# This prevents python-dotenv from parsing shell config files like ~/.env
+load_dotenv(find_dotenv(usecwd=True))
 
 logger = get_logger("cli")
 
@@ -170,6 +176,88 @@ class CLI:
             interface_type="cli", cli_instance=self, console=self.console
         )
         self.command_completer = UnifiedCommandCompleter(self.command_context)
+
+        # TypedEventHandler for processing all events (both streaming and fallback)
+        self._event_handler = CLIEventHandler(
+            console=self.console, verbose=self.show_streaming_updates
+        )
+
+        # Register fallback TRANSPORT for outside-graph events
+        # This routes events to the same TypedEventHandler used during streaming
+        self._unregister_fallback = register_fallback_handler(self._route_fallback_event)
+
+    def _clean_code_fences(self, raw_code: str) -> str:
+        """Clean markdown code fences from generated code.
+
+        Mirrors BasicLLMCodeGenerator._clean_generated_code() logic.
+        Removes common LLM formatting artifacts like ```python and ```.
+
+        Args:
+            raw_code: Raw code string with potential markdown fences
+
+        Returns:
+            Cleaned Python code without markdown formatting
+        """
+        import re
+
+        cleaned = raw_code.strip()
+
+        # Pattern 1: ```python ... ```
+        markdown_pattern = r"^```\s*python\s*\n(.*?)\n```$"
+        match = re.match(markdown_pattern, cleaned, re.DOTALL | re.IGNORECASE)
+        if match:
+            cleaned = match.group(1).strip()
+
+        # Pattern 2: ``` ... ```
+        elif cleaned.startswith("```") and cleaned.endswith("```"):
+            lines = cleaned.split("\n")
+            if lines[0].strip() == "```" and lines[-1].strip() == "```":
+                cleaned = "\n".join(lines[1:-1]).strip()
+
+        # Pattern 3: Inline backticks
+        elif cleaned.count("`") >= 2:
+            if cleaned.startswith("`") and cleaned.endswith("`"):
+                cleaned = cleaned.strip("`").strip()
+
+        return cleaned
+
+    def _display_code_panel(self, code_buffer: str) -> None:
+        """Display generated code in syntax-highlighted panel.
+
+        Cleans markdown fences and displays code with syntax highlighting.
+
+        Args:
+            code_buffer: Raw code buffer from streaming tokens
+        """
+        # Clear progress line
+        self.console.print(" " * 50, end="\r")
+
+        # Clean markdown fences
+        cleaned_code = self._clean_code_fences(code_buffer)
+
+        # Display in syntax-highlighted panel
+        syntax = Syntax(cleaned_code, "python", theme="monokai", line_numbers=True)
+        panel = Panel(
+            syntax,
+            title="[bold yellow]Generated Code[/bold yellow]",
+            border_style="yellow",
+            padding=(1, 2),
+        )
+        self.console.print(panel)
+        self.console.print(
+            f"[green]✓[/green] Generated {len(cleaned_code)} characters of Python code\n"
+        )
+
+    def _route_fallback_event(self, event_dict: dict) -> None:
+        """Route events from fallback transport to TypedEventHandler.
+
+        This is the TRANSPORT mechanism for outside-graph events.
+        Events are parsed and sent to the same handler used during streaming.
+        """
+        event = parse_event(event_dict)
+        if event:
+            # Same handler processes events from both paths
+            self._event_handler.handle_sync(event)
 
     def _get_prompt(self) -> HTML:
         """Generate the prompt based on current mode (normal or direct chat).
@@ -328,7 +416,7 @@ class CLI:
         self.console.print()
 
         # Initialize configuration using LangGraph config
-        self.console.print(f"[{Styles.INFO}]🔄 Initializing configuration...[/{Styles.INFO}]")
+        self.console.print("[system]🔄 Initializing configuration...[/system]")
 
         # Create unique thread for this CLI session
         self.thread_id = f"cli_session_{uuid.uuid4().hex[:8]}"
@@ -356,7 +444,7 @@ class CLI:
         self.base_config = {"configurable": configurable, "recursion_limit": recursion_limit}
 
         # Initialize framework
-        self.console.print(f"[{Styles.INFO}]🔄 Initializing framework...[/{Styles.INFO}]")
+        self.console.print("[system]🔄 Initializing framework...[/system]")
         initialize_registry(config_path=self.config_path)
         registry = get_registry()
         checkpointer = MemorySaver()
@@ -369,7 +457,7 @@ class CLI:
         self.prompt_session = self._create_prompt_session()
 
         self.console.print(
-            f"[{Styles.SUCCESS}]✅ Framework initialized! Thread ID: {self.thread_id}[/{Styles.SUCCESS}]"
+            f"[system]✅ Framework initialized! Thread ID: {self.thread_id}[/system]"
         )
         self.console.print(
             f"[{Styles.DIM}]  • Use ↑/↓ arrow keys to navigate command history[/{Styles.DIM}]"
@@ -506,53 +594,9 @@ class CLI:
                 logger.exception("Unexpected error during interaction")
                 continue
 
-    def _handle_streaming_update(self, chunk: dict[str, Any]):
-        """Process and display a streaming status update from the agent graph.
-
-        .. note::
-           TODO(#12): This streaming logic will be unified with the logging system.
-           See https://github.com/als-apg/osprey/issues/12 for details.
-
-        Extracts status information from a streaming chunk and displays it in a
-        formatted way if streaming updates are enabled. This centralizes the
-        streaming update logic used in both new executions and resume operations.
-
-        :param chunk: Streaming chunk from LangGraph custom stream mode
-        :type chunk: dict[str, Any]
-
-        .. note::
-           This method only displays updates if self.show_streaming_updates is True.
-           By default, streaming updates are disabled since Router provides step logging.
-        """
-        if not self.show_streaming_updates or chunk.get("event_type") != "status":
-            return
-
-        message = chunk.get("message", "Processing...")
-        step = chunk.get("step")
-        total_steps = chunk.get("total_steps")
-        component = chunk.get("component", "")
-        phase = chunk.get("phase", "")
-
-        # Format message with step info (no percentages - they don't represent real progress)
-        status_parts = []
-
-        # Add phase/component context
-        if phase and phase != component:
-            status_parts.append(f"{phase}")
-        elif component:
-            status_parts.append(f"{component.replace('_', ' ').title()}")
-
-        # Add step counter if available
-        if step and total_steps:
-            status_parts.append(f"({step}/{total_steps})")
-
-        # Build final status message
-        if status_parts:
-            status_msg = f"{': '.join(status_parts)} - {message}"
-        else:
-            status_msg = message
-
-        self.console.print(f"[{Styles.INFO}]🔄 {status_msg}[/{Styles.INFO}]")
+        # Cleanup: unregister fallback transport on exit
+        if self._unregister_fallback:
+            self._unregister_fallback()
 
     async def _process_user_input(self, user_input: str) -> bool:
         """Process user input through the Gateway and handle execution flow.
@@ -604,28 +648,10 @@ class CLI:
            :class:`osprey.infrastructure.gateway.Gateway` : Message processing
            :meth:`_execute_result` : Agent execution with streaming
            :meth:`_show_final_result` : Final result display
-           :meth:`_handle_streaming_update` : Streaming status display logic
         """
-        # Check if we're in direct chat mode for quieter logging
-        in_direct_chat = self._is_in_direct_chat()
-
-        # Use context manager to suppress INFO logs during direct chat
-        if in_direct_chat:
-            with quiet_logging():
-                return await self._do_process_user_input(user_input)
-        else:
-            return await self._do_process_user_input(user_input)
-
-    async def _do_process_user_input(self, user_input: str) -> bool:
-        """Internal processing logic for user input.
-
-        This method contains the actual processing logic, separated from
-        _process_user_input to allow wrapping in quiet_logging context.
-
-        Returns:
-            True if interface should exit, False otherwise
-        """
-        self.console.print(f"[{Styles.INFO}]🔄 Processing: {user_input}[/{Styles.INFO}]")
+        # Note: quiet_logging() was removed as part of unified event system.
+        # User-facing output now flows through typed events, not Python logging.
+        self.console.print(f"[system]🔄 Processing: {user_input}[/system]")
 
         # Gateway handles all preprocessing
         result = await self.gateway.process_message(user_input, self.graph, self.base_config)
@@ -643,19 +669,108 @@ class CLI:
         # Show slash command processing if any
         if result.slash_commands_processed:
             self.console.print(
-                f"[{Styles.SUCCESS}]✅ Processed commands: {result.slash_commands_processed}[/{Styles.SUCCESS}]"
+                f"[system]✅ Processed commands: {result.slash_commands_processed}[/system]"
             )
 
         # Execute the result
         if result.resume_command:
-            self.console.print(f"[{Styles.INFO}]🔄 Resuming from interrupt...[/{Styles.INFO}]")
+            self.console.print("[system]🔄 Resuming from interrupt...[/system]")
             # Resume commands come from gateway - execute with streaming
             try:
-                async for chunk in self.graph.astream(
-                    result.resume_command, config=self.base_config, stream_mode="custom"
+                # Create typed event handler for resume execution
+                handler = CLIEventHandler(console=self.console, verbose=self.show_streaming_updates)
+
+                # Track if we've streamed LLM response tokens
+                streamed_response = False
+                # Track code generation streaming
+                code_gen_active = False
+                code_gen_buffer = ""
+                # Track node transitions to detect when code generation finishes
+                previous_node = None
+                # Track stream mode transitions to detect when code streaming ends
+                previous_mode = None
+
+                async for _ns, mode, chunk in self.graph.astream(
+                    result.resume_command,
+                    config=self.base_config,
+                    stream_mode=["custom", "messages", "updates"],
+                    subgraphs=True,
                 ):
-                    # Handle streaming updates if enabled (centralized logic)
-                    self._handle_streaming_update(chunk)
+                    if mode == "updates":
+                        # Skip state updates - CLI doesn't need retry tracking UI
+                        continue
+
+                    elif mode == "custom":
+                        # DETECT: messages → custom means streaming ended
+                        if previous_mode == "messages" and code_gen_active:
+                            print()  # Newline before custom event
+                            code_gen_active = False
+
+                        # Parse and handle typed events
+                        event = parse_event(chunk)
+                        if event:
+                            await handler.handle(event)
+
+                        previous_mode = "custom"  # Track mode
+                    elif mode == "messages":
+                        # Handle LLM token streaming
+                        message_chunk, metadata = chunk
+                        # Only process AIMessageChunks (streaming tokens), skip full AIMessages
+                        if not isinstance(message_chunk, AIMessageChunk):
+                            continue
+                        if hasattr(message_chunk, "content") and message_chunk.content:
+                            # Identify the source node from metadata
+                            node_name = metadata.get("langgraph_node", "") if metadata else ""
+
+                            # Detect transition from code generation to another node
+                            if (
+                                previous_node == "python_code_generator"
+                                and node_name != "python_code_generator"
+                            ):
+                                # Code generation just finished - add line break for separation
+                                if code_gen_active:
+                                    print()  # Line break after code streaming
+                                    code_gen_active = False
+
+                            # Route tokens by source node
+                            if node_name == "python_code_generator":
+                                # Handle code generation streaming
+                                if not code_gen_active:
+                                    # Add role prefix (like respond does)
+                                    self.console.print(
+                                        "\n[bold yellow]🤖 Assistant (Code Generator):[/bold yellow] ",
+                                        end="",
+                                    )
+                                    code_gen_active = True
+
+                                # Stream token with dim color (shows it's thinking/intermediate)
+                                self.console.print(f"[dim]{message_chunk.content}[/dim]", end="")
+
+                                # Buffer for final panel (keep for potential future use)
+                                code_gen_buffer += message_chunk.content
+                            else:
+                                # Handle response streaming (respond node)
+                                if not streamed_response:
+                                    self.console.print(
+                                        "\n[bold cyan]🤖 Assistant:[/bold cyan] ", end=""
+                                    )
+                                    handler.start_response_streaming()
+                                    streamed_response = True
+                                print(message_chunk.content, end="", flush=True)
+
+                            # Track current node for next iteration
+                            previous_node = node_name
+
+                        previous_mode = "messages"  # Track mode
+
+                # Print newline after streaming completes
+                if streamed_response:
+                    print()
+                    handler.reset_suppression()
+
+                # Fallback: Add line break if code was streaming
+                if code_gen_active:
+                    print()  # Line break if streaming didn't complete
 
                 # After resuming, check if there are more interrupts or if execution completed
                 state = self.graph.get_state(config=self.base_config)
@@ -687,26 +802,29 @@ class CLI:
                     await self._process_user_input(user_input)
                 else:
                     # Execution completed successfully
-                    await self._show_final_result(state.values)
+                    await self._show_final_result(
+                        state.values, skip_text_response=streamed_response
+                    )
 
             except Exception as e:
                 self.console.print(f"[{Styles.ERROR}]❌ Resume error: {e}[/{Styles.ERROR}]")
                 logger.exception("Error during resume execution")
-        elif result.agent_state:
-            # Check if this is a mode-switch only (entering/exiting direct chat with no message)
-            if result.is_state_only_update:
-                # Apply state update without executing the graph
+        elif result.is_state_only_update:
+            # State-only update: command handled locally, no graph execution needed
+            if result.agent_state:
+                # Mode switch (e.g., /chat:capability_name) - apply state update
                 self.graph.update_state(self.base_config, result.agent_state)
-                self.console.print(
-                    f"[{Styles.SUCCESS}]✓ Mode switched. Ready for your message.[/{Styles.SUCCESS}]"
-                )
-            else:
-                # Debug: Show execution step results count in fresh state
-                step_results = result.agent_state.get("execution_step_results", {})
-                self.console.print(
-                    f"[{Styles.INFO}]🔄 Starting new conversation turn (execution_step_results: {len(step_results)} records)...[/{Styles.INFO}]"
-                )
-                await self._execute_result(result.agent_state)
+                self.console.print("[system]✓ Mode switched. Ready for your message.[/system]")
+            # else: Command handled locally (e.g., /chat without args) - no state update needed
+            # The command handler already displayed output, nothing more to do
+        elif result.agent_state:
+            # Normal execution: execute the graph with the provided state
+            # Debug: Show execution step results count in fresh state
+            step_results = result.agent_state.get("execution_step_results", {})
+            self.console.print(
+                f"[system]Starting new conversation turn (execution_step_results: {len(step_results)} records)...[/system]"
+            )
+            await self._execute_result(result.agent_state)
         else:
             self.console.print(f"[{Styles.WARNING}]⚠️  No action required[/{Styles.WARNING}]")
 
@@ -762,16 +880,122 @@ class CLI:
         .. seealso::
            :meth:`_process_user_input` : Recursive approval handling
            :meth:`_show_final_result` : Final result display formatting
-           :meth:`_handle_streaming_update` : Streaming status display logic
            :class:`langgraph.graph.StateGraph` : LangGraph streaming execution
         """
         try:
-            # Use streaming for real-time updates
-            async for chunk in self.graph.astream(
-                input_data, config=self.base_config, stream_mode="custom"
-            ):
-                # Handle streaming updates if enabled (centralized logic)
-                self._handle_streaming_update(chunk)
+            # Create typed event handler for this execution
+            handler = CLIEventHandler(console=self.console, verbose=self.show_streaming_updates)
+
+            # Suppress Python logging during graph execution to avoid duplicate output.
+            # All output flows through typed events -> CLIEventHandler for consistent formatting.
+            import logging
+
+            root_logger = logging.getLogger()
+            original_level = root_logger.level
+            root_logger.setLevel(logging.WARNING)
+
+            # Track if we've streamed LLM response tokens
+            streamed_response = False
+            # Track code generation streaming
+            code_gen_active = False
+            code_gen_buffer = ""
+            # Track node transitions to detect when code generation finishes
+            previous_node = None
+            # Track stream mode transitions to detect when code streaming ends
+            previous_mode = None
+
+            try:
+                # Stream events using multi-mode: custom events + LLM message tokens + state updates
+                # All modes arrive through a single ordered stream with mode tags
+                # subgraphs=True enables streaming from nested service graphs (e.g., Python executor)
+                # "updates" mode enables tracking state changes like generation_attempt for retry distinction
+                async for _ns, mode, chunk in self.graph.astream(
+                    input_data,
+                    config=self.base_config,
+                    stream_mode=["custom", "messages", "updates"],
+                    subgraphs=True,
+                ):
+                    if mode == "updates":
+                        # Skip state updates - CLI doesn't need retry tracking UI
+                        continue
+
+                    elif mode == "custom":
+                        # DETECT: messages → custom means streaming ended
+                        if previous_mode == "messages" and code_gen_active:
+                            print()  # Newline before custom event
+                            code_gen_active = False
+
+                        # Parse and handle typed events
+                        event = parse_event(chunk)
+                        if event:
+                            await handler.handle(event)
+
+                        previous_mode = "custom"  # Track mode
+                    elif mode == "messages":
+                        # Handle LLM token streaming
+                        # chunk is a tuple (message_chunk, metadata)
+                        message_chunk, metadata = chunk
+                        # Only process AIMessageChunks (streaming tokens), skip full AIMessages
+                        if not isinstance(message_chunk, AIMessageChunk):
+                            continue
+                        if hasattr(message_chunk, "content") and message_chunk.content:
+                            # Identify the source node from metadata
+                            node_name = metadata.get("langgraph_node", "") if metadata else ""
+
+                            # Detect transition from code generation to another node
+                            if (
+                                previous_node == "python_code_generator"
+                                and node_name != "python_code_generator"
+                            ):
+                                # Code generation just finished - add line break for separation
+                                if code_gen_active:
+                                    print()  # Line break after code streaming
+                                    code_gen_active = False
+
+                            # Route tokens by source node
+                            if node_name == "python_code_generator":
+                                # Handle code generation streaming
+                                if not code_gen_active:
+                                    # Add role prefix (like respond does)
+                                    self.console.print(
+                                        "\n[bold yellow]🤖 Assistant (Code Generator):[/bold yellow] ",
+                                        end="",
+                                    )
+                                    code_gen_active = True
+
+                                # Stream token with dim color (shows it's thinking/intermediate)
+                                self.console.print(f"[dim]{message_chunk.content}[/dim]", end="")
+
+                                # Buffer for final panel (keep for potential future use)
+                                code_gen_buffer += message_chunk.content
+                            else:
+                                # Handle response streaming (respond node)
+                                if not streamed_response:
+                                    # Print header before first token
+                                    self.console.print(
+                                        "\n[bold cyan]🤖 Assistant:[/bold cyan] ", end=""
+                                    )
+                                    handler.start_response_streaming()
+                                    streamed_response = True
+                                # Print token directly to console (no newline, immediate flush)
+                                print(message_chunk.content, end="", flush=True)
+
+                            # Track current node for next iteration
+                            previous_node = node_name
+
+                        previous_mode = "messages"  # Track mode
+            finally:
+                # Print newline after streaming completes
+                if streamed_response:
+                    print()  # End the streamed response line
+                    handler.reset_suppression()
+
+                # Fallback: Add line break if code was streaming
+                if code_gen_active:
+                    print()  # Line break if streaming didn't complete
+
+                # Restore original logging level
+                root_logger.setLevel(original_level)
 
             # After streaming completes, check for interrupts
             state = self.graph.get_state(config=self.base_config)
@@ -810,13 +1034,14 @@ class CLI:
                 return
 
             # No interrupt, show final result
-            await self._show_final_result(state.values)
+            # Skip text response if we already streamed it
+            await self._show_final_result(state.values, skip_text_response=streamed_response)
 
         except Exception as e:
             self.console.print(f"[{Styles.ERROR}]❌ Execution error: {e}[/{Styles.ERROR}]")
             logger.exception("Error during graph execution")
 
-    async def _show_final_result(self, result: dict[str, Any]):
+    async def _show_final_result(self, result: dict[str, Any], skip_text_response: bool = False):
         """Display the final result from agent graph execution with figures, commands, and notebooks.
 
         Extracts and displays the final response from the completed agent
@@ -826,7 +1051,7 @@ class CLI:
 
         Result Processing:
         1. Extract execution step results for debugging information
-        2. Search messages list for the latest AI response
+        2. Search messages list for the latest AI response (unless skip_text_response)
         3. Filter out human messages to find agent responses
         4. Display formatted response or fallback completion message
         5. Extract and display generated figures with file paths
@@ -840,6 +1065,9 @@ class CLI:
 
         :param result: Complete agent state containing messages and execution data
         :type result: dict[str, Any]
+        :param skip_text_response: If True, skip displaying the text response
+            (used when response was already streamed to console)
+        :type skip_text_response: bool
 
         .. note::
            The method displays execution step count for debugging purposes,
@@ -884,24 +1112,25 @@ class CLI:
         # Debug: Show execution step results count after execution
         step_results = result.get("execution_step_results", {})
         self.console.print(
-            f"[{Styles.INFO}]📊 Execution completed (execution_step_results: {len(step_results)} records)[/{Styles.INFO}]"
+            f"[system]📊 Execution completed (execution_step_results: {len(step_results)} records)[/system]"
         )
 
-        # Extract and display the main text response
+        # Extract and display the main text response (skip if already streamed)
         text_response = None
-        messages = result.get("messages", [])
-        if messages:
-            # Get the latest AI message
-            for msg in reversed(messages):
-                if hasattr(msg, "content") and msg.content:
-                    if not hasattr(msg, "type") or msg.type != "human":
-                        text_response = msg.content
-                        self.console.print(f"[{Styles.SUCCESS}]🤖 {msg.content}[/{Styles.SUCCESS}]")
-                        break
+        if not skip_text_response:
+            messages = result.get("messages", [])
+            if messages:
+                # Get the latest AI message
+                for msg in reversed(messages):
+                    if hasattr(msg, "content") and msg.content:
+                        if not hasattr(msg, "type") or msg.type != "human":
+                            text_response = msg.content
+                            self.console.print(f"[system]🤖 {msg.content}[/system]")
+                            break
 
-        if not text_response:
-            # Fallback if no messages found
-            self.console.print(f"[{Styles.SUCCESS}]✅ Execution completed[/{Styles.SUCCESS}]")
+            if not text_response:
+                # Fallback if no messages found
+                self.console.print("[system]✅ Execution completed[/system]")
 
         # Extract and display artifacts from unified registry
         artifacts_output = self._extract_artifacts_for_cli(result)
@@ -968,13 +1197,11 @@ class CLI:
                     for msg in reversed(messages):
                         if hasattr(msg, "content") and msg.content:
                             if not hasattr(msg, "type") or msg.type != "human":
-                                self.console.print(
-                                    f"[{Styles.SUCCESS}]🤖 {msg.content}[/{Styles.SUCCESS}]"
-                                )
+                                self.console.print(f"[system]🤖 {msg.content}[/system]")
                                 return
 
         # If no response found, show completion
-        self.console.print(f"[{Styles.SUCCESS}]✅ Execution completed[/{Styles.SUCCESS}]")
+        self.console.print("[system]✅ Execution completed[/system]")
 
     def _extract_artifacts_for_cli(self, state: dict[str, Any]) -> str | None:
         """Extract artifacts from unified registry and format for CLI display.

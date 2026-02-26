@@ -31,4 +31,3 @@
       ~NotebookAttempt.stage
       ~NotebookAttempt.notebook_path
       ~NotebookAttempt.notebook_link
-

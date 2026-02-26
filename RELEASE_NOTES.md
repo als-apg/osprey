@@ -1,56 +1,23 @@
-# Osprey Framework - Latest Release (v0.10.1)
+# Osprey Framework - Latest Release (v0.11.4)
 
-🎉 **Direct Chat Mode & LiteLLM Migration** - Conversational capability interaction and unified LLM provider interface
+**ARIEL Write Support, Machine State Reader & Google Sheets Integration**
 
-## What's New in v0.10.1
+## What's New in v0.11.4
 
-### 💬 Direct Chat Mode
+### Highlights
 
-A new way to interact with capabilities in a conversational flow!
+- **ARIEL bidirectional facility adapters** - `FacilityAdapter` interface now supports writes with `supports_write` and `create_entry()`. `GenericJSONAdapter` provides atomic local JSON append; `ALSLogbookAdapter` posts via olog RPC XML with retry. `ARIELSearchService.create_entry()` orchestrates facility-first writes with optimistic local upsert and re-ingestion sync.
+- **Machine state reader** - New `MachineStateReader` service for bulk channel snapshots from the control system connector. Pipeline-aware Jinja2 template selects demo channels matching the active channel finder pipeline.
+- **Google Sheets channel database** - `GoogleSheetsChannelDatabase` reads/writes channel data from Google Sheets via `gspread`, integrating with the `in_context` pipeline via `source: google_sheets` config option.
 
-- **Enter Direct Chat**: `/chat:<capability>` - Start chatting with a specific capability
-- **List Available**: `/chat` - See all direct-chat enabled capabilities
-- **Exit**: `/exit` - Return to normal orchestrated mode
-- **Dynamic Prompt**: See which mode you're in (normal vs capability name)
-- **Context Tools**: Save, read, and manage context during conversations
+### Added
+- **ARIEL**: Bidirectional facility adapter write support with new models (`FacilityEntryCreateRequest`, `FacilityEntryCreateResult`, `SyncStatus`, `WriteConfig`) (#174)
+- **Machine State**: `MachineStateReader` service with pipeline-aware channel templates (#173)
+- **Channel Finder**: Google Sheets channel database backend with `gspread` integration (#171)
 
-**Built-in Direct Chat Capabilities:**
-- `state_manager` - Inspect and manage agent state
-- MCP-generated capabilities are direct-chat enabled by default
-
-### ⚡ LiteLLM Migration (#23)
-
-Major backend simplification - all LLM providers now use a unified interface:
-
-- **~2,200 lines → ~700 lines** - Massive code reduction
-- **8 Providers**: anthropic, openai, google, ollama, cborg, stanford, argo, vllm
-- **100+ Models**: Access to all LiteLLM-supported providers
-- **Preserved Features**: Extended thinking, structured outputs, health checks
-
-### 🆕 New Provider: vLLM
-
-High-throughput local inference support:
-
-- OpenAI-compatible interface via LiteLLM
-- Auto-detects served models
-- Supports structured outputs
-
-### 🔧 LangChain Model Factory
-
-Native integration with LangGraph ReAct agents:
-
-```python
-from osprey.models import get_langchain_model
-
-model = get_langchain_model(provider="anthropic", model_id="claude-sonnet-4")
-# Use with create_react_agent, etc.
-```
-
-### 📚 Documentation Updates
-
-- CLI Reference: Direct chat mode commands and examples
-- Gateway Architecture: Message history preservation
-- Building First Capability: `direct_chat_enabled` attribute guide
+### Fixed
+- **CI**: Make E2E test failures non-blocking in gate job
+- **Tests**: Mark flaky caproto test as `xfail` on macOS CI
 
 ---
 
@@ -66,31 +33,14 @@ Or install with all optional dependencies:
 pip install --upgrade "osprey-framework[all]"
 ```
 
-## Upgrading from v0.10.0
-
-### Direct Chat Mode
-
-No migration needed! Direct chat mode is opt-in:
-
-```python
-# Add to your capability to enable direct chat
-@capability_node
-class MyCapability(BaseCapability):
-    direct_chat_enabled = True  # New in 0.10.1
-```
-
-### LiteLLM Migration
-
-The API remains the same - `get_chat_completion()` works exactly as before.
-Backend providers now use LiteLLM internally.
-
 ---
 
 ## What's Next?
 
 Check out our [documentation](https://als-apg.github.io/osprey) for:
-- Direct chat mode tutorial
-- LangChain integration guide
+- [ARIEL Quick Start](https://als-apg.github.io/osprey/developer-guides/05_production-systems/07_logbook-search-service/index.html) -- get a working logbook search in minutes
+- [Migration assistance](https://als-apg.github.io/osprey/contributing/03_ai-assisted-development.html) -- upgrade existing agents to v0.11
+- Native capabilities and `osprey eject` guide
 - Complete tutorial series
 
 ## Contributors

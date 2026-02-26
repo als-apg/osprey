@@ -1,6 +1,7 @@
 """Tests for config updater functions."""
 
 import pytest
+import yaml
 
 from osprey.generators.config_updater import (
     add_capability_react_to_config,
@@ -9,6 +10,7 @@ from osprey.generators.config_updater import (
     has_capability_react_model,
     remove_capability_react_from_config,
     update_all_models,
+    update_yaml_file,
 )
 
 
@@ -53,7 +55,7 @@ def test_has_capability_react_model(updater_temp_config):
 def test_remove_capability_react_from_config(updater_temp_config):
     """Test removing capability react model from config."""
     # Remove weather_demo_react
-    new_content, preview, found = remove_capability_react_from_config(
+    backup_path, preview, found = remove_capability_react_from_config(
         updater_temp_config, "weather_demo"
     )
 
@@ -62,27 +64,30 @@ def test_remove_capability_react_from_config(updater_temp_config):
     assert "REMOVE" in preview
     assert "weather_demo_react" in preview
 
-    # Check that it's removed from content
-    assert "weather_demo_react" not in new_content
+    # Check that it's removed from the file
+    updated_content = updater_temp_config.read_text()
+    assert "weather_demo_react" not in updated_content
 
     # Check that other models are still there
-    assert "orchestrator:" in new_content
-    assert "slack_mcp_react:" in new_content
+    assert "orchestrator:" in updated_content
+    assert "slack_mcp_react:" in updated_content
 
 
 def test_remove_nonexistent_model(updater_temp_config):
     """Test removing a model that doesn't exist."""
-    new_content, preview, found = remove_capability_react_from_config(
+    original_content = updater_temp_config.read_text()
+
+    backup_path, preview, found = remove_capability_react_from_config(
         updater_temp_config, "nonexistent"
     )
 
     # Should not be found
     assert not found
     assert "found" in preview.lower()  # Message says "No config entry found"
+    assert backup_path is None  # No backup created when not found
 
     # Content should be unchanged
-    original_content = updater_temp_config.read_text()
-    assert new_content == original_content
+    assert updater_temp_config.read_text() == original_content
 
 
 def test_get_capability_react_config(updater_temp_config):
@@ -105,27 +110,21 @@ def test_add_then_remove_model(updater_temp_config):
     """Test adding a model and then removing it."""
     # Add new model
     template_config = {"provider": "anthropic", "model_id": "claude-sonnet-4", "max_tokens": 4096}
-    new_content, add_preview = add_capability_react_to_config(
+    backup_path, add_preview = add_capability_react_to_config(
         updater_temp_config, capability_name="jira_mcp", template_config=template_config
     )
-
-    # Write the new content
-    updater_temp_config.write_text(new_content)
 
     # Verify it was added
     assert has_capability_react_model(updater_temp_config, "jira_mcp")
 
     # Remove it
-    removed_content, remove_preview, found = remove_capability_react_from_config(
+    backup_path2, remove_preview, found = remove_capability_react_from_config(
         updater_temp_config, "jira_mcp"
     )
 
     # Verify it was removed
     assert found
-    assert "jira_mcp_react" not in removed_content
-
-    # Write the removed content
-    updater_temp_config.write_text(removed_content)
+    assert "jira_mcp_react" in remove_preview
 
     # Verify it's no longer there
     assert not has_capability_react_model(updater_temp_config, "jira_mcp")
@@ -137,33 +136,32 @@ def test_add_then_remove_model(updater_temp_config):
 
 def test_remove_preserves_structure(updater_temp_config):
     """Test that removal preserves the overall config structure."""
-    updater_temp_config.read_text()
-
     # Remove one model
-    new_content, _, _ = remove_capability_react_from_config(updater_temp_config, "weather_demo")
+    backup_path, _, _ = remove_capability_react_from_config(updater_temp_config, "weather_demo")
+
+    # Read updated content
+    updated_content = updater_temp_config.read_text()
 
     # Check that the models section is still there
-    assert "models:" in new_content
-    assert "orchestrator:" in new_content
+    assert "models:" in updated_content
+    assert "orchestrator:" in updated_content
 
     # Check that other sections are preserved
-    assert "registry_path:" in new_content
+    assert "registry_path:" in updated_content
 
     # Check that other capability models are intact
-    assert "slack_mcp_react:" in new_content
+    assert "slack_mcp_react:" in updated_content
 
 
 def test_remove_multiple_models_sequentially(updater_temp_config):
     """Test removing multiple models one after another."""
     # Remove first model
-    content1, _, found1 = remove_capability_react_from_config(updater_temp_config, "weather_demo")
+    _, _, found1 = remove_capability_react_from_config(updater_temp_config, "weather_demo")
     assert found1
-    updater_temp_config.write_text(content1)
 
     # Remove second model
-    content2, _, found2 = remove_capability_react_from_config(updater_temp_config, "slack_mcp")
+    _, _, found2 = remove_capability_react_from_config(updater_temp_config, "slack_mcp")
     assert found2
-    updater_temp_config.write_text(content2)
 
     # Verify both are removed
     assert not has_capability_react_model(updater_temp_config, "weather_demo")
@@ -208,21 +206,21 @@ def test_get_all_model_configs_empty():
 def test_update_all_models_basic(updater_temp_config):
     """Test updating all models to a new provider and model."""
     # Update all models to OpenAI GPT-4
-    new_content, preview = update_all_models(updater_temp_config, "openai", "gpt-4")
+    updated_content, preview = update_all_models(updater_temp_config, "openai", "gpt-4")
 
     # Check that content was updated
-    assert "provider: openai" in new_content
-    assert "model_id: gpt-4" in new_content
+    assert "provider: openai" in updated_content
+    assert "model_id: gpt-4" in updated_content
 
     # Check that ALL models were updated (count occurrences)
-    assert new_content.count("provider: openai") == 3  # orchestrator, weather_demo, slack_mcp
-    assert new_content.count("model_id: gpt-4") == 3
+    assert updated_content.count("provider: openai") == 3  # orchestrator, weather_demo, slack_mcp
+    assert updated_content.count("model_id: gpt-4") == 3
 
     # Check that old values are gone
-    assert "provider: anthropic" not in new_content
-    assert "model_id: claude-sonnet-4" not in new_content
-    assert "model_id: claude-haiku-4-5-20251001" not in new_content
-    assert "model_id: gpt-4o" not in new_content
+    assert "provider: anthropic" not in updated_content
+    assert "model_id: claude-sonnet-4" not in updated_content
+    assert "model_id: claude-haiku-4-5-20251001" not in updated_content
+    assert "model_id: gpt-4o" not in updated_content
 
     # Check preview contains useful information
     assert "openai" in preview
@@ -233,10 +231,9 @@ def test_update_all_models_basic(updater_temp_config):
 def test_update_all_models_preserves_max_tokens(updater_temp_config):
     """Test that updating models preserves max_tokens settings."""
     # Update all models
-    new_content, _ = update_all_models(updater_temp_config, "anthropic", "claude-opus-4")
+    _, _ = update_all_models(updater_temp_config, "anthropic", "claude-opus-4")
 
-    # Write and re-read to verify structure
-    updater_temp_config.write_text(new_content)
+    # Re-read to verify structure
     models = get_all_model_configs(updater_temp_config)
 
     # Check that max_tokens were preserved
@@ -253,9 +250,6 @@ def test_update_all_models_preserves_max_tokens(updater_temp_config):
 
 def test_update_all_models_preview_shows_changes(updater_temp_config):
     """Test that preview shows what will be changed."""
-    # Get initial state
-    get_all_model_configs(updater_temp_config)
-
     # Update to different provider/model
     _, preview = update_all_models(updater_temp_config, "openai", "gpt-4-turbo")
 
@@ -287,27 +281,24 @@ def test_update_all_models_preserves_structure(updater_temp_config):
     original_content = updater_temp_config.read_text()
 
     # Update all models
-    new_content, _ = update_all_models(updater_temp_config, "google", "gemini-pro")
+    updated_content, _ = update_all_models(updater_temp_config, "google", "gemini-pro")
 
     # Check that models section structure is preserved
-    assert "models:" in new_content
-    assert "orchestrator:" in new_content
-    assert "weather_demo_react:" in new_content
-    assert "slack_mcp_react:" in new_content
+    assert "models:" in updated_content
+    assert "orchestrator:" in updated_content
+    assert "weather_demo_react:" in updated_content
+    assert "slack_mcp_react:" in updated_content
 
     # Check that other sections are preserved
-    assert "registry_path:" in new_content
-    assert new_content.count("registry_path:") == original_content.count("registry_path:")
+    assert "registry_path:" in updated_content
+    assert updated_content.count("registry_path:") == original_content.count("registry_path:")
 
 
 def test_update_all_models_works_with_added_model(updater_temp_config):
     """Test updating models after adding a new capability model."""
     # First, add a new model
     template_config = {"provider": "anthropic", "model_id": "claude-haiku-4", "max_tokens": 2048}
-    new_content, _ = add_capability_react_to_config(
-        updater_temp_config, "new_capability", template_config
-    )
-    updater_temp_config.write_text(new_content)
+    _, _ = add_capability_react_to_config(updater_temp_config, "new_capability", template_config)
 
     # Now update all models
     updated_content, _ = update_all_models(updater_temp_config, "openai", "gpt-3.5-turbo")
@@ -316,8 +307,7 @@ def test_update_all_models_works_with_added_model(updater_temp_config):
     assert "provider: openai" in updated_content
     assert updated_content.count("provider: openai") == 4  # Including the newly added one
 
-    # Write and verify via get_all_model_configs
-    updater_temp_config.write_text(updated_content)
+    # Verify via get_all_model_configs
     models = get_all_model_configs(updater_temp_config)
 
     assert models["new_capability_react"]["provider"] == "openai"
@@ -328,24 +318,21 @@ def test_update_all_models_works_with_added_model(updater_temp_config):
 def test_update_all_models_multiple_times(updater_temp_config):
     """Test that models can be updated multiple times sequentially."""
     # First update
-    content1, _ = update_all_models(updater_temp_config, "openai", "gpt-4")
-    updater_temp_config.write_text(content1)
+    update_all_models(updater_temp_config, "openai", "gpt-4")
 
     models1 = get_all_model_configs(updater_temp_config)
     assert models1["orchestrator"]["provider"] == "openai"
     assert models1["orchestrator"]["model_id"] == "gpt-4"
 
     # Second update
-    content2, _ = update_all_models(updater_temp_config, "anthropic", "claude-opus-4")
-    updater_temp_config.write_text(content2)
+    update_all_models(updater_temp_config, "anthropic", "claude-opus-4")
 
     models2 = get_all_model_configs(updater_temp_config)
     assert models2["orchestrator"]["provider"] == "anthropic"
     assert models2["orchestrator"]["model_id"] == "claude-opus-4"
 
     # Third update
-    content3, _ = update_all_models(updater_temp_config, "google", "gemini-ultra")
-    updater_temp_config.write_text(content3)
+    update_all_models(updater_temp_config, "google", "gemini-ultra")
 
     models3 = get_all_model_configs(updater_temp_config)
     assert models3["orchestrator"]["provider"] == "google"
@@ -383,10 +370,9 @@ registry_path: src/my_control_assistant/registry.py
 def test_update_all_models_with_channel_finder(config_with_channel_finder):
     """Test updating models in control assistant config with channel_finder."""
     # Update all models to OpenAI
-    new_content, preview = update_all_models(config_with_channel_finder, "openai", "gpt-4")
+    _, preview = update_all_models(config_with_channel_finder, "openai", "gpt-4")
 
     # Verify all models updated
-    config_with_channel_finder.write_text(new_content)
     models = get_all_model_configs(config_with_channel_finder)
 
     assert models["orchestrator"]["provider"] == "openai"
@@ -400,3 +386,214 @@ def test_update_all_models_with_channel_finder(config_with_channel_finder):
     assert models["orchestrator"]["max_tokens"] == 4096
     assert models["channel_finder"]["max_tokens"] == 4096
     assert models["channel_write"]["max_tokens"] == 2048
+
+
+# =============================================================================
+# update_yaml_file Tests (moved from test_config_builder.py)
+# =============================================================================
+
+
+class TestUpdateYamlFile:
+    """Test comment-preserving YAML file updates."""
+
+    def test_update_preserves_comments(self, tmp_path):
+        """Test that comments are preserved when updating YAML."""
+        config_file = tmp_path / "config.yml"
+        original_content = """# Header comment
+project_name: test  # inline comment
+
+# Section comment
+control_system:
+  type: mock  # type comment
+  port: 5064
+"""
+        config_file.write_text(original_content)
+
+        update_yaml_file(
+            config_file,
+            {"control_system.type": "epics"},
+            create_backup=False,
+        )
+
+        updated_content = config_file.read_text()
+
+        # Comments preserved
+        assert "# Header comment" in updated_content
+        assert "# inline comment" in updated_content
+        assert "# Section comment" in updated_content
+        assert "# type comment" in updated_content
+
+        # Value updated
+        assert "type: epics" in updated_content
+        assert "type: mock" not in updated_content
+
+    def test_update_preserves_blank_lines(self, tmp_path):
+        """Test that blank lines are preserved when updating YAML."""
+        config_file = tmp_path / "config.yml"
+        original_content = """project_name: test
+
+control_system:
+  type: mock
+
+models:
+  name: test
+"""
+        config_file.write_text(original_content)
+
+        update_yaml_file(
+            config_file,
+            {"control_system.type": "epics"},
+            create_backup=False,
+        )
+
+        updated_content = config_file.read_text()
+
+        # Structure should be preserved with blank line separators
+        assert "project_name: test" in updated_content
+        assert "type: epics" in updated_content
+
+    def test_update_creates_nested_path(self, tmp_path):
+        """Test that nested paths are created when they don't exist."""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text("project_name: test\n")
+
+        update_yaml_file(
+            config_file,
+            {"control_system.connector.epics.port": 5064},
+            create_backup=False,
+        )
+
+        with open(config_file) as f:
+            updated_config = yaml.safe_load(f)
+
+        assert updated_config["control_system"]["connector"]["epics"]["port"] == 5064
+
+    def test_update_creates_backup(self, tmp_path):
+        """Test that backup file is created when requested."""
+        config_file = tmp_path / "config.yml"
+        original_content = "project_name: original\n"
+        config_file.write_text(original_content)
+
+        backup_path = update_yaml_file(
+            config_file,
+            {"project_name": "updated"},
+            create_backup=True,
+        )
+
+        assert backup_path is not None
+        assert backup_path.exists()
+        assert backup_path.read_text() == original_content
+
+    def test_update_no_backup_when_disabled(self, tmp_path):
+        """Test that no backup is created when disabled."""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text("project_name: test\n")
+
+        backup_path = update_yaml_file(
+            config_file,
+            {"project_name": "updated"},
+            create_backup=False,
+        )
+
+        assert backup_path is None
+        assert not (tmp_path / "config.yml.bak").exists()
+
+    def test_update_with_nested_dict(self, tmp_path):
+        """Test updating with nested dictionary structure."""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text("project_name: test\n")
+
+        update_yaml_file(
+            config_file,
+            {
+                "simulation": {
+                    "ioc": {"name": "test_ioc", "port": 5064},
+                    "backend": {"type": "mock"},
+                }
+            },
+            create_backup=False,
+        )
+
+        with open(config_file) as f:
+            updated_config = yaml.safe_load(f)
+
+        assert updated_config["simulation"]["ioc"]["name"] == "test_ioc"
+        assert updated_config["simulation"]["ioc"]["port"] == 5064
+        assert updated_config["simulation"]["backend"]["type"] == "mock"
+
+    def test_update_merges_nested_dicts(self, tmp_path):
+        """Test that nested dicts are merged, not replaced."""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(
+            """control_system:
+  type: mock
+  connector:
+    epics:
+      timeout: 30
+"""
+        )
+
+        update_yaml_file(
+            config_file,
+            {"control_system": {"type": "epics", "connector": {"epics": {"port": 5064}}}},
+            create_backup=False,
+        )
+
+        with open(config_file) as f:
+            updated_config = yaml.safe_load(f)
+
+        # Updated value
+        assert updated_config["control_system"]["type"] == "epics"
+        assert updated_config["control_system"]["connector"]["epics"]["port"] == 5064
+        # Original value preserved
+        assert updated_config["control_system"]["connector"]["epics"]["timeout"] == 30
+
+    def test_update_adds_section_comment_for_new_key(self, tmp_path):
+        """Test that section comments are added for new top-level keys."""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(
+            """project_name: test
+control_system:
+  type: mock
+"""
+        )
+
+        update_yaml_file(
+            config_file,
+            {"simulation": {"ioc": {"name": "test_ioc", "port": 5064}}},
+            create_backup=False,
+            section_comments={"simulation": "SIMULATION CONFIGURATION"},
+        )
+
+        updated_content = config_file.read_text()
+
+        # Section comment should be present in boxed format
+        assert "# ====" in updated_content  # Separator line
+        assert "# SIMULATION CONFIGURATION" in updated_content
+        # Content should be there
+        assert "simulation:" in updated_content
+        assert "test_ioc" in updated_content
+
+    def test_update_no_comment_for_existing_key(self, tmp_path):
+        """Test that section comments are NOT added for existing keys."""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(
+            """project_name: test
+simulation:
+  old_key: old_value
+"""
+        )
+
+        update_yaml_file(
+            config_file,
+            {"simulation": {"new_key": "new_value"}},
+            create_backup=False,
+            section_comments={"simulation": "Simulation Configuration"},
+        )
+
+        # Section comment should NOT be added since simulation already existed
+        # (comment is only for NEW keys)
+        # The merge happens, new_key is added
+        with open(config_file) as f:
+            config = yaml.safe_load(f)
+        assert config["simulation"]["new_key"] == "new_value"

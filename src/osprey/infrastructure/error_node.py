@@ -965,7 +965,7 @@ def _generate_llm_explanation(error_context: ErrorContext) -> str:
         prompt_provider = get_framework_prompts()
         error_builder = prompt_provider.get_error_analysis_prompt_builder()
 
-        prompt = error_builder.get_system_instructions(
+        prompt = error_builder.build_prompt(
             capabilities_overview=capabilities_overview, error_context=error_context
         )
 

@@ -38,7 +38,7 @@ class WeatherTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilder):
         super().__init__(include_default_examples=False)  # Skip framework examples
         self._add_weather_examples()
 
-    def get_role_definition(self) -> str:
+    def get_role(self) -> str:
         """Get the weather-specific role definition."""
         return "You are a weather assistant task extraction specialist that analyzes conversations to extract actionable weather-related tasks."
 

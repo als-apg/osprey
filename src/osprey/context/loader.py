@@ -6,12 +6,13 @@ for use with the ContextManager system.
 """
 
 import json
-import logging
 from pathlib import Path
+
+from osprey.utils.logger import get_logger
 
 from .context_manager import ContextManager
 
-logger = logging.getLogger(__name__)
+logger = get_logger("context_loader")
 
 
 def load_context(context_file: str = "context.json") -> ContextManager | None:

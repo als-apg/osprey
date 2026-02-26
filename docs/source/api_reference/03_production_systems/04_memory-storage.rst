@@ -7,10 +7,10 @@ User memory infrastructure with persistent storage, data source integration, and
 .. note::
    For implementation guides and examples, see :doc:`../../../developer-guides/05_production-systems/04_memory-storage-service`.
 
-.. currentmodule:: osprey.services.memory_storage
-
 Storage Management
 ==================
+
+.. currentmodule:: osprey.services.memory_storage.storage_manager
 
 .. autoclass:: MemoryStorageManager
    :members:
@@ -19,6 +19,8 @@ Storage Management
 Data Source Integration
 =======================
 
+.. currentmodule:: osprey.services.memory_storage.memory_provider
+
 .. autoclass:: UserMemoryProvider
    :members:
    :show-inheritance:
@@ -26,12 +28,16 @@ Data Source Integration
 Data Models
 ===========
 
+.. currentmodule:: osprey.services.memory_storage.models
+
 .. autoclass:: MemoryContent
    :members:
    :show-inheritance:
 
 Utility Functions
 =================
+
+.. currentmodule:: osprey.services.memory_storage.storage_manager
 
 .. autofunction:: get_memory_storage_manager
 

@@ -3,16 +3,22 @@
 Tests the runtime utilities for control system operations in generated Python code.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from osprey.runtime import (
+    _write_channel_async,
     cleanup_runtime,
     configure_from_context,
     read_channel,
     write_channel,
     write_channels,
+)
+from osprey.services.python_executor.exceptions import ChannelLimitsViolationError
+from osprey.services.python_executor.execution.limits_validator import (
+    ChannelLimitsConfig,
+    LimitsValidator,
 )
 
 
@@ -73,10 +79,12 @@ def clear_runtime_state():
 
     runtime._runtime_connector = None
     runtime._runtime_config = None
+    runtime._limits_validator = None
     yield
     # Cleanup after test
     runtime._runtime_connector = None
     runtime._runtime_config = None
+    runtime._limits_validator = None
 
 
 def test_configure_from_context_with_valid_config(mock_context_with_config, clear_runtime_state):
@@ -323,3 +331,94 @@ async def test_connector_recreated_after_cleanup(mock_context_with_config, clear
 
         # Factory should be called twice
         assert mock_factory.call_count == 2
+
+
+class TestRuntimeLimitsValidation:
+    """Tests that _limits_validator fires before the connector is called (I-2)."""
+
+    @pytest.mark.asyncio
+    async def test_limits_violation_raises_before_connector(
+        self, mock_context_with_config, clear_runtime_state
+    ):
+        """When _limits_validator rejects a value, ChannelLimitsViolationError is raised
+        and _get_connector() is never called."""
+        import osprey.runtime as runtime
+
+        configure_from_context(mock_context_with_config)
+
+        # Set up a LimitsValidator with known limits
+        test_db = {
+            "TEST:PV": ChannelLimitsConfig(
+                channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
+            ),
+        }
+        validator = LimitsValidator(test_db, {"allow_unlisted_pvs": False})
+        runtime._limits_validator = validator
+
+        # Mock _get_connector to track whether it's called
+        with patch("osprey.runtime._get_connector", new_callable=AsyncMock) as mock_get_connector:
+            with pytest.raises(ChannelLimitsViolationError) as exc_info:
+                await _write_channel_async("TEST:PV", 150.0)
+
+            # Connector should never have been called
+            mock_get_connector.assert_not_called()
+
+            # Verify the error details
+            assert exc_info.value.channel_address == "TEST:PV"
+            assert exc_info.value.attempted_value == 150.0
+
+    @pytest.mark.asyncio
+    async def test_no_validator_calls_connector_normally(
+        self, mock_context_with_config, clear_runtime_state
+    ):
+        """When _limits_validator is None, the connector is called normally."""
+        import osprey.runtime as runtime
+
+        configure_from_context(mock_context_with_config)
+
+        # Ensure no validator is set
+        assert runtime._limits_validator is None
+
+        mock_connector = MockConnector()
+
+        with patch(
+            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        ) as mock_factory:
+            mock_factory.return_value = mock_connector
+
+            await _write_channel_async("TEST:PV", 42.0)
+
+            # Connector should have been called
+            assert len(mock_connector.write_calls) == 1
+            assert mock_connector.write_calls[0][0] == "TEST:PV"
+            assert mock_connector.write_calls[0][1] == 42.0
+
+    @pytest.mark.asyncio
+    async def test_valid_value_passes_through_to_connector(
+        self, mock_context_with_config, clear_runtime_state
+    ):
+        """When _limits_validator approves the value, the connector write proceeds."""
+        import osprey.runtime as runtime
+
+        configure_from_context(mock_context_with_config)
+
+        test_db = {
+            "TEST:PV": ChannelLimitsConfig(
+                channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
+            ),
+        }
+        validator = LimitsValidator(test_db, {"allow_unlisted_pvs": False})
+        runtime._limits_validator = validator
+
+        mock_connector = MockConnector()
+
+        with patch(
+            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        ) as mock_factory:
+            mock_factory.return_value = mock_connector
+
+            # Value within limits — should pass through to connector
+            await _write_channel_async("TEST:PV", 50.0)
+
+            assert len(mock_connector.write_calls) == 1
+            assert mock_connector.write_calls[0][1] == 50.0

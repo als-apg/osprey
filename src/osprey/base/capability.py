@@ -7,7 +7,6 @@ Implements the LangGraph-native architecture with configuration-driven patterns.
 
 from __future__ import annotations
 
-import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -19,6 +18,42 @@ if TYPE_CHECKING:
     from osprey.state import AgentState
 
 # Direct imports - no circular dependencies in practice
+
+
+def slash_command(name: str, state: AgentState) -> str | bool | None:
+    """Read a capability-specific slash command from state.
+
+    This is a module-level helper function for reading capability-specific slash
+    commands that were parsed by the Gateway but not handled by registered commands.
+    Capabilities can use these commands to customize their behavior.
+
+    Args:
+        name: Command name (without leading slash)
+        state: Current agent state
+
+    Returns:
+        - str: If command was provided with a value (/beam:diagnostic -> "diagnostic")
+        - True: If command was provided without value (/verbose -> True)
+        - None: If command was not provided
+
+    Examples:
+        Using in a capability's execute method::
+
+            from osprey.base.capability import slash_command
+
+            async def execute(state: AgentState, **kwargs) -> dict[str, Any]:
+                # Check for /beam:mode command
+                if mode := slash_command("beam", state):
+                    # mode is "diagnostic" if user typed /beam:diagnostic
+                    pass
+
+                # Check for /verbose flag
+                if slash_command("verbose", state):
+                    # User typed /verbose
+                    pass
+    """
+    commands = state.get("_capability_slash_commands", {})
+    return commands.get(name)
 
 
 class RequiredContexts(dict):
@@ -501,7 +536,8 @@ class BaseCapability(ABC):
             async def execute(self) -> dict[str, Any]:
                 # Get task objective with automatic fallback
                 task = self.get_task_objective()
-                logger.info(f"Starting: {task}")
+                logger = self.get_logger()
+                logger.status(f"Starting: {task}")  # Emits StatusEvent
 
                 # Or with custom default
                 task = self.get_task_objective(default="unknown task")
@@ -664,6 +700,9 @@ class BaseCapability(ABC):
                 f"Step contents: {self._step}"
             )
 
+        # Extract task_objective for context metadata (enables orchestrator context reuse)
+        task_objective = self._step.get("task_objective")
+
         # Store each and merge updates
         merged: dict[str, Any] = {}
         for obj in context_objects:
@@ -683,7 +722,9 @@ class BaseCapability(ABC):
                     f"Available types: {', '.join(available)}"
                 ) from None
 
-            updates = StateManager.store_context(self._state, ctx_type, context_key, obj)
+            updates = StateManager.store_context(
+                self._state, ctx_type, context_key, obj, task_objective=task_objective
+            )
             merged = {**merged, **updates}
 
         return merged
@@ -710,28 +751,28 @@ class BaseCapability(ABC):
             async def execute(self) -> dict[str, Any]:
                 logger = self.get_logger()
 
-                # High-level status - logs + streams automatically
+                # Status updates - emits StatusEvent
                 logger.status("Creating execution plan...")
 
-                # Detailed info - logs only (unless explicitly requested)
+                # Info messages - emits StatusEvent with level="info"
                 logger.info(f"Active capabilities: {capabilities}")
 
-                # Explicit streaming for specific info
-                logger.info("Step 1 of 5 complete", stream=True, progress=0.2)
+                # Debug messages - emits StatusEvent with level="debug"
+                logger.debug("Detailed state information...")
 
-                # Errors always stream
+                # Errors - emits ErrorEvent
                 logger.error("Validation failed", validation_errors=[...])
 
-                # Success with metadata
+                # Success with metadata - emits StatusEvent with level="success"
                 logger.success("Plan created", steps=5, total_time=2.3)
 
                 return self.store_output_context(result)
             ```
 
         .. note::
-           The logger uses lazy initialization for streaming, so it gracefully
-           handles contexts where LangGraph streaming is not available (tests,
-           utilities, CLI-only execution).
+           All logger methods emit TypedEvents. The transport is handled automatically
+           via LangGraph streaming (during graph execution) or fallback handlers
+           (outside graph). Downstream clients (CLI, TUI) filter and render events.
 
         .. seealso::
            :class:`ComponentLogger` : Logger class with streaming methods
@@ -740,6 +781,46 @@ class BaseCapability(ABC):
         from osprey.utils.logger import get_logger
 
         return get_logger(self.name, state=self._state)
+
+    def slash_command(self, name: str) -> str | bool | None:
+        """Read a capability-specific slash command from state.
+
+        Convenience method that uses self._state automatically. This allows
+        capabilities to read custom slash commands that were not registered
+        in the command registry.
+
+        Args:
+            name: Command name (without leading slash)
+
+        Returns:
+            - str: If command was provided with a value (/beam:diagnostic -> "diagnostic")
+            - True: If command was provided without value (/verbose -> True)
+            - None: If command was not provided
+
+        Raises:
+            RuntimeError: If called outside execute() (state not injected)
+
+        Examples:
+            Using in a capability's execute method::
+
+                async def execute(self) -> dict[str, Any]:
+                    # Check for /beam:mode command
+                    if mode := self.slash_command("beam"):
+                        # mode is "diagnostic" if user typed /beam:diagnostic
+                        self._state["beam_mode"] = mode
+
+                    # Check for /verbose flag
+                    if self.slash_command("verbose"):
+                        # User typed /verbose
+                        self._state["beamline_verbose"] = True
+        """
+        if self._state is None:
+            raise RuntimeError(
+                f"{self.__class__.__name__}.slash_command() called before state injection. "
+                f"This method can only be called from within execute()."
+            )
+        commands = self._state.get("_capability_slash_commands", {})
+        return commands.get(name)
 
     @abstractmethod
     async def execute(self) -> dict[str, Any]:
@@ -804,9 +885,16 @@ class BaseCapability(ABC):
            :meth:`get_required_contexts` : Automatic context extraction
            :meth:`store_output_context` : Automatic context storage
         """
-        logger = logging.getLogger(__name__)
-        logger.warning(
-            "⚠️  Capability is using the empty base execute() - consider implementing execute() for proper functionality."
+        # Emit warning via TypedEvent system
+        from osprey.events import EventEmitter, StatusEvent
+
+        emitter = EventEmitter(self.name if hasattr(self, "name") and self.name else "unknown")
+        emitter.emit(
+            StatusEvent(
+                component=self.name if hasattr(self, "name") and self.name else "unknown",
+                message="Capability is using empty base execute() - consider implementing execute() for proper functionality",
+                level="warning",
+            )
         )
         pass
 
@@ -970,11 +1058,16 @@ class BaseCapability(ABC):
                     example_usage="For 'show me data from last week' or 'yesterday's performance'"
                 )
         """
-        logger = logging.getLogger(__name__)
-        logger.warning(
-            f"⚠️  Capability '{self.name}' is using base _create_orchestrator_guide() - "
-            "this may cause orchestrator hallucination. Consider implementing "
-            "_create_orchestrator_guide() for proper integration."
+        # Emit warning via TypedEvent system
+        from osprey.events import EventEmitter, StatusEvent
+
+        emitter = EventEmitter(self.name)
+        emitter.emit(
+            StatusEvent(
+                component=self.name,
+                message=f"Capability '{self.name}' is using base _create_orchestrator_guide() - consider implementing for proper integration",
+                level="warning",
+            )
         )
         return None
 
@@ -1012,11 +1105,16 @@ class BaseCapability(ABC):
         :return: Classifier guide for capability selection, or None if not needed
         :rtype: Optional[TaskClassifierGuide]
         """
-        logger = logging.getLogger(__name__)
-        logger.warning(
-            f"⚠️  Capability '{self.name}' is using base _create_classifier_guide() - "
-            "this may cause classification issues. Consider implementing "
-            "_create_classifier_guide() for proper task classification."
+        # Emit warning via TypedEvent system
+        from osprey.events import EventEmitter, StatusEvent
+
+        emitter = EventEmitter(self.name)
+        emitter.emit(
+            StatusEvent(
+                component=self.name,
+                message=f"Capability '{self.name}' is using base _create_classifier_guide() - consider implementing for proper task classification",
+                level="warning",
+            )
         )
         return None
 

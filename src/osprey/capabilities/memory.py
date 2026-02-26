@@ -314,18 +314,18 @@ class MemoryExtractionExample(BaseExample):
 # See: applications/als_assistant/framework_prompts/memory_extraction.py
 
 
-def _get_memory_extraction_system_instructions() -> str:
-    """Create system instructions for LLM-based memory content extraction.
+def _get_memory_extraction_prompt() -> str:
+    """Create the prompt for LLM-based memory content extraction.
 
-    Retrieves comprehensive system instructions from the framework's prompt
-    builder system. These instructions guide the LLM in analyzing chat history
-    and identifying content worth saving to user memory.
+    Retrieves the complete prompt from the framework's prompt builder system.
+    This prompt guides the LLM in analyzing chat history and identifying
+    content worth saving to user memory.
 
-    :return: Complete system instruction prompt for memory extraction operations
+    :return: Complete prompt for memory extraction operations
     :rtype: str
 
     .. note::
-       Instructions are provided by the application layer through the prompt
+       Prompts are provided by the application layer through the prompt
        builder system, enabling domain-specific memory extraction guidance.
 
     .. seealso::
@@ -335,7 +335,7 @@ def _get_memory_extraction_system_instructions() -> str:
     prompt_provider = get_framework_prompts()
     memory_builder = prompt_provider.get_memory_extraction_prompt_builder()
 
-    return memory_builder.get_system_instructions()
+    return memory_builder.build_prompt()
 
 
 async def _classify_memory_operation(task_objective: str, logger) -> MemoryOperation:
@@ -678,7 +678,7 @@ class MemoryOperationsCapability(BaseCapability):
 
                 if messages:
                     # Build system instructions and user input
-                    system_instructions = _get_memory_extraction_system_instructions()
+                    system_instructions = _get_memory_extraction_prompt()
                     chat_formatted = ChatHistoryFormatter.format_for_llm(messages)
 
                     # Check if we have context inputs from previous steps and include them

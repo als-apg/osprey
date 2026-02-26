@@ -6,7 +6,7 @@ Tests the MML-style channel finder with React agent and database query tools.
 
 import pytest
 
-from osprey.templates.apps.control_assistant.services.channel_finder.databases.middle_layer import (
+from osprey.services.channel_finder.databases.middle_layer import (
     MiddleLayerDatabase,
 )
 

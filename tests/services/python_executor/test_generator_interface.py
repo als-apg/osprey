@@ -253,19 +253,47 @@ async def test_end_to_end_factory_and_generation(mock_llm_response):
 # =============================================================================
 
 
+class _MockChunk:
+    """Mock LangChain AIMessageChunk with .content attribute."""
+
+    def __init__(self, content: str):
+        self.content = content
+
+
+class _MockModel:
+    """Mock LangChain model with async astream()."""
+
+    def __init__(self, response_text: str):
+        self._response = response_text
+
+    async def astream(self, messages):
+        yield _MockChunk(self._response)
+
+
+class _MockErrorModel:
+    """Mock LangChain model that raises on astream()."""
+
+    def __init__(self, error):
+        self._error = error
+
+    async def astream(self, messages):
+        raise self._error
+        yield  # Make it a generator
+
+
 @pytest.fixture
 def mock_llm_response(monkeypatch):
-    """Mock get_chat_completion to return specified response."""
+    """Mock get_langchain_model to return specified response via astream."""
     from contextlib import contextmanager
 
     @contextmanager
     def _mock_response(response_text):
-        def mock_completion(*args, **kwargs):
-            return response_text
+        def mock_get_model(**kwargs):
+            return _MockModel(response_text)
 
         monkeypatch.setattr(
-            "osprey.services.python_executor.generation.basic_generator.get_chat_completion",
-            mock_completion,
+            "osprey.services.python_executor.generation.basic_generator.get_langchain_model",
+            mock_get_model,
         )
         yield
 
@@ -274,17 +302,17 @@ def mock_llm_response(monkeypatch):
 
 @pytest.fixture
 def mock_llm_error(monkeypatch):
-    """Mock get_chat_completion to raise specified error."""
+    """Mock get_langchain_model to raise specified error on astream."""
     from contextlib import contextmanager
 
     @contextmanager
     def _mock_error(error):
-        def mock_completion(*args, **kwargs):
-            raise error
+        def mock_get_model(**kwargs):
+            return _MockErrorModel(error)
 
         monkeypatch.setattr(
-            "osprey.services.python_executor.generation.basic_generator.get_chat_completion",
-            mock_completion,
+            "osprey.services.python_executor.generation.basic_generator.get_langchain_model",
+            mock_get_model,
         )
         yield
 
@@ -361,13 +389,17 @@ async def test_basic_generator_receives_structured_errors(monkeypatch):
     # Track what prompt was built
     received_prompts = []
 
-    def capture_prompt(model_config, message):
-        received_prompts.append(message)
-        return "print('fixed code')"
+    class _CapturingModel:
+        async def astream(self, messages):
+            received_prompts.append(messages[0].content)
+            yield _MockChunk("print('fixed code')")
+
+    def mock_get_model(**kwargs):
+        return _CapturingModel()
 
     monkeypatch.setattr(
-        "osprey.services.python_executor.generation.basic_generator.get_chat_completion",
-        capture_prompt,
+        "osprey.services.python_executor.generation.basic_generator.get_langchain_model",
+        mock_get_model,
     )
 
     generator = BasicLLMCodeGenerator(model_config={})
@@ -407,12 +439,12 @@ async def test_basic_generator_uses_to_prompt_text(monkeypatch):
     """Verify BasicLLMCodeGenerator calls to_prompt_text() method."""
 
     # Mock the LLM call
-    def mock_completion(model_config, message):
-        return "print('code')"
+    def mock_get_model(**kwargs):
+        return _MockModel("print('code')")
 
     monkeypatch.setattr(
-        "osprey.services.python_executor.generation.basic_generator.get_chat_completion",
-        mock_completion,
+        "osprey.services.python_executor.generation.basic_generator.get_langchain_model",
+        mock_get_model,
     )
 
     # Spy on to_prompt_text calls
@@ -509,3 +541,161 @@ def test_empty_error_chain_works():
     # Should not contain error sections
     assert "PREVIOUS" not in prompt
     assert "FAILED" not in prompt
+
+
+# =============================================================================
+# BASIC GENERATOR CONFIG LOADING TESTS
+# =============================================================================
+
+
+class TestBasicGeneratorConfigLoading:
+    """Test BasicLLMCodeGenerator YAML config file loading."""
+
+    def test_uses_defaults_when_no_config_file(self):
+        """Generator uses default prompts when no config file exists."""
+        generator = BasicLLMCodeGenerator(model_config={})
+
+        # Should use defaults
+        assert generator.prompt_config["system_role"] == generator.DEFAULT_SYSTEM_ROLE
+        assert generator.prompt_config["core_requirements"] == generator.DEFAULT_CORE_REQUIREMENTS
+        assert generator.prompt_config["fallback_guidance"] == generator.DEFAULT_FALLBACK_GUIDANCE
+        assert generator.prompt_config["_from_file"] is False
+
+    def test_loads_config_from_yaml_file(self, tmp_path, monkeypatch):
+        """Generator loads prompts from YAML config file."""
+
+        # Create a config file
+        config_content = """
+system_role: "You are a custom code generator."
+core_requirements: |
+  CUSTOM REQUIREMENTS:
+  1. Always add comments
+  2. Use type hints
+system_prompt_extensions: |
+  DOMAIN SPECIFIC:
+  - Use pandas for data
+fallback_guidance: |
+  CUSTOM GUIDANCE:
+  - Be thorough
+error_feedback:
+  max_errors: 3
+  header: "=== CUSTOM ERROR HEADER ==="
+  footer: "Fix the issues above."
+save_prompts: true
+"""
+        config_file = tmp_path / "basic_generator_config.yml"
+        config_file.write_text(config_content)
+
+        # Change to tmp directory so generator finds the config
+        monkeypatch.chdir(tmp_path)
+
+        generator = BasicLLMCodeGenerator(model_config={})
+
+        assert generator.prompt_config["_from_file"] is True
+        assert generator.prompt_config["system_role"] == "You are a custom code generator."
+        assert "Always add comments" in generator.prompt_config["core_requirements"]
+        assert "pandas for data" in generator.prompt_config["system_prompt_extensions"]
+        assert "Be thorough" in generator.prompt_config["fallback_guidance"]
+        assert generator.prompt_config["error_feedback"]["max_errors"] == 3
+        assert generator._save_prompts is True
+
+    def test_custom_config_path_via_model_config(self, tmp_path):
+        """Generator can load config from custom path via model_config."""
+        config_content = """
+system_role: "Custom via path"
+"""
+        config_file = tmp_path / "custom_config.yml"
+        config_file.write_text(config_content)
+
+        generator = BasicLLMCodeGenerator(model_config={"basic_config_path": str(config_file)})
+
+        assert generator.prompt_config["system_role"] == "Custom via path"
+        assert generator.prompt_config["_from_file"] is True
+
+    def test_falls_back_to_defaults_on_invalid_yaml(self, tmp_path, monkeypatch):
+        """Generator falls back to defaults if YAML is invalid."""
+        config_file = tmp_path / "basic_generator_config.yml"
+        config_file.write_text("invalid: yaml: content: [")
+
+        monkeypatch.chdir(tmp_path)
+
+        generator = BasicLLMCodeGenerator(model_config={})
+
+        # Should fall back to defaults
+        assert generator.prompt_config["_from_file"] is False
+        assert generator.prompt_config["system_role"] == generator.DEFAULT_SYSTEM_ROLE
+
+    def test_prompt_config_used_in_prompt_building(self, tmp_path, monkeypatch):
+        """Verify loaded config is actually used in prompt building."""
+        config_content = """
+system_role: "CUSTOM_ROLE_MARKER"
+core_requirements: "CUSTOM_REQUIREMENTS_MARKER"
+system_prompt_extensions: "CUSTOM_EXTENSIONS_MARKER"
+"""
+        config_file = tmp_path / "basic_generator_config.yml"
+        config_file.write_text(config_content)
+        monkeypatch.chdir(tmp_path)
+
+        generator = BasicLLMCodeGenerator(model_config={})
+
+        request = PythonExecutionRequest(
+            user_query="Test", task_objective="Test", execution_folder_name="test"
+        )
+
+        prompt = generator._build_code_generation_prompt(request, [])
+
+        assert "CUSTOM_ROLE_MARKER" in prompt
+        assert "CUSTOM_REQUIREMENTS_MARKER" in prompt
+        assert "CUSTOM_EXTENSIONS_MARKER" in prompt
+
+    def test_error_feedback_config_used(self, tmp_path, monkeypatch):
+        """Verify error feedback config is used when building prompts with errors."""
+        config_content = """
+error_feedback:
+  max_errors: 1
+  header: "CUSTOM_ERROR_HEADER"
+  footer: "CUSTOM_ERROR_FOOTER"
+"""
+        config_file = tmp_path / "basic_generator_config.yml"
+        config_file.write_text(config_content)
+        monkeypatch.chdir(tmp_path)
+
+        generator = BasicLLMCodeGenerator(model_config={})
+
+        request = PythonExecutionRequest(
+            user_query="Test", task_objective="Test", execution_folder_name="test"
+        )
+
+        error_chain = [
+            ExecutionError(
+                error_type="execution",
+                error_message="Error 1",
+                attempt_number=1,
+                stage="execution",
+            ),
+            ExecutionError(
+                error_type="execution",
+                error_message="Error 2",
+                attempt_number=2,
+                stage="execution",
+            ),
+        ]
+
+        prompt = generator._build_code_generation_prompt(request, error_chain)
+
+        assert "CUSTOM_ERROR_HEADER" in prompt
+        assert "CUSTOM_ERROR_FOOTER" in prompt
+        # With max_errors=1, only the last error should be included
+        assert "Error 2" in prompt
+
+    def test_default_constants_are_valid_strings(self):
+        """Verify default constants are properly formatted strings."""
+        assert isinstance(BasicLLMCodeGenerator.DEFAULT_SYSTEM_ROLE, str)
+        assert isinstance(BasicLLMCodeGenerator.DEFAULT_CORE_REQUIREMENTS, str)
+        assert isinstance(BasicLLMCodeGenerator.DEFAULT_FALLBACK_GUIDANCE, str)
+        assert isinstance(BasicLLMCodeGenerator.DEFAULT_ERROR_HEADER, str)
+        assert isinstance(BasicLLMCodeGenerator.DEFAULT_ERROR_FOOTER, str)
+
+        # Should not have leading/trailing whitespace issues
+        assert not BasicLLMCodeGenerator.DEFAULT_CORE_REQUIREMENTS.startswith("\n")
+        assert not BasicLLMCodeGenerator.DEFAULT_FALLBACK_GUIDANCE.startswith("\n")

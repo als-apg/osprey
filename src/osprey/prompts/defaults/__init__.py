@@ -4,11 +4,21 @@ from ..base import FrameworkPromptBuilder
 
 # Import the interface
 from ..loader import FrameworkPromptProvider
+from .archiver_retrieval import DefaultArchiverRetrievalPromptBuilder
+from .ariel import DefaultARIELAgentPromptBuilder, DefaultARIELRAGPromptBuilder
+from .channel_finder import (
+    DefaultHierarchicalPromptBuilder,
+    DefaultInContextPromptBuilder,
+    DefaultMiddleLayerPromptBuilder,
+)
+from .channel_finding_orchestration import DefaultChannelFindingOrchestrationPromptBuilder
+from .channel_read import DefaultChannelReadPromptBuilder
+from .channel_write import DefaultChannelWritePromptBuilder
 from .clarification import DefaultClarificationPromptBuilder
 from .classification import DefaultClassificationPromptBuilder
 from .error_analysis import DefaultErrorAnalysisPromptBuilder
+from .logbook_search import DefaultLogbookSearchPromptBuilder
 from .memory_extraction import DefaultMemoryExtractionPromptBuilder
-from .optimization import DefaultOptimizationPromptBuilder
 from .orchestrator import DefaultOrchestratorPromptBuilder
 from .python import DefaultPythonPromptBuilder
 from .response_generation import DefaultResponseGenerationPromptBuilder
@@ -36,7 +46,26 @@ class DefaultPromptProvider(FrameworkPromptProvider):
         self._memory_extraction_builder = DefaultMemoryExtractionPromptBuilder()
         self._time_range_parsing_builder = DefaultTimeRangeParsingPromptBuilder()
         self._python_builder = DefaultPythonPromptBuilder()
-        self._optimization_builder = DefaultOptimizationPromptBuilder()
+
+        # Channel finder prompt builders
+        self._cf_in_context_builder = DefaultInContextPromptBuilder()
+        self._cf_hierarchical_builder = DefaultHierarchicalPromptBuilder()
+        self._cf_middle_layer_builder = DefaultMiddleLayerPromptBuilder()
+
+        # Logbook search prompt builder
+        self._logbook_search_builder = DefaultLogbookSearchPromptBuilder()
+
+        # Capability guide prompt builders
+        self._channel_read_builder = DefaultChannelReadPromptBuilder()
+        self._channel_write_builder = DefaultChannelWritePromptBuilder()
+        self._channel_finding_orchestration_builder = (
+            DefaultChannelFindingOrchestrationPromptBuilder()
+        )
+        self._archiver_retrieval_builder = DefaultArchiverRetrievalPromptBuilder()
+
+        # ARIEL prompt builders
+        self._ariel_agent_builder = DefaultARIELAgentPromptBuilder()
+        self._ariel_rag_builder = DefaultARIELRAGPromptBuilder()
 
     # =================================================================
     # Infrastructure prompts
@@ -73,11 +102,60 @@ class DefaultPromptProvider(FrameworkPromptProvider):
     def get_python_prompt_builder(self) -> "FrameworkPromptBuilder":
         return self._python_builder
 
-    def get_optimization_prompt_builder(self) -> "FrameworkPromptBuilder":
-        return self._optimization_builder
+    # =================================================================
+    # Channel finder prompt builders
+    # =================================================================
+
+    def get_channel_finder_in_context_prompt_builder(self) -> "FrameworkPromptBuilder":
+        return self._cf_in_context_builder
+
+    def get_channel_finder_hierarchical_prompt_builder(self) -> "FrameworkPromptBuilder":
+        return self._cf_hierarchical_builder
+
+    def get_channel_finder_middle_layer_prompt_builder(self) -> "FrameworkPromptBuilder":
+        return self._cf_middle_layer_builder
+
+    # =================================================================
+    # Logbook search prompt builder
+    # =================================================================
+
+    def get_logbook_search_prompt_builder(self) -> "FrameworkPromptBuilder":
+        return self._logbook_search_builder
+
+    # =================================================================
+    # Capability guide prompt builders
+    # =================================================================
+
+    def get_channel_read_prompt_builder(self) -> "FrameworkPromptBuilder":
+        return self._channel_read_builder
+
+    def get_channel_write_prompt_builder(self) -> "FrameworkPromptBuilder":
+        return self._channel_write_builder
+
+    def get_channel_finding_orchestration_prompt_builder(self) -> "FrameworkPromptBuilder":
+        return self._channel_finding_orchestration_builder
+
+    def get_archiver_retrieval_prompt_builder(self) -> "FrameworkPromptBuilder":
+        return self._archiver_retrieval_builder
+
+    # =================================================================
+    # ARIEL prompt builders
+    # =================================================================
+
+    def get_ariel_agent_prompt_builder(self) -> "FrameworkPromptBuilder":
+        return self._ariel_agent_builder
+
+    def get_ariel_rag_prompt_builder(self) -> "FrameworkPromptBuilder":
+        return self._ariel_rag_builder
 
 
 __all__ = [
+    "DefaultARIELAgentPromptBuilder",
+    "DefaultARIELRAGPromptBuilder",
+    "DefaultArchiverRetrievalPromptBuilder",
+    "DefaultChannelFindingOrchestrationPromptBuilder",
+    "DefaultChannelReadPromptBuilder",
+    "DefaultChannelWritePromptBuilder",
     "DefaultClassificationPromptBuilder",
     "DefaultResponseGenerationPromptBuilder",
     "DefaultTaskExtractionPromptBuilder",
@@ -86,8 +164,11 @@ __all__ = [
     "DefaultMemoryExtractionPromptBuilder",
     "DefaultTimeRangeParsingPromptBuilder",
     "DefaultPythonPromptBuilder",
-    "DefaultOptimizationPromptBuilder",
     "DefaultOrchestratorPromptBuilder",
+    "DefaultInContextPromptBuilder",
+    "DefaultHierarchicalPromptBuilder",
+    "DefaultMiddleLayerPromptBuilder",
+    "DefaultLogbookSearchPromptBuilder",
     "DefaultPromptProvider",
     "TaskExtractionExample",
     "ExtractedTask",

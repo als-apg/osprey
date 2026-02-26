@@ -157,7 +157,7 @@ class TestArgoHealthCheck:
         provider = ArgoProviderAdapter()
 
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock(message=MagicMock(content="Hello"))]
+        mock_response.choices = [MagicMock(message=MagicMock(tool_calls=None, content="Hello"))]
         mock_completion.return_value = mock_response
 
         success, message = provider.check_health(
@@ -215,7 +215,9 @@ class TestArgoExecuteCompletion:
         provider = ArgoProviderAdapter()
 
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock(message=MagicMock(content="Test response"))]
+        mock_response.choices = [
+            MagicMock(message=MagicMock(tool_calls=None, content="Test response"))
+        ]
         mock_completion.return_value = mock_response
 
         result = provider.execute_completion(

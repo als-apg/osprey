@@ -16,6 +16,14 @@ Router Node
 
 .. autofunction:: router_conditional_edge
 
+.. note::
+
+   When ``orchestration_mode`` is set to ``react``, ``router_conditional_edge`` delegates to the
+   internal ``_reactive_routing()`` function which implements reactive-specific routing logic
+   (max iterations guard, execution plan dispatch, routing errors back to
+   ``reactive_orchestrator``). See :doc:`../../developer-guides/04_infrastructure-components/03_classification-and-routing`
+   for details on both routing modes.
+
 Error Node
 ----------
 

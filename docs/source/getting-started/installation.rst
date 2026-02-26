@@ -113,22 +113,42 @@ This framework requires `Python 3.11+ <https://www.python.org/downloads/>`_. Ver
 
 To avoid conflicts with your system Python packages, create a virtual environment with Python 3.11+:
 
-.. code-block:: bash
+.. tab-set::
 
-   python3.11 -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+    .. tab-item:: uv (Recommended)
+
+        `uv <https://docs.astral.sh/uv/>`_ is a fast Python package manager that handles virtual environments automatically:
+
+        .. code-block:: bash
+
+           # uv creates and manages the .venv automatically
+           uv venv
+
+    .. tab-item:: pip (Traditional)
+
+        .. code-block:: bash
+
+           python3.11 -m venv venv
+           source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 **Installing the Framework**
 
-After creating and activating the virtual environment, install the framework package:
+After setting up your virtual environment, install the framework package:
 
-.. code-block:: bash
+.. tab-set::
 
-   # Upgrade pip to latest version
-   pip install --upgrade pip
+    .. tab-item:: uv (Recommended)
 
-   # Install the framework
-   pip install osprey-framework
+        .. code-block:: bash
+
+           uv pip install osprey-framework
+
+    .. tab-item:: pip (Traditional)
+
+        .. code-block:: bash
+
+           pip install --upgrade pip
+           pip install osprey-framework
 
 .. admonition:: New in v0.7+: Pip-Installable Architecture
    :class: version-07plus-change
@@ -148,7 +168,7 @@ After creating and activating the virtual environment, install the framework pac
 
    * **[scientific]**: SciPy, Seaborn, Scikit-learn, ipywidgets *(for advanced data analysis)*
    * **[docs]**: Sphinx and documentation tools
-   * **[dev]**: pytest, black, mypy, and development tools
+   * **[dev]**: pytest, ruff, mypy, and development tools
 
    .. note::
       The following packages are now included in the core installation:
@@ -434,11 +454,11 @@ If you want to build and serve the documentation locally:
 
 .. code-block:: bash
 
-   # Install documentation dependencies using optional dependencies
-   pip install -e ".[docs]"
+   # Install documentation dependencies
+   uv sync --extra docs
 
    # Build and serve documentation with auto-reload
-   cd docs && sphinx-autobuild source build
+   cd docs && uv run sphinx-autobuild source build
 
 Once running, you can view the documentation at http://localhost:8000
 
@@ -550,7 +570,10 @@ The Osprey framework provides a pipeline connection to integrate the agent frame
 The framework automatically configures the pipeline connection with these settings:
 
 - **URL**: ``http://pipelines:9099`` (default configuration)
-- **API Key**: ``0p3n-w3bu!`` (default, can be changed in ``services/osprey/pipelines/docker-compose.yml.j2`` under ``PIPELINES_API_KEY``)
+- **API Key**: ``0p3n-w3bu!`` (default for local development)
+
+.. note::
+   **Production Deployments**: The default ``PIPELINES_API_KEY`` is intended for local development only. For production or shared deployments, override it by adding ``PIPELINES_API_KEY=your-secure-key`` to your ``.env`` file. Use a strong, randomly generated key.
 
 **Note**: The URL uses ``pipelines:9099`` instead of ``localhost:9099`` because OpenWebUI runs inside a container and communicates with the pipelines service through the container network.
 

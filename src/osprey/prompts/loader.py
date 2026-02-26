@@ -300,27 +300,127 @@ class FrameworkPromptProvider:
         """
         raise NotImplementedError
 
-    def get_optimization_prompt_builder(self) -> FrameworkPromptBuilder:
-        """Provide prompt builder for XOpt optimization capability.
+    # =================================================================
+    # Capability prompt builders (guides for orchestrator/classifier)
+    # =================================================================
 
-        This prompt builder is used by the optimization capability to
-        configure and execute autonomous machine optimization using XOpt.
-        It includes guidance for machine state assessment, YAML generation,
-        and strategy selection.
+    def get_channel_read_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for channel read capability guides.
 
-        :return: Optimization capability prompt builder instance
-        :rtype: FrameworkPromptBuilder
-        :raises NotImplementedError: Must be implemented by concrete providers
-
-        .. note::
-           Optimization prompts should include facility-specific machine states,
-           historical YAML examples, and domain-specific optimization patterns.
-
-        .. seealso::
-           :class:`OptimizationCapability` : Framework capability that uses this prompt
-           :class:`XOptOptimizerService` : Optimization service infrastructure
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific orchestrator and classifier guidance.
         """
-        raise NotImplementedError
+        from osprey.prompts.defaults.channel_read import DefaultChannelReadPromptBuilder
+
+        return DefaultChannelReadPromptBuilder()
+
+    def get_channel_write_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for channel write capability guides.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific orchestrator and classifier guidance.
+        """
+        from osprey.prompts.defaults.channel_write import DefaultChannelWritePromptBuilder
+
+        return DefaultChannelWritePromptBuilder()
+
+    def get_channel_finding_orchestration_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for channel finding orchestration guides.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific orchestrator and classifier guidance.
+        """
+        from osprey.prompts.defaults.channel_finding_orchestration import (
+            DefaultChannelFindingOrchestrationPromptBuilder,
+        )
+
+        return DefaultChannelFindingOrchestrationPromptBuilder()
+
+    def get_archiver_retrieval_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for archiver retrieval capability guides.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific orchestrator and classifier guidance.
+        """
+        from osprey.prompts.defaults.archiver_retrieval import (
+            DefaultArchiverRetrievalPromptBuilder,
+        )
+
+        return DefaultArchiverRetrievalPromptBuilder()
+
+    def get_logbook_search_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for logbook search capability guides.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific orchestrator and classifier guidance.
+        """
+        from osprey.prompts.defaults.logbook_search import DefaultLogbookSearchPromptBuilder
+
+        return DefaultLogbookSearchPromptBuilder()
+
+    # =================================================================
+    # Channel finder prompt builders (used by native channel finder service)
+    # =================================================================
+
+    def get_channel_finder_in_context_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for in-context channel finder pipeline.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific descriptions and matching rules.
+        """
+        from osprey.prompts.defaults.channel_finder.in_context import (
+            DefaultInContextPromptBuilder,
+        )
+
+        return DefaultInContextPromptBuilder()
+
+    def get_channel_finder_hierarchical_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for hierarchical channel finder pipeline.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific descriptions and matching rules.
+        """
+        from osprey.prompts.defaults.channel_finder.hierarchical import (
+            DefaultHierarchicalPromptBuilder,
+        )
+
+        return DefaultHierarchicalPromptBuilder()
+
+    def get_channel_finder_middle_layer_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for middle layer channel finder pipeline.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific descriptions and matching rules.
+        """
+        from osprey.prompts.defaults.channel_finder.middle_layer import (
+            DefaultMiddleLayerPromptBuilder,
+        )
+
+        return DefaultMiddleLayerPromptBuilder()
+
+    # =================================================================
+    # ARIEL prompt builders (used by native ARIEL search service)
+    # =================================================================
+
+    def get_ariel_agent_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for ARIEL agent pipeline.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific context and response guidelines.
+        """
+        from osprey.prompts.defaults.ariel.agent import DefaultARIELAgentPromptBuilder
+
+        return DefaultARIELAgentPromptBuilder()
+
+    def get_ariel_rag_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for ARIEL RAG pipeline.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific context and response guidelines.
+        """
+        from osprey.prompts.defaults.ariel.rag import DefaultARIELRAGPromptBuilder
+
+        return DefaultARIELRAGPromptBuilder()
 
 
 class FrameworkPromptLoader:
@@ -535,7 +635,7 @@ def get_framework_prompts(application_name: str | None = None) -> FrameworkPromp
             # In orchestration_node.py
             prompt_provider = get_framework_prompts()
             orchestrator_builder = prompt_provider.get_orchestrator_prompt_builder()
-            system_prompt = orchestrator_builder.get_system_instructions(
+            system_prompt = orchestrator_builder.get_planning_instructions(
                 capabilities=active_capabilities,
                 context_manager=context_manager
             )

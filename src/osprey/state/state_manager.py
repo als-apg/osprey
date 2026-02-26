@@ -335,6 +335,13 @@ class StateManager:
             # Runtime metadata fields - reset to defaults
             runtime_checkpoint_metadata=None,
             runtime_info=None,
+            # Reactive orchestration fields - reset to defaults each turn
+            react_messages=[],
+            react_step_count=0,
+            react_rejection_count=0,
+            react_response_generated=False,
+            # Capability slash commands - reset to empty each turn
+            _capability_slash_commands={},
         )
 
         return state
@@ -366,7 +373,11 @@ class StateManager:
 
     @staticmethod
     def store_context(
-        state: AgentState, context_type: str, context_key: str, context_object: CapabilityContext
+        state: AgentState,
+        context_type: str,
+        context_key: str,
+        context_object: CapabilityContext,
+        task_objective: str | None = None,
     ) -> StateUpdate:
         """Store capability context data and return LangGraph-compatible state updates.
 
@@ -393,6 +404,10 @@ class StateManager:
         :type context_key: str
         :param context_object: CapabilityContext object containing data to store
         :type context_object: CapabilityContext
+        :param task_objective: Optional task description from execution plan step.
+                              Stored as metadata to help orchestrator understand what
+                              this context was created for (enables context reuse optimization).
+        :type task_objective: Optional[str]
         :return: State update dictionary for LangGraph automatic merging
         :rtype: StateUpdate
 
@@ -440,8 +455,10 @@ class StateManager:
         # Create context manager from state
         context_manager = ContextManager(state)
 
-        # Store the context object
-        context_manager.set_context(context_type, context_key, context_object)
+        # Store the context object with optional task_objective metadata
+        context_manager.set_context(
+            context_type, context_key, context_object, task_objective=task_objective
+        )
 
         # Return state updates with the updated dictionary data
         return {"capability_context_data": context_manager.get_raw_data()}

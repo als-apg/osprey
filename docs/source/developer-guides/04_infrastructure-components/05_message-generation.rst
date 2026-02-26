@@ -175,14 +175,14 @@ Generates targeted questions for ambiguous user requests:
 
        # Get clarification prompt
        clarification_builder = prompt_provider.get_clarification_prompt_builder()
-       system_instructions = clarification_builder.get_system_instructions()
+       prompt = clarification_builder.build_prompt()
        clarification_query = clarification_builder.build_clarification_query(
            chat_history_str, task_objective
        )
 
        # Generate structured questions
        return get_chat_completion(
-           message=f"{system_instructions}\n\n{clarification_query}",
+           message=f"{prompt}\n\n{clarification_query}",
            model_config=get_model_config("response"),
            output_model=ClarifyingQuestionsResponse
        )
@@ -198,7 +198,7 @@ Message generation uses the framework's prompt builder architecture:
        prompt_provider = get_framework_prompts()
        response_builder = prompt_provider.get_response_generation_prompt_builder()
 
-       return response_builder.get_system_instructions(
+       return response_builder.build_prompt(
            current_task=current_task,
            info=info
        )
@@ -208,7 +208,7 @@ Message generation uses the framework's prompt builder architecture:
 .. code-block:: python
 
    class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
-       def _get_dynamic_context(self, current_task="", info=None, **kwargs):
+       def build_dynamic_context(self, current_task="", info=None, **kwargs):
            sections = []
 
            # Base role with current task
@@ -231,12 +231,12 @@ Message generation uses the framework's prompt builder architecture:
 
    # Applications can override prompt builders
    class CustomResponsePromptBuilder(DefaultResponseGenerationPromptBuilder):
-       def get_role_definition(self):
+       def get_role(self):
            return "You are a specialized domain expert assistant."
 
-       def _get_dynamic_context(self, current_task="", info=None, **kwargs):
+       def build_dynamic_context(self, current_task="", info=None, **kwargs):
            # Customize response generation for specific domain
-           return super()._get_dynamic_context(current_task, info, **kwargs)
+           return super().build_dynamic_context(current_task, info, **kwargs)
 
 Error Handling
 --------------

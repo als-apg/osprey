@@ -324,6 +324,52 @@ Component Registration
        description="Domain knowledge retrieval"
    )
 
+.. _ariel-service-registration:
+
+ARIEL Service Components
+------------------------
+
+Applications that use the :doc:`ARIEL logbook search service </developer-guides/05_production-systems/07_logbook-search-service/index>` can register custom :ref:`ingestion adapters <facility adapters>`, :ref:`enhancement modules <Enhancement Pipeline>`, :doc:`search modules </developer-guides/05_production-systems/07_logbook-search-service/search-modes>`, and :doc:`pipelines </developer-guides/05_production-systems/07_logbook-search-service/search-modes>` through the same ``extend_framework_registry`` mechanism. The framework provides built-in defaults for all ARIEL components, and applications can add custom implementations or exclude built-in ones.
+
+**Ingestion Adapter Registration:**
+
+.. code-block:: python
+
+   from osprey.registry.helpers import extend_framework_registry
+   from osprey.registry.base import ArielIngestionAdapterRegistration
+
+   return extend_framework_registry(
+       ariel_ingestion_adapters=[
+           ArielIngestionAdapterRegistration(
+               name="my_facility",
+               module_path="my_app.adapters.my_facility",
+               class_name="MyFacilityAdapter",
+               description="Adapter for My Facility's logbook system",
+           ),
+       ],
+   )
+
+**Enhancement Module Registration:**
+
+.. code-block:: python
+
+   from osprey.registry.helpers import extend_framework_registry
+   from osprey.registry.base import ArielEnhancementModuleRegistration
+
+   return extend_framework_registry(
+       ariel_enhancement_modules=[
+           ArielEnhancementModuleRegistration(
+               name="my_enhancer",
+               module_path="my_app.enhancement.my_enhancer",
+               class_name="MyEnhancerModule",
+               description="Custom enhancement module",
+               execution_order=30,  # Runs after built-in modules (10, 20)
+           ),
+       ],
+   )
+
+You can also exclude built-in ARIEL components with ``exclude_ariel_ingestion_adapters``, ``exclude_ariel_enhancement_modules``, ``exclude_ariel_search_modules``, and ``exclude_ariel_pipelines``.
+
 .. _custom-ai-provider-registration:
 
 AI Provider Registration

@@ -13,7 +13,7 @@ services:
     working_dir: /pipelines
     entrypoint: ["/bin/bash", "/pipelines/start.sh"]
     ports:
-      - {{services.pipelines.port_host}}:{{services.pipelines.port_container}} # Expose pipeline port
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{services.pipelines.port_host}}:{{services.pipelines.port_container}}" # Expose pipeline port
     volumes:
       - ./pipelines:/pipelines
       - {{project_root}}/{{file_paths.agent_data_dir}}:/app/{{file_paths.agent_data_dir}}
@@ -28,8 +28,8 @@ services:
       - DEV_MODE=${DEV_MODE:-false}
       # Point to config.yml for framework initialization
       - CONFIG_FILE=/pipelines/config.yml
-      # Default API key for local dev (can be changed)
-      - PIPELINES_API_KEY=0p3n-w3bu!
+      # API key for pipeline authentication (override via .env for production)
+      - PIPELINES_API_KEY=${PIPELINES_API_KEY:-0p3n-w3bu!}
       # Python executable path for local execution mode (container-specific override)
       - CONTAINER_PYTHON_ENV=/usr/local/bin/python3
       # User app in repo_src if needed
@@ -45,6 +45,7 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - CBORG_API_KEY=${CBORG_API_KEY}
+      - AMSC_I2_API_KEY=${AMSC_I2_API_KEY}
       - STANFORD_API_KEY=${STANFORD_API_KEY}
       - ARGO_API_KEY=${ARGO_API_KEY}
       # Langfuse observability (optional - uncomment to enable LLM monitoring/tracing)

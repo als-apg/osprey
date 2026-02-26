@@ -91,14 +91,14 @@ class ContentViewer(ModalScreen[None]):
     def _compose_footer(self) -> Static:
         """Compose footer with appropriate hints."""
         hints = [
-            "[$text bold]␣[/$text bold] to pg down",
-            "[$text bold]b[/$text bold] to pg up",
+            "[$text bold]␣[/$text bold] pg down",
+            "[$text bold]b[/$text bold] pg up",
         ]
         if self._is_tabbed:
-            hints.append("[$text bold]tab[/$text bold] to switch")
+            hints.append("[$text bold]tab[/$text bold] switch")
         if self.language:
-            hints.append("[$text bold]m[/$text bold] to toggle markdown")
-        hints.append("[$text bold]⏎[/$text bold] to close")
+            hints.append("[$text bold]m[/$text bold] toggle markdown")
+        hints.append("[$text bold]⏎[/$text bold] close")
         return Static(" · ".join(hints), id="content-viewer-footer")
 
     def compose(self) -> ComposeResult:
@@ -126,10 +126,19 @@ class ContentViewer(ModalScreen[None]):
             yield self._compose_footer()
 
     def on_mount(self) -> None:
-        """Initialize tabbed content - height auto-adapts on first render."""
-        # For tabbed content, height will be captured on first tab switch
-        # Initial render uses auto height for proper adaptation
-        pass
+        """Initialize content viewer with calculated max height for proper scrolling."""
+        # Calculate max content height based on screen size to prevent cut-off
+        # while allowing auto-adapt when content is smaller
+        screen_height = self.screen.size.height
+        max_container_height = int(screen_height * 0.8)
+
+        # Fixed overhead: header (~2) + footer (~2) + container padding (2) + margins (~2)
+        fixed_overhead = 8
+
+        max_content_height = max_container_height - fixed_overhead
+
+        content = self.query_one("#content-viewer-content", ScrollableContainer)
+        content.styles.max_height = max_content_height
 
     def _refresh_content(self) -> None:
         """Refresh content based on current markdown mode."""

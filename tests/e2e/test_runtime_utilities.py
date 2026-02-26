@@ -11,11 +11,33 @@ import json
 import re
 from pathlib import Path
 
+import nbformat
 import pytest
+
+
+def _extract_code_from_notebook(notebook_path: Path) -> str:
+    """Extract the user-generated Python code from a notebook.
+
+    The notebook contains wrapper code (imports, context loading, etc.) and the
+    actual user code. This function extracts code cells and returns their content.
+
+    Args:
+        notebook_path: Path to the .ipynb file
+
+    Returns:
+        Combined source code from all code cells in the notebook
+    """
+    notebook = nbformat.read(notebook_path, as_version=4)
+    code_cells = [cell.source for cell in notebook.cells if cell.cell_type == "code"]
+    return "\n".join(code_cells)
 
 
 def _disable_capabilities(project, capability_names: list[str]):
     """Remove specific capabilities from project registry to force alternative paths.
+
+    Works with both registry styles:
+    - extend mode: Adds exclude_capabilities parameter to extend_framework_registry()
+    - explicit mode: Comments out CapabilityRegistration blocks
 
     Args:
         project: E2EProject instance
@@ -29,50 +51,53 @@ def _disable_capabilities(project, capability_names: list[str]):
     registry_path = registry_files[0]
     registry_content = registry_path.read_text()
 
-    # For each capability, comment out its CapabilityRegistration block
-    for cap_name in capability_names:
-        # Find all CapabilityRegistration blocks and match by counting parentheses
-        lines = registry_content.split("\n")
-        new_lines = []
-        i = 0
+    if "extend_framework_registry(" in registry_content:
+        # Extend mode: add exclude_capabilities parameter
+        exclude_list = repr(capability_names)
+        registry_content = registry_content.replace(
+            "extend_framework_registry(",
+            f"extend_framework_registry(\n            exclude_capabilities={exclude_list},",
+        )
+        registry_path.write_text(registry_content)
+    else:
+        # Explicit mode: comment out CapabilityRegistration blocks
+        for cap_name in capability_names:
+            lines = registry_content.split("\n")
+            new_lines = []
+            i = 0
 
-        while i < len(lines):
-            line = lines[i]
+            while i < len(lines):
+                line = lines[i]
 
-            # Check if this line starts a CapabilityRegistration (and is not already commented)
-            if "CapabilityRegistration(" in line and not line.strip().startswith("#"):
-                # Collect the full block by counting parentheses
-                block_lines = [line]
-                paren_count = line.count("(") - line.count(")")
-                j = i + 1
+                if "CapabilityRegistration(" in line and not line.strip().startswith("#"):
+                    block_lines = [line]
+                    paren_count = line.count("(") - line.count(")")
+                    j = i + 1
 
-                while j < len(lines) and paren_count > 0:
-                    block_lines.append(lines[j])
-                    paren_count += lines[j].count("(") - lines[j].count(")")
-                    j += 1
+                    while j < len(lines) and paren_count > 0:
+                        block_lines.append(lines[j])
+                        paren_count += lines[j].count("(") - lines[j].count(")")
+                        j += 1
 
-                # Check if this block is for the capability we want to disable
-                block_text = "\n".join(block_lines)
-                if re.search(r'name\s*=\s*["\']' + cap_name + r'["\']', block_text):
-                    # Comment out this block
-                    for block_line in block_lines:
-                        if block_line.strip():
-                            new_lines.append(f"                # {block_line}")
-                        else:
-                            new_lines.append("#")
-                    new_lines[-1] += "  # Disabled for testing"
-                    i = j
+                    block_text = "\n".join(block_lines)
+                    if re.search(r'name\s*=\s*["\']' + cap_name + r'["\']', block_text):
+                        for block_line in block_lines:
+                            if block_line.strip():
+                                new_lines.append(f"                # {block_line}")
+                            else:
+                                new_lines.append("#")
+                        new_lines[-1] += "  # Disabled for testing"
+                        i = j
+                    else:
+                        new_lines.extend(block_lines)
+                        i = j
                 else:
-                    # Keep this block as-is
-                    new_lines.extend(block_lines)
-                    i = j
-            else:
-                new_lines.append(line)
-                i += 1
+                    new_lines.append(line)
+                    i += 1
 
-        registry_content = "\n".join(new_lines)
+            registry_content = "\n".join(new_lines)
 
-    registry_path.write_text(registry_content)
+        registry_path.write_text(registry_content)
 
 
 @pytest.mark.e2e
@@ -134,27 +159,7 @@ async def test_runtime_utilities_basic_write(e2e_project_factory):
     # 2. Python capability was executed
     assert "python" in result.execution_trace.lower(), "Python capability not executed"
 
-    # 3. Find the generated Python code
-    code_files = [a for a in result.artifacts if str(a).endswith(".py")]
-    assert len(code_files) > 0, "No Python code files generated"
-
-    # Read the generated code
-    generated_code = Path(code_files[0]).read_text()
-
-    # 4. CRITICAL: Verify LLM used runtime utilities (not direct epics.caput)
-    assert "from osprey.runtime import" in generated_code, (
-        "Generated code doesn't import osprey.runtime - LLM didn't learn the API"
-    )
-    assert "write_channel" in generated_code, (
-        "Generated code doesn't use write_channel() - LLM didn't follow prompts"
-    )
-
-    # 5. Verify code doesn't use deprecated direct EPICS calls
-    assert "epics.caput" not in generated_code.lower(), (
-        "Generated code uses deprecated epics.caput instead of runtime utilities"
-    )
-
-    # 6. Verify context snapshot exists
+    # 3. Find execution folder and notebook
     executed_scripts_dir = project.project_dir / "_agent_data" / "executed_scripts"
 
     # Find execution folders (they're nested inside month folders like 2025-12/)
@@ -166,24 +171,38 @@ async def test_runtime_utilities_basic_write(e2e_project_factory):
     assert len(execution_folders) > 0, "No execution folders created"
 
     latest_execution = sorted(execution_folders)[-1]
-    context_file = latest_execution / "context.json"
 
+    # 4. Find the notebook and extract generated code
+    notebook_files = list(latest_execution.glob("**/*.ipynb"))
+    assert len(notebook_files) > 0, "No notebook generated"
+
+    generated_code = _extract_code_from_notebook(notebook_files[0])
+
+    # 5. CRITICAL: Verify LLM used runtime utilities (not direct epics.caput)
+    assert "from osprey.runtime import" in generated_code, (
+        "Generated code doesn't import osprey.runtime - LLM didn't learn the API"
+    )
+    assert "write_channel" in generated_code, (
+        "Generated code doesn't use write_channel() - LLM didn't follow prompts"
+    )
+
+    # 6. Verify code doesn't use deprecated direct EPICS calls
+    assert "epics.caput" not in generated_code.lower(), (
+        "Generated code uses deprecated epics.caput instead of runtime utilities"
+    )
+
+    # 7. Verify context snapshot exists
+    context_file = latest_execution / "context.json"
     assert context_file.exists(), f"context.json not created in {latest_execution}"
 
-    # 7. Verify context snapshot contains control system config
+    # 8. Verify context snapshot contains control system config
     context_data = json.loads(context_file.read_text())
     assert "_execution_config" in context_data, "Context doesn't contain execution config snapshot"
     assert "control_system" in context_data["_execution_config"], (
         "Context snapshot missing control_system config"
     )
 
-    # 8. Verify notebook includes runtime configuration
-    # Notebooks are in the attempts subdirectory
-    notebook_files = list(latest_execution.glob("**/*.ipynb"))
-    assert len(notebook_files) > 0, "No notebook generated"
-
-    import nbformat
-
+    # 9. Verify notebook includes runtime configuration
     notebook = nbformat.read(notebook_files[0], as_version=4)
     notebook_text = "\n".join(cell.source for cell in notebook.cells)
 
@@ -248,6 +267,11 @@ async def test_runtime_utilities_respects_channel_limits(e2e_project_factory, tm
     limits_file.write_text(json.dumps(limits_data, indent=2))
     config_data["control_system"]["limits_checking"]["database_path"] = str(limits_file)
 
+    # Disable approval for e2e testing - we want to test limits enforcement, not approval flow
+    if "approval" not in config_data:
+        config_data["approval"] = {}
+    config_data["approval"]["global_mode"] = "disabled"
+
     # Write updated config
     config_path.write_text(yaml.dump(config_data))
 
@@ -261,38 +285,55 @@ async def test_runtime_utilities_respects_channel_limits(e2e_project_factory, tm
 
     # === SAFETY VERIFICATION ===
 
-    # 1. Execution should have encountered an error
+    # 1. Should see Python execution in trace
     trace_lower = result.execution_trace.lower()
-
-    # 2. Should see Python execution in trace
     assert "python" in trace_lower, "Python capability not executed"
 
-    # 3. CRITICAL: Should see channel limits violation error
-    assert "channellimitsviolationerror" in trace_lower or "limits" in trace_lower, (
+    # 2. CRITICAL: Should see channel limits violation - either in execution trace OR response
+    # The limits violation is caught by the runtime and reported through the response.
+    # The capability may report [SUCCESS] because it successfully produced an error report.
+    response_lower = result.response.lower()
+    limits_detected = (
+        "channellimitsviolationerror" in trace_lower
+        or "limits" in trace_lower
+        or "limits violation" in response_lower
+        or "exceeds" in response_lower
+        or "maximum" in response_lower
+        and "100" in response_lower
+    )
+    assert limits_detected, (
         "Channel limits violation not detected!\n"
         f"This means runtime utilities bypassed safety checks!\n"
-        f"Trace: {result.execution_trace[:1000]}"
+        f"Trace: {result.execution_trace[:500]}\n"
+        f"Response preview: {result.response[:500]}"
     )
 
-    # 4. Check generated code used runtime utilities
-    code_files = [a for a in result.artifacts if str(a).endswith(".py")]
-    if len(code_files) > 0:
-        generated_code = Path(code_files[0]).read_text()
-
-        # Verify LLM used runtime API
-        assert "from osprey.runtime import" in generated_code, (
-            "Generated code doesn't use runtime utilities"
-        )
-        assert "write_channel" in generated_code, "Generated code doesn't use write_channel()"
-
-    # 5. Find execution folder and check for error details
+    # 4. Find execution folder and check for error details
     executed_scripts_dir = project.project_dir / "_agent_data" / "executed_scripts"
     if executed_scripts_dir.exists():
-        execution_folders = [d for d in executed_scripts_dir.iterdir() if d.is_dir()]
+        # Find execution folders (nested inside month folders)
+        execution_folders = []
+        for month_dir in executed_scripts_dir.iterdir():
+            if month_dir.is_dir():
+                execution_folders.extend([d for d in month_dir.iterdir() if d.is_dir()])
+
         if len(execution_folders) > 0:
             latest_execution = sorted(execution_folders)[-1]
 
-            # Check for execution metadata with error
+            # 5. Check generated code used runtime utilities (from notebook)
+            notebook_files = list(latest_execution.glob("**/*.ipynb"))
+            if len(notebook_files) > 0:
+                generated_code = _extract_code_from_notebook(notebook_files[0])
+
+                # Verify LLM used runtime API
+                assert "from osprey.runtime import" in generated_code, (
+                    "Generated code doesn't use runtime utilities"
+                )
+                assert "write_channel" in generated_code, (
+                    "Generated code doesn't use write_channel()"
+                )
+
+            # 6. Check for execution metadata with error
             metadata_file = latest_execution / "execution_metadata.json"
             if metadata_file.exists():
                 metadata = json.loads(metadata_file.read_text())
@@ -355,6 +396,11 @@ async def test_runtime_utilities_within_limits_succeeds(e2e_project_factory, tmp
     limits_file.write_text(json.dumps(limits_data, indent=2))
     config_data["control_system"]["limits_checking"]["database_path"] = str(limits_file)
 
+    # Disable approval for e2e testing - we want to test limits enforcement, not approval flow
+    if "approval" not in config_data:
+        config_data["approval"] = {}
+    config_data["approval"]["global_mode"] = "disabled"
+
     # Write updated config
     config_path.write_text(yaml.dump(config_data))
 
@@ -386,20 +432,28 @@ async def test_runtime_utilities_within_limits_succeeds(e2e_project_factory, tmp
         f"Response doesn't indicate successful write: {result.response[:300]}"
     )
 
-    # 5. Verify generated code used runtime utilities
-    code_files = [a for a in result.artifacts if str(a).endswith(".py")]
-    assert len(code_files) > 0, "No code files generated"
+    # 5. Find execution folder and verify code
+    executed_scripts_dir = project.project_dir / "_agent_data" / "executed_scripts"
 
-    generated_code = Path(code_files[0]).read_text()
+    # Find execution folders (nested inside month folders)
+    execution_folders = []
+    for month_dir in executed_scripts_dir.iterdir():
+        if month_dir.is_dir():
+            execution_folders.extend([d for d in month_dir.iterdir() if d.is_dir()])
+
+    assert len(execution_folders) > 0, "No execution folders created"
+
+    latest_execution = sorted(execution_folders)[-1]
+
+    # 6. Verify generated code used runtime utilities (from notebook)
+    notebook_files = list(latest_execution.glob("**/*.ipynb"))
+    assert len(notebook_files) > 0, "No notebook generated"
+
+    generated_code = _extract_code_from_notebook(notebook_files[0])
     assert "from osprey.runtime import" in generated_code
     assert "write_channel" in generated_code
 
-    # 6. Verify execution succeeded
-    executed_scripts_dir = project.project_dir / "_agent_data" / "executed_scripts"
-    execution_folders = [d for d in executed_scripts_dir.iterdir() if d.is_dir()]
-    assert len(execution_folders) > 0
-
-    latest_execution = sorted(execution_folders)[-1]
+    # 7. Verify execution succeeded
     metadata_file = latest_execution / "execution_metadata.json"
 
     if metadata_file.exists():

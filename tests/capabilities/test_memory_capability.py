@@ -21,7 +21,7 @@ from osprey.capabilities.memory import (
     MemoryRetrievalError,
     UserIdNotAvailableError,
     _classify_memory_operation,
-    _get_memory_extraction_system_instructions,
+    _get_memory_extraction_prompt,
     _perform_memory_retrieve_operation,
     _perform_memory_save_operation,
 )
@@ -180,16 +180,16 @@ class TestExceptionClasses:
 class TestMemoryHelperFunctions:
     """Test memory helper functions."""
 
-    def test_get_memory_extraction_system_instructions(self):
-        """Test _get_memory_extraction_system_instructions function."""
+    def test_get_memory_extraction_prompt(self):
+        """Test _get_memory_extraction_prompt function."""
         with patch("osprey.capabilities.memory.get_framework_prompts") as mock_prompts:
             mock_builder = MagicMock()
-            mock_builder.get_system_instructions.return_value = "Test instructions"
+            mock_builder.build_prompt.return_value = "Test instructions"
             mock_prompts.return_value.get_memory_extraction_prompt_builder.return_value = (
                 mock_builder
             )
 
-            instructions = _get_memory_extraction_system_instructions()
+            instructions = _get_memory_extraction_prompt()
 
             assert instructions == "Test instructions"
             mock_prompts.assert_called_once()

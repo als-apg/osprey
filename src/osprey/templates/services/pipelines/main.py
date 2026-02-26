@@ -20,9 +20,20 @@ from collections import deque
 from collections.abc import Generator, Iterator
 from typing import Any
 
-from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.messages import AIMessageChunk
 from pydantic import BaseModel, Field
 
+# Event parsing for unified streaming system
+from osprey.events.parser import parse_event
+from osprey.events.types import (
+    CapabilityCompleteEvent,
+    CapabilityStartEvent,
+    CodeGenerationStartEvent,
+    OspreyEvent,
+    PhaseCompleteEvent,
+    PhaseStartEvent,
+    StatusEvent,
+)
 from osprey.graph import create_graph
 from osprey.infrastructure.gateway import Gateway
 
@@ -51,7 +62,7 @@ class LogCapture(logging.Handler):
             # Add to buffer
             _log_buffer.append(formatted_entry)
         except Exception:
-            # Don't let logging errors break the application
+            # Silently suppress: logging inside a logging handler risks recursion
             pass
 
 
@@ -450,6 +461,98 @@ class Pipeline:
             }
         }
 
+    def _format_streaming_event_from_typed(self, event: OspreyEvent) -> dict:
+        """Format a typed event into an OpenWebUI status event.
+
+        Converts typed Osprey events (StatusEvent, PhaseStartEvent, etc.) into
+        the OpenWebUI status event format for real-time UI updates.
+
+        Args:
+            event: Typed event object (StatusEvent, PhaseStartEvent, etc.)
+
+        Returns:
+            OpenWebUI status event dict with formatted message
+        """
+        # Extract common fields with safe defaults
+        message = getattr(event, "message", "Processing...")
+        component = getattr(event, "component", "")
+
+        # Handle different event types
+        if isinstance(event, StatusEvent):
+            step = event.step
+            total_steps = event.total_steps
+            phase = event.phase or ""
+            complete = False
+            error = event.level == "error"
+
+        elif isinstance(event, PhaseStartEvent):
+            step = None
+            total_steps = None
+            phase = event.phase
+            message = getattr(event, "description", None) or f"{event.phase} started"
+            complete = False
+            error = False
+
+        elif isinstance(event, PhaseCompleteEvent):
+            step = None
+            total_steps = None
+            phase = event.phase
+            message = f"{event.phase} complete"
+            complete = True
+            error = not event.success
+
+        elif isinstance(event, CapabilityStartEvent):
+            step = event.step_number
+            total_steps = event.total_steps
+            phase = "Execution"
+            message = event.description or event.capability_name
+            complete = False
+            error = False
+
+        elif isinstance(event, CapabilityCompleteEvent):
+            step = None
+            total_steps = None
+            phase = "Execution"
+            message = event.error_message if event.error_message else "Capability complete"
+            complete = True
+            error = not event.success
+
+        else:
+            # Fallback for other event types
+            step = None
+            total_steps = None
+            phase = ""
+            complete = False
+            error = False
+
+        logger.debug(f"Status event captured: '{message}' from {component}")
+
+        # Use existing formatting logic for message construction
+        status_parts = []
+
+        if phase and phase != component:
+            status_parts.append(f"{phase}")
+        elif component:
+            status_parts.append(f"{component.replace('_', ' ').title()}")
+
+        if step and total_steps:
+            status_parts.append(f"({step}/{total_steps})")
+
+        if status_parts:
+            status_msg = f"{': '.join(status_parts)} - {message}"
+        else:
+            status_msg = message
+
+        return {
+            "event": {
+                "type": "status",
+                "data": {
+                    "description": status_msg,
+                    "done": complete or error,
+                },
+            }
+        }
+
     async def on_startup(self):
         """Initialize Osprey components and execute application startup hooks.
 
@@ -578,12 +681,14 @@ class Pipeline:
             initialize_registry()
             registry = get_registry()
 
-            # Create checkpointer
-            checkpointer = MemorySaver()
-
-            # Create graph and gateway
-            self._graph = create_graph(registry, checkpointer=checkpointer)
+            # Initialize graph without checkpointer (will be set per-request for session isolation)
+            # This prevents state contamination between different chat sessions
+            self._graph = create_graph(registry, checkpointer=None)
             self._gateway = Gateway()
+
+            # Map chat_id -> MemorySaver instance for session-scoped checkpoints
+            # Each chat session gets its own isolated checkpoint storage
+            self._checkpointers = {}
 
             logger.info("Framework initialization completed")
 
@@ -713,8 +818,19 @@ class Pipeline:
         logger.info(f"Processing message for user: {user_id}, chat: {chat_id}")
         logger.info(f"Query: '{user_message[:100]}...'")
 
-        # Use generator pattern following LangGraph Pipelines standards
-        return self._execute_pipeline(user_message, user_id, chat_id, session_id)
+        # Check stream mode from OpenWebUI request
+        if body.get("stream", True):
+            # Streaming: return generator for SSE
+            return self._execute_pipeline(user_message, user_id, chat_id, session_id)
+        else:
+            # Non-streaming: consume generator and return accumulated string
+            # OpenWebUI sends stream=false during retries and chat navigation
+            result_parts = []
+            for chunk in self._execute_pipeline(user_message, user_id, chat_id, session_id):
+                if isinstance(chunk, str):
+                    result_parts.append(chunk)
+                # Skip dict status events in non-streaming mode
+            return "".join(result_parts)
 
     def _execute_pipeline(
         self, user_message: str, user_id: str, chat_id: str, session_id: str
@@ -797,6 +913,16 @@ class Pipeline:
             # Send initial status update for regular message processing
             yield self._create_status_event("Processing message...", False)
 
+            # Create or reuse checkpointer for this chat session
+            # This provides session isolation and prevents state contamination
+            if chat_id not in self._checkpointers:
+                from langgraph.checkpoint.memory import MemorySaver
+
+                self._checkpointers[chat_id] = MemorySaver()
+
+            # Set checkpointer for this request
+            self._graph.checkpointer = self._checkpointers[chat_id]
+
             # Execute async processing in sync context
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -824,13 +950,11 @@ class Pipeline:
                 if result.resume_command:
                     yield self._create_status_event("🔄 Resuming from interrupt...", False)
                     # Resume execution with streaming
-                    yield from self._execute_graph_with_streaming(
-                        result.resume_command, config, loop
-                    )
+                    yield from self._execute_graph_with_streaming(result.resume_command, config)
 
                 elif result.agent_state:
                     # Execute new conversation with streaming
-                    yield from self._execute_graph_with_streaming(result.agent_state, config, loop)
+                    yield from self._execute_graph_with_streaming(result.agent_state, config)
 
                 else:
                     # Clear status and show completion
@@ -850,24 +974,30 @@ class Pipeline:
                     user_msg = interrupt.value.get("user_message", "Input required")
                     yield f"{user_msg}\n"
                 else:
-                    # Normal completion - extract final response
-                    response = self._extract_response_from_state(state.values)
-                    if response:
-                        # Handle large responses by chunking them for streaming
-                        if len(response) > 50000:  # 50KB threshold for chunking
-                            logger.info(
-                                f"Large response detected ({len(response)} chars), chunking for streaming..."
-                            )
-                            chunk_size = 50000
-                            for i in range(0, len(response), chunk_size):
-                                chunk = response[i : i + chunk_size]
-                                yield chunk
+                    # Normal completion - check if response was already streamed
+                    # This provides fallback for non-streaming scenarios
+                    if not self._last_response_was_streamed:
+                        # Fallback: extract final response from state (old behavior)
+                        response = self._extract_response_from_state(state.values)
+                        if response:
+                            # Handle large responses by chunking for streaming
+                            if len(response) > 50000:  # 50KB threshold
+                                logger.info(f"Large response detected ({len(response)} chars)")
+                                chunk_size = 50000
+                                for i in range(0, len(response), chunk_size):
+                                    chunk = response[i : i + chunk_size]
+                                    yield chunk
+                            else:
+                                yield response
                         else:
-                            yield response
-                    else:
-                        yield "✅ Execution completed"
+                            yield "✅ Execution completed"
+                    # else: response was already streamed, nothing more to do
 
             finally:
+                try:
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                except Exception:
+                    pass
                 loop.close()
 
         except Exception as e:
@@ -876,59 +1006,285 @@ class Pipeline:
             yield self._create_status_event("", True)
             yield f"Error: {str(e)}"
 
-    def _execute_graph_with_streaming(
-        self, input_data: Any, config: dict, loop: asyncio.AbstractEventLoop
-    ):
-        """Execute graph with streaming in sync context and yield events"""
+    def _execute_graph_with_streaming(self, input_data: Any, config: dict):
+        """Execute graph with streaming in sync context and yield events
 
-        # Use a queue to bridge async streaming with sync generator
+        Uses unified streaming system with 3-value unpacking to capture:
+        - Status events (mode="custom")
+        - LLM token streaming (mode="messages")
+        - State updates for retry tracking (mode="updates")
 
+        Stores streaming metadata in instance variables:
+        - self._last_response_was_streamed: bool
+        - self._last_accumulated_response: str
+        """
+
+        # Use queue to bridge async streaming with sync generator (single pipe)
         stream_queue = queue.Queue()
         exception_holder = [None]
+        cancel_event = threading.Event()  # Cooperative cancellation signal
+
+        # Timeout constants for idle detection
+        IDLE_TIMEOUT_AFTER_RESPONSE = 10  # Max seconds of silence after response tokens
+        IDLE_TIMEOUT_NO_RESPONSE = 120  # Safety valve if no response ever streamed
+        THREAD_JOIN_TIMEOUT = 2  # Seconds to wait for thread after cancel
+
+        # State tracking for streaming behavior
+        accumulated_response = [""]  # Use list for closure access
+        code_streaming_active = [False]  # Track if code fence is open
+        code_start_buffer = [""]  # Buffer initial tokens for fence detection
+        previous_code_attempt = [0]  # Track which attempt is being streamed
+        current_generation_attempt = [1]  # Track retry attempts
+        response_was_streamed = [False]  # Track if any response tokens arrived
+
+        # Initialize instance variables for metadata
+        self._last_response_was_streamed = False
+        self._last_accumulated_response = ""
 
         def run_async_streaming():
-            """Run async streaming in a separate thread"""
+            """Run async streaming in a separate thread with its own event loop.
+
+            Uses a monitored task pattern: stream_execution runs as an asyncio Task,
+            while a monitor coroutine watches for the cancel_event and cancels the
+            task if the consumer exits (idle timeout, error, or normal completion).
+            This prevents astream() from hanging indefinitely during post-iteration
+            cleanup (checkpointing, async generator teardown).
+            """
+            thread_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(thread_loop)
+
+            logger.debug("[streaming] Background thread started")
+
             try:
 
                 async def stream_execution():
-                    async for chunk in self._graph.astream(
-                        input_data, config=config, stream_mode="custom"
-                    ):
-                        # Debug: Log all chunks to see what we're receiving
-                        logger.debug(f"Received chunk: {chunk}")
+                    logger.debug("[streaming] astream() starting")
+                    try:
+                        # CRITICAL: Single pipe with 3-value unpacking
+                        # Expanding consumer to handle all modes from unified stream
+                        async for _ns, mode, chunk in self._graph.astream(
+                            input_data,
+                            config=config,
+                            stream_mode=["custom", "messages", "updates"],
+                            subgraphs=True,  # Enable nested service streaming
+                        ):
+                            # Check for cancellation between events
+                            if cancel_event.is_set():
+                                logger.info("[streaming] Cancel detected, breaking astream loop")
+                                break
 
-                        # Handle custom streaming events from get_stream_writer()
-                        if chunk.get("event_type") == "status":
-                            status_event = self._format_streaming_event(chunk)
-                            stream_queue.put(("status_event", status_event))
-                        else:
-                            logger.debug(
-                                f"Non-status chunk: {type(chunk)} {list(chunk.keys()) if isinstance(chunk, dict) else str(chunk)[:100]}"
-                            )
+                            # Skip state updates (retry tracking via CodeGenerationStartEvent)
+                            if mode == "updates":
+                                continue
 
-                    # Signal completion
-                    stream_queue.put(("done", None))
+                            # Handle custom events (status events)
+                            elif mode == "custom":
+                                # Parse typed event from stream chunk
+                                event = parse_event(chunk)
 
-                # Run the async execution
-                loop.run_until_complete(stream_execution())
+                                # Detect code generation start/retry — close any open fence
+                                if isinstance(event, CodeGenerationStartEvent):
+                                    if code_streaming_active[0]:
+                                        code_streaming_active[0] = False
+                                        code_start_buffer[0] = ""
+                                        stream_queue.put(("response_token", "\n```\n\n"))
+                                    current_generation_attempt[0] = event.attempt
+
+                                # Filter for displayable events
+                                should_display = False
+
+                                if isinstance(event, StatusEvent):
+                                    # Only display user-facing status levels, skip debug/info
+                                    should_display = event.level in (
+                                        "status",
+                                        "key_info",
+                                        "success",
+                                        "warning",
+                                        "error",
+                                    )
+                                elif isinstance(
+                                    event,
+                                    (
+                                        PhaseStartEvent,
+                                        PhaseCompleteEvent,
+                                        CapabilityStartEvent,
+                                        CapabilityCompleteEvent,
+                                    ),
+                                ):
+                                    # Always display phase/capability lifecycle events
+                                    should_display = True
+
+                                if should_display:
+                                    status_event = self._format_streaming_event_from_typed(event)
+                                    stream_queue.put(("status_event", status_event))
+
+                            # Handle LLM token streaming
+                            elif mode == "messages":
+                                message_chunk, metadata = chunk
+                                # Only process AIMessageChunks (streaming tokens)
+                                if (
+                                    isinstance(message_chunk, AIMessageChunk)
+                                    and message_chunk.content
+                                ):
+                                    node_name = metadata.get("langgraph_node", "respond")
+                                    response_was_streamed[0] = True
+
+                                    # Close code fence when transitioning away from code generator
+                                    if (
+                                        code_streaming_active[0]
+                                        and node_name != "python_code_generator"
+                                    ):
+                                        code_streaming_active[0] = False
+                                        stream_queue.put(("response_token", "\n```\n\n"))
+
+                                    # Code generation tokens
+                                    if node_name == "python_code_generator":
+                                        content = message_chunk.content
+
+                                        # Buffer initial tokens to detect and strip LLM-added fence prefix
+                                        # Fence markers may split across tokens (``` + python\n)
+                                        if not code_streaming_active[0]:
+                                            code_start_buffer[0] += content
+                                            buf = code_start_buffer[0]
+
+                                            # Check if buffer starts with fence markers
+                                            has_fence_start = buf.lstrip().startswith("```")
+                                            # Need at least 13 chars to detect full ```python\n
+                                            if has_fence_start and len(buf.lstrip()) < 13:
+                                                continue  # Buffer more tokens
+
+                                            # Strip any fence prefix from buffered content
+                                            stripped = buf.lstrip()
+                                            if stripped.startswith("```python\n"):
+                                                stripped = stripped[10:]
+                                            elif stripped.startswith("```python"):
+                                                stripped = stripped[9:]
+                                            elif stripped.startswith("```\n"):
+                                                stripped = stripped[4:]
+                                            elif stripped.startswith("```"):
+                                                stripped = stripped[3:]
+
+                                            # Open fence with buffered content
+                                            code_streaming_active[0] = True
+                                            previous_code_attempt[0] = current_generation_attempt[0]
+                                            code_start_buffer[0] = ""
+                                            content = f"```python\n{stripped}"
+
+                                            response_was_streamed[0] = True
+                                            stream_queue.put(("response_token", content))
+                                            continue
+
+                                        # After buffer phase: strip mid-stream fence artifacts
+                                        content = content.replace("```python\n", "").replace(
+                                            "```python", ""
+                                        )
+                                        content = (
+                                            content.replace("\n```\n", "")
+                                            .replace("\n```", "")
+                                            .replace("```", "")
+                                        )
+
+                                        if content:
+                                            response_was_streamed[0] = True
+                                            stream_queue.put(("response_token", content))
+
+                                    # Response tokens from respond node
+                                    elif node_name == "respond":
+                                        # Stream response token directly (no manual fence markers)
+                                        # Open WebUI handles markdown rendering automatically
+                                        response_was_streamed[0] = True
+                                        accumulated_response[0] += message_chunk.content
+                                        stream_queue.put(("response_token", message_chunk.content))
+
+                    except asyncio.CancelledError:
+                        logger.info("[streaming] astream() cancelled via CancelledError")
+
+                    logger.debug("[streaming] astream() finished")
+
+                    # Close any trailing code fence
+                    if code_streaming_active[0]:
+                        code_streaming_active[0] = False
+                        stream_queue.put(("response_token", "\n```\n"))
+
+                    # Signal completion (both natural and cancelled paths)
+                    stream_queue.put(("done", (response_was_streamed[0], accumulated_response[0])))
+
+                async def monitored_execution():
+                    """Run stream_execution as a task with cancel_event monitoring."""
+                    stream_task = asyncio.create_task(stream_execution())
+
+                    # Monitor for cancellation from the consumer thread
+                    while not stream_task.done():
+                        if cancel_event.is_set():
+                            logger.info("[streaming] Cancel event received, cancelling task")
+                            stream_task.cancel()
+                            break
+                        await asyncio.sleep(0.5)
+
+                    # Wait for task to finish (either naturally or via cancellation)
+                    try:
+                        await stream_task
+                    except asyncio.CancelledError:
+                        pass
+
+                    # Cancel remaining tasks (subprocess transports, pending I/O, etc.)
+                    # This prevents "Event loop is closed" errors from orphaned transports
+                    current = asyncio.current_task()
+                    remaining = [
+                        t for t in asyncio.all_tasks() if t is not current and not t.done()
+                    ]
+                    for t in remaining:
+                        t.cancel()
+                    if remaining:
+                        await asyncio.gather(*remaining, return_exceptions=True)
+
+                thread_loop.run_until_complete(monitored_execution())
 
             except Exception as e:
+                logger.exception(f"[streaming] Error in background thread: {e}")
                 exception_holder[0] = e
                 stream_queue.put(("error", str(e)))
+            finally:
+                # Properly clean up async generators (prevents "Task was destroyed" warnings)
+                try:
+                    thread_loop.run_until_complete(thread_loop.shutdown_asyncgens())
+                except Exception:
+                    pass
+                thread_loop.close()
+                logger.debug("[streaming] Background thread exiting")
 
         # Start streaming in background thread
-        thread = threading.Thread(target=run_async_streaming)
+        thread = threading.Thread(target=run_async_streaming, name="osprey-stream")
         thread.daemon = True
         thread.start()
 
-        # Yield streaming events as they arrive
+        # Consume queue and yield to OpenWebUI (single pipe consumer)
+        # Uses two-phase idle timeout:
+        #   Phase 1 (no response yet): long safety timeout (IDLE_TIMEOUT_NO_RESPONSE)
+        #   Phase 2 (response streamed): short idle timeout (IDLE_TIMEOUT_AFTER_RESPONSE)
+        last_event_time = time.monotonic()
+        consumer_received_response = False
+
         while True:
             try:
                 event_type, data = stream_queue.get(timeout=1.0)
+                last_event_time = time.monotonic()  # Reset idle timer on any event
 
                 if event_type == "status_event":
+                    # Yield status events as dicts (OpenWebUI protocol)
+                    yield data
+                elif event_type == "response_token":
+                    # Yield response tokens as strings (OpenWebUI protocol)
+                    consumer_received_response = True
                     yield data
                 elif event_type == "done":
+                    # Store completion metadata in instance variables
+                    if isinstance(data, tuple):
+                        (
+                            self._last_response_was_streamed,
+                            self._last_accumulated_response,
+                        ) = data
+                    logger.debug("[streaming] 'done' received from background thread")
                     break
                 elif event_type == "error":
                     # Clear status and show error
@@ -937,18 +1293,52 @@ class Pipeline:
                     break
 
             except queue.Empty:
-                # Check if thread is still alive
+                # Check if thread died unexpectedly
                 if not thread.is_alive():
+                    logger.debug("[streaming] Background thread died, breaking consumer loop")
                     break
+
+                # Check idle timeout based on phase
+                idle_duration = time.monotonic() - last_event_time
+
+                if consumer_received_response:
+                    # Phase 2: Response tokens were streamed - apply short idle timeout
+                    # If astream() hangs during cleanup after yielding all events,
+                    # this breaks us out rather than waiting indefinitely
+                    if idle_duration >= IDLE_TIMEOUT_AFTER_RESPONSE:
+                        logger.warning(
+                            f"[streaming] Idle timeout ({idle_duration:.1f}s) after response "
+                            f"tokens were streamed. Assuming astream() cleanup is hanging."
+                        )
+                        self._last_response_was_streamed = response_was_streamed[0]
+                        self._last_accumulated_response = accumulated_response[0]
+                        break
+                else:
+                    # Phase 1: No response tokens yet - long safety valve
+                    # (Normal processing can have long gaps during tool execution)
+                    if idle_duration >= IDLE_TIMEOUT_NO_RESPONSE:
+                        logger.error(
+                            f"[streaming] Safety timeout ({idle_duration:.1f}s) with no "
+                            f"response tokens ever received."
+                        )
+                        break
+
                 continue
 
-        # Wait for thread to complete
-        thread.join(timeout=2.0)
+        # Signal cancellation to background thread and brief cleanup
+        cancel_event.set()
+        logger.debug("[streaming] Cancel event set, joining thread")
+        thread.join(timeout=THREAD_JOIN_TIMEOUT)
 
-        # Check for exceptions
+        if thread.is_alive():
+            logger.warning(
+                f"[streaming] Background thread still alive after {THREAD_JOIN_TIMEOUT}s join. "
+                f"Daemon thread will be cleaned up on process exit."
+            )
+
+        # Check for exceptions from the background thread
         if exception_holder[0]:
             logger.exception(f"Error during streaming: {exception_holder[0]}")
-            # Clear status and show error
             yield self._create_status_event("", True)
             yield f"❌ Execution error: {exception_holder[0]}"
 

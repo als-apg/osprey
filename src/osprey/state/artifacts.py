@@ -29,11 +29,11 @@ should use `ui_artifacts` exclusively.
    :class:`osprey.state.AgentState` : State structure containing ui_artifacts
 """
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any, TypedDict
 
 
-class ArtifactType(str, Enum):
+class ArtifactType(StrEnum):
     """Enumeration of supported artifact types.
 
     Each artifact type corresponds to a specific category of generated content
@@ -257,13 +257,13 @@ def get_artifact_type_icon(artifact_type: ArtifactType | str) -> str:
         artifact_type = ArtifactType(artifact_type)
 
     icons = {
-        ArtifactType.IMAGE: "🖼",
-        ArtifactType.NOTEBOOK: "📓",
-        ArtifactType.COMMAND: "🔗",
-        ArtifactType.HTML: "🌐",
-        ArtifactType.FILE: "📄",
+        ArtifactType.IMAGE: "\u25eb",  # ◫ half-filled square
+        ArtifactType.NOTEBOOK: "\u2261",  # ≡ triple bar
+        ArtifactType.COMMAND: "\u25c7",  # ◇ open diamond
+        ArtifactType.HTML: "\u25c7",  # ◇ open diamond
+        ArtifactType.FILE: "\u25a1",  # □ open square
     }
-    return icons.get(artifact_type, "📎")
+    return icons.get(artifact_type, "\u00b7")
 
 
 def validate_artifact_data(artifact_type: ArtifactType, data: dict[str, Any]) -> bool:

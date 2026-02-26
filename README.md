@@ -7,7 +7,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
-**🎉 Latest Release: v0.10.1** - Direct Chat Mode & LiteLLM Migration
+**🎉 Latest Release: v0.11.4** - ARIEL Write Support, Machine State Reader & Google Sheets Integration
 
 > **🚧 Early Access Release**
 > This is an early access version of the Osprey Framework. While the core functionality is stable and ready for experimentation, documentation and APIs may still evolve. We welcome feedback and contributions!
@@ -21,8 +21,11 @@ This work was presented as a contributed oral presentation at [ICALEPCS'25](http
 ## 🚀 Quick Start
 
 ```bash
-# Install the framework
-pip install osprey-framework
+# Install the framework (using uv, recommended)
+uv pip install osprey-framework
+
+# Or using pip:
+# pip install osprey-framework
 
 # Recommended: Interactive setup (guides you through everything!)
 osprey
@@ -64,7 +67,7 @@ See [TESTING_GUIDE.md](TESTING_GUIDE.md) and [tests/e2e/README.md](tests/e2e/REA
 
 ## Key Features
 
-- **Plan-First Orchestration** - Complete execution plans with explicit dependencies before any hardware interaction
+- **Dual-Mode Orchestration** - Plan-first (complete upfront plans) and reactive (ReAct, step-by-step) execution with explicit dependencies and operator oversight
 - **Control-System Safety** - Pattern detection, PV boundary checking, and mandatory approval for hardware writes
 - **Protocol-Agnostic Integration** - Seamless connection to EPICS, LabVIEW, Tango, and mock environments
 - **Scalable Capability Management** - Dynamic classification prevents prompt explosion as toolsets grow
@@ -74,17 +77,20 @@ See [TESTING_GUIDE.md](TESTING_GUIDE.md) and [tests/e2e/README.md](tests/e2e/REA
 
 ## 📖 Citation
 
-If you use the Osprey Framework in your research or projects, please cite our [paper](https://arxiv.org/abs/2508.15066):
+If you use the Osprey Framework in your research or projects, please cite our [paper](https://doi.org/10.1063/5.0306302):
 
 ```bibtex
-@misc{hellert2025osprey,
-      title={Osprey: Production-Ready Agentic AI for Safety-Critical Control Systems},
-      author={Thorsten Hellert and João Montenegro and Antonin Sulc},
-      year={2025},
-      eprint={2508.15066},
-      archivePrefix={arXiv},
-      primaryClass={cs.MA},
-      url={https://arxiv.org/abs/2508.15066},
+@article{10.1063/5.0306302,
+      author = {Hellert, Thorsten and Montenegro, João and Sulc, Antonin},
+      title = {Osprey: Production-ready agentic AI for safety-critical control systems},
+      journal = {APL Machine Learning},
+      volume = {4},
+      number = {1},
+      pages = {016103},
+      year = {2026},
+      month = {02},
+      doi = {10.1063/5.0306302},
+      url = {https://doi.org/10.1063/5.0306302},
 }
 ```
 

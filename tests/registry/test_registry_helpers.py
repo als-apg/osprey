@@ -143,6 +143,40 @@ class TestExtendFrameworkRegistry:
         assert "capabilities" in config.framework_exclusions
         assert "python" in config.framework_exclusions["capabilities"]
 
+    def test_extension_excludes_native_control_capability(self):
+        """Test excluding a native control capability via extend helper."""
+        config = extend_framework_registry(
+            capabilities=[],
+            exclude_capabilities=["channel_finding"],
+        )
+
+        assert config.framework_exclusions is not None
+        assert "capabilities" in config.framework_exclusions
+        assert "channel_finding" in config.framework_exclusions["capabilities"]
+
+    def test_extension_excludes_native_context_class(self):
+        """Test excluding a native control context class via extend helper."""
+        config = extend_framework_registry(
+            capabilities=[],
+            exclude_context_classes=["CHANNEL_ADDRESSES"],
+        )
+
+        assert config.framework_exclusions is not None
+        assert "context_classes" in config.framework_exclusions
+        assert "CHANNEL_ADDRESSES" in config.framework_exclusions["context_classes"]
+
+    def test_extension_excludes_multiple_native_capabilities(self):
+        """Test excluding several native control capabilities at once."""
+        config = extend_framework_registry(
+            capabilities=[],
+            exclude_capabilities=["channel_read", "channel_write"],
+        )
+
+        assert config.framework_exclusions is not None
+        excluded = config.framework_exclusions["capabilities"]
+        assert "channel_read" in excluded
+        assert "channel_write" in excluded
+
     def test_extension_with_multiple_exclusions(self):
         """Test excluding multiple types of framework components."""
         config = extend_framework_registry(
@@ -266,6 +300,103 @@ class TestExtendFrameworkRegistry:
         # Framework components not included in application config
         assert not any(c.name == "memory" for c in config.capabilities)
         assert not any(n.name == "router" for n in config.core_nodes)
+
+    def test_include_capabilities_whitelist(self):
+        """Test include_capabilities whitelists specific framework capabilities."""
+        config = extend_framework_registry(
+            capabilities=[],
+            include_capabilities=["memory", "respond", "clarify"],
+        )
+        # Should generate exclusions for everything NOT in the include list
+        assert config.framework_exclusions is not None
+        excluded = config.framework_exclusions.get("capabilities", [])
+        assert "python" in excluded
+        assert "time_range_parsing" in excluded
+        assert "channel_finding" in excluded
+        assert "channel_read" in excluded
+        assert "channel_write" in excluded
+        assert "archiver_retrieval" in excluded
+        assert "state_manager" in excluded
+        # Included capabilities should NOT be excluded
+        assert "memory" not in excluded
+        assert "respond" not in excluded
+        assert "clarify" not in excluded
+
+    def test_include_context_classes_whitelist(self):
+        """Test include_context_classes whitelists specific framework context classes."""
+        config = extend_framework_registry(
+            capabilities=[],
+            include_context_classes=["MEMORY_CONTEXT", "TIME_RANGE"],
+        )
+        assert config.framework_exclusions is not None
+        excluded = config.framework_exclusions.get("context_classes", [])
+        assert "PYTHON_RESULTS" in excluded
+        assert "CHANNEL_ADDRESSES" in excluded
+        assert "CHANNEL_VALUES" in excluded
+        assert "CHANNEL_WRITE_RESULTS" in excluded
+        assert "ARCHIVER_DATA" in excluded
+        # Included context classes should NOT be excluded
+        assert "MEMORY_CONTEXT" not in excluded
+        assert "TIME_RANGE" not in excluded
+
+    def test_include_and_exclude_capabilities_raises(self):
+        """Test that using both include and exclude raises ValueError."""
+        with pytest.raises(ValueError, match="Cannot use both"):
+            extend_framework_registry(
+                capabilities=[],
+                include_capabilities=["memory"],
+                exclude_capabilities=["python"],
+            )
+
+    def test_include_and_exclude_context_classes_raises(self):
+        """Test that using both include and exclude context classes raises ValueError."""
+        with pytest.raises(ValueError, match="Cannot use both"):
+            extend_framework_registry(
+                capabilities=[],
+                include_context_classes=["MEMORY_CONTEXT"],
+                exclude_context_classes=["PYTHON_RESULTS"],
+            )
+
+    def test_include_capabilities_empty_list_excludes_all(self):
+        """Test that an empty include list excludes all framework capabilities."""
+        config = extend_framework_registry(
+            capabilities=[],
+            include_capabilities=[],
+        )
+        assert config.framework_exclusions is not None
+        excluded = config.framework_exclusions.get("capabilities", [])
+        # All framework capabilities should be excluded
+        assert "memory" in excluded
+        assert "python" in excluded
+        assert "respond" in excluded
+        assert "clarify" in excluded
+        assert "time_range_parsing" in excluded
+        assert "state_manager" in excluded
+        assert "channel_finding" in excluded
+
+    def test_include_capabilities_with_app_capabilities(self):
+        """Test include_capabilities works alongside app-specific capabilities."""
+        config = extend_framework_registry(
+            include_capabilities=["respond", "clarify", "memory"],
+            capabilities=[
+                CapabilityRegistration(
+                    name="current_weather",
+                    module_path="app.capabilities.weather",
+                    class_name="WeatherCapability",
+                    description="Weather",
+                    provides=["WEATHER"],
+                    requires=[],
+                )
+            ],
+        )
+        # App capability is present
+        cap_names = [c.name for c in config.capabilities]
+        assert "current_weather" in cap_names
+        # Framework exclusions are set
+        assert config.framework_exclusions is not None
+        excluded = config.framework_exclusions.get("capabilities", [])
+        assert "python" in excluded
+        assert "memory" not in excluded
 
 
 class TestGetFrameworkDefaults:
@@ -486,6 +617,28 @@ class TestGenerateExplicitRegistryCode:
         assert "test.services.processor" in code
         assert "validate" in code
         assert "transform" in code
+
+    def test_includes_native_control_capabilities(self):
+        """Test that generated code includes native control capabilities and context types."""
+        code = generate_explicit_registry_code(
+            app_class_name="TestProvider",
+            app_display_name="Test",
+            package_name="test",
+            capabilities=[],
+            context_classes=[],
+        )
+
+        # Should include all 4 native control capabilities
+        assert "channel_finding" in code
+        assert "channel_read" in code
+        assert "channel_write" in code
+        assert "archiver_retrieval" in code
+
+        # Should include their context types
+        assert "CHANNEL_ADDRESSES" in code
+        assert "CHANNEL_VALUES" in code
+        assert "CHANNEL_WRITE_RESULTS" in code
+        assert "ARCHIVER_DATA" in code
 
     def test_generated_code_has_proper_structure(self):
         """Test that generated code has proper section structure."""

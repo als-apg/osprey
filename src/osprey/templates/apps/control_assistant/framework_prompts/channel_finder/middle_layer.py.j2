@@ -1,0 +1,71 @@
+"""Facility-specific middle layer pipeline prompt builder.
+
+Customize the facility description and matching rules below to match your
+control system's middle layer (MML) organization and conventions.
+"""
+
+from osprey.prompts.defaults.channel_finder import DefaultMiddleLayerPromptBuilder
+
+
+# Customize this description for your facility's middle layer organization
+_FACILITY_DESCRIPTION = """
+This is a control system using functional (Middle Layer) channel organization.
+
+The control system uses EPICS with a functional hierarchy based on the MATLAB
+Middle Layer (MML) pattern.
+
+FUNCTIONAL HIERARCHY STRUCTURE:
+Channels are organized by function: System -> Family -> Field -> ChannelNames
+- SYSTEM: Major subsystem (e.g., SR, BR, BTS)
+- FAMILY: Device family by function (e.g., BPM, HCM, VCM, QF, QD, RF, VAC)
+- FIELD: Measurement/control function (e.g., Monitor, Setpoint, X, Y, Pressure)
+- ChannelNames: Actual PV addresses stored in database, indexed by device number
+
+CRITICAL DIFFERENCES FROM HIERARCHICAL:
+- PV addresses are RETRIEVED from database, NOT built from patterns
+- Organization is by FUNCTION (Monitor/Setpoint) not naming convention
+- Device filtering uses DeviceList metadata, not name parsing
+""".strip()
+
+# Customize matching rules for your facility's terminology
+_MATCHING_RULES = """
+CRITICAL TERMINOLOGY:
+
+Monitor vs Setpoint:
+- "Monitor" = Readback/measured value (read-only)
+- "Setpoint" = Control/command value (writable)
+- When user asks to "read", "monitor", "measure" -> return Monitor fields
+- When user asks to "set", "control", "adjust" -> return Setpoint fields
+- When ambiguous (e.g., "show me", "what is") -> include both
+
+Position and Axis:
+- "X" or "horizontal" = horizontal beam position (BPM.X field)
+- "Y" or "vertical" = vertical beam position (BPM.Y field)
+- "position" or "orbit" = both X and Y coordinates
+
+Common Synonyms:
+- "beam position" = BPM family
+- "beam current" = DCCT family
+- "corrector" or "steering" = HCM and VCM families
+- "quadrupole" or "quad" = QF and QD families
+
+Operational Guidelines:
+- Use tools to explore database hierarchy systematically
+- Start with list_systems() to see available systems
+- Use list_families(system) to see device families
+- Use inspect_fields(system, family, field) to understand field structure
+""".strip()
+
+
+class FacilityMiddleLayerPromptBuilder(DefaultMiddleLayerPromptBuilder):
+    """Facility-specific prompt builder for middle layer channel finder pipeline.
+
+    Override get_facility_description() and get_matching_rules() to customize
+    the prompts for your facility's middle layer conventions.
+    """
+
+    def get_facility_description(self) -> str:
+        return _FACILITY_DESCRIPTION
+
+    def get_matching_rules(self) -> str:
+        return _MATCHING_RULES

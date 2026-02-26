@@ -66,6 +66,19 @@ models:
     model_id: {{ default_model | default("anthropic/claude-haiku") }}
 
 # ============================================================
+# DEPLOYMENT CONFIGURATION
+# ============================================================
+# Security settings for container deployment
+
+deployment:
+  # Network bind address for exposed service ports
+  # Default: 127.0.0.1 (localhost only - SECURE, recommended for development)
+  # Use 0.0.0.0 to expose to all network interfaces (for cloud/production)
+  # WARNING: Setting to 0.0.0.0 exposes services to the network!
+  # Only use 0.0.0.0 when proper authentication is configured.
+  bind_address: "127.0.0.1"
+
+# ============================================================
 # SERVICE CONFIGURATION
 # ============================================================
 # Framework services for execution and user interface
@@ -106,7 +119,6 @@ services:
     copy_src: true  # Copies user application from src/
     # additional_dirs: []  # Add custom directories to copy if needed
 
-
 # ============================================================
 # DEPLOYED SERVICES
 # ============================================================
@@ -117,7 +129,6 @@ deployed_services:
   - open_webui
   - pipelines
 
-{% if template_name != 'hello_world_weather' %}
 # ============================================================
 # SAFETY CONTROLS
 # ============================================================
@@ -136,6 +147,7 @@ approval:
 execution_control:
   # Agent control - Runtime behavior configuration
   agent_control:
+    orchestration_mode: plan_first          # Options: plan_first | react
     task_extraction_bypass_enabled: false    # Skip LLM task extraction
     capability_selection_bypass_enabled: false  # Skip LLM capability selection
 
@@ -148,7 +160,6 @@ execution_control:
     graph_recursion_limit: 100        # LangGraph recursion limit
     max_concurrent_classifications: 5 # Maximum concurrent LLM classification requests
 
-{% endif %}
 
 # ============================================================
 # SYSTEM CONFIGURATION
@@ -195,7 +206,11 @@ execution:
       profile: "fast"    # Options: fast | robust (or custom profiles you define)
       # Advanced settings are in claude_generator_config.yml
 
-{% if template_name != 'hello_world_weather' %}
+  # --------------------------------------------------------------------------
+  # DEPLOYMENT INFRASTRUCTURE (required for deployed Jupyter/container services)
+  # These settings configure the container execution environment.
+  # --------------------------------------------------------------------------
+
   # EPICS infrastructure (for hardware control applications)
   epics:
     timeout: 5.0
@@ -207,7 +222,7 @@ execution:
         address: your-gateway.example.com  # Replace with your EPICS gateway address
         port: 5084
 
-  # Python/Jupyter execution modes
+  # Python/Jupyter execution modes (configures Jupyter kernel environments)
   modes:
     read_only:
       kernel_name: "python3-epics-readonly"
@@ -229,6 +244,7 @@ execution:
 # CONTROL SYSTEM CONFIGURATION
 # ============================================================
 # Control system type, write access, limits checking, and verification
+# Default: mock connector (no hardware required, safe for development)
 
 control_system:
   # Control system type - determines which runtime connector to use
@@ -288,7 +304,6 @@ python_executor:
   max_execution_retries: 3
   execution_timeout_seconds: 600
 
-{% endif %}
 
 # ============================================================
 # APPLICATION METADATA
@@ -361,6 +376,7 @@ logging:
   logging_colors:
     # Core framework components
     base: 'white'
+    registry: "sky_blue2"
     context: "light_steel_blue1"
     router: "bright_magenta"
     orchestrator: "cyan"
@@ -401,6 +417,9 @@ api:
     cborg:
       api_key: ${CBORG_API_KEY}
       base_url: https://api.cborg.lbl.gov/v1
+    amsc:
+      api_key: ${AMSC_I2_API_KEY}
+      base_url: https://api.i2-core.american-science-cloud.org/v1
     stanford:
       api_key: ${STANFORD_API_KEY}
       base_url: https://aiapi-prod.stanford.edu/v1
@@ -428,6 +447,7 @@ api:
 # Set these in your .env file:
 #
 #   CBORG_API_KEY=your-cborg-key
+#   AMSC_I2_API_KEY=your-amsc-key
 #   STANFORD_API_KEY=...
 #   ARGO_API_KEY=your-argo-key
 #   OPENAI_API_KEY=sk-...

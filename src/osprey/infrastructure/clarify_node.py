@@ -7,11 +7,9 @@ intent before proceeding with technical operations.
 """
 
 import asyncio
-import logging
 from typing import Any
 
 from langchain_core.messages import AIMessage
-from langgraph.config import get_stream_writer
 from pydantic import BaseModel, Field
 
 from osprey.base import BaseCapability
@@ -22,8 +20,7 @@ from osprey.prompts.loader import get_framework_prompts
 from osprey.utils.config import get_model_config
 from osprey.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger("clarify")
 
 # --- Pydantic Model for Clarifying Questions ---
 
@@ -80,28 +77,14 @@ class ClarifyCapability(BaseCapability):
         """
         state = self._state
 
-        # Explicit logger retrieval - professional practice
-        logger = get_logger("clarify")
-
         # Extract task objective using helper method
         task_objective = self.get_task_objective(default="unknown")
 
-        logger.info(f"Clarification task objective: {task_objective}")
+        logger.status(f"Clarification task objective: {task_objective}")
 
         try:
-            logger.info("Starting clarification generation")
-
-            # Use get_stream_writer() for pure LangGraph streaming
-            streaming = get_stream_writer()
-
-            if streaming:
-                streaming(
-                    {
-                        "event_type": "status",
-                        "message": "Analyzing query for clarification...",
-                        "progress": 0.2,
-                    }
-                )
+            logger.status("Starting clarification generation")
+            logger.status("Analyzing query for clarification...")
 
             # Generate clarifying questions using LLM completion
             # Run sync function in thread pool to avoid blocking event loop for streaming
@@ -109,29 +92,14 @@ class ClarifyCapability(BaseCapability):
                 _generate_clarifying_questions, state, task_objective
             )
 
-            if streaming:
-                streaming(
-                    {
-                        "event_type": "status",
-                        "message": "Generating clarification questions...",
-                        "progress": 0.6,
-                    }
-                )
+            logger.status("Generating clarification questions...")
 
             # Format questions for user interaction
             formatted_questions = _format_questions_for_user(questions_response)
 
-            if streaming:
-                streaming(
-                    {
-                        "event_type": "status",
-                        "message": "Clarification ready",
-                        "progress": 1.0,
-                        "complete": True,
-                    }
-                )
+            logger.status("Clarification ready")
 
-            logger.info(f"Generated {len(questions_response.questions)} clarifying questions")
+            logger.status(f"Generated {len(questions_response.questions)} clarifying questions")
 
             # Return clarifying questions using native LangGraph pattern
             return {"messages": [AIMessage(content=formatted_questions)]}
@@ -192,23 +160,21 @@ def _generate_clarifying_questions(state, task_objective: str) -> ClarifyingQues
     prompt_provider = get_framework_prompts()
     clarification_builder = prompt_provider.get_clarification_prompt_builder()
 
-    # Use prompt builder's get_system_instructions() which handles all composition
+    # Use prompt builder's build_prompt() which handles all composition
     # This extracts runtime data (user_query, chat_history, context) from state
     # and composes the complete prompt with PRIMARY TASK prioritization
-    message = clarification_builder.get_system_instructions(state, task_objective)
+    prompt = clarification_builder.build_prompt(state, task_objective)
 
-    # Log prompt for TUI display
-    logger.info("LLM prompt built", extra={"llm_prompt": message, "stream": False})
+    # Emit LLM prompt event for TUI display
+    logger.emit_llm_request(prompt)
 
     response_config = get_model_config("response")
     result = get_chat_completion(
-        message=message, model_config=response_config, output_model=ClarifyingQuestionsResponse
+        message=prompt, model_config=response_config, output_model=ClarifyingQuestionsResponse
     )
 
-    # Log response for TUI display (convert Pydantic model to JSON string)
-    logger.info(
-        "LLM response received", extra={"llm_response": result.model_dump_json(), "stream": False}
-    )
+    # Emit LLM response event for TUI display
+    logger.emit_llm_response(result.model_dump_json())
 
     return result
 

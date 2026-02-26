@@ -31,30 +31,28 @@ Infrastructure
 
    **Target Audience:** Infrastructure developers, system architects, pipeline implementers
 
-The infrastructure layer implements the **Orchestrator-First Architecture** that powers sophisticated agentic behavior with deterministic execution patterns. These components transform user conversations into validated execution plans with complete oversight and approval integration.
+The infrastructure layer implements the **orchestration architecture** that powers sophisticated agentic behavior. These components transform user conversations into validated execution plans -- via plan-first or reactive (ReAct) orchestration -- with complete oversight and approval integration.
 
 .. currentmodule:: osprey.infrastructure
 
 Architecture Overview
 =====================
 
-The Osprey Framework infrastructure implements a **Orchestrator-First** pipeline that eliminates the unpredictability of traditional reactive agentic systems:
+The Osprey Framework infrastructure supports two orchestration modes:
 
-**Traditional Reactive Approach:**
-
-.. code-block:: text
-
-   User → LLM Tool Call → Analyze → Tool Call → Analyze → Tool Call → Response
-   (Multiple LLM calls, limited context, unpredictable execution)
-
-**Orchestrator-First Approach:**
+**Plan-First (default):**
 
 .. code-block:: text
 
    User → Complete Plan Creation → Human Approval → Execute All Steps → Response
-   (Single planning phase, full context, deterministic execution)
 
-**Benefits:** fewer LLM calls, complete transparency, natural human oversight, scalable execution.
+**Reactive (ReAct):**
+
+.. code-block:: text
+
+   User → Decide Step → Execute → Observe → Decide Next Step → ... → Response
+
+**Plan-first benefits:** fewer LLM calls, complete transparency, deterministic execution. **Reactive benefits:** dynamic adaptation, intermediate observation, error recovery. **Both:** natural human oversight, capability validation.
 
 Core Pipeline Components
 ========================

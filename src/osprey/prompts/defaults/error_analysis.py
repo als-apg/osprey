@@ -6,15 +6,28 @@ from osprey.prompts.base import FrameworkPromptBuilder
 
 
 class DefaultErrorAnalysisPromptBuilder(FrameworkPromptBuilder):
-    """Default error analysis prompt builder."""
+    """Default error analysis prompt builder.
+
+    **Customization Points:**
+
+    +---------------------------------+----------------------------------------------+
+    | I want to...                    | Override...                                  |
+    +=================================+==============================================+
+    | Change the agent identity       | ``get_role()``                    |
+    +---------------------------------+----------------------------------------------+
+    | Change analysis instructions    | ``get_instructions()``                       |
+    +---------------------------------+----------------------------------------------+
+    | Change dynamic context assembly | ``build_dynamic_context(...)``               |
+    +---------------------------------+----------------------------------------------+
+    """
 
     PROMPT_TYPE = "error_analysis"
 
-    def get_role_definition(self) -> str:
+    def get_role(self) -> str:
         """Get the generic role definition."""
         return "You are providing error analysis for the assistant system."
 
-    def get_task_definition(self) -> str | None:
+    def get_task(self) -> str | None:
         """Task definition is embedded in instructions."""
         return None
 
@@ -42,7 +55,7 @@ class DefaultErrorAnalysisPromptBuilder(FrameworkPromptBuilder):
             """
         ).strip()
 
-    def _get_dynamic_context(
+    def build_dynamic_context(
         self, capabilities_overview: str = "", error_context=None, **kwargs
     ) -> str:
         """Build dynamic context with capabilities and error information."""

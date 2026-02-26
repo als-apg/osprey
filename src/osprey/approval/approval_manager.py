@@ -54,12 +54,13 @@ Examples:
        :func:`get_approval_manager` : Singleton access function
 """
 
-import logging
+from osprey.events import ErrorEvent, EventEmitter, StatusEvent
+from osprey.utils.logger import get_logger
 
 from .config_models import GlobalApprovalConfig, MemoryApprovalConfig, PythonExecutionApprovalConfig
 from .evaluators import MemoryApprovalEvaluator, PythonExecutionApprovalEvaluator
 
-logger = logging.getLogger(__name__)
+logger = get_logger("approval_manager")
 
 
 class ApprovalManager:
@@ -130,19 +131,42 @@ class ApprovalManager:
         :type approval_config: dict
         :raises ValueError: If configuration is invalid or missing required fields
         """
+        # Create event emitter for configuration events
+        emitter = EventEmitter("approval_manager")
+
         try:
-            logger.debug("🔍 Loading approval configuration from raw config")
+            emitter.emit(
+                StatusEvent(
+                    component="approval_manager",
+                    message="Loading approval configuration from raw config",
+                    level="debug",
+                )
+            )
             self.config = GlobalApprovalConfig.from_dict(approval_config)
 
-            # Log configuration summary for security audit trail
-            logger.info("✅ Loaded approval configuration successfully!")
-            logger.info(f"   - Global mode: {self.config.global_mode}")
-            logger.info(f"   - Python execution enabled: {self.config.python_execution.enabled}")
-            logger.info(f"   - Python execution mode: {self.config.python_execution.mode.value}")
-            logger.info(f"   - Memory enabled: {self.config.memory.enabled}")
+            # Emit configuration summary for user visibility
+            config_summary = (
+                f"Loaded approval configuration - Global mode: {self.config.global_mode}, "
+                f"Python execution: {self.config.python_execution.enabled} ({self.config.python_execution.mode.value}), "
+                f"Memory: {self.config.memory.enabled}"
+            )
+            emitter.emit(
+                StatusEvent(
+                    component="approval_manager",
+                    message=config_summary,
+                    level="info",
+                )
+            )
 
         except ValueError as e:
-            logger.error(f"Invalid approval configuration: {e}")
+            emitter.emit(
+                ErrorEvent(
+                    component="approval_manager",
+                    error_type="ConfigError",
+                    error_message=f"Invalid approval configuration: {e}",
+                    recoverable=False,
+                )
+            )
             raise
 
     def get_python_execution_config(self) -> PythonExecutionApprovalConfig:
@@ -307,14 +331,27 @@ def get_approval_manager() -> ApprovalManager:
 
         try:
             _approval_manager = ApprovalManager(approval_config)
-            logger.info("✅ Approval manager initialized successfully")
-            logger.info(f"   - Global mode: {approval_config['global_mode']}")
-            logger.info(
-                f"   - Capabilities configured: {list(approval_config['capabilities'].keys())}"
+            # Emit initialization success
+            emitter = EventEmitter("approval_manager")
+            capabilities = list(approval_config.get("capabilities", {}).keys())
+            emitter.emit(
+                StatusEvent(
+                    component="approval_manager",
+                    message=f"Approval manager initialized - Global mode: {_approval_manager.config.global_mode}, Capabilities: {len(capabilities)}",
+                    level="info",
+                )
             )
         except Exception as e:
             # Security-critical component failure requires immediate attention
-            logger.error(f"Failed to initialize ApprovalManager with valid config: {e}")
+            emitter = EventEmitter("approval_manager")
+            emitter.emit(
+                ErrorEvent(
+                    component="approval_manager",
+                    error_type="InitializationError",
+                    error_message=f"Failed to initialize ApprovalManager: {e}",
+                    recoverable=False,
+                )
+            )
             raise ValueError(f"Invalid approval configuration structure: {e}") from e
 
     return _approval_manager

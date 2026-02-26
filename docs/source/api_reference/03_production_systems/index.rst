@@ -13,6 +13,7 @@ Production Systems
    04_memory-storage
    05_container-management
    06_control-system-connectors
+   07_ariel-search
 
 
 .. dropdown:: What You'll Find Here
@@ -26,6 +27,7 @@ Production Systems
    - **Python Execution Service** - Container-isolated code generation and execution with approval integration and flexible deployment modes
    - **Memory Storage System** - Persistent user memory with structured operations, data source integration, and approval workflows
    - **Container Management System** - Podman-based service orchestration with hierarchical discovery and Jinja2 template processing
+   - **ARIEL Search Service** - Logbook search with pluggable search modules, execution pipelines, ingestion adapters, and enhancement modules
 
    **Prerequisites:** Understanding of production deployment patterns and security-first development
 
@@ -36,8 +38,8 @@ Enterprise-grade services that transform research prototypes into production-rea
 .. currentmodule:: osprey
 
 
-The Six Pillars
-===============
+The Seven Pillars
+=================
 
 .. grid:: 1 1 2 2
    :gutter: 3
@@ -107,6 +109,17 @@ The Six Pillars
       **Hardware Abstraction Layer**
 
       Pluggable connectors for control systems and archivers with mock and production implementations.
+
+   .. grid-item-card:: 🔍 ARIEL Search Service
+      :link: 07_ariel-search
+      :link-type: doc
+      :class-header: bg-primary text-white
+      :class-body: text-center
+      :shadow: md
+
+      **Logbook Search & Retrieval**
+
+      Pluggable search modules, execution pipelines, ingestion adapters, and enhancement modules.
 
 Production Integration
 ======================
@@ -240,3 +253,12 @@ These systems work together to provide comprehensive production capabilities:
          :shadow: md
 
          Container orchestration with hierarchical service discovery and template processing
+
+      .. grid-item-card:: 🔍 ARIEL Search
+         :link: 07_ariel-search
+         :link-type: doc
+         :class-header: bg-primary text-white
+         :class-body: text-center
+         :shadow: md
+
+         Logbook search service with pluggable modules, pipelines, and ingestion adapters

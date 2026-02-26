@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=65.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "osprey-framework"
-version = "0.10.1"
+dynamic = ["version"]
 description = "An open-source, domain-agnostic, capability-based architecture for building intelligent agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -48,6 +48,7 @@ dependencies = [
     "questionary>=2.0.0",
     "python-dotenv>=1.1.0",
     "PyYAML>=6.0.2",
+    "ruamel.yaml>=0.18.0",  # Comment-preserving YAML for config updates
     "Jinja2>=3.1.6",
     "requests>=2.32.3",
 
@@ -63,13 +64,13 @@ dependencies = [
 
     # AI/ML provider integrations
     "litellm>=1.56.0",  # Unified LLM provider interface (100+ providers)
-    "openai",
+    "openai>=2",
     "anthropic",
     "google-generativeai",
     "ollama>=0.5.1",
 
     # Advanced code generation
-    "claude-agent-sdk>=0.0.20",  # Claude Code SDK for multi-turn agentic code generation
+    "claude-agent-sdk==0.1.26",  # Claude Code SDK - pinned; 0.1.27+ bundled CLI breaks CBORG API
 
     # Data processing - required for archiver connectors and data handling
     # Archiver connectors return pandas DataFrames for time-series data
@@ -78,6 +79,7 @@ dependencies = [
     "matplotlib>=3.10.3",  # Required for Python capability visualization (core use case)
 
     # Networking and protocols
+    "aiohttp>=3.10",  # Required by litellm (ConnectionTimeoutError added in 3.10)
     "websocket-client>=1.7.0",
     "urllib3>=2.4.0",
     "certifi>=2025.4.26",
@@ -87,10 +89,48 @@ dependencies = [
 
     # Terminal User Interface (TUI) - Textual-based full-screen interface
     "textual>=0.70.0",
+    "aiofiles>=24.1.0",  # Async file I/O for non-blocking Python executor
+
+    # LangChain integration (required for channel finder middle layer pipeline)
+    "langchain-openai>=0.3.0",
+
+    # MCP server development (for building MCP servers)
+    "fastmcp>=2.0.0",
+    "langchain-mcp-adapters",  # LangChain/LangGraph MCP integration
+
+    # Scientific computing stack - for Python execution capability
+    "scipy>=1.15.3",
+    "seaborn",
+    "scikit-learn",
+    "ipywidgets",  # Interactive widgets for Jupyter notebooks
+
+    # Natural language processing
+    "nltk>=3.8.1",
+
+    # ARIEL Web Interface (FastAPI server)
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+
+    # Utilities
+    "unique-namer>=0.1.0",
+
+    # Control system simulation (soft IOC generation)
+    "caproto",
+
+    # PostgreSQL (required for native logbook_search capability and checkpointing)
+    "psycopg[binary,pool]>=3.1.0,<4.0.0",
+    "psycopg-pool>=3.1.0,<4.0.0",
+
+    # ARIEL Web Interface (FastAPI server for web-based logbook search)
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+
+    # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
+    "aiohttp-socks>=0.8.0",
 ]
 
 [project.optional-dependencies]
-# Documentation dependencies
+# Documentation dependencies (for building docs only)
 docs = [
     "sphinx>=8.0.0",
     "pydata-sphinx-theme",
@@ -103,37 +143,6 @@ docs = [
     "graphviz",
 ]
 
-# Scientific computing stack - additional packages for Python execution capability
-# Note: pandas, numpy, and matplotlib are in base requirements (needed for core functionality)
-# These packages are available in the execution environment for advanced data analysis
-scientific = [
-    "scipy>=1.15.3",
-    "seaborn",
-    "scikit-learn",
-    "ipywidgets",  # Interactive widgets for Jupyter notebooks
-]
-
-# Database and storage
-databases = [
-    "pymongo",
-    "neo4j",
-    "qdrant-client",
-]
-
-# PostgreSQL checkpointing (production persistence)
-postgres = [
-    "langgraph-checkpoint-postgres>=2.0.22,<4.0.0",
-    "psycopg[pool]>=3.1.0,<4.0.0",
-    "psycopg-pool>=3.1.0,<4.0.0",
-    "langchain-postgres>=0.0.12,<0.1.0",
-]
-
-# Memory and vector storage
-memory = [
-    "mem0ai>=0.1.88",
-    "vecs>=0.4.5",
-]
-
 # Development and testing
 dev = [
     "pytest",
@@ -141,39 +150,65 @@ dev = [
     "pytest-cov",  # Code coverage reporting
     "pytest-vcr",  # Optional: For recording/replaying API interactions
     "vcrpy",
-    "black",
-    "isort",
     "mypy",
     "pre-commit",
     "ruff",
     "pyepics",  # EPICS connector support for testing
+    "build",  # Required for 'osprey deploy up --dev' to build local wheel
+    "testcontainers[postgres]>=4.0.0",  # Real PostgreSQL for integration tests
+    "docker>=7.0.0",  # Docker SDK for testcontainers availability check
+    "psycopg[binary,pool]>=3.1.0,<4.0.0",  # ARIEL search integration tests
+    "psycopg-pool>=3.1.0,<4.0.0",  # ARIEL search integration tests
 ]
 
-# Terminal User Interface
-tui = [
-    "textual>=0.70.0",
+# Storage backends (databases, PostgreSQL checkpointing, vector/memory storage)
+# Note: psycopg may require system PostgreSQL headers (libpq-dev) on some systems
+storage = [
+    # Database connectors
+    "pymongo",
+    "neo4j",
+    "qdrant-client",
+    # PostgreSQL checkpointing (production persistence)
+    "langgraph-checkpoint-postgres>=2.0.22,<4.0.0",
+    "psycopg[pool]>=3.1.0,<4.0.0",
+    "psycopg-pool>=3.1.0,<4.0.0",
+    "langchain-postgres>=0.0.12,<0.1.0",
+    # Memory and vector storage
+    "mem0ai>=0.1.88",
+    "vecs>=0.4.5",
 ]
 
-# Natural language processing
-nlp = [
-    "nltk>=3.8.1",
+# ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
+# See _ISSUES/MAJOR/ARIEL/ for specification
+ariel = [
+    # PostgreSQL with pgvector for vector similarity search
+    "psycopg[pool]>=3.1.0,<4.0.0",
+    "psycopg-pool>=3.1.0,<4.0.0",
+    # LangGraph for ReAct agent
+    "langgraph>=0.5.2",
+    "langchain-openai>=0.3.0",
 ]
 
-# Utilities
-utils = [
-    "unique-namer>=0.1.0",
+# ARIEL proxy support for HTTP ingestion through SOCKS tunnels
+ariel-proxy = [
+    "aiohttp-socks>=0.8.0",
+]
+
+# Google Sheets database backend for channel finder
+sheets = [
+    "gspread>=6.0.0",
 ]
 
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,scientific,databases,postgres,memory,dev,tui,nlp,utils]"
+    "osprey-framework[docs,dev,storage,ariel,sheets]"
 ]
 
 [project.urls]
 Homepage = "https://als-apg.github.io/osprey"
 Documentation = "https://als-apg.github.io/osprey"
 Repository = "https://github.com/als-apg/osprey"
-Paper = "https://arxiv.org/abs/2508.15066"
+Paper = "https://doi.org/10.1063/5.0306302"
 Issues = "https://github.com/als-apg/osprey/issues"
 Changelog = "https://github.com/als-apg/osprey/blob/main/CHANGELOG.md"
 
@@ -186,63 +221,14 @@ osprey = "osprey.cli.main:cli"
 alpha-berkeley = "osprey.interfaces.cli.direct_conversation:main"
 alpha-berkeley-deploy = "osprey.deployment.container_manager:main"
 
-# Package discovery configuration for src layout
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["osprey*"]
+# Hatchling build configuration
+[tool.hatch.version]
+path = "src/osprey/__init__.py"
 
-# Include package data files
-[tool.setuptools.package-data]
-"*" = ["*.yml", "*.yaml", "*.json", "*.j2", "*.md", "*.txt", "*.cfg", "*.ini"]
-"osprey" = [
-    "config.yml",
-    "templates/**/*",
-    "templates/**/*.j2",
-    "templates/**/*.py",
-    "templates/**/*.yml",
-    "templates/**/*.yaml",
-    "templates/**/*.md",
-    "templates/**/*.txt",
-    "templates/**/*.sh",
-    "templates/**/*.css",
-    "templates/**/*.js",
-    "templates/**/*.json",
-    "workflows/*.md",  # Legacy workflow files (deprecated, use assist/)
-    "assist/**/*.md",  # Coding assistant task instructions
-    "assist/**/*.yml",  # Migration documents and schemas
-    "assist/**/*.yaml",
-]
+[tool.hatch.build.targets.wheel]
+packages = ["src/osprey"]
 
 # Development tool configurations
-[tool.black]
-line-length = 100
-target-version = ['py311']
-include = '\.pyi?$'
-extend-exclude = '''
-/(
-  # Exclude auto-generated files
-  build/
-  | dist/
-  | venv/
-  | \.venv/
-  | _agent_data/
-  | \.git/
-  | __pycache__/
-  | \.pytest_cache/
-  | \.mypy_cache/
-)/
-'''
-
-[tool.isort]
-profile = "black"
-line_length = 100
-multi_line_output = 3
-include_trailing_comma = true
-force_grid_wrap = 0
-use_parentheses = true
-ensure_newline_before_comments = true
-src_paths = ["src", "interfaces", "deployment"]
-
 [tool.mypy]
 python_version = "3.11"
 warn_return_any = true
@@ -282,7 +268,7 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = "-ra -q --tb=short"
+addopts = "-ra -v --tb=short --strict-markers --color=yes"
 testpaths = [
     "tests",
     "src/applications/*/tests"
@@ -294,6 +280,24 @@ python_files = [
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
+# WARNING: E2E tests MUST be run with 'pytest tests/e2e/' NOT 'pytest -m e2e'
+# See tests/e2e/README.md for details
+markers = [
+    "unit: Unit tests (mocked, no external dependencies)",
+    "integration: Integration tests (real external services)",
+    "e2e: End-to-end workflow tests - WARNING: Use 'pytest tests/e2e/' not '-m e2e' (see tests/e2e/README.md)",
+    "e2e_smoke: Quick smoke tests for critical workflows",
+    "e2e_tutorial: Tutorial workflow validation tests",
+    "slow: Tests that take significant time",
+    "requires_api: Tests that require API credentials",
+    "requires_openai: Tests that require OpenAI API key",
+    "requires_anthropic: Tests that require Anthropic API key",
+    "requires_google: Tests that require Google API key",
+    "requires_cborg: Tests that require CBORG API key",
+    "requires_ollama: Tests that require local Ollama service",
+    "asyncio: Async test marker",
+    "vcr: VCR cassette recording/replay marker",
+]
 
 # Ruff configuration for modern Python linting
 [tool.ruff]
@@ -312,7 +316,7 @@ select = [
     "UP", # pyupgrade
 ]
 ignore = [
-    "E501",  # line too long, handled by black
+    "E501",  # line too long, handled by formatter
     "B008",  # do not perform function calls in argument defaults
     "C901",  # too complex
 ]
@@ -326,7 +330,7 @@ ignore = [
 "tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation
 "src/osprey/templates/apps/control_assistant/_agent_data/example_scripts/**/*.py" = ["E402"]  # Example scripts with late imports
 "src/osprey/templates/services/jupyter/startup_script.py" = ["F401"]  # Intentionally loaded in namespace
-"src/osprey/templates/apps/control_assistant/services/channel_finder/__init__.py" = ["E402"]  # Conditional imports
+"src/osprey/services/channel_finder/__init__.py" = ["E402"]  # Grouped imports with section comments
 
 [tool.ruff.lint.isort]
 known-first-party = ["osprey", "configs", "applications", "interfaces", "deployment"]

@@ -1,0 +1,4 @@
+# ARIEL Web Interface dependencies
+# All dependencies are included in the standard osprey-framework install
+# Requires >=0.11.0 for osprey.interfaces.ariel module
+osprey-framework>=0.11.0

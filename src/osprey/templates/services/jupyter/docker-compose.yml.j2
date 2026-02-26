@@ -11,7 +11,7 @@ services:
       dockerfile: Dockerfile
     restart: "no"
     ports:
-      - "{{services.jupyter.containers.read.port_host}}:{{services.jupyter.containers.read.port_container}}"
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{services.jupyter.containers.read.port_host}}:{{services.jupyter.containers.read.port_container}}"
     volumes:
       - ./jupyter:/jupyter
       - {{project_root}}/{{file_paths.agent_data_dir}}/{{file_paths.executed_python_scripts_dir}}:/home/jovyan/work/executed_scripts/
@@ -53,7 +53,7 @@ services:
       dockerfile: Dockerfile
     restart: "no"
     ports:
-      - "{{services.jupyter.containers.write.port_host}}:{{services.jupyter.containers.write.port_container}}"
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{services.jupyter.containers.write.port_host}}:{{services.jupyter.containers.write.port_container}}"
     volumes:
       - ./jupyter:/jupyter
       - {{project_root}}/{{file_paths.agent_data_dir}}/{{file_paths.executed_python_scripts_dir}}:/home/jovyan/work/executed_scripts/

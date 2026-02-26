@@ -618,7 +618,7 @@ pytest tests/ --ignore=tests/e2e -v
 
 # Check lints and formatting
 ruff check src/ tests/
-black --check src/ tests/
+ruff format --check src/ tests/
 
 # Verify no unused code
 ruff check --select F401,ARG,F841 src/
@@ -783,5 +783,3 @@ What's the impact?
 **Remember**: AI is your creative partner for generating code, but YOU are the senior engineer who ensures quality, consistency, and maintainability. This review step is where you add professional polish to AI-generated code.
 
 **Rule of Thumb**: If you can't explain why every function exists, it probably shouldn't.
-
-

@@ -372,6 +372,11 @@ def _copy_local_framework_for_override(out_dir):
     The wheel is built using the standard Python build process and can be installed
     in containers to override the PyPI version during development and testing.
 
+    Note: This function only works when osprey is installed in editable/development mode
+    (e.g., `pip install -e .`). If osprey is installed from PyPI or via regular
+    `pip install .`, the source files are not available and containers will use
+    the installed PyPI version.
+
     :param out_dir: Container build output directory
     :type out_dir: str
     :return: True if osprey wheel was successfully built and copied, False otherwise
@@ -385,9 +390,30 @@ def _copy_local_framework_for_override(out_dir):
 
         import osprey
 
-        # Get the osprey source root
+        # Get the osprey module path
         osprey_module_path = Path(osprey.__file__).parent
-        osprey_source_root = osprey_module_path.parent.parent  # Go up from src/osprey to root
+
+        # Check if osprey is installed from source (editable mode) vs from site-packages
+        # If installed from site-packages, we can't build a wheel from the source
+        osprey_path_str = str(osprey_module_path)
+        if "site-packages" in osprey_path_str or "dist-packages" in osprey_path_str:
+            logger.warning(
+                "Osprey is installed from PyPI, not in editable mode. "
+                "The --dev flag requires an editable install to build a local wheel. "
+                "To use --dev, reinstall osprey with: uv pip install -e <path> or pip install -e <path>"
+            )
+            return False
+
+        # Get the osprey source root (go up from src/osprey to root)
+        osprey_source_root = osprey_module_path.parent.parent
+
+        # Verify this looks like a valid osprey source directory
+        pyproject_path = osprey_source_root / "pyproject.toml"
+        if not pyproject_path.exists():
+            logger.warning(
+                f"No pyproject.toml found at {osprey_source_root}, cannot build wheel from source"
+            )
+            return False
 
         # Build the wheel package from local source
         logger.info("Building osprey wheel from local source...")
@@ -400,7 +426,14 @@ def _copy_local_framework_for_override(out_dir):
             )
 
             if result.returncode != 0:
-                logger.warning(f"Failed to build osprey wheel: {result.stderr}")
+                # Check for missing 'build' package
+                if "No module named build" in result.stderr:
+                    logger.warning(
+                        "The 'build' package is required for --dev mode. Install with: "
+                        r"uv pip install build or pip install build"
+                    )
+                else:
+                    logger.warning(f"Failed to build osprey wheel: {result.stderr}")
                 return False
 
             # Find the built wheel
@@ -675,18 +708,18 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
                 shutil.copy2(global_pyproject, repo_src_pyproject)
                 logger.debug(f"Copied user pyproject.toml to {repo_src_pyproject}")
 
-            # Copy local osprey for development override (only in dev mode)
-            # This will override the PyPI osprey after standard installation
-            if dev_mode:
-                osprey_copied = _copy_local_framework_for_override(out_dir)
-                if osprey_copied:
-                    logger.key_info("Development mode: Osprey override prepared")
-                else:
-                    logger.warning(
-                        "Development mode requested but osprey override failed, using PyPI"
-                    )
+        # Copy local osprey for development override (only in dev mode)
+        # This will override the PyPI osprey after standard installation
+        # Moved outside copy_src block so all services can use dev mode
+        if dev_mode:
+            osprey_copied = _copy_local_framework_for_override(out_dir)
+            if osprey_copied:
+                logger.key_info("Development mode: Osprey override prepared")
             else:
-                logger.info("Production mode: Containers will install osprey from PyPI")
+                logger.warning("Development mode requested but osprey override failed, using PyPI")
+        else:
+            logger.info("Production mode: Containers will install osprey from PyPI")
+
         # Copy additional directories if specified in service configuration
         additional_dirs = container_cfg.get("additional_dirs", [])
         if additional_dirs:
@@ -722,12 +755,14 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
 
         # Create flattened configuration file for container
         # This merges all imports and creates a complete config without import directives
+        # SECURITY: Use unexpanded config to prevent API keys from being written to disk
+        # The container will expand ${VAR} placeholders at runtime from environment variables
         try:
-            with quiet_logger(["REGISTRY", "CONFIG"]):
+            with quiet_logger(["registry", "CONFIG"]):
                 global_config = ConfigBuilder()
                 flattened_config = (
-                    global_config.raw_config
-                )  # This contains the already-merged configuration
+                    global_config.get_unexpanded_config()
+                )  # Preserves ${VAR} placeholders - secrets not written to disk
 
             # Adjust paths for container environment
             # In containers, src/ is copied to repo_src/, so config paths must be updated
@@ -791,6 +826,27 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
 
             # Recursively adjust all src/ paths in the config
             adjust_src_paths_recursive(flattened_config, is_pipelines_service)
+
+            # Handle claude_config_path: copy the file and adjust path for pipelines
+            # The config explicitly specifies which file to use, so we copy exactly that
+            # and update the reference to match where we put it
+            claude_generators = (
+                flattened_config.get("execution", {}).get("generators", {}).get("claude_code", {})
+            )
+            claude_config_path = claude_generators.get("claude_config_path")
+            if claude_config_path and os.path.exists(claude_config_path):
+                # Copy the config file to build directory
+                filename = os.path.basename(claude_config_path)
+                dst_path = os.path.join(out_dir, filename)
+                shutil.copy2(claude_config_path, dst_path)
+                logger.debug(f"Copied {claude_config_path} to {dst_path}")
+
+                # Update path in config: pipelines needs absolute path, others use filename
+                if is_pipelines_service:
+                    claude_generators["claude_config_path"] = f"/pipelines/{filename}"
+                    logger.debug(f"Updated claude_config_path for pipelines: /pipelines/{filename}")
+                else:
+                    claude_generators["claude_config_path"] = filename
 
             config_yml_dst = os.path.join(out_dir, "config.yml")
             with open(config_yml_dst, "w") as f:
@@ -1064,7 +1120,7 @@ def clean_deployment(compose_files, config=None):
     logger.success("Cleanup completed")
 
 
-def prepare_compose_files(config_path, dev_mode=False):
+def prepare_compose_files(config_path, dev_mode=False, expose_network=False):
     """Prepare compose files from configuration.
 
     Loads configuration and generates all necessary compose files for deployment.
@@ -1073,16 +1129,32 @@ def prepare_compose_files(config_path, dev_mode=False):
     :type config_path: str
     :param dev_mode: Development mode - copy local framework to containers
     :type dev_mode: bool
+    :param expose_network: Expose services to all network interfaces (0.0.0.0)
+    :type expose_network: bool
     :return: Tuple of (config dict, list of compose file paths)
     :rtype: tuple[dict, list[str]]
     :raises RuntimeError: If configuration loading fails
     """
     try:
-        with quiet_logger(["REGISTRY", "CONFIG"]):
+        with quiet_logger(["registry", "CONFIG"]):
             config = ConfigBuilder(config_path)
             config = config.raw_config
     except Exception as e:
         raise RuntimeError(f"Could not load config file {config_path}: {e}") from e
+
+    # Handle network exposure setting
+    # Default to localhost-only binding for security (Issue #126)
+    if "deployment" not in config:
+        config["deployment"] = {}
+    if expose_network:
+        config["deployment"]["bind_address"] = "0.0.0.0"
+        logger.warning(
+            "Network exposure enabled: services will bind to 0.0.0.0 (all interfaces). "
+            "Ensure proper authentication is configured!"
+        )
+    elif "bind_address" not in config.get("deployment", {}):
+        config["deployment"]["bind_address"] = "127.0.0.1"
+        logger.info("Services will bind to localhost only (127.0.0.1) for security")
 
     # Get deployed services list
     deployed_services = config.get("deployed_services", [])
@@ -1119,7 +1191,7 @@ def prepare_compose_files(config_path, dev_mode=False):
     return config, compose_files
 
 
-def deploy_up(config_path, detached=False, dev_mode=False):
+def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False):
     """Start services using container runtime (Docker or Podman).
 
     :param config_path: Path to the configuration file
@@ -1128,8 +1200,10 @@ def deploy_up(config_path, detached=False, dev_mode=False):
     :type detached: bool
     :param dev_mode: Development mode for local framework testing
     :type dev_mode: bool
+    :param expose_network: Expose services to all network interfaces (0.0.0.0)
+    :type expose_network: bool
     """
-    config, compose_files = prepare_compose_files(config_path, dev_mode)
+    config, compose_files = prepare_compose_files(config_path, dev_mode, expose_network)
 
     # Verify container runtime is actually running
     is_running, error_msg = verify_runtime_is_running(config)
@@ -1173,7 +1247,7 @@ def deploy_down(config_path, dev_mode=False):
     :type config_path: str
     """
     try:
-        with quiet_logger(["REGISTRY", "CONFIG"]):
+        with quiet_logger(["registry", "CONFIG"]):
             config = ConfigBuilder(config_path)
             config = config.raw_config
     except Exception as e:
@@ -1213,15 +1287,17 @@ def deploy_down(config_path, dev_mode=False):
     os.execvp(cmd[0], cmd)
 
 
-def deploy_restart(config_path, detached=False):
+def deploy_restart(config_path, detached=False, expose_network=False):
     """Restart services using container runtime (Docker or Podman).
 
     :param config_path: Path to the configuration file
     :type config_path: str
     :param detached: Run in detached mode
     :type detached: bool
+    :param expose_network: Expose services to all network interfaces (0.0.0.0)
+    :type expose_network: bool
     """
-    config, compose_files = prepare_compose_files(config_path)
+    config, compose_files = prepare_compose_files(config_path, expose_network=expose_network)
 
     # Verify container runtime is actually running
     is_running, error_msg = verify_runtime_is_running(config)
@@ -1257,7 +1333,7 @@ def show_status(config_path):
 
         from osprey.cli.styles import Styles, console
 
-        with quiet_logger(["REGISTRY", "CONFIG"]):
+        with quiet_logger(["registry", "CONFIG"]):
             config = ConfigBuilder(config_path)
             config = config.raw_config
     except Exception as e:
@@ -1458,7 +1534,7 @@ def show_status(config_path):
     console.print()
 
 
-def rebuild_deployment(config_path, detached=False, dev_mode=False):
+def rebuild_deployment(config_path, detached=False, dev_mode=False, expose_network=False):
     """Rebuild deployment from scratch (clean + up).
 
     :param config_path: Path to the configuration file
@@ -1467,8 +1543,10 @@ def rebuild_deployment(config_path, detached=False, dev_mode=False):
     :type detached: bool
     :param dev_mode: Development mode for local framework testing
     :type dev_mode: bool
+    :param expose_network: Expose services to all network interfaces (0.0.0.0)
+    :type expose_network: bool
     """
-    config, compose_files = prepare_compose_files(config_path, dev_mode)
+    config, compose_files = prepare_compose_files(config_path, dev_mode, expose_network)
 
     # Verify container runtime is actually running (for the rebuild phase)
     is_running, error_msg = verify_runtime_is_running(config)
@@ -1501,7 +1579,7 @@ def rebuild_deployment(config_path, detached=False, dev_mode=False):
         )
         logger.info("To configure API keys: cp .env.example .env && edit .env")
 
-    cmd.append("up")
+    cmd.extend(["up", "--build"])
     if detached:
         cmd.append("-d")
 

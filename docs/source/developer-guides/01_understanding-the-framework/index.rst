@@ -9,9 +9,9 @@ Understanding Osprey
    01_infrastructure-architecture
    02_convention-over-configuration
    03_langgraph-integration
-   04_orchestrator-first-philosophy
+   04_orchestration-architecture
 
-The Osprey Framework is a production-ready architecture for deploying agentic AI in large-scale, safety-critical control system environments. Built on LangGraph's StateGraph foundation, its distinctive architecture centers on **Classification and Orchestration** - capability selection followed by plan-first execution planning - providing transparent, auditable multi-step operations with mandatory safety checks for hardware-interacting workflows.
+The Osprey Framework is a production-ready architecture for deploying agentic AI in large-scale, safety-critical control system environments. Built on LangGraph's StateGraph foundation, its distinctive architecture centers on **Classification and Orchestration** — capability selection followed by intelligent execution coordination (plan-first or reactive) — providing transparent, auditable multi-step operations with mandatory safety checks for hardware-interacting workflows.
 
 .. image:: ../../_static/resources/workflow_overview.pdf
    :alt: Osprey Framework Workflow Overview
@@ -33,7 +33,7 @@ All user interactions—from CLI, web interfaces, or external integrations—flo
    :doc:`Dynamically selects relevant capabilities <../04_infrastructure-components/03_classification-and-routing>` from your domain-specific toolkit. LLM-powered binary classification for each capability ensures only relevant prompts are used in downstream processes, preventing prompt explosion as facilities expand their capability inventories.
 
 **3. Orchestration**
-   :doc:`Generates complete execution plans <../04_infrastructure-components/04_orchestrator-planning>` with explicit dependencies and human oversight. Plans are created upfront before any capability execution begins, enabling operator review of all proposed control system operations and preventing capability hallucination.
+   :doc:`Coordinates capability execution <../04_infrastructure-components/04_orchestrator-planning>` via plan-first (complete upfront plans with explicit dependencies) or reactive (ReAct, step-by-step decisions). Both modes provide human oversight, operator review of proposed operations, and capability hallucination prevention.
 
 **4. Execution**
    Executes capabilities with checkpointing, artifact management, and comprehensive safety enforcement. Pattern detection and static analysis identify hardware writes, PV boundary checking verifies setpoints against facility-defined limits, and approval workflows ensure operator oversight before any control system interaction. Plans execute step-by-step with LangGraph interrupts for human approval and containerized isolation for generated code.
@@ -78,19 +78,18 @@ Framework Functions
 
    .. tab-item:: Capability Orchestration
 
-      Creates complete execution plans before any capability runs:
+      Coordinates capability execution via two modes:
 
-      .. code-block:: python
+      .. code-block:: yaml
 
-         # Generate validated execution plan
-         execution_plan = await create_execution_plan(
-             task=state.current_task,
-             capabilities=state.active_capabilities
-         )
+         # config.yml
+         execution_control:
+           agent_control:
+             orchestration_mode: plan_first  # or: react
 
-      - **Upfront Planning**: Complete plans before execution
-      - **Plan Validation**: Prevents capability hallucination
-      - **Deterministic Execution**: Router follows predetermined steps
+      - **Plan-First** (default): Complete plan created upfront, then executed step-by-step
+      - **Reactive (ReAct)**: Decides one step at a time, observing results between steps
+      - **Capability Validation**: Prevents hallucination in both modes
 
    .. tab-item:: State Management
 
@@ -162,11 +161,11 @@ Framework Functions
 
          StateGraph workflows, native checkpointing, interrupts, and streaming support
 
-      .. grid-item-card:: 🎯 Orchestrator-First Philosophy
-         :link: 04_orchestrator-first-philosophy
+      .. grid-item-card:: 🎯 Orchestration Architecture
+         :link: 04_orchestration-architecture
          :link-type: doc
          :class-header: bg-warning text-white
          :class-body: text-center
          :shadow: md
 
-         Why upfront planning outperforms reactive tool calling and improves reliability
+         Plan-first and reactive orchestration modes, routing, and approval workflows

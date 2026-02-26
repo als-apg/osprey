@@ -363,14 +363,9 @@ async def _run_channel_finder_query(project, query: str) -> dict:
         reset_registry()
         initialize_registry(config_path=str(project.config_path))
 
-        # Import the service class from the project
-        package_name = project.project_dir.name.replace("-", "_")
-        service_module = __import__(
-            f"{package_name}.services.channel_finder.service",
-            fromlist=["ChannelFinderService"],
-        )
+        # Import the service class from the native framework
+        from osprey.services.channel_finder.service import ChannelFinderService
 
-        ChannelFinderService = service_module.ChannelFinderService
         # Service gets config from the initialized Osprey config system
         service = ChannelFinderService()
 

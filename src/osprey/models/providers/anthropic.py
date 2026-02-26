@@ -34,6 +34,9 @@ class AnthropicProviderAdapter(BaseProvider):
     ]
     api_key_note = None
 
+    # LiteLLM integration
+    litellm_prefix = "anthropic"
+
     def execute_completion(
         self,
         message: str,

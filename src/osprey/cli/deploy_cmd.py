@@ -55,7 +55,12 @@ from .project_utils import resolve_config_path
     is_flag=True,
     help="Development mode: copy local osprey package to containers instead of using PyPI version. Use this when testing local osprey changes.",
 )
-def deploy(action: str, project: str, config: str, detached: bool, dev: bool):
+@click.option(
+    "--expose",
+    is_flag=True,
+    help="Expose services to all network interfaces (0.0.0.0). WARNING: This exposes services to the network! Only use with proper authentication configured.",
+)
+def deploy(action: str, project: str, config: str, detached: bool, dev: bool, expose: bool):
     """Manage Docker/Podman services for Osprey projects.
 
     This command wraps the existing container management functionality,
@@ -185,13 +190,13 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool):
         # Dispatch to existing container_manager functions
         # These are the ORIGINAL functions from Phase 1.5, behavior unchanged
         if action == "up":
-            deploy_up(config_path, detached=detached, dev_mode=dev)
+            deploy_up(config_path, detached=detached, dev_mode=dev, expose_network=expose)
 
         elif action == "down":
             deploy_down(config_path, dev_mode=dev)
 
         elif action == "restart":
-            deploy_restart(config_path, detached=detached)
+            deploy_restart(config_path, detached=detached, expose_network=expose)
 
         elif action == "status":
             show_status(config_path)
@@ -199,18 +204,22 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool):
         elif action == "build":
             # Just prepare compose files without starting services
             console.print("🔨 Building compose files...")
-            _, compose_files = prepare_compose_files(config_path, dev_mode=dev)
+            _, compose_files = prepare_compose_files(
+                config_path, dev_mode=dev, expose_network=expose
+            )
             console.print("\n✅ Compose files built successfully:")
             for compose_file in compose_files:
                 console.print(f"  • {compose_file}")
 
         elif action == "clean":
             # clean_deployment expects compose_files list, so prepare them first
-            _, compose_files = prepare_compose_files(config_path, dev_mode=dev)
+            _, compose_files = prepare_compose_files(
+                config_path, dev_mode=dev, expose_network=expose
+            )
             clean_deployment(compose_files)
 
         elif action == "rebuild":
-            rebuild_deployment(config_path, detached=detached, dev_mode=dev)
+            rebuild_deployment(config_path, detached=detached, dev_mode=dev, expose_network=expose)
 
         # Note: The original functions handle all output and error messaging
         # We don't add extra output to avoid changing user experience

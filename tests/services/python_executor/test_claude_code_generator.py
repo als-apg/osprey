@@ -61,18 +61,6 @@ class TestClaudeCodeGeneratorBasics:
         assert generator.config["max_turns"] == 2
         assert generator.config["max_budget_usd"] == 0.05
 
-    @pytest.mark.skip(reason="Model name mapping has been refactored - method no longer exists")
-    def test_model_name_mapping(self):
-        """Test model name mapping from short names to SDK names."""
-        generator = ClaudeCodeGenerator()
-
-        assert generator._map_model_name("sonnet") == "claude-sonnet-4-5"
-        assert generator._map_model_name("opus") == "claude-opus-4-1-20250805"
-        assert generator._map_model_name("haiku") == "claude-haiku-4-5"
-
-        # Test passthrough for unknown names
-        assert generator._map_model_name("custom-model") == "custom-model"
-
     def test_code_extraction(self):
         """Test code extraction from text."""
         generator = ClaudeCodeGenerator()
@@ -149,63 +137,6 @@ class TestClaudeCodeGeneratorPrompts:
         prompt_lower = prompt.lower()
         assert "executable" in prompt_lower and "python" in prompt_lower and "code" in prompt_lower
         assert "results" in prompt_lower
-
-    @pytest.mark.skip(
-        reason="Testing private method _build_phase_prompt requires complex phase_def structure"
-    )
-    def test_phase_prompt_building(self):
-        """Test phase prompt construction."""
-        # This is an implementation detail - behavior is tested via e2e tests
-        pass
-
-    @pytest.mark.skip(
-        reason="Testing private method _build_phase_prompt requires complex phase_def structure"
-    )
-    def test_phase_prompt_with_errors(self):
-        """Test phase prompt includes error feedback."""
-        # This is an implementation detail - behavior is tested via e2e tests
-        pass
-
-    @pytest.mark.skip(
-        reason="Testing private method _build_phase_prompt requires complex phase_def structure"
-    )
-    def test_phase_prompt_with_context(self):
-        """Test phase prompt with capability context."""
-        # This is an implementation detail - behavior is tested via e2e tests
-        pass
-
-
-class TestClaudeCodeGeneratorIntegration:
-    """Integration tests for Claude Code generator.
-
-    Note: These tests make real API calls and will consume API credits.
-    They are marked as slow and can be skipped in fast test runs.
-    """
-
-    @pytest.mark.slow
-    @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Requires full claude_generator_config.yml - use e2e tests instead")
-    async def test_single_shot_generation(self):
-        """Test single-shot code generation with simple task."""
-        # This test is now covered by e2e/test_code_generator_workflows.py
-        # which sets up the full configuration properly
-        pass
-
-    @pytest.mark.slow
-    @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Requires full claude_generator_config.yml - use e2e tests instead")
-    async def test_generation_with_error_feedback(self):
-        """Test code generation with error feedback."""
-        # This test is now covered by e2e/test_code_generator_workflows.py
-        pass
-
-    @pytest.mark.slow
-    @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Requires full claude_generator_config.yml - use e2e tests instead")
-    async def test_generation_raises_on_failure(self):
-        """Test that generation raises CodeGenerationError on failure."""
-        # This test is now covered by e2e/test_code_generator_workflows.py
-        pass
 
 
 class TestClaudeCodeGeneratorSafety:
@@ -676,10 +607,129 @@ class TestClaudeCodeGeneratorStructuredErrors:
         assert "Security risk" in text
         assert "Prohibited import" in text
 
-    @pytest.mark.skip(
-        reason="Testing private method _build_phase_prompt - use e2e tests for full behavior"
-    )
-    def test_phased_workflow_prompt_structure(self):
-        """Verify phased workflow prompt includes phase information."""
-        # This is tested in e2e/test_code_generator_workflows.py
-        pass
+
+# =============================================================================
+# SYSTEM PROMPT CUSTOMIZATION TESTS
+# =============================================================================
+
+
+class TestClaudeCodeGeneratorSystemPromptCustomization:
+    """Test system prompt customization features."""
+
+    def test_default_system_prompt_used(self):
+        """Verify DEFAULT_SYSTEM_PROMPT is used when no customization."""
+        generator = ClaudeCodeGenerator()
+
+        request = PythonExecutionRequest(
+            user_query="Test",
+            task_objective="Test",
+            execution_folder_name="test",
+        )
+
+        prompt = generator._build_system_prompt(request)
+
+        # Should contain key phrases from default prompt
+        assert "Python code generator" in prompt
+        assert "scientific computing" in prompt or "control systems" in prompt
+
+    def test_custom_system_prompt_replaces_default(self):
+        """Verify custom system_prompt completely replaces the default."""
+        custom_prompt = "You are a specialized quantum computing code generator."
+
+        generator = ClaudeCodeGenerator(model_config={"system_prompt": custom_prompt})
+
+        request = PythonExecutionRequest(
+            user_query="Test",
+            task_objective="Test",
+            execution_folder_name="test",
+        )
+
+        prompt = generator._build_system_prompt(request)
+
+        # Should use custom prompt, not default
+        assert "quantum computing" in prompt
+        # Default phrases should NOT be present
+        assert "scientific computing and control systems" not in prompt
+
+    def test_system_prompt_extensions_appended(self):
+        """Verify system_prompt_extensions are appended to base prompt."""
+        extensions = """
+CONTROL SYSTEM OPERATIONS:
+- Use osprey.runtime for all channel operations
+- NEVER use epics.caput() directly
+"""
+        generator = ClaudeCodeGenerator(model_config={"system_prompt_extensions": extensions})
+
+        request = PythonExecutionRequest(
+            user_query="Test",
+            task_objective="Test",
+            execution_folder_name="test",
+        )
+
+        prompt = generator._build_system_prompt(request)
+
+        # Should contain default prompt content
+        assert "Python code generator" in prompt
+        # AND should contain extensions
+        assert "osprey.runtime" in prompt
+        assert "NEVER use epics.caput()" in prompt
+
+    def test_custom_prompt_with_extensions(self):
+        """Verify extensions work with custom system_prompt too."""
+        custom_prompt = "You are a custom generator."
+        extensions = "CUSTOM EXTENSION MARKER"
+
+        generator = ClaudeCodeGenerator(
+            model_config={
+                "system_prompt": custom_prompt,
+                "system_prompt_extensions": extensions,
+            }
+        )
+
+        request = PythonExecutionRequest(
+            user_query="Test",
+            task_objective="Test",
+            execution_folder_name="test",
+        )
+
+        prompt = generator._build_system_prompt(request)
+
+        assert "custom generator" in prompt
+        assert "CUSTOM EXTENSION MARKER" in prompt
+
+    def test_empty_extensions_not_added(self):
+        """Verify empty extensions don't add extra whitespace."""
+        generator = ClaudeCodeGenerator(model_config={"system_prompt_extensions": ""})
+
+        request = PythonExecutionRequest(
+            user_query="Test",
+            task_objective="Test",
+            execution_folder_name="test",
+        )
+
+        prompt = generator._build_system_prompt(request)
+
+        # Should not have double newlines from empty extension
+        assert "\n\n\n" not in prompt
+
+    def test_config_loaded_into_generator_config(self):
+        """Verify system prompt config is stored in generator.config."""
+        custom_prompt = "Custom prompt"
+        extensions = "Custom extensions"
+
+        generator = ClaudeCodeGenerator(
+            model_config={
+                "system_prompt": custom_prompt,
+                "system_prompt_extensions": extensions,
+            }
+        )
+
+        assert generator.config.get("system_prompt") == custom_prompt
+        assert generator.config.get("system_prompt_extensions") == extensions
+
+    def test_default_system_prompt_constant_exists(self):
+        """Verify DEFAULT_SYSTEM_PROMPT class attribute exists and is valid."""
+        assert hasattr(ClaudeCodeGenerator, "DEFAULT_SYSTEM_PROMPT")
+        assert isinstance(ClaudeCodeGenerator.DEFAULT_SYSTEM_PROMPT, str)
+        assert len(ClaudeCodeGenerator.DEFAULT_SYSTEM_PROMPT) > 100  # Non-trivial content
+        assert "Python" in ClaudeCodeGenerator.DEFAULT_SYSTEM_PROMPT

@@ -5,12 +5,10 @@ Tests cover:
 - Logger without streaming context (module-level usage)
 - Logger with streaming context (capability usage)
 - Status method and automatic streaming
-- Metadata passing to streaming events
 - Graceful degradation when LangGraph unavailable
-- Explicit stream override for different methods
+- TypedEvent emission through all logging methods
 """
 
-import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -59,11 +57,11 @@ class TestComponentLoggerBasic:
 
 
 class TestComponentLoggerStreaming:
-    """Test ComponentLogger streaming functionality."""
+    """Test ComponentLogger streaming functionality with TypedEvents."""
 
     @patch("langgraph.config.get_stream_writer")
     def test_logger_with_streaming_context(self, mock_get_stream_writer):
-        """Test that logger streams events when LangGraph context available."""
+        """Test that logger streams TypedEvents when LangGraph context available."""
         mock_writer = MagicMock()
         mock_get_stream_writer.return_value = mock_writer
 
@@ -72,16 +70,17 @@ class TestComponentLoggerStreaming:
 
         logger.status("Test message")
 
-        # Verify stream event was emitted
+        # Verify stream event was emitted as TypedEvent
         assert mock_writer.called
         event = mock_writer.call_args[0][0]
         assert event["message"] == "Test message"
-        assert event["event_type"] == "status"
+        assert event["event_class"] == "StatusEvent"
         assert event["component"] == "test_component"
+        assert event["level"] == "status"
 
     @patch("langgraph.config.get_stream_writer")
     def test_status_method_streams_automatically(self, mock_get_stream_writer):
-        """Test that status() method streams automatically."""
+        """Test that status() method streams automatically as StatusEvent."""
         mock_writer = MagicMock()
         mock_get_stream_writer.return_value = mock_writer
 
@@ -90,12 +89,13 @@ class TestComponentLoggerStreaming:
 
         assert mock_writer.called
         event = mock_writer.call_args[0][0]
-        assert event["event_type"] == "status"
+        assert event["event_class"] == "StatusEvent"
+        assert event["level"] == "status"
         assert event["message"] == "Creating execution plan..."
 
     @patch("langgraph.config.get_stream_writer")
     def test_error_streams_automatically(self, mock_get_stream_writer):
-        """Test that error() method streams automatically."""
+        """Test that error() method streams automatically as ErrorEvent."""
         mock_writer = MagicMock()
         mock_get_stream_writer.return_value = mock_writer
 
@@ -104,12 +104,12 @@ class TestComponentLoggerStreaming:
 
         assert mock_writer.called
         event = mock_writer.call_args[0][0]
-        assert event["event_type"] == "error"
-        assert event["error"] is True
+        assert event["event_class"] == "ErrorEvent"
+        assert event["error_message"] == "Error occurred"
 
     @patch("langgraph.config.get_stream_writer")
     def test_success_streams_by_default(self, mock_get_stream_writer):
-        """Test that success() method streams by default."""
+        """Test that success() method streams by default as StatusEvent."""
         mock_writer = MagicMock()
         mock_get_stream_writer.return_value = mock_writer
 
@@ -118,11 +118,12 @@ class TestComponentLoggerStreaming:
 
         assert mock_writer.called
         event = mock_writer.call_args[0][0]
-        assert event["event_type"] == "success"
+        assert event["event_class"] == "StatusEvent"
+        assert event["level"] == "success"
 
     @patch("langgraph.config.get_stream_writer")
     def test_warning_streams_by_default(self, mock_get_stream_writer):
-        """Test that warning() method streams by default."""
+        """Test that warning() method streams by default as StatusEvent."""
         mock_writer = MagicMock()
         mock_get_stream_writer.return_value = mock_writer
 
@@ -131,65 +132,54 @@ class TestComponentLoggerStreaming:
 
         assert mock_writer.called
         event = mock_writer.call_args[0][0]
-        assert event["event_type"] == "warning"
-        assert event["warning"] is True
+        assert event["event_class"] == "StatusEvent"
+        assert event["level"] == "warning"
 
     @patch("langgraph.config.get_stream_writer")
-    def test_info_does_not_stream_by_default(self, mock_get_stream_writer):
-        """Test that info() does not stream by default."""
+    def test_info_streams_as_typed_event(self, mock_get_stream_writer):
+        """Test that info() streams as TypedEvent in unified pipeline."""
         mock_writer = MagicMock()
         mock_get_stream_writer.return_value = mock_writer
 
         logger = get_logger("test_component", state={})
         logger.info("Info message")
 
-        # info() should not stream by default
-        assert not mock_writer.called
-
-    @patch("langgraph.config.get_stream_writer")
-    def test_info_with_explicit_stream_flag(self, mock_get_stream_writer):
-        """Test that info(stream=True) streams explicitly."""
-        mock_writer = MagicMock()
-        mock_get_stream_writer.return_value = mock_writer
-
-        logger = get_logger("test_component", state={})
-
-        # First call without stream flag
-        logger.info("Message 1")
-        assert mock_writer.call_count == 0
-
-        # Second call with stream=True
-        logger.info("Message 2", stream=True)
-        assert mock_writer.call_count == 1
+        # In unified TypedEvent pipeline, ALL methods emit events
+        assert mock_writer.called
         event = mock_writer.call_args[0][0]
-        assert event["message"] == "Message 2"
+        assert event["event_class"] == "StatusEvent"
+        assert event["level"] == "info"
+        assert event["message"] == "Info message"
 
     @patch("langgraph.config.get_stream_writer")
-    def test_debug_does_not_stream_by_default(self, mock_get_stream_writer):
-        """Test that debug() does not stream by default."""
+    def test_debug_streams_as_typed_event(self, mock_get_stream_writer):
+        """Test that debug() streams as TypedEvent in unified pipeline."""
         mock_writer = MagicMock()
         mock_get_stream_writer.return_value = mock_writer
 
         logger = get_logger("test_component", state={})
         logger.debug("Debug message")
 
-        # debug() should not stream by default
-        assert not mock_writer.called
+        # In unified TypedEvent pipeline, ALL methods emit events
+        assert mock_writer.called
+        event = mock_writer.call_args[0][0]
+        assert event["event_class"] == "StatusEvent"
+        assert event["level"] == "debug"
+        assert event["message"] == "Debug message"
 
     @patch("langgraph.config.get_stream_writer")
-    def test_metadata_passing(self, mock_get_stream_writer):
-        """Test that custom metadata is passed to streaming events."""
+    def test_metadata_in_status_event(self, mock_get_stream_writer):
+        """Test that StatusEvent includes message content correctly."""
         mock_writer = MagicMock()
         mock_get_stream_writer.return_value = mock_writer
 
         logger = get_logger("test_component", state={})
-        logger.status("Processing batch 2/5", batch_num=2, total_batches=5, progress=0.4)
+        logger.status("Processing batch 2/5")
 
         assert mock_writer.called
         event = mock_writer.call_args[0][0]
-        assert event["batch_num"] == 2
-        assert event["total_batches"] == 5
-        assert event["progress"] == 0.4
+        assert event["message"] == "Processing batch 2/5"
+        assert event["event_class"] == "StatusEvent"
 
 
 class TestStreamingGracefulDegradation:
@@ -218,22 +208,19 @@ class TestStreamingGracefulDegradation:
         logger.status("Test message")
         logger.error("Error message")
 
-    def test_lazy_initialization_only_on_first_stream_call(self):
-        """Test that stream writer is only initialized when first needed."""
+    @patch("langgraph.config.get_stream_writer")
+    def test_emitter_initialization_on_first_call(self, mock_get_stream_writer):
+        """Test that emitter is initialized when first stream call is made."""
+        mock_writer = MagicMock()
+        mock_get_stream_writer.return_value = mock_writer
+
         logger = get_logger("test_component", state={})
 
-        # Stream writer should not be initialized yet
-        assert logger._stream_writer_attempted is False
+        # First status call should trigger emitter initialization
+        logger.status("Test")
 
-        # Trigger lazy initialization with a method that streams
-        with patch("langgraph.config.get_stream_writer") as mock_get_writer:
-            mock_writer = MagicMock()
-            mock_get_writer.return_value = mock_writer
-
-            logger.status("Test")
-
-            # Now it should be initialized
-            assert logger._stream_writer_attempted is True
+        # Verify the stream writer was called
+        assert mock_writer.called
 
 
 class TestStepInfoExtraction:
@@ -277,7 +264,7 @@ class TestStepInfoExtraction:
         assert event["phase"] == "Execution"
 
     @patch("langgraph.config.get_stream_writer")
-    def test_no_step_info_when_no_plan(self, mock_get_stream_writer):
+    def test_phase_fallback_when_no_plan(self, mock_get_stream_writer):
         """Test fallback when no execution plan in state."""
         mock_writer = MagicMock()
         mock_get_stream_writer.return_value = mock_writer
@@ -286,9 +273,7 @@ class TestStepInfoExtraction:
         logger.status("Working")
 
         event = mock_writer.call_args[0][0]
-        # step and total_steps are None, so they get filtered out by "Clean up None values"
-        assert "step" not in event  # None values are filtered out
-        assert "total_steps" not in event  # None values are filtered out
+        # step and total_steps can be None in TypedEvent
         assert event["phase"] == "Custom Component"  # Title case of component name
 
 
@@ -303,14 +288,13 @@ class TestBackwardCompatibility:
         assert isinstance(logger, ComponentLogger)
         assert logger.component_name == "test_component"
 
-    def test_old_methods_still_work(self):
-        """Test that old logging methods still work."""
+    def test_critical_and_exception_methods(self):
+        """Test that critical and exception methods still work."""
         logger = get_logger("test_component")
 
-        # Old methods that don't take stream parameter should still work
+        # These methods should still work
         logger.critical("Critical message")
         logger.exception("Exception message")
-        logger.log(logging.INFO, "Custom log message")
 
     def test_logger_properties(self):
         """Test that logger properties are accessible."""
@@ -318,7 +302,6 @@ class TestBackwardCompatibility:
 
         assert logger.name == "test_component"
         assert isinstance(logger.level, int)
-        assert logger.isEnabledFor(logging.INFO)
 
 
 if __name__ == "__main__":

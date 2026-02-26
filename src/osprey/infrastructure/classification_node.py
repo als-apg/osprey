@@ -17,6 +17,7 @@ from osprey.base import BaseCapability, CapabilityMatch, ClassifierExample
 from osprey.base.decorators import infrastructure_node
 from osprey.base.errors import ErrorClassification, ErrorSeverity, ReclassificationRequiredError
 from osprey.base.nodes import BaseInfrastructureNode
+from osprey.events import EventEmitter, StatusEvent
 from osprey.models import get_chat_completion
 from osprey.prompts.loader import get_framework_prompts
 from osprey.registry import get_registry
@@ -27,6 +28,7 @@ from osprey.utils.logger import get_logger
 
 # Module-level logger for helper functions
 logger = get_logger("classifier")
+emitter = EventEmitter("classifier")
 
 
 @infrastructure_node
@@ -150,15 +152,33 @@ class ClassificationNode(BaseInfrastructureNode):
         :return: Dictionary of state updates for LangGraph
         :rtype: Dict[str, Any]
         """
+        import time
+
+        from osprey.events import CapabilitiesSelectedEvent, PhaseCompleteEvent, PhaseStartEvent
+
         state = self._state
+        start_time = time.time()
 
         # Get unified logger with automatic streaming support
         logger = self.get_logger()
+
+        # Emit phase start event
+        logger.emit_event(
+            PhaseStartEvent(
+                phase="classification",
+                description="Analyzing task requirements and selecting capabilities",
+            )
+        )
 
         # Get the current task from state
         current_task = state.get("task_current_task")
 
         if not current_task:
+            # Emit phase complete with failure
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.emit_event(
+                PhaseCompleteEvent(phase="classification", duration_ms=duration_ms, success=False)
+            )
             logger.error("No current task found in state")
             raise ReclassificationRequiredError("No current task found")
 
@@ -169,7 +189,6 @@ class ClassificationNode(BaseInfrastructureNode):
 
         if bypass_enabled:
             logger.info("Capability selection bypass enabled - activating all capabilities")
-            logger.status("Bypassing capability selection - activating all capabilities")
 
             # Get all capability names directly from registry
             registry = get_registry()
@@ -178,6 +197,20 @@ class ClassificationNode(BaseInfrastructureNode):
             logger.success(
                 f"Bypass mode: activated all {len(active_capabilities)} capabilities",
                 capability_names=active_capabilities,
+            )
+
+            # Emit data event with selected capabilities
+            logger.emit_event(
+                CapabilitiesSelectedEvent(
+                    capability_names=active_capabilities,
+                    all_capability_names=active_capabilities,  # In bypass mode, all are selected
+                )
+            )
+
+            # Emit phase complete event
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.emit_event(
+                PhaseCompleteEvent(phase="classification", duration_ms=duration_ms, success=True)
             )
 
             # Return standardized classification result
@@ -224,6 +257,22 @@ class ClassificationNode(BaseInfrastructureNode):
         )
         logger.debug(f"Active capabilities: {active_capabilities}")
 
+        # Emit data event with selected capabilities
+        # Get all available capability names for UI display
+        all_capability_names = [cap.name for cap in available_capabilities]
+        logger.emit_event(
+            CapabilitiesSelectedEvent(
+                capability_names=active_capabilities,
+                all_capability_names=all_capability_names,
+            )
+        )
+
+        # Emit phase complete event
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.emit_event(
+            PhaseCompleteEvent(phase="classification", duration_ms=duration_ms, success=True)
+        )
+
         # Return standardized classification result
         return _create_classification_result(
             active_capabilities=active_capabilities,
@@ -267,8 +316,12 @@ def _create_classification_result(
     # Only increment and clear error state if this is actually a reclassification
     if previous_failure:
         reclassification_count += 1
-        logger.info(
-            f"Incremented reclassification count to {reclassification_count} due to previous failure: {previous_failure}"
+        emitter.emit(
+            StatusEvent(
+                component="classifier",
+                message=f"Incremented reclassification count to {reclassification_count} due to previous failure: {previous_failure}",
+                level="info",
+            )
         )
 
         # Clear error state since we're handling the reclassification
@@ -386,12 +439,8 @@ class CapabilityClassifier:
             f"\n\nTask Analyzer System Prompt for capability '{capability.name}':\n{message}\n\n"
         )
 
-        # Log prompt for TUI display
-        self.logger.info(
-            f"Classification prompt for {capability.name}",
-            llm_prompt={capability.name: message},
-            stream=False,
-        )
+        # Emit LLM prompt event for TUI display (key=capability.name for accumulation)
+        self.logger.emit_llm_request(message, key=capability.name)
 
         # Execute classification
         try:
@@ -413,16 +462,12 @@ class CapabilityClassifier:
                 output_model=CapabilityMatch,
             )
 
-            # Log response for TUI display
+            # Emit LLM response event for TUI display (key=capability.name for accumulation)
             if isinstance(response_data, CapabilityMatch):
                 response_json = response_data.model_dump_json()
             else:
                 response_json = str(response_data)
-            self.logger.info(
-                f"Classification result for {capability.name}",
-                llm_response={capability.name: response_json},
-                stream=False,
-            )
+            self.logger.emit_llm_response(response_json, key=capability.name)
 
             result = self._process_classification_response(capability, response_data)
             self.logger.info(f" >>> Capability '{capability.name}' >>> {result}")
@@ -462,13 +507,13 @@ class CapabilityClassifier:
 
         prompt_provider = get_framework_prompts()
         classification_builder = prompt_provider.get_classification_prompt_builder()
-        system_prompt = classification_builder.get_system_instructions(
+        prompt = classification_builder.build_prompt(
             capability_instructions=capability_instructions,
             classifier_examples=examples_string,
             context=None,
             previous_failure=self.previous_failure,
         )
-        return f"{system_prompt}\n\nUser request:\n{self.task}"
+        return f"{prompt}\n\nUser request:\n{self.task}"
 
     def _process_classification_response(self, capability: BaseCapability, response_data) -> bool:
         """Process and validate classification response."""
@@ -550,5 +595,66 @@ async def select_capabilities(
             elif result is True:
                 active_capabilities.append(capability.name)
 
+    # Step 3: Expand dependencies — ensure provider capabilities are included
+    active_capabilities = _expand_capability_dependencies(active_capabilities, state, logger)
+
     logger.info(f"{len(active_capabilities)} capabilities required: {active_capabilities}")
     return active_capabilities
+
+
+def _expand_capability_dependencies(
+    selected_names: list[str],
+    state: AgentState,
+    logger,
+) -> list[str]:
+    """Expand selected capabilities to include providers for unsatisfied dependencies.
+
+    For each selected capability, checks its ``requires`` list.  If a required
+    context type is not already available in ``capability_context_data`` (from a
+    previous turn), the capability that ``provides`` it is added to the selected
+    set.  This is applied transitively until no new capabilities are added.
+
+    :param selected_names: Initially selected capability names
+    :param state: Current agent state (used to check existing context data)
+    :param logger: Logger instance
+    :return: Expanded list of capability names
+    """
+    registry = get_registry()
+
+    # Build provider map: context_type → capability name (from ALL registered)
+    provider_map: dict[str, str] = {}
+    for cap in registry.get_all_capabilities():
+        for provided_type in getattr(cap, "provides", []) or []:
+            provider_map[provided_type] = getattr(cap, "name", "unknown")
+
+    context_data = state.get("capability_context_data", {})
+    expanded = list(selected_names)
+    expanded_set = set(selected_names)
+
+    # Iterative transitive closure
+    changed = True
+    while changed:
+        changed = False
+        for name in list(expanded):
+            cap = registry.get_capability(name)
+            if not cap:
+                continue
+            requires = getattr(cap, "requires", []) or []
+            for req in requires:
+                context_type = req[0] if isinstance(req, tuple) else req
+                # Skip if context already available from a previous turn
+                type_contexts = context_data.get(context_type, {})
+                if type_contexts and isinstance(type_contexts, dict):
+                    continue
+                # Look up provider and add if found
+                provider = provider_map.get(context_type)
+                if provider and provider not in expanded_set:
+                    expanded.append(provider)
+                    expanded_set.add(provider)
+                    changed = True
+                    logger.info(
+                        f"Dependency expansion: added '{provider}' "
+                        f"(provides {context_type} required by {name})"
+                    )
+
+    return expanded

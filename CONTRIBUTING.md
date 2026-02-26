@@ -16,13 +16,8 @@ cd osprey
 ### 2. Set Up Development Environment
 
 ```bash
-# Create and activate virtual environment
-python3.11 -m venv venv
-source venv/bin/activate  # On macOS/Linux
-# venv\Scripts\activate   # On Windows
-
-# Install in development mode
-pip install -e ".[dev,docs]"
+# Install all development dependencies (creates .venv automatically)
+uv sync --extra dev --extra docs
 ```
 
 ### 3. Create a Feature Branch
@@ -150,4 +145,3 @@ Be respectful, welcoming, and inclusive. Focus on what's best for the community.
 ---
 
 For detailed guidelines, workflow files, AI-assisted development tips, and more, please visit our **[complete Contributing documentation](https://als-apg.github.io/osprey/contributing/)**.
-

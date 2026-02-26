@@ -131,6 +131,7 @@ except:
             setup = """
 # Local execution environment setup
 import sys
+import os
 from pathlib import Path
 
 # Add framework src directory to Python path (FIXES THE CURRENT BUG!)
@@ -152,13 +153,28 @@ if project_root:
 else:
     print("⚠️ Could not locate framework src directory")
 
+# IMPORTANT: Also add the application's src directory to Python path
+# This is needed for the registry to import application-specific modules
+# (e.g., its_control_assistant.context_classes, als_assistant.capabilities, etc.)
+# Note: config_file is reused below for registry initialization
+config_file = os.environ.get('CONFIG_FILE')
+if config_file:
+    config_dir = Path(config_file).parent
+    app_src_dir = config_dir / "src"
+    if app_src_dir.exists():
+        app_src_path = str(app_src_dir)
+        if app_src_path not in sys.path:
+            sys.path.insert(0, app_src_path)
+            print(f"✅ Added application src path to sys.path: {app_src_path}")
+    else:
+        print(f"⚠️ Application src directory not found at: {app_src_dir}")
+
 # Initialize registry for context loading
 # Uses CONFIG_FILE environment variable for proper path resolution in subprocesses
 try:
     from osprey.registry import initialize_registry
-    import os
-    config_file = os.environ.get('CONFIG_FILE')
     initialize_registry(auto_export=False, config_path=config_file)
+    print("✅ Registry initialized successfully")
 except Exception as e:
     print(f"Registry initialization failed: {e}", file=sys.stderr)
     print("Context loading may not work properly", file=sys.stderr)

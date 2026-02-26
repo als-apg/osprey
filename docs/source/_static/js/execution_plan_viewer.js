@@ -27,7 +27,7 @@ class ExecutionPlanViewer {
             accent: '#95a4b8',
             accentHover: '#7a8aa0'
         };
-        
+
         this.layout = {
             containerMaxWidth: '1400px',
             containerWidth: '95%',
@@ -59,7 +59,7 @@ class ExecutionPlanViewer {
             validationStatusBottomMargin: '20px',
             validationStatusBorderWidth: '1px'
         };
-        
+
         this.typography = {
             mainHeaderFontSize: '20px',
             mainHeaderLetterSpacing: '0.5px',
@@ -93,7 +93,7 @@ class ExecutionPlanViewer {
             noInputsFontSize: '11px',
             noInputsLetterSpacing: '0.3px'
         };
-        
+
         this.borderRadius = {
             container: '4px',
             panel: '3px',
@@ -101,23 +101,23 @@ class ExecutionPlanViewer {
             field: '3px',
             badge: '3px'
         };
-        
+
         this.shadows = {
             container: '0 8px 16px rgba(0, 0, 0, 0.1)',
             card: '0 2px 4px rgba(0,0,0,0.05)',
             cardHover: '0 4px 8px rgba(0,0,0,0.1)',
             modal: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
         };
-        
+
         this.transitions = {
             default: 'all 0.2s',
             fast: '0.15s',
             slow: '0.3s'
         };
-        
+
         // Override with custom config
         Object.assign(this, config);
-        
+
         // Internal state
         this.currentPlan = [];
         this.stepCounter = 0;
@@ -133,7 +133,7 @@ class ExecutionPlanViewer {
             onValidate: null
         };
     }
-    
+
     /**
      * Initialize the viewer with data and options
      */
@@ -143,7 +143,7 @@ class ExecutionPlanViewer {
         this.templates = options.templates || [];
         this.availableContextKeys = options.availableContextKeys || [];
         this.callbacks = { ...this.callbacks, ...options.callbacks };
-        
+
         // Check if we have pending plan data (review mode)
         if (options.pendingPlan) {
             this.isReviewMode = true;
@@ -156,14 +156,14 @@ class ExecutionPlanViewer {
             this.stepCounter = this.currentPlan.length;
         }
     }
-    
+
     /**
      * Create the main viewer container
      */
     createContainer(parentElement, options = {}) {
         const container = document.createElement('div');
         const isModal = options.modal !== false; // Default to modal
-        
+
         if (isModal) {
             // Create overlay for modal mode
             const overlay = document.createElement('div');
@@ -180,7 +180,7 @@ class ExecutionPlanViewer {
                 justify-content: center;
                 align-items: center;
             `;
-            
+
             container.style.cssText = `
                 background: ${this.colors.background};
                 border: ${this.layout.containerBorderWidth} solid ${this.colors.border};
@@ -196,17 +196,17 @@ class ExecutionPlanViewer {
                 font-size: ${this.typography.bodyFontSize};
                 line-height: ${this.typography.bodyLineHeight};
             `;
-            
+
             overlay.appendChild(container);
             parentElement.appendChild(overlay);
-            
+
             // Close on overlay click
             overlay.addEventListener('click', (e) => {
                 if (e.target === overlay && this.callbacks.onCancel) {
                     this.callbacks.onCancel();
                 }
             });
-            
+
             return { container, overlay };
         } else {
             // Inline mode for documentation
@@ -224,12 +224,12 @@ class ExecutionPlanViewer {
                 line-height: ${this.typography.bodyLineHeight};
                 margin: 20px 0;
             `;
-            
+
             parentElement.appendChild(container);
             return { container };
         }
     }
-    
+
     /**
      * Create header section
      */
@@ -243,7 +243,7 @@ class ExecutionPlanViewer {
             padding-bottom: ${this.layout.headerBottomPadding};
             border-bottom: ${this.layout.headerBorderWidth} solid ${this.colors.border};
         `;
-        
+
         if (this.isReviewMode) {
             header.innerHTML = `
                 <div>
@@ -261,16 +261,16 @@ class ExecutionPlanViewer {
                 <div style="background: ${this.colors.accent}; color: white; padding: 8px 12px; border-radius: ${this.borderRadius.badge}; font-size: ${this.typography.badgeFontSize}; font-weight: 500; text-transform: uppercase; letter-spacing: ${this.typography.badgeLetterSpacing};">Interactive Preview</div>
             `;
         }
-        
+
         return header;
     }
-    
+
     /**
      * Create control panel (buttons for actions)
      */
     createControlPanel() {
         const controlPanel = document.createElement('div');
-        
+
         if (this.isReviewMode) {
             controlPanel.innerHTML = `
                 <div style="background: ${this.colors.warning}; color: white; padding: 16px; border-radius: 6px; margin-bottom: 20px;">
@@ -278,7 +278,7 @@ class ExecutionPlanViewer {
                     <div style="font-size: 14px; opacity: 0.9;">${this.reviewModeData.originalTask}</div>
                     <div style="font-size: 12px; margin-top: 8px; opacity: 0.7;">Created: ${this.reviewModeData.createdAt} • Context: ${this.reviewModeData.contextKey}</div>
                 </div>
-                
+
                 <div style="display: flex; gap: 16px; margin-bottom: 24px; padding: 20px; background: ${this.colors.panelBackground}; border: 1px solid ${this.colors.borderLight}; border-radius: 3px; align-items: center; flex-wrap: nowrap;">
                     <button id="save-as-is-btn" style="background: ${this.colors.success}; color: white; border: 1px solid ${this.colors.success}; padding: 10px 16px; border-radius: 3px; cursor: pointer; font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; transition: all 0.2s; min-width: 120px;">💾 Approve Plan</button>
                     <button id="save-modified-btn" style="background: ${this.colors.primary}; color: white; border: 1px solid ${this.colors.primary}; padding: 10px 16px; border-radius: 3px; cursor: pointer; font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; transition: all 0.2s; min-width: 140px;">✏️ Save Modifications</button>
@@ -302,10 +302,10 @@ class ExecutionPlanViewer {
                 </div>
             `;
         }
-        
+
         return controlPanel;
     }
-    
+
     /**
      * Render execution steps
      */
@@ -319,7 +319,7 @@ class ExecutionPlanViewer {
             padding: 20px;
             background: ${this.colors.background};
         `;
-        
+
         if (this.currentPlan.length === 0) {
             stepsContainer.innerHTML = `
                 <div style="text-align: center; padding: 40px; color: ${this.colors.textLight}; font-style: italic;">
@@ -328,15 +328,15 @@ class ExecutionPlanViewer {
             `;
             return stepsContainer;
         }
-        
+
         this.currentPlan.forEach((step, index) => {
             const stepCard = this.createStepCard(step, index);
             stepsContainer.appendChild(stepCard);
         });
-        
+
         return stepsContainer;
     }
-    
+
     /**
      * Create individual step card
      */
@@ -353,18 +353,18 @@ class ExecutionPlanViewer {
             transition: ${this.transitions.default};
             cursor: pointer;
         `;
-        
+
         // Add hover effect
         stepCard.addEventListener('mouseenter', () => {
             stepCard.style.borderColor = this.colors.primary;
             stepCard.style.boxShadow = this.shadows.cardHover;
         });
-        
+
         stepCard.addEventListener('mouseleave', () => {
             stepCard.style.borderColor = this.colors.borderLight;
             stepCard.style.boxShadow = this.shadows.card;
         });
-        
+
         // Create inputs display
         let inputsHtml = '';
         if (step.inputs && step.inputs.length > 0) {
@@ -376,7 +376,7 @@ class ExecutionPlanViewer {
         } else {
             inputsHtml = `<span style="color: ${this.colors.textLight}; font-style: italic; font-size: ${this.typography.noInputsFontSize}; text-transform: uppercase; letter-spacing: ${this.typography.noInputsLetterSpacing};">No inputs required</span>`;
         }
-        
+
         // Create parameters display
         let parametersHtml = '';
         if (step.parameters && Object.keys(step.parameters).length > 0) {
@@ -386,25 +386,25 @@ class ExecutionPlanViewer {
         } else {
             parametersHtml = `<span style="color: ${this.colors.textLight}; font-style: italic; font-size: ${this.typography.noInputsFontSize}; text-transform: uppercase; letter-spacing: ${this.typography.noInputsLetterSpacing};">Default parameters</span>`;
         }
-        
+
         // Create action buttons container
         const actionsContainer = document.createElement('div');
-        
+
         if (this.isReviewMode) {
             // In review mode, add edit and delete buttons
             const editBtn = document.createElement('button');
             editBtn.style.cssText = `
-                background: ${this.colors.accent}; 
-                color: white; 
-                border: 1px solid ${this.colors.accent}; 
-                padding: 6px 12px; 
-                border-radius: 3px; 
-                cursor: pointer; 
-                font-size: 11px; 
-                font-weight: 500; 
-                text-transform: uppercase; 
-                letter-spacing: 0.5px; 
-                margin-right: 8px; 
+                background: ${this.colors.accent};
+                color: white;
+                border: 1px solid ${this.colors.accent};
+                padding: 6px 12px;
+                border-radius: 3px;
+                cursor: pointer;
+                font-size: 11px;
+                font-weight: 500;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-right: 8px;
                 transition: all 0.2s;
             `;
             editBtn.textContent = 'Edit';
@@ -412,19 +412,19 @@ class ExecutionPlanViewer {
                 e.stopPropagation();
                 this.editStep(index);
             });
-            
+
             const deleteBtn = document.createElement('button');
             deleteBtn.style.cssText = `
-                background: ${this.colors.danger}; 
-                color: white; 
-                border: 1px solid ${this.colors.danger}; 
-                padding: 6px 12px; 
-                border-radius: 3px; 
-                cursor: pointer; 
-                font-size: 11px; 
-                font-weight: 500; 
-                text-transform: uppercase; 
-                letter-spacing: 0.5px; 
+                background: ${this.colors.danger};
+                color: white;
+                border: 1px solid ${this.colors.danger};
+                padding: 6px 12px;
+                border-radius: 3px;
+                cursor: pointer;
+                font-size: 11px;
+                font-weight: 500;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
                 transition: all 0.2s;
             `;
             deleteBtn.textContent = 'Delete';
@@ -432,25 +432,25 @@ class ExecutionPlanViewer {
                 e.stopPropagation();
                 this.deleteStep(index);
             });
-            
+
             actionsContainer.appendChild(editBtn);
             actionsContainer.appendChild(deleteBtn);
         } else {
             // In documentation mode, show expected output badge
             actionsContainer.innerHTML = `<div style="background: ${this.colors.success}; color: white; padding: 4px 8px; border-radius: ${this.borderRadius.badge}; font-size: ${this.typography.badgeFontSize}; font-weight: 500; text-transform: uppercase; letter-spacing: ${this.typography.badgeLetterSpacing};">→ ${step.expected_output}</div>`;
         }
-        
+
         // Create the step card content
         const cardHeader = document.createElement('div');
         cardHeader.style.cssText = `
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-            margin-bottom: ${this.layout.stepCardHeaderBottomMargin}; 
-            padding-bottom: ${this.layout.stepCardHeaderBottomPadding}; 
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: ${this.layout.stepCardHeaderBottomMargin};
+            padding-bottom: ${this.layout.stepCardHeaderBottomPadding};
             border-bottom: 1px solid ${this.colors.borderLight};
         `;
-        
+
         cardHeader.innerHTML = `
             <div style="flex: 1; display: flex; align-items: center;">
                 <span style="background: ${this.colors.primary}; color: white; padding: 6px 12px; border-radius: ${this.borderRadius.badge}; font-size: ${this.typography.stepTitleFontSize}; font-weight: 600; text-transform: uppercase; letter-spacing: ${this.typography.stepTitleLetterSpacing};">STEP ${index + 1}</span>
@@ -459,7 +459,7 @@ class ExecutionPlanViewer {
             </div>
         `;
         cardHeader.appendChild(actionsContainer);
-        
+
         const cardContent = document.createElement('div');
         cardContent.style.cssText = `display: grid; grid-template-columns: 1fr; gap: ${this.layout.stepCardContentGap};`;
         cardContent.innerHTML = `
@@ -469,7 +469,7 @@ class ExecutionPlanViewer {
                 </label>
                 <div style="font-size: 13px; color: ${this.colors.text}; line-height: 1.5; padding: 8px; background: ${this.colors.background}; border: 1px solid ${this.colors.borderLight}; border-radius: ${this.borderRadius.field};">${step.task_objective}</div>
             </div>
-            
+
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px;">
                 <div>
                     <label style="display: flex; align-items: center; font-weight: 600; margin-bottom: 6px; color: ${this.colors.text}; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
@@ -485,13 +485,13 @@ class ExecutionPlanViewer {
                 </div>
             </div>
         `;
-        
+
         stepCard.appendChild(cardHeader);
         stepCard.appendChild(cardContent);
-        
+
         return stepCard;
     }
-    
+
     /**
      * Edit step functionality (placeholder for review mode)
      */
@@ -499,7 +499,7 @@ class ExecutionPlanViewer {
         // For documentation demo, just show a message
         this.showSuccessNotification(`Edit functionality would open a modal to modify Step ${index + 1}. This is a demo of the approval interface.`);
     }
-    
+
     /**
      * Delete step functionality (placeholder for review mode)
      */
@@ -507,7 +507,7 @@ class ExecutionPlanViewer {
         // For documentation demo, just show a message
         this.showSuccessNotification(`Delete functionality would remove Step ${index + 1} from the plan. This is a demo of the approval interface.`);
     }
-    
+
     /**
      * Setup event handlers for review mode
      */
@@ -516,7 +516,7 @@ class ExecutionPlanViewer {
             const saveAsIsBtn = container.querySelector('#save-as-is-btn');
             const saveModifiedBtn = container.querySelector('#save-modified-btn');
             const rejectBtn = container.querySelector('#reject-plan-btn');
-            
+
             if (saveAsIsBtn) {
                 saveAsIsBtn.addEventListener('click', () => {
                     this.showSuccessNotification('✅ Plan approved!\n\nExecuting original plan as proposed by the orchestrator.');
@@ -525,7 +525,7 @@ class ExecutionPlanViewer {
                     }
                 });
             }
-            
+
             if (saveModifiedBtn) {
                 saveModifiedBtn.addEventListener('click', () => {
                     this.showSuccessNotification('✅ Modified plan saved!\n\nExecuting plan with your modifications.');
@@ -534,7 +534,7 @@ class ExecutionPlanViewer {
                     }
                 });
             }
-            
+
             if (rejectBtn) {
                 rejectBtn.addEventListener('click', () => {
                     this.showSuccessNotification('❌ Plan rejected!\n\nExecution cancelled. You can request a different approach.');
@@ -544,7 +544,7 @@ class ExecutionPlanViewer {
                 });
             }
         }
-        
+
         const closeBtn = container.querySelector('#plan-close-btn');
         if (closeBtn) {
             closeBtn.addEventListener('click', () => {
@@ -554,7 +554,7 @@ class ExecutionPlanViewer {
             });
         }
     }
-    
+
     /**
      * Show success notification
      */
@@ -581,13 +581,13 @@ class ExecutionPlanViewer {
         `;
         notification.textContent = message;
         document.body.appendChild(notification);
-        
+
         // Animate in
         setTimeout(() => {
             notification.style.opacity = '1';
             notification.style.transform = 'translateX(0)';
         }, 10);
-        
+
         // Auto-remove after 4 seconds
         setTimeout(() => {
             notification.style.opacity = '0';
@@ -599,22 +599,22 @@ class ExecutionPlanViewer {
             }, 300);
         }, 4000);
     }
-    
+
     /**
      * Main render method
      */
     render(parentElement, options = {}) {
         const { container, overlay } = this.createContainer(parentElement, options);
-        
+
         // Create sections
         const header = this.createHeader();
         const controlPanel = this.createControlPanel();
         const stepsContainer = this.renderSteps();
-        
+
         // Assemble the interface
         container.appendChild(header);
         container.appendChild(controlPanel);
-        
+
         // Add steps section header
         const stepsHeader = document.createElement('h3');
         stepsHeader.style.cssText = `
@@ -630,10 +630,10 @@ class ExecutionPlanViewer {
         stepsHeader.textContent = 'Execution Steps';
         container.appendChild(stepsHeader);
         container.appendChild(stepsContainer);
-        
+
         // Setup event handlers
         this.setupEventHandlers(container);
-        
+
         return { container, overlay };
     }
 }
@@ -643,4 +643,4 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = ExecutionPlanViewer;
 } else if (typeof window !== 'undefined') {
     window.ExecutionPlanViewer = ExecutionPlanViewer;
-} 
+}

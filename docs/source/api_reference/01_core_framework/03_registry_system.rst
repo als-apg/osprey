@@ -320,6 +320,29 @@ Component Registration
    (e.g., Azure OpenAI, Stanford AI Playground) or commercial
    providers not included in the framework.
 
+ARIEL Service Registration
+--------------------------
+
+.. autoclass:: ArielIngestionAdapterRegistration
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: ArielEnhancementModuleRegistration
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: ArielSearchModuleRegistration
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: ArielPipelineRegistration
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Specialized Registration
 ------------------------
 

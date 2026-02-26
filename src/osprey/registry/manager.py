@@ -125,7 +125,7 @@ if TYPE_CHECKING:
     from osprey.base import BaseCapability, BaseCapabilityNode
     from osprey.context import CapabilityContext
 
-logger = get_logger(name="REGISTRY", color="sky_blue2")
+logger = get_logger(name="registry", color="sky_blue2")
 
 
 class RegistryManager:
@@ -255,6 +255,10 @@ class RegistryManager:
             "providers": {},
             "connectors": {},
             "code_generators": {},
+            "ariel_search_modules": {},
+            "ariel_enhancement_modules": {},
+            "ariel_pipelines": {},
+            "ariel_ingestion_adapters": {},
         }
 
         # Provider-specific storage for metadata introspection
@@ -318,6 +322,10 @@ class RegistryManager:
                     providers=framework_config.providers.copy(),
                     connectors=framework_config.connectors.copy(),
                     code_generators=framework_config.code_generators.copy(),
+                    ariel_search_modules=framework_config.ariel_search_modules.copy(),
+                    ariel_enhancement_modules=framework_config.ariel_enhancement_modules.copy(),
+                    ariel_pipelines=framework_config.ariel_pipelines.copy(),
+                    ariel_ingestion_adapters=framework_config.ariel_ingestion_adapters.copy(),
                     initialization_order=framework_config.initialization_order.copy(),
                 )
 
@@ -639,20 +647,33 @@ class RegistryManager:
                 continue
 
             # Filter out excluded components
+            # ContextClassRegistration uses 'context_type' instead of 'name'
             original_count = len(component_collection)
-            filtered_components = [
-                comp for comp in component_collection if comp.name not in excluded_names
-            ]
+            if component_type == "context_classes":
+                filtered_components = [
+                    comp for comp in component_collection if comp.context_type not in excluded_names
+                ]
+            else:
+                filtered_components = [
+                    comp for comp in component_collection if comp.name not in excluded_names
+                ]
             setattr(merged, component_type, filtered_components)
 
             # Log exclusions that actually occurred
             excluded_count = original_count - len(filtered_components)
             if excluded_count > 0:
-                actually_excluded = [
-                    name
-                    for name in excluded_names
-                    if name in {comp.name for comp in component_collection}
-                ]
+                if component_type == "context_classes":
+                    actually_excluded = [
+                        name
+                        for name in excluded_names
+                        if name in {comp.context_type for comp in component_collection}
+                    ]
+                else:
+                    actually_excluded = [
+                        name
+                        for name in excluded_names
+                        if name in {comp.name for comp in component_collection}
+                    ]
                 if actually_excluded:
                     logger.info(
                         f"Application {app_name} excluded framework {component_type}: {actually_excluded}"
@@ -710,9 +731,45 @@ class RegistryManager:
             merged.capabilities.append(app_capability)
 
         if capability_overrides:
-            logger.info(
-                f"Application {app_name} overrode framework capabilities: {capability_overrides}"
-            )
+            # Check for shadow warnings: non-explicit overrides of native capabilities
+            native_control_capabilities = {
+                "channel_finding",
+                "channel_read",
+                "channel_write",
+                "archiver_retrieval",
+            }
+            shadow_caps = []
+            explicit_caps = []
+            for app_capability in app_capabilities:
+                if app_capability.name in capability_overrides:
+                    is_explicit = getattr(app_capability, "_is_explicit_override", False)
+                    if is_explicit:
+                        explicit_caps.append(app_capability.name)
+                    elif app_capability.name in native_control_capabilities:
+                        shadow_caps.append(app_capability.name)
+
+            if shadow_caps:
+                logger.warning(
+                    f"Application '{app_name}' shadows native framework capabilities: "
+                    f"{shadow_caps}. These capabilities are now built into OSPREY. "
+                    f"Run 'osprey migrate check' to update your application, or use "
+                    f"override_capabilities=[] in your registry to explicitly override."
+                )
+
+            if explicit_caps:
+                logger.info(
+                    f"Application {app_name} explicitly overrode framework capabilities: "
+                    f"{explicit_caps}"
+                )
+
+            # Log remaining non-native overrides at INFO level
+            other_overrides = [
+                c for c in capability_overrides if c not in shadow_caps and c not in explicit_caps
+            ]
+            if other_overrides:
+                logger.info(
+                    f"Application {app_name} overrode framework capabilities: {other_overrides}"
+                )
 
         # Merge data sources with override support
         framework_ds_names = {ds.name for ds in merged.data_sources}
@@ -855,6 +912,70 @@ class RegistryManager:
                 f"Application {app_name} added {len(generators_added)} new code generator(s): {generators_added}"
             )
 
+        # Merge ARIEL module types with override support
+        self._merge_named_registrations(
+            merged.ariel_search_modules,
+            getattr(app_config, "ariel_search_modules", []),
+            "ARIEL search module",
+            app_name,
+        )
+        self._merge_named_registrations(
+            merged.ariel_enhancement_modules,
+            getattr(app_config, "ariel_enhancement_modules", []),
+            "ARIEL enhancement module",
+            app_name,
+        )
+        self._merge_named_registrations(
+            merged.ariel_pipelines,
+            getattr(app_config, "ariel_pipelines", []),
+            "ARIEL pipeline",
+            app_name,
+        )
+        self._merge_named_registrations(
+            merged.ariel_ingestion_adapters,
+            getattr(app_config, "ariel_ingestion_adapters", []),
+            "ARIEL ingestion adapter",
+            app_name,
+        )
+
+    @staticmethod
+    def _merge_named_registrations(
+        merged_list: list,
+        app_list: list,
+        type_label: str,
+        app_name: str,
+    ) -> None:
+        """Merge named registrations with override support.
+
+        For each item in ``app_list``, if a registration with the same ``.name``
+        exists in ``merged_list`` it is replaced (override); otherwise the item
+        is appended (addition).  ``merged_list`` is mutated in place.
+
+        Args:
+            merged_list: Framework registrations (mutated in place).
+            app_list: Application registrations to merge in.
+            type_label: Human-readable type label for log messages.
+            app_name: Application name for log messages.
+        """
+        framework_names = {item.name for item in merged_list}
+        overrides: list[str] = []
+        additions: list[str] = []
+
+        for app_item in app_list:
+            if app_item.name in framework_names:
+                merged_list[:] = [m for m in merged_list if m.name != app_item.name]
+                overrides.append(app_item.name)
+            else:
+                additions.append(app_item.name)
+            merged_list.append(app_item)
+
+        if overrides:
+            logger.info(f"Application {app_name} overrode framework {type_label}s: {overrides}")
+        if additions:
+            logger.info(
+                f"Application {app_name} added {len(additions)} new {type_label}(s): {additions}"
+            )
+
     def _validate_standalone_registry(self, config: RegistryConfig, app_name: str) -> None:
         """Validate that standalone registry has required framework components.
 
@@ -981,7 +1102,7 @@ class RegistryManager:
         if silent:
             # Suppress INFO and DEBUG output from registry-related loggers
             loggers_to_silence = [
-                "REGISTRY",  # Main registry logger
+                "registry",  # Main registry logger
                 "connector_factory",  # Control system connector factory
                 "memory_storage",  # Memory storage system
             ]
@@ -1040,6 +1161,14 @@ class RegistryManager:
             self._initialize_connectors()
         elif component_type == "code_generators":
             self._initialize_code_generators()
+        elif component_type == "ariel_search_modules":
+            self._initialize_ariel_search_modules()
+        elif component_type == "ariel_enhancement_modules":
+            self._initialize_ariel_enhancement_modules()
+        elif component_type == "ariel_pipelines":
+            self._initialize_ariel_pipelines()
+        elif component_type == "ariel_ingestion_adapters":
+            self._initialize_ariel_ingestion_adapters()
         else:
             raise ValueError(f"Unknown component type: {component_type}")
 
@@ -1106,6 +1235,23 @@ class RegistryManager:
 
         logger.info(f"Registered {len(self._registries['data_sources'])} data sources")
 
+    def _get_configured_provider_names(self) -> set[str] | None:
+        """Extract provider names from config.yml models section.
+
+        Returns None if config unavailable (load all as fallback).
+        """
+        try:
+            model_configs = get_config_value("models", None)
+            if not model_configs or not isinstance(model_configs, dict):
+                return None
+            providers = set()
+            for role_config in model_configs.values():
+                if isinstance(role_config, dict) and "provider" in role_config:
+                    providers.add(role_config["provider"])
+            return providers if providers else None
+        except Exception:
+            return None  # Config not available (TUI init, framework-only mode)
+
     def _initialize_providers(self) -> None:
         """Initialize AI model providers from registry configuration.
 
@@ -1114,12 +1260,31 @@ class RegistryManager:
         Provider metadata (requires_api_key, supports_proxy, etc.) is defined as
         class attributes and introspected after loading.
 
+        Uses config-driven filtering to skip imports for unconfigured providers,
+        avoiding costly module-level network calls on air-gapped machines.
+
         :raises RegistryError: If provider class doesn't inherit from BaseProvider
         :raises RegistryError: If provider doesn't define required metadata
         """
-        logger.info(f"Initializing {len(self.config.providers)} provider(s)...")
+        configured_providers = self._get_configured_provider_names()
+
+        if configured_providers is not None:
+            logger.info(
+                f"Initializing providers (config-driven: {sorted(configured_providers)})..."
+            )
+        else:
+            logger.info(f"Initializing {len(self.config.providers)} provider(s)...")
 
         for registration in self.config.providers:
+            # Config-driven filtering: skip providers not in config before import
+            if (
+                configured_providers is not None
+                and registration.name is not None
+                and registration.name not in configured_providers
+            ):
+                logger.debug(f"  ⊘ Skipping unconfigured provider: {registration.name}")
+                continue
+
             try:
                 # Lazy load provider class
                 module = importlib.import_module(registration.module_path)
@@ -1301,6 +1466,178 @@ class RegistryManager:
 
         logger.info(
             f"Code generator initialization complete: {len(self._registries['code_generators'])} generators loaded"
+        )
+
+    def _initialize_ariel_search_modules(self) -> None:
+        """Initialize ARIEL search modules from registry configuration.
+
+        Imports each search module and validates it exports a ``get_tool_descriptor`` callable.
+        Stores the imported module in the ``ariel_search_modules`` registry.
+        """
+        if not self.config.ariel_search_modules:
+            return
+
+        logger.info(
+            f"Initializing {len(self.config.ariel_search_modules)} ARIEL search module(s)..."
+        )
+
+        for registration in self.config.ariel_search_modules:
+            try:
+                module = importlib.import_module(registration.module_path)
+
+                if not hasattr(module, "get_tool_descriptor") or not callable(
+                    module.get_tool_descriptor
+                ):
+                    raise RegistryError(
+                        f"ARIEL search module '{registration.name}' at {registration.module_path} "
+                        f"must export a callable get_tool_descriptor()"
+                    )
+
+                self._registries["ariel_search_modules"][registration.name] = module
+                logger.debug(f"  ✓ Registered ARIEL search module: {registration.name}")
+
+            except ImportError as e:
+                logger.warning(
+                    f"  ⊘ Skipping ARIEL search module '{registration.name}' (import failed): {e}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"  ✗ Failed to register ARIEL search module '{registration.name}': {e}"
+                )
+                raise RegistryError(
+                    f"ARIEL search module registration failed for {registration.name}"
+                ) from e
+
+        logger.info(
+            f"ARIEL search module initialization complete: "
+            f"{len(self._registries['ariel_search_modules'])} modules loaded"
+        )
+
+    def _initialize_ariel_enhancement_modules(self) -> None:
+        """Initialize ARIEL enhancement modules from registry configuration.
+
+        Imports each enhancement module class and stores (class, registration) tuples
+        in the ``ariel_enhancement_modules`` registry.
+        """
+        if not self.config.ariel_enhancement_modules:
+            return
+
+        logger.info(
+            f"Initializing {len(self.config.ariel_enhancement_modules)} "
+            f"ARIEL enhancement module(s)..."
+        )
+
+        for registration in self.config.ariel_enhancement_modules:
+            try:
+                module = importlib.import_module(registration.module_path)
+                cls = getattr(module, registration.class_name)
+
+                self._registries["ariel_enhancement_modules"][registration.name] = (
+                    cls,
+                    registration,
+                )
+                logger.debug(f"  ✓ Registered ARIEL enhancement module: {registration.name}")
+
+            except ImportError as e:
+                logger.warning(
+                    f"  ⊘ Skipping ARIEL enhancement module '{registration.name}' "
+                    f"(import failed): {e}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"  ✗ Failed to register ARIEL enhancement module '{registration.name}': {e}"
+                )
+                raise RegistryError(
+                    f"ARIEL enhancement module registration failed for {registration.name}"
+                ) from e
+
+        logger.info(
+            f"ARIEL enhancement module initialization complete: "
+            f"{len(self._registries['ariel_enhancement_modules'])} modules loaded"
+        )
+
+    def _initialize_ariel_pipelines(self) -> None:
+        """Initialize ARIEL pipelines from registry configuration.
+
+        Imports each pipeline module and validates it exports a ``get_pipeline_descriptor``
+        callable. Stores the imported module in the ``ariel_pipelines`` registry.
+        """
+        if not self.config.ariel_pipelines:
+            return
+
+        logger.info(f"Initializing {len(self.config.ariel_pipelines)} ARIEL pipeline(s)...")
+
+        for registration in self.config.ariel_pipelines:
+            try:
+                module = importlib.import_module(registration.module_path)
+
+                if not hasattr(module, "get_pipeline_descriptor") or not callable(
+                    module.get_pipeline_descriptor
+                ):
+                    raise RegistryError(
+                        f"ARIEL pipeline '{registration.name}' at {registration.module_path} "
+                        f"must export a callable get_pipeline_descriptor()"
+                    )
+
+                self._registries["ariel_pipelines"][registration.name] = module
+                logger.debug(f"  ✓ Registered ARIEL pipeline: {registration.name}")
+
+            except ImportError as e:
+                logger.warning(
+                    f"  ⊘ Skipping ARIEL pipeline '{registration.name}' (import failed): {e}"
+                )
+            except Exception as e:
+                logger.error(f"  ✗ Failed to register ARIEL pipeline '{registration.name}': {e}")
+                raise RegistryError(
+                    f"ARIEL pipeline registration failed for {registration.name}"
+                ) from e
+
+        logger.info(
+            f"ARIEL pipeline initialization complete: "
+            f"{len(self._registries['ariel_pipelines'])} pipelines loaded"
+        )
+
+    def _initialize_ariel_ingestion_adapters(self) -> None:
+        """Initialize ARIEL ingestion adapters from registry configuration.
+
+        Imports each ingestion adapter class and stores (class, registration) tuples
+        in the ``ariel_ingestion_adapters`` registry.
+        """
+        if not self.config.ariel_ingestion_adapters:
+            return
+
+        logger.info(
+            f"Initializing {len(self.config.ariel_ingestion_adapters)} "
+            f"ARIEL ingestion adapter(s)..."
+        )
+
+        for registration in self.config.ariel_ingestion_adapters:
+            try:
+                module = importlib.import_module(registration.module_path)
+                cls = getattr(module, registration.class_name)
+
+                self._registries["ariel_ingestion_adapters"][registration.name] = (
+                    cls,
+                    registration,
+                )
+                logger.debug(f"  ✓ Registered ARIEL ingestion adapter: {registration.name}")
+
+            except ImportError as e:
+                logger.warning(
+                    f"  ⊘ Skipping ARIEL ingestion adapter '{registration.name}' "
+                    f"(import failed): {e}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"  ✗ Failed to register ARIEL ingestion adapter '{registration.name}': {e}"
+                )
+                raise RegistryError(
+                    f"ARIEL ingestion adapter registration failed for {registration.name}"
+                ) from e
+
+        logger.info(
+            f"ARIEL ingestion adapter initialization complete: "
+            f"{len(self._registries['ariel_ingestion_adapters'])} adapters loaded"
         )
 
     def _initialize_execution_policy_analyzers(self) -> None:
@@ -2034,6 +2371,85 @@ class RegistryManager:
         """
         return self._registries["connectors"].copy()
 
+    # ==============================================================================
+    # ARIEL MODULE ACCESS
+    # ==============================================================================
+
+    def get_ariel_search_module(self, name: str) -> Any | None:
+        """Retrieve an ARIEL search module by registry name.
+
+        :param name: Registry name, e.g., "keyword"
+        :return: Imported module if registered, None otherwise
+        """
+        return self._registries["ariel_search_modules"].get(name)
+
+    def list_ariel_search_modules(self) -> list[str]:
+        """List registered ARIEL search module names.
+
+        :return: List of search module names
+        """
+        return list(self._registries["ariel_search_modules"].keys())
+
+    def get_ariel_search_module_registry(self) -> dict[str, str]:
+        """Get search module name→module_path mapping for ARIEL consumers.
+
+        :return: Dict mapping names to module paths
+        """
+        result = {}
+        for reg in self.config.ariel_search_modules:
+            if reg.name in self._registries["ariel_search_modules"]:
+                result[reg.name] = reg.module_path
+        return result
+
+    def get_ariel_enhancement_module(self, name: str) -> tuple[type, Any] | None:
+        """Retrieve an ARIEL enhancement module class and registration.
+
+        :param name: Registry name, e.g., "text_embedding"
+        :return: Tuple of (class, registration) if registered, None otherwise
+        """
+        return self._registries["ariel_enhancement_modules"].get(name)
+
+    def list_ariel_enhancement_modules(self) -> list[str]:
+        """List registered ARIEL enhancement module names sorted by execution_order.
+
+        :return: List of enhancement module names in execution order
+        """
+        entries = []
+        for name, (_cls, reg) in self._registries["ariel_enhancement_modules"].items():
+            entries.append((reg.execution_order, name))
+        entries.sort()
+        return [name for _, name in entries]
+
+    def get_ariel_pipeline(self, name: str) -> Any | None:
+        """Retrieve an ARIEL pipeline module by registry name.
+
+        :param name: Registry name, e.g., "rag"
+        :return: Imported module if registered, None otherwise
+        """
+        return self._registries["ariel_pipelines"].get(name)
+
+    def list_ariel_pipelines(self) -> list[str]:
+        """List registered ARIEL pipeline names.
+
+        :return: List of pipeline names
+        """
+        return list(self._registries["ariel_pipelines"].keys())
+
+    def get_ariel_ingestion_adapter(self, name: str) -> tuple[type, Any] | None:
+        """Retrieve an ARIEL ingestion adapter class and registration.
+
+        :param name: Registry name, e.g., "als_logbook"
+        :return: Tuple of (class, registration) if registered, None otherwise
+        """
+        return self._registries["ariel_ingestion_adapters"].get(name)
+
+    def list_ariel_ingestion_adapters(self) -> list[str]:
+        """List registered ARIEL ingestion adapter names.
+
+        :return: List of ingestion adapter names
+        """
+        return list(self._registries["ariel_ingestion_adapters"].keys())
+
     def get_service(self, name: str) -> Any | None:
         """Retrieve registered service graph by name.
 
@@ -2484,10 +2900,10 @@ def _create_registry_from_config(config_path: str | None = None) -> RegistryMana
         # When using explicit config_path, ensure it becomes the default so components
         # being instantiated later can access it without passing config_path everywhere
         if config_path:
-            from osprey.utils.config import _get_configurable
+            from osprey.utils.config import get_config_builder
 
             # This loads the config and sets it as default for future config access
-            _get_configurable(config_path=config_path, set_as_default=True)
+            get_config_builder(config_path=config_path, set_as_default=True)
             logger.debug(f"Set {config_path} as default configuration")
 
         # Determine base path for resolving relative registry paths

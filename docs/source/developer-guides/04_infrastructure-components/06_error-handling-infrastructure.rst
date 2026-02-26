@@ -283,7 +283,7 @@ The LLM receives the complete error context including all metadata for intellige
            error_builder = prompt_provider.get_error_analysis_prompt_builder()
 
            # Error context (including complete metadata) is passed to LLM
-           prompt = error_builder.get_system_instructions(
+           prompt = error_builder.build_prompt(
                capabilities_overview=capabilities_overview,
                error_context=error_context  # Complete ErrorContext with metadata
            )
@@ -437,5 +437,3 @@ Integration Patterns
        How error responses are formatted
 
 Error Handling Infrastructure provides the resilience and user-friendly error communication that makes the Osprey Framework production-ready, ensuring graceful failure handling while keeping users informed and engaged.
-
-

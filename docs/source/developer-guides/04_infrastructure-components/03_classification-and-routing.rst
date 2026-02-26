@@ -120,6 +120,23 @@ Capability Selection Process
        elif result is True:
            active_capabilities.append(capability.name)
 
+**Step 3: Dependency Expansion**
+
+After LLM classification, the system automatically ensures that provider capabilities are included for any unsatisfied dependencies:
+
+.. code-block:: python
+
+   # After classification, expand dependencies transitively
+   active_capabilities = _expand_capability_dependencies(
+       active_capabilities, state, logger
+   )
+
+For each selected capability, the system checks its ``requires`` list. If a required context type is not already available in ``capability_context_data`` (from a previous turn), the capability that ``provides`` that type is automatically added to the active set. This expansion is transitive — added providers are themselves checked for their own dependencies.
+
+**Example:** Selecting ``channel_write`` (which requires ``CHANNEL_ADDRESSES``) automatically adds ``channel_finding`` (which provides ``CHANNEL_ADDRESSES``), unless ``CHANNEL_ADDRESSES`` is already present in the state from a prior turn.
+
+The reactive orchestrator also has a complementary safety net: if a capability's requirements are unresolved at dispatch time, the missing provider is auto-added to the active set and the LLM is prompted to call it first.
+
 The parallel classification system includes configurable concurrency limits to balance performance with API rate limits:
 
 .. code-block:: yaml
@@ -183,48 +200,105 @@ Capabilities provide classifier guides with examples:
 Central Router Architecture
 ---------------------------
 
-Router serves as the central decision point for execution flow:
+Router serves as the central decision point for execution flow. The routing logic differs based on the configured orchestration mode.
+
+**Mode Selection:**
+
+At the top of ``router_conditional_edge()``, the router checks the configured orchestration mode and delegates to the appropriate routing function:
 
 .. code-block:: python
 
    def router_conditional_edge(state: AgentState) -> str:
-       """Central routing logic with error handling."""
+       """Central routing logic - delegates based on orchestration mode."""
 
-       # 1. Direct chat mode - route directly to capability
-       session_state = state.get("session_state", {})
-       direct_chat_capability = session_state.get("direct_chat_capability")
+       # Reactive mode early exit
+       orchestration_mode = get_config_value(
+           "execution_control.agent_control.orchestration_mode", "plan_first"
+       )
+       if orchestration_mode == "react":
+           return _reactive_routing(state, logger)
 
-       if direct_chat_capability:
-           last_result = state.get("execution_last_result") or {}
-           if last_result.get("capability") == direct_chat_capability:
-               return "END"  # Turn complete
-           return direct_chat_capability
+       # ... plan-first routing logic follows ...
 
-       # 2. Handle errors
-       if state.get('control_has_error', False):
-           return handle_error_routing(state)
+.. tab-set::
 
-       # 3. Check execution progress
-       if not state.get("task_current_task"):
-           return "task_extraction"
+   .. tab-item:: Plan-First Routing
 
-       if not state.get('planning_active_capabilities'):
-           return "classifier"
+      .. code-block:: python
 
-       if not StateManager.get_execution_plan(state):
-           return "orchestrator"
+         def router_conditional_edge(state: AgentState) -> str:
+             """Plan-first routing logic."""
 
-       # 4. Execute next step
-       return get_next_step_capability(state)
+             # 1. Direct chat mode - route directly to capability
+             if direct_chat_capability:
+                 return direct_chat_capability  # or "END" if turn complete
 
-The router evaluates conditions in order and returns the first matching route:
+             # 2. Handle errors
+             if state.get('control_has_error', False):
+                 return handle_error_routing(state)
 
-1. Direct chat mode → route to specified capability
-2. Error state → error handling
-3. Missing task → task extraction
-4. Missing capabilities → classifier
-5. Missing plan → orchestrator
-6. Default → next step in execution plan
+             # 3. Check execution progress
+             if not state.get("task_current_task"):
+                 return "task_extraction"
+
+             if not state.get('planning_active_capabilities'):
+                 return "classifier"
+
+             if not StateManager.get_execution_plan(state):
+                 return "orchestrator"
+
+             # 4. Execute next step in plan
+             return get_next_step_capability(state)
+
+      The router evaluates conditions in order and returns the first matching route:
+
+      1. Direct chat mode → route to specified capability
+      2. Error state → error handling (RETRIABLE retries, others to error node)
+      3. Missing task → task extraction
+      4. Missing capabilities → classifier
+      5. Missing plan → orchestrator
+      6. Default → next step in execution plan
+
+   .. tab-item:: Reactive Routing
+
+      When ``orchestration_mode: react`` is configured, the router uses ``_reactive_routing()`` with different priorities:
+
+      .. code-block:: python
+
+         def _reactive_routing(state: AgentState, logger) -> str:
+             """Routing logic for reactive (ReAct) orchestration mode."""
+
+             # 1. Direct chat mode (same as plan-first)
+             if direct_chat_capability:
+                 return direct_chat_capability
+
+             # 2. Error handling
+             if state.get("control_has_error"):
+                 if error_classification.severity == ErrorSeverity.RETRIABLE:
+                     return capability_name  # retry
+                 return "reactive_orchestrator"  # all other errors
+
+             # 3. Max iterations guard
+             if react_step_count >= max_iterations:
+                 return "error"  # safety limit reached
+
+             # 4. Normal pipeline
+             if not current_task: return "task_extraction"
+             if not active_capabilities: return "classifier"
+
+             # 5. After capability execution: back to reactive orchestrator
+             if current_index >= len(plan_steps):
+                 return "reactive_orchestrator"
+
+             # 6. Execute pending step
+             return step_capability
+
+      Key differences from plan-first routing:
+
+      - **Routes all capabilities** (including respond/clarify) via execution plan dispatch
+      - **Routes back to** ``reactive_orchestrator`` after each capability execution (instead of following a fixed plan)
+      - **Max iterations guard** (default: 100 steps) prevents infinite loops
+      - **Error recovery**: RETRIABLE errors retry the capability; all other severities route to ``reactive_orchestrator`` for re-evaluation (instead of the error node)
 
 Error Handling and Retry
 -------------------------
@@ -349,6 +423,7 @@ Usage Examples
           - Ensure execution plans end with "respond" or "clarify"
           - Check state field values at each routing decision
           - Verify all referenced capabilities are registered
+          - In reactive mode, the max iterations guard (``graph_recursion_limit``, default: 100) prevents infinite loops. If hit, check why the reactive orchestrator isn't converging to a respond/clarify action.
 
 .. seealso::
 

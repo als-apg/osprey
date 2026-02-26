@@ -235,7 +235,7 @@ class TestBuildTaskExtractionPrompt:
             "osprey.infrastructure.task_extraction_node.get_framework_prompts"
         ) as mock_get_prompts:
             mock_builder = Mock()
-            mock_builder.get_system_instructions.return_value = "System prompt"
+            mock_builder.build_prompt.return_value = "System prompt"
             mock_prompts = Mock()
             mock_prompts.get_task_extraction_prompt_builder.return_value = mock_builder
             mock_get_prompts.return_value = mock_prompts
@@ -243,9 +243,7 @@ class TestBuildTaskExtractionPrompt:
             result = _build_task_extraction_prompt(messages, None)
 
         assert result == "System prompt"
-        mock_builder.get_system_instructions.assert_called_once_with(
-            messages=messages, retrieval_result=None
-        )
+        mock_builder.build_prompt.assert_called_once_with(messages=messages, retrieval_result=None)
 
     def test_build_prompt_with_retrieval_data(self):
         """Test building prompt with retrieval data."""
@@ -256,7 +254,7 @@ class TestBuildTaskExtractionPrompt:
             "osprey.infrastructure.task_extraction_node.get_framework_prompts"
         ) as mock_get_prompts:
             mock_builder = Mock()
-            mock_builder.get_system_instructions.return_value = "Prompt with data"
+            mock_builder.build_prompt.return_value = "Prompt with data"
             mock_prompts = Mock()
             mock_prompts.get_task_extraction_prompt_builder.return_value = mock_builder
             mock_get_prompts.return_value = mock_prompts
@@ -264,7 +262,7 @@ class TestBuildTaskExtractionPrompt:
             result = _build_task_extraction_prompt(messages, mock_result)
 
         assert result == "Prompt with data"
-        mock_builder.get_system_instructions.assert_called_once_with(
+        mock_builder.build_prompt.assert_called_once_with(
             messages=messages, retrieval_result=mock_result
         )
 
