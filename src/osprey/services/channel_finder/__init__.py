@@ -14,27 +14,17 @@ from .core.exceptions import (
     QueryProcessingError,
 )
 from .core.models import (
-    ChannelCorrectionOutput,
     ChannelFinderResult,
     ChannelInfo,
-    ChannelMatchOutput,
-    QuerySplitterOutput,
 )
 from .databases import FlatChannelDatabase, HierarchicalChannelDatabase, TemplateChannelDatabase
-from .pipelines.in_context import InContextPipeline
-from .service import ChannelFinderService
 
 __version__ = "2.0.0"
 
 __all__ = [
-    "ChannelFinderService",
-    "InContextPipeline",
     "FlatChannelDatabase",
     "TemplateChannelDatabase",
     "HierarchicalChannelDatabase",
-    "QuerySplitterOutput",
-    "ChannelMatchOutput",
-    "ChannelCorrectionOutput",
     "ChannelFinderResult",
     "ChannelInfo",
     "ChannelFinderError",

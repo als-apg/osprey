@@ -22,15 +22,11 @@ from osprey.utils.logger import get_logger
 logger = get_logger("base")
 
 try:
-    from prompt_toolkit.key_binding import KeyBindings
-    from prompt_toolkit.keys import Keys
     from questionary import Style as QuestionaryStyle
 
     QUESTIONARY_AVAILABLE = True
 except ImportError:
     QuestionaryStyle = None
-    KeyBindings = None
-    Keys = None
     QUESTIONARY_AVAILABLE = False
 
 
@@ -304,27 +300,6 @@ else:
     console = Console(theme=osprey_theme)
 
 
-def get_key_bindings() -> KeyBindings | None:
-    """Get custom key bindings for questionary prompts.
-
-    Adds ESC key support to abort prompts (same behavior as Ctrl+C).
-
-    Returns:
-        KeyBindings object or None if prompt_toolkit not available
-    """
-    if not QUESTIONARY_AVAILABLE or KeyBindings is None:
-        return None
-
-    bindings = KeyBindings()
-
-    @bindings.add(Keys.Escape)
-    def _(event):
-        """Handle ESC key - abort the prompt like Ctrl+C."""
-        event.app.exit(exception=KeyboardInterrupt)
-
-    return bindings
-
-
 def get_questionary_style() -> QuestionaryStyle | None:
     """Get the Questionary style for interactive prompts.
 
@@ -468,7 +443,6 @@ __all__ = [
     # Console and styles
     "console",
     "get_questionary_style",
-    "get_key_bindings",
     "custom_style",
     # Style helpers
     "Styles",

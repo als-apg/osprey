@@ -55,7 +55,6 @@ Examples:
         6. Execute Podman Compose with generated files
 
 .. seealso::
-   :mod:`deployment.loader` : Configuration loading system used by this module
    :class:`configs.config.ConfigBuilder` : Configuration management
    :func:`find_service_config` : Service discovery implementation
    :func:`render_template` : Template processing engine
