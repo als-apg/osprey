@@ -1,15 +1,12 @@
 """Channel Finder CLI command.
 
 Provides the 'osprey channel-finder' command group with subcommands:
-- Interactive REPL (default, no subcommand)
-- Direct query (osprey channel-finder query "...")
-- Benchmarks (osprey channel-finder benchmark)
 - Build database (osprey channel-finder build-database)
 - Validate database (osprey channel-finder validate)
 - Preview database (osprey channel-finder preview)
+- Web interface (osprey channel-finder web)
 """
 
-import asyncio
 import os
 
 import click
@@ -59,13 +56,12 @@ def _initialize_registry(verbose: bool = False):
             "osprey.approval",
             "osprey.services",
             "connector_factory",
-            "memory_storage",
         ]
     ):
         initialize_registry(silent=True)
 
 
-@click.group("channel-finder", invoke_without_command=True)
+@click.group("channel-finder")
 @click.option(
     "--project",
     "-p",
@@ -75,135 +71,22 @@ def _initialize_registry(verbose: bool = False):
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Enable verbose logging")
 @click.pass_context
 def channel_finder(ctx, project: str | None, verbose: bool):
-    """Channel Finder - natural language channel search.
+    """Channel Finder - channel database tools.
 
-    Interactive tool for finding control system channels using natural
-    language queries. Supports interactive REPL mode, direct queries,
-    and benchmarking.
+    Tools for building, validating, previewing, and serving
+    control system channel databases.
 
     Examples:
 
     \b
-      osprey channel-finder                           Interactive REPL
-      osprey channel-finder query "find BPMs"         Direct query
-      osprey channel-finder benchmark                 Run benchmarks
-      osprey channel-finder benchmark --queries 0:10  Benchmark subset
+      osprey channel-finder build-database
+      osprey channel-finder validate
+      osprey channel-finder preview
+      osprey channel-finder web
     """
     ctx.ensure_object(dict)
     ctx.obj["project"] = project
     ctx.obj["verbose"] = verbose
-
-    # Default action: launch interactive REPL
-    if ctx.invoked_subcommand is None:
-        try:
-            _setup_config(project)
-            _initialize_registry(verbose)
-
-            from osprey.services.channel_finder.cli import ChannelFinderCLI
-
-            cli = ChannelFinderCLI()
-            asyncio.run(cli.run())
-        except click.ClickException:
-            raise
-        except KeyboardInterrupt:
-            console.print("\n\nGoodbye!", style=Styles.WARNING)
-        except Exception as e:
-            console.print(f"\n{Messages.error(str(e))}")
-            raise click.Abort() from None
-
-
-@channel_finder.command()
-@click.argument("query_text")
-@click.pass_context
-def query(ctx, query_text: str):
-    """Execute a single channel finder query.
-
-    QUERY_TEXT is the natural language query to search for channels.
-
-    Examples:
-
-    \b
-      osprey channel-finder query "find beam position monitors"
-      osprey channel-finder query "show me all vacuum gauges"
-      osprey channel-finder -v query "BPM readbacks"
-    """
-    project = ctx.obj["project"]
-    verbose = ctx.obj["verbose"]
-
-    try:
-        _setup_config(project)
-        _initialize_registry(verbose)
-
-        from osprey.services.channel_finder.cli import direct_query
-
-        exit_code = asyncio.run(direct_query(query_text, verbose=verbose))
-        if exit_code:
-            raise SystemExit(exit_code)
-    except click.ClickException:
-        raise
-    except SystemExit as e:
-        raise SystemExit(e.code) from None
-    except KeyboardInterrupt:
-        console.print("\n\nQuery cancelled.", style=Styles.WARNING)
-        raise click.Abort() from None
-    except Exception as e:
-        console.print(f"\n{Messages.error(str(e))}")
-        raise click.Abort() from None
-
-
-@channel_finder.command()
-@click.option("--queries", type=str, help='Query selection (e.g., "all", "0:10", "0,5,10")')
-@click.option("--model", type=str, help="Override model (e.g., anthropic/claude-sonnet)")
-@click.option("--dataset", type=str, help="Path to custom benchmark dataset JSON file")
-@click.option(
-    "--verbose",
-    "-v",
-    "bench_verbose",
-    is_flag=True,
-    default=False,
-    help="Show detailed channel finder logs",
-)
-@click.pass_context
-def benchmark(
-    ctx, queries: str | None, model: str | None, dataset: str | None, bench_verbose: bool
-):
-    """Run channel finder benchmarks.
-
-    Evaluates channel finder performance and accuracy against benchmark
-    datasets. Results are saved to data/benchmarks/results/.
-
-    Examples:
-
-    \b
-      osprey channel-finder benchmark
-      osprey channel-finder benchmark --queries 0:10
-      osprey channel-finder benchmark --model anthropic/claude-sonnet
-      osprey channel-finder benchmark --dataset data/benchmarks/my_data.json
-      osprey channel-finder benchmark --queries 0:10 --model anthropic/claude-sonnet
-    """
-    project = ctx.obj["project"]
-    verbose = ctx.obj["verbose"] or bench_verbose
-
-    try:
-        _setup_config(project)
-
-        from osprey.services.channel_finder.benchmarks.cli import run_benchmarks
-
-        exit_code = asyncio.run(
-            run_benchmarks(dataset=dataset, queries=queries, model=model, verbose=verbose)
-        )
-        if exit_code:
-            raise SystemExit(exit_code)
-    except click.ClickException:
-        raise
-    except SystemExit as e:
-        raise SystemExit(e.code) from None
-    except KeyboardInterrupt:
-        console.print("\n\nBenchmark cancelled.", style=Styles.WARNING)
-        raise click.Abort() from None
-    except Exception as e:
-        console.print(f"\n{Messages.error(str(e))}")
-        raise click.Abort() from None
 
 
 @channel_finder.command("build-database")

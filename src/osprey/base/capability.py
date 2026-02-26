@@ -16,42 +16,6 @@ if TYPE_CHECKING:
     from osprey.context import CapabilityContext
 
 
-def slash_command(name: str, state: dict[str, Any]) -> str | bool | None:
-    """Read a capability-specific slash command from state.
-
-    This is a module-level helper function for reading capability-specific slash
-    commands that were parsed by the Gateway but not handled by registered commands.
-    Capabilities can use these commands to customize their behavior.
-
-    Args:
-        name: Command name (without leading slash)
-        state: Current agent state dictionary
-
-    Returns:
-        - str: If command was provided with a value (/beam:diagnostic -> "diagnostic")
-        - True: If command was provided without value (/verbose -> True)
-        - None: If command was not provided
-
-    Examples:
-        Using in a capability's execute method::
-
-            from osprey.base.capability import slash_command
-
-            async def execute(state: dict[str, Any], **kwargs) -> dict[str, Any]:
-                # Check for /beam:mode command
-                if mode := slash_command("beam", state):
-                    # mode is "diagnostic" if user typed /beam:diagnostic
-                    pass
-
-                # Check for /verbose flag
-                if slash_command("verbose", state):
-                    # User typed /verbose
-                    pass
-    """
-    commands = state.get("_capability_slash_commands", {})
-    return commands.get(name)
-
-
 class RequiredContexts(dict):
     """Special dict that supports tuple unpacking in the order of requires field.
 
@@ -98,10 +62,8 @@ class BaseCapability(ABC):
         - provides: Context types this capability outputs (default: []).
         - requires: Context types this capability needs (default: []).
 
-    Override ``classify_error()`` for domain-specific error handling,
-    ``get_retry_policy()`` for custom retry behavior, and the
-    ``_create_orchestrator_guide()`` / ``_create_classifier_guide()``
-    template methods for LLM prompt integration.
+    Override ``classify_error()`` for domain-specific error handling
+    and ``get_retry_policy()`` for custom retry behavior.
 
     Example::
 
@@ -648,46 +610,6 @@ class BaseCapability(ABC):
 
         return get_logger(self.name, state=self._state)
 
-    def slash_command(self, name: str) -> str | bool | None:
-        """Read a capability-specific slash command from state.
-
-        Convenience method that uses self._state automatically. This allows
-        capabilities to read custom slash commands that were not registered
-        in the command registry.
-
-        Args:
-            name: Command name (without leading slash)
-
-        Returns:
-            - str: If command was provided with a value (/beam:diagnostic -> "diagnostic")
-            - True: If command was provided without value (/verbose -> True)
-            - None: If command was not provided
-
-        Raises:
-            RuntimeError: If called outside execute() (state not injected)
-
-        Examples:
-            Using in a capability's execute method::
-
-                async def execute(self) -> dict[str, Any]:
-                    # Check for /beam:mode command
-                    if mode := self.slash_command("beam"):
-                        # mode is "diagnostic" if user typed /beam:diagnostic
-                        self._state["beam_mode"] = mode
-
-                    # Check for /verbose flag
-                    if self.slash_command("verbose"):
-                        # User typed /verbose
-                        self._state["beamline_verbose"] = True
-        """
-        if self._state is None:
-            raise RuntimeError(
-                f"{self.__class__.__name__}.slash_command() called before state injection. "
-                f"This method can only be called from within execute()."
-            )
-        commands = self._state.get("_capability_slash_commands", {})
-        return commands.get(name)
-
     @abstractmethod
     async def execute(self) -> dict[str, Any]:
         """Execute the main capability logic.
@@ -725,8 +647,8 @@ class BaseCapability(ABC):
                     )
                 if isinstance(exc, KeyError) and "context" in str(exc):
                     return ErrorClassification(
-                        severity=ErrorSeverity.REPLANNING,
-                        user_message="Required data missing, replanning...",
+                        severity=ErrorSeverity.CRITICAL,
+                        user_message="Required data missing",
                     )
                 return ErrorClassification(
                     severity=ErrorSeverity.CRITICAL,
@@ -747,54 +669,6 @@ class BaseCapability(ABC):
         Override for capabilities with specific retry needs.
         """
         return {"max_attempts": 3, "delay_seconds": 0.5, "backoff_factor": 1.5}
-
-    def _create_orchestrator_guide(self) -> Any | None:
-        """Create orchestrator guide for planning integration. Override in subclasses."""
-        return None
-
-    def _create_classifier_guide(self) -> Any | None:
-        """Create classifier guide for capability activation. Override in subclasses."""
-        return None
-
-    @property
-    def orchestrator_guide(self) -> Any | None:
-        """Get the orchestrator guide for this capability (lazy-loaded).
-
-        Standardized interface used by the framework. Automatically calls
-        _create_orchestrator_guide() on first access and caches the result.
-
-        :return: Orchestrator guide for execution planning integration, or None if not needed
-        :rtype: Optional[OrchestratorGuide]
-        """
-        if not hasattr(self, "_orchestrator_guide"):
-            try:
-                self._orchestrator_guide = self._create_orchestrator_guide()
-            except Exception as e:
-                self.get_logger().warning(
-                    f"Failed to create orchestrator guide for capability '{self.name}': {e}"
-                )
-                self._orchestrator_guide = None
-        return self._orchestrator_guide
-
-    @property
-    def classifier_guide(self) -> Any | None:
-        """Get the classifier guide for this capability (lazy-loaded).
-
-        Standardized interface used by the framework. Automatically calls
-        _create_classifier_guide() on first access and caches the result.
-
-        :return: Classifier guide for capability activation, or None if not needed
-        :rtype: Optional[TaskClassifierGuide]
-        """
-        if not hasattr(self, "_classifier_guide"):
-            try:
-                self._classifier_guide = self._create_classifier_guide()
-            except Exception as e:
-                self.get_logger().warning(
-                    f"Failed to create classifier guide for capability '{self.name}': {e}"
-                )
-                self._classifier_guide = None
-        return self._classifier_guide
 
     def __repr__(self) -> str:
         """Return a string representation of the capability.

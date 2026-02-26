@@ -1100,9 +1100,7 @@ proper framework operation, especially when using containerized services.
         from osprey.cli.server_registry import resolve_agents, resolve_servers
 
         ctx["servers"] = resolve_servers(claude_code_config, ctx)
-        ctx["agents"] = resolve_agents(
-            claude_code_config, ctx, project_dir, ctx["servers"]
-        )
+        ctx["agents"] = resolve_agents(claude_code_config, ctx, project_dir, ctx["servers"])
 
         # Backward compat: legacy keys for agent .md.j2 templates that
         # still use {% if "name" not in disable_agents %} guards.

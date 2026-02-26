@@ -11,6 +11,7 @@ from osprey.cli.server_registry import resolve_agents, resolve_servers
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _base_ctx(**overrides):
     """Build a minimal template context for testing."""
     ctx = {
@@ -245,6 +246,7 @@ class TestTemplateRendering:
     @pytest.fixture()
     def template_manager(self):
         from osprey.cli.templates import TemplateManager
+
         return TemplateManager()
 
     def _render(self, tm, template_path, ctx):
@@ -290,9 +292,7 @@ class TestTemplateRendering:
     def test_render_settings_json(self, template_manager):
         """Rendered settings.json is valid JSON with permissions and hooks."""
         ctx = self._full_ctx()
-        rendered = self._render(
-            template_manager, "claude_code/claude/settings.json.j2", ctx
-        )
+        rendered = self._render(template_manager, "claude_code/claude/settings.json.j2", ctx)
         data = json.loads(rendered)
         assert "permissions" in data
         assert "allow" in data["permissions"]
@@ -314,9 +314,7 @@ class TestTemplateRendering:
     def test_render_settings_json_hooks(self, template_manager):
         """Hook rules from controls and python servers appear in rendered output."""
         ctx = self._full_ctx()
-        rendered = self._render(
-            template_manager, "claude_code/claude/settings.json.j2", ctx
-        )
+        rendered = self._render(template_manager, "claude_code/claude/settings.json.j2", ctx)
         data = json.loads(rendered)
         pre_matchers = [r["matcher"] for r in data["hooks"]["PreToolUse"]]
         assert "Write" in pre_matchers  # Fixed entry

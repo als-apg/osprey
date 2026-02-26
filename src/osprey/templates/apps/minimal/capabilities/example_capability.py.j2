@@ -260,9 +260,9 @@ class ExampleCapability(BaseCapability):
         """
 
         if isinstance(exc, MissingInputError):
-            # Missing dependencies -> need to replan
+            # Missing dependencies -> critical error
             return ErrorClassification(
-                severity=ErrorSeverity.REPLANNING,
+                severity=ErrorSeverity.CRITICAL,
                 user_message=f"Missing required input: {str(exc)}",
                 metadata={"technical_details": str(exc)}
             )

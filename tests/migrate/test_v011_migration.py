@@ -1120,12 +1120,11 @@ class TestValidationCommands:
             )
 
     def test_python_import_validation_command_channel_finder_service(self, migration_doc):
-        """Run the python -c import validation for channel finder service.
+        """Validate that channel_finder.service was removed in migration cleanup.
 
-        Only the channel_finder.service import (index 4) is still valid.
-        The capability modules (channel_finding, channel_read, channel_write,
-        archiver_retrieval) and prompts.defaults.channel_finder were removed
-        or renamed in the native-control-capabilities migration.
+        ChannelFinderService was the LLM pipeline orchestrator, replaced by MCP tools.
+        The validation command in the migration doc references the old import path,
+        which no longer exists after dead code removal.
         """
         validations = migration_doc["validation"]
         entry = validations[4]
@@ -1133,15 +1132,15 @@ class TestValidationCommands:
 
         assert cmd.startswith("python -c"), f"Expected python -c command, got: {cmd}"
 
-        # Use sys.executable so the subprocess runs in the same venv as pytest,
-        # rather than whatever "python" resolves to via PATH/pyenv.
         import subprocess
         import sys
 
         cmd_fixed = sys.executable + cmd[len("python") :]
         result = subprocess.run(cmd_fixed, shell=True, capture_output=True, text=True, timeout=30)
-        assert result.returncode == 0, (
-            f"Validation command failed: {cmd}\nstderr: {result.stderr}\nstdout: {result.stdout}"
+        # This import is expected to FAIL now — ChannelFinderService was removed
+        # as dead code (replaced by MCP tools)
+        assert result.returncode != 0, (
+            "Expected import to fail since ChannelFinderService was removed"
         )
 
 

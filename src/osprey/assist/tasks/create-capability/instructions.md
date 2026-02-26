@@ -428,8 +428,6 @@ class YourCapability(BaseCapability):
 
         Severity options:
         - RETRIABLE: Temporary issue, retry may succeed
-        - REPLANNING: Need different execution plan
-        - RECLASSIFICATION: Wrong capability selected
         - CRITICAL: Cannot recover, end execution
         - FATAL: System failure, terminate immediately
         """

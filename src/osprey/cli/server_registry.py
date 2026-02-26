@@ -411,7 +411,9 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition:
         external_args=spec.get("args", []),
         permissions_allow=perms.get("allow", []),
         permissions_ask=perms.get("ask", []),
-        hooks_post=[_post_error(f"mcp__{name}__.*")] if perms.get("allow") or perms.get("ask") else [],
+        hooks_post=[_post_error(f"mcp__{name}__.*")]
+        if perms.get("allow") or perms.get("ask")
+        else [],
     )
 
 
@@ -539,9 +541,7 @@ def resolve_agents(
     Returns:
         List of plain dicts with keys: name, enabled, description, is_custom.
     """
-    agents: dict[str, AgentDefinition] = {
-        k: copy.deepcopy(v) for k, v in FRAMEWORK_AGENTS.items()
-    }
+    agents: dict[str, AgentDefinition] = {k: copy.deepcopy(v) for k, v in FRAMEWORK_AGENTS.items()}
 
     enabled_servers = set()
     if resolved_servers:

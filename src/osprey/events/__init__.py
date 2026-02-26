@@ -1,39 +1,14 @@
 """Osprey Event Streaming System.
 
 This package provides a unified, type-safe event streaming system for Osprey.
-It replaces the previous dict-based event system with typed dataclass events
-that provide better validation, IDE support, and pattern matching capabilities.
-
-Architecture:
-    - Events are typed dataclasses defined in types.py
-    - EventEmitter in emitter.py handles emission via registered handlers
-    - parse_event() in parser.py reconstructs typed events from dicts
-    - Interface handlers (TUI, CLI, Web) use pattern matching for clean routing
+Events are typed dataclasses defined in types.py. EventEmitter in emitter.py
+handles emission via registered handlers.
 
 Usage:
-    # Emitting events (in components/nodes)
     from osprey.events import EventEmitter, StatusEvent
 
     emitter = EventEmitter("my_component")
     emitter.emit(StatusEvent(message="Processing...", level="status"))
-
-    # Consuming events (in interfaces)
-    from osprey.events import parse_event, StatusEvent, CapabilityStartEvent
-
-    event = parse_event(event_dict)
-    if event:
-        match event:
-            case StatusEvent(message=msg):
-                display_status(msg)
-            case CapabilityStartEvent(capability_name=name):
-                show_capability_start(name)
-
-    # Register handlers to receive events
-    from osprey.events import register_fallback_handler
-
-    unregister = register_fallback_handler(lambda e: queue.put_nowait(e))
-    # ... run UI ...
-    unregister()
 """
 
 # Event emission
@@ -41,13 +16,6 @@ from .emitter import (
     EventEmitter,
     clear_fallback_handlers,
     register_fallback_handler,
-)
-
-# Event parsing
-from .parser import (
-    EVENT_CLASSES,
-    is_osprey_event,
-    parse_event,
 )
 from .types import (
     ApprovalReceivedEvent,
@@ -108,8 +76,4 @@ __all__ = [
     "EventEmitter",
     "register_fallback_handler",
     "clear_fallback_handlers",
-    # Parser
-    "parse_event",
-    "is_osprey_event",
-    "EVENT_CLASSES",
 ]

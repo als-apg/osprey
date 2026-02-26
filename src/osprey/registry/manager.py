@@ -756,7 +756,6 @@ class RegistryManager:
             loggers_to_silence = [
                 "registry",
                 "connector_factory",
-                "memory_storage",
             ]
             for logger_name in loggers_to_silence:
                 log = logging.getLogger(logger_name)
