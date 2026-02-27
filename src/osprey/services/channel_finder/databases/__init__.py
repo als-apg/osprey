@@ -13,6 +13,14 @@ from .hierarchical import HierarchicalChannelDatabase
 from .middle_layer import MiddleLayerDatabase
 from .template import ChannelDatabase as TemplateChannelDatabase
 
+_has_google_sheets = False
+try:
+    from .google_sheets import GoogleSheetsChannelDatabase
+
+    _has_google_sheets = True
+except ImportError:
+    pass
+
 # Backward compatibility alias
 LegacyChannelDatabase = FlatChannelDatabase
 
@@ -23,3 +31,6 @@ __all__ = [
     "HierarchicalChannelDatabase",
     "MiddleLayerDatabase",
 ]
+
+if _has_google_sheets:
+    __all__.append("GoogleSheetsChannelDatabase")

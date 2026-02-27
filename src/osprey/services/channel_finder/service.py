@@ -321,39 +321,61 @@ class ChannelFinderService:
         db_config = in_context_config.get("database", {})
         processing_config = in_context_config.get("processing", {})
 
-        # Determine database path
-        if db_path is None:
-            db_path = db_config.get("path")
-            if not db_path:
-                raise ConfigurationError("No database path provided for in-context pipeline")
-            db_path = self._resolve_path(db_path)
-
-        # Load appropriate database (custom first, then built-in)
-        db_type = db_config.get("type", "template")
-        presentation_mode = db_config.get("presentation_mode", "explicit")
-
-        try:
-            if db_type in self._custom_databases:
-                # Custom database - pass full db_config for custom parameters
-                database_class = self._custom_databases[db_type]
-                database = database_class(db_path, **db_config)
-                logger.info(f"Loaded custom database: {db_type} ({database_class.__name__})")
-
-            elif db_type == "template":
-                database = TemplateChannelDatabase(db_path, presentation_mode=presentation_mode)
-
-            elif db_type in ("flat", "legacy"):
-                # 'legacy' is an alias for 'flat' (backward compatibility)
-                database = FlatChannelDatabase(db_path)
-
-            else:
-                available = list(self.list_available_databases().keys())
+        # Determine database source and path
+        source = db_config.get("source")
+        if source == "google_sheets":
+            spreadsheet_id = db_config.get("spreadsheet_id")
+            if not spreadsheet_id:
                 raise ConfigurationError(
-                    f"Unknown database type: '{db_type}'. "
-                    f"Available databases: {', '.join(available)}"
+                    "Google Sheets database requires 'spreadsheet_id' in database config"
                 )
-        except FileNotFoundError as e:
-            raise DatabaseLoadError(f"Database file not found: {db_path}") from e
+
+            try:
+                from .databases.google_sheets import GoogleSheetsChannelDatabase
+            except ImportError as e:
+                raise ConfigurationError(
+                    "Google Sheets database requires gspread. "
+                    "Install it with: pip install osprey-framework[sheets]"
+                ) from e
+
+            database = GoogleSheetsChannelDatabase(
+                spreadsheet_id=spreadsheet_id,
+                worksheet=db_config.get("worksheet"),
+                credentials_path=db_config.get("credentials_path"),
+            )
+        else:
+            if db_path is None:
+                db_path = db_config.get("path")
+                if not db_path:
+                    raise ConfigurationError("No database path provided for in-context pipeline")
+                db_path = self._resolve_path(db_path)
+
+            # Load appropriate database (custom first, then built-in)
+            db_type = db_config.get("type", "template")
+            presentation_mode = db_config.get("presentation_mode", "explicit")
+
+            try:
+                if db_type in self._custom_databases:
+                    # Custom database - pass full db_config for custom parameters
+                    database_class = self._custom_databases[db_type]
+                    database = database_class(db_path, **db_config)
+                    logger.info(f"Loaded custom database: {db_type} ({database_class.__name__})")
+
+                elif db_type == "template":
+                    database = TemplateChannelDatabase(db_path, presentation_mode=presentation_mode)
+
+                elif db_type in ("flat", "legacy"):
+                    # 'legacy' is an alias for 'flat' (backward compatibility)
+                    database = FlatChannelDatabase(db_path)
+
+                else:
+                    available = list(self.list_available_databases().keys())
+                    raise ConfigurationError(
+                        f"Unknown database type: '{db_type}'. "
+                        f"Available databases: {', '.join(available)}"
+                    )
+            except FileNotFoundError as e:
+                raise DatabaseLoadError(f"Database file not found: {db_path}") from e
 
         # Load facility config
         facility_config = config.get("facility", {})

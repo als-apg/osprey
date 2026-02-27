@@ -1,32 +1,23 @@
-# Osprey Framework - Latest Release (v0.11.3)
+# Osprey Framework - Latest Release (v0.11.4)
 
-**uv/Hatchling Migration, AMSC Provider & Safety Fixes**
+**ARIEL Write Support, Machine State Reader & Google Sheets Integration**
 
-## What's New in v0.11.3
+## What's New in v0.11.4
 
 ### Highlights
 
-- **Reactive orchestrator** - New ReAct-style tool loop (`ReactiveOrchestratorNode`) for autonomous, LLM-driven decision-making as an alternative to rigid plan-then-execute. Includes tool registry, argument parsing, approval hooks, and automatic capability dependency expansion.
-- **Unified typed event system** - 18 typed dataclass events across 7 categories replace dict-based logging. `EventEmitter` with LangGraph-first streaming, `consume_stream()` multi-mode helper, and complete elimination of raw Python logger usage across the framework.
-- **Prompt builder refactoring** - All LLM prompts moved into composable `FrameworkPromptBuilder` subclasses. Applications can now customize any prompt via subclass overrides without forking capability code.
-- **LLM token streaming** - Real-time token streaming across CLI, TUI, and Open WebUI with multi-mode architecture combining typed events and LLM tokens.
-- **Web debug interface** - Browser-based real-time event visualization with WebSocket streaming, dark theme, component filtering, and search.
+- **ARIEL bidirectional facility adapters** - `FacilityAdapter` interface now supports writes with `supports_write` and `create_entry()`. `GenericJSONAdapter` provides atomic local JSON append; `ALSLogbookAdapter` posts via olog RPC XML with retry. `ARIELSearchService.create_entry()` orchestrates facility-first writes with optimistic local upsert and re-ingestion sync.
+- **Machine state reader** - New `MachineStateReader` service for bulk channel snapshots from the control system connector. Pipeline-aware Jinja2 template selects demo channels matching the active channel finder pipeline.
+- **Google Sheets channel database** - `GoogleSheetsChannelDatabase` reads/writes channel data from Google Sheets via `gspread`, integrating with the `in_context` pipeline via `source: google_sheets` config option.
 
 ### Added
-- **Infrastructure**: Reactive orchestrator with ReAct-style tool loop, dependency expansion, and pre-dispatch validation (#162)
-- **Events**: Unified typed event system with 18 events, `EventEmitter`, `consume_stream()`, and LLM metadata tracking
-- **Interfaces**: Web debug interface with FastAPI/WebSocket, dark theme, tooltips, and LLM streaming groups
-- **Interfaces**: LLM token streaming across CLI (Rich table output), TUI (`StreamingChatMessage`, `CollapsibleCodeMessage`), and Open WebUI
-- **TUI**: Info bar, consistent shortcuts, notebook preview, debug block widget, log viewer refinements
-- **Models**: `chat_request()` method for native message-based completions
-- **Channel Finder**: `--delimiter` option for CSV files (#161, @RemiLehe)
-
-### Changed
-- **Prompts**: Composable `FrameworkPromptBuilder` system with deprecation bridges and runtime context injection (#163)
-- **Logging**: All Python logger calls replaced with unified `get_logger` system
+- **ARIEL**: Bidirectional facility adapter write support with new models (`FacilityEntryCreateRequest`, `FacilityEntryCreateResult`, `SyncStatus`, `WriteConfig`) (#174)
+- **Machine State**: `MachineStateReader` service with pipeline-aware channel templates (#173)
+- **Channel Finder**: Google Sheets channel database backend with `gspread` integration (#171)
 
 ### Fixed
-- Capability approval state, rate-limit classification, E2E trace rebuilding, dependency management, and streaming fixes across all interfaces
+- **CI**: Make E2E test failures non-blocking in gate job
+- **Tests**: Mark flaky caproto test as `xfail` on macOS CI
 
 ---
 

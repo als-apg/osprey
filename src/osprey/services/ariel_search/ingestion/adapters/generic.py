@@ -1,30 +1,34 @@
 """Generic JSON ingestion adapter.
 
 This module provides a flexible adapter for testing and facilities
-without custom APIs.
+without custom APIs. Supports both reading and writing to local JSON files.
 """
 
+import fcntl
 import json
+import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from osprey.services.ariel_search.exceptions import IngestionError
-from osprey.services.ariel_search.ingestion.base import BaseAdapter
+from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.models import FacilityEntryCreateRequest
 
 logger = get_logger("ariel")
 
 
-class GenericJSONAdapter(BaseAdapter):
+class GenericJSONAdapter(FacilityAdapter):
     """Generic JSON ingestion adapter.
 
     Reads entries from JSON files or HTTP endpoints with a flexible schema.
+    Supports writing to local JSON files.
     """
 
     def __init__(self, config: "ARIELConfig") -> None:
@@ -43,6 +47,11 @@ class GenericJSONAdapter(BaseAdapter):
     def source_system_name(self) -> str:
         """Return the source system identifier."""
         return "Generic JSON"
+
+    @property
+    def supports_write(self) -> bool:
+        """Write is supported only for local file sources, not HTTP."""
+        return not self.source_url.startswith(("http://", "https://"))
 
     async def fetch_entries(
         self,
@@ -82,6 +91,93 @@ class GenericJSONAdapter(BaseAdapter):
             except Exception as e:
                 logger.warning(f"Failed to convert entry: {e}")
                 continue
+
+    async def create_entry(self, request: "FacilityEntryCreateRequest") -> str:
+        """Create an entry in the local JSON file.
+
+        Args:
+            request: Entry creation request.
+
+        Returns:
+            The generated entry ID.
+
+        Raises:
+            NotImplementedError: If the source is an HTTP URL.
+            IngestionError: If the write fails.
+        """
+        if not self.supports_write:
+            raise NotImplementedError(
+                "GenericJSONAdapter only supports writing to local file sources, not HTTP"
+            )
+
+        entry_id = f"local-{uuid.uuid4().hex[:12]}"
+        now = datetime.now(UTC)
+
+        entry_data: dict[str, Any] = {
+            "id": entry_id,
+            "timestamp": now.isoformat(),
+            "author": request.author or "",
+            "title": request.subject,
+            "text": request.details,
+            "tags": request.tags,
+            "attachments": [],
+            "metadata": request.metadata,
+        }
+
+        if request.logbook:
+            entry_data["books"] = [request.logbook]
+
+        self._append_entry(entry_data)
+
+        logger.info(f"Created local JSON entry {entry_id}")
+        return entry_id
+
+    def _append_entry(self, entry_data: dict[str, Any]) -> None:
+        """Append an entry to the local JSON file with file locking.
+
+        Args:
+            entry_data: Entry dict matching the JSON schema that _convert_entry reads.
+        """
+        path = Path(self.source_url)
+
+        # Ensure parent directory exists
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        tmp_path = path.with_suffix(".tmp")
+
+        try:
+            if path.exists():
+                with open(path) as f:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                    try:
+                        data = json.load(f)
+                    finally:
+                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            else:
+                data = {"entries": []}
+
+            data.setdefault("entries", [])
+            data["entries"].append(entry_data)
+
+            # Atomic write: write to tmp file, then replace
+            with open(tmp_path, "w") as f:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                try:
+                    json.dump(data, f, indent=2, default=str)
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+            # os.replace is atomic on POSIX
+            tmp_path.replace(path)
+
+        except (json.JSONDecodeError, OSError) as e:
+            # Clean up tmp file on failure
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise IngestionError(
+                f"Failed to append entry to {self.source_url}: {e}",
+                source_system=self.source_system_name,
+            ) from e
 
     async def _load_data(self) -> dict[str, Any]:
         """Load JSON data from source."""

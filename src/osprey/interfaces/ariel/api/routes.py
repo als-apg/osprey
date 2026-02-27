@@ -294,15 +294,45 @@ async def create_entry(
     request: Request,
     entry_req: EntryCreateRequest,
 ) -> EntryCreateResponse:
-    """Create a new logbook entry."""
+    """Create a new logbook entry.
+
+    Delegates to the facility adapter when write support is available.
+    Falls back to direct database insert if the adapter doesn't support writes.
+    """
     service: ARIELSearchService = request.app.state.ariel_service
 
     try:
-        # Generate entry ID
+        from osprey.services.ariel_search.models import FacilityEntryCreateRequest
+
+        facility_request = FacilityEntryCreateRequest(
+            subject=entry_req.subject,
+            details=entry_req.details,
+            author=entry_req.author,
+            logbook=entry_req.logbook,
+            shift=entry_req.shift,
+            tags=entry_req.tags,
+        )
+
+        result = await service.create_entry(facility_request)
+
+        return EntryCreateResponse(
+            entry_id=result.entry_id,
+            message=result.message,
+            sync_status=result.sync_status.value,
+            source_system=result.source_system,
+        )
+
+    except NotImplementedError:
+        # Adapter doesn't support writes — fall back to direct DB insert
+        import logging
+
+        logging.getLogger("ariel").warning(
+            "Facility adapter does not support writes, falling back to direct DB insert"
+        )
+
         entry_id = f"ariel-{uuid.uuid4().hex[:12]}"
         now = datetime.now()
 
-        # Build entry
         entry = {
             "entry_id": entry_id,
             "source_system": "ARIEL Web",
@@ -324,7 +354,9 @@ async def create_entry(
 
         return EntryCreateResponse(
             entry_id=entry_id,
-            message=f"Entry {entry_id} created successfully",
+            message=f"Entry {entry_id} created (local only — adapter does not support writes)",
+            sync_status="local_only",
+            source_system="ARIEL Web",
         )
 
     except Exception as e:

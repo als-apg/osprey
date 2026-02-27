@@ -5,7 +5,25 @@ All notable changes to the Osprey Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.11.4] - 2026-02-23
+
+### Added
+- **ARIEL**: Bidirectional facility adapter write support (#174)
+  - Rename `BaseAdapter` → `FacilityAdapter` with backwards-compatible alias; add `supports_write` and `create_entry()` to adapter interface
+  - Implement write path for `GenericJSONAdapter` (atomic local JSON append) and `ALSLogbookAdapter` (olog RPC XML POST with retry)
+  - `ARIELSearchService.create_entry()` orchestrates writes to facility logbook first, then optimistic local upsert with re-ingestion sync
+  - New models: `FacilityEntryCreateRequest`, `FacilityEntryCreateResult`, `SyncStatus`, `WriteConfig`
+- **Machine State**: Add `MachineStateReader` service for bulk channel snapshots (#173)
+  - Reads channel snapshots from the control system connector with structured models for channel definitions, results, and snapshots
+  - Pipeline-aware Jinja2 template (`machine_state_channels.json.j2`) selects demo channels matching the active channel finder pipeline
+- **Channel Finder**: Add Google Sheets channel database backend (#171)
+  - `GoogleSheetsChannelDatabase` reads/writes channel data from a Google Sheets spreadsheet via `gspread`
+  - Integrates with the `in_context` pipeline via `source: google_sheets` config option
+  - Optional dependency: `pip install osprey[sheets]`
+
+### Fixed
+- **CI**: Make E2E test failures non-blocking in gate job — E2E tests are LLM-dependent and fail due to API rate limits, not code issues
+- **Tests**: Mark flaky `test_first_order_backend_multiple_setpoint_changes` as `xfail` on macOS CI runners due to intermittent caproto server timeouts
 
 ## [0.11.3] - 2026-02-22
 

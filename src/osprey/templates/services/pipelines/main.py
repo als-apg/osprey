@@ -991,7 +991,22 @@ class Pipeline:
                                 yield response
                         else:
                             yield "✅ Execution completed"
-                    # else: response was already streamed, nothing more to do
+
+                    # When response was streamed, streaming only covers LLM
+                    # tokens — post-execution artifacts (figures, commands,
+                    # notebooks) must be extracted and appended separately.
+                    if self._last_response_was_streamed:
+                        figures_html = self._extract_figures_from_state(state.values)
+                        if figures_html:
+                            yield f"\n\n{figures_html}"
+
+                        commands_html = self._extract_commands_from_state(state.values)
+                        if commands_html:
+                            yield f"\n\n{commands_html}"
+
+                        notebooks_html = self._extract_notebooks_from_state(state.values)
+                        if notebooks_html:
+                            yield f"\n\n{notebooks_html}"
 
             finally:
                 try:

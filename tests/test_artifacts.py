@@ -590,7 +590,7 @@ class TestPopulateLegacyFieldsFromArtifacts:
         assert len(legacy["ui_launchable_commands"]) == 1
         cmd = legacy["ui_launchable_commands"][0]
         assert cmd["capability"] == "dashboard"
-        assert cmd["uri"] == "http://localhost:8080"
+        assert cmd["launch_uri"] == "http://localhost:8080"
         assert cmd["display_name"] == "Dashboard"
 
     def test_populates_notebooks_from_notebook_artifacts(self):

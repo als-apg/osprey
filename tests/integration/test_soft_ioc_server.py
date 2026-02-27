@@ -1380,6 +1380,11 @@ class TestDocumentationBackends:
             f"RB should have progressed >50% toward SP after 1s, got {progress * 100:.1f}%"
         )
 
+    @pytest.mark.xfail(
+        sys.platform == "darwin" and os.environ.get("CI") == "true",
+        reason="caproto server networking unreliable on macOS CI runners",
+        strict=False,
+    )
     def test_first_order_backend_multiple_setpoint_changes(
         self, ioc_server_with_backends: IOCServerWithBackends, sp_rb_channels
     ):

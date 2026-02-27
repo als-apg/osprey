@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.services.ariel_search.exceptions import IngestionError
-from osprey.services.ariel_search.ingestion.base import BaseAdapter
+from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
 from osprey.utils.logger import get_logger
 
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 logger = get_logger("ariel")
 
 
-class ORNLLogbookAdapter(BaseAdapter):
+class ORNLLogbookAdapter(FacilityAdapter):
     """Adapter for Oak Ridge National Laboratory electronic logbook system."""
 
     def __init__(self, config: "ARIELConfig") -> None:

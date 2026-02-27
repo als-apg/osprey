@@ -8,13 +8,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from osprey.services.ariel_search.exceptions import AdapterNotFoundError
-from osprey.services.ariel_search.ingestion.base import BaseAdapter
+from osprey.services.ariel_search.ingestion.base import BaseAdapter, FacilityAdapter
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
 
 
-def get_adapter(config: ARIELConfig) -> BaseAdapter:
+def get_adapter(config: ARIELConfig) -> FacilityAdapter:
     """Load adapter based on configuration using the Osprey registry.
 
     Looks up the adapter class from the central Osprey registry, which supports
@@ -54,4 +54,4 @@ def get_adapter(config: ARIELConfig) -> BaseAdapter:
         )
 
     adapter_class, _registration = result
-    return cast(BaseAdapter, adapter_class(config))
+    return cast(FacilityAdapter, adapter_class(config))
