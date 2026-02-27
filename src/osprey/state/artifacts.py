@@ -347,7 +347,7 @@ def populate_legacy_fields_from_artifacts(
             # Convert to legacy command entry
             command_entry: dict[str, Any] = {
                 "capability": capability,
-                "uri": data.get("uri", ""),
+                "launch_uri": data.get("uri", ""),
                 "created_at": created_at,
             }
             if display_name:
