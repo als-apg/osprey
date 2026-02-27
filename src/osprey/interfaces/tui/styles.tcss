@@ -1194,9 +1194,8 @@ ArtifactViewer {
 }
 
 #artifact-detail-panel {
-    width: 1fr;
-    height: 1fr;
-    scrollbar-size: 0 0;
+    width: 100%;
+    height: auto;
 }
 
 .image-preview {

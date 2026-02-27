@@ -57,6 +57,14 @@ models:
     provider: {{ default_provider }}
     model_id: {{ default_model }}
     max_tokens: 4096  # For channel finder semantic search
+  xopt_yaml_generation:
+    provider: {{ default_provider }}
+    model_id: {{ default_model }}
+    max_tokens: 4096  # For XOpt YAML configuration generation
+  xopt_decision:
+    provider: {{ default_provider }}
+    model_id: {{ default_model }}
+    max_tokens: 1024  # For XOpt strategy decision
 
 # ============================================================
 # API CONFIGURATION
@@ -519,6 +527,43 @@ python_executor:
   max_generation_retries: 3
   max_execution_retries: 3
   execution_timeout_seconds: 600
+
+# ============================================================
+# XOPT OPTIMIZER CONFIGURATION
+# ============================================================
+# XOpt optimization service for autonomous machine tuning
+# Each sub-agent can have its own model configuration
+
+xopt_optimizer:
+  # Maximum optimization iterations per request
+  max_iterations: 3
+
+  # State Identification Node
+  # Assesses machine readiness before optimization using ReAct agent
+  state_identification:
+    mode: "react"  # "react" (agent with tools, default) or "mock" (always returns READY)
+    mock_files: true  # Use mock reference files (set false to use real files at reference_path)
+    # reference_path: "path/to/reference/docs"  # Path to real reference files (when mock_files: false)
+    # model_config_name: "xopt_state_identification"  # Reference to models section (falls back to orchestrator)
+
+  # Strategy Decision Node
+  # Selects optimization strategy based on machine state and objective
+  decision:
+    mode: "llm"  # "llm" (LLM-based with structured output) or "mock" (defaults to exploration)
+    model_config_name: "xopt_decision"  # Reference to models section
+
+  # YAML Generation Agent
+  # Generates XOpt configuration files using ReAct pattern
+  yaml_generation:
+    mode: "react"  # "react" (agent-based, default) or "mock" (fast placeholder)
+    # examples_path: "_agent_data/xopt_examples/yaml_templates"  # Optional - agent adapts if missing
+    model_config_name: "xopt_yaml_generation"  # Reference to models section
+
+  # Analysis Agent (placeholder for future implementation)
+  # Analyzes optimization results and decides continuation
+  # analysis:
+  #   mode: "mock"  # "mock" or "react"
+  #   model_config_name: "xopt_analysis"
 
 # ============================================================
 # APPLICATION METADATA

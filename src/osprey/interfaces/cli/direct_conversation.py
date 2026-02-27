@@ -781,7 +781,19 @@ class CLI:
                     user_message = interrupt.value.get(
                         "user_message", "Additional approval required"
                     )
-                    self.console.print(f"\n[{Styles.WARNING}]{user_message}[/{Styles.WARNING}]")
+
+                    # Display approval message in a stylish panel (same as first interrupt)
+                    self.console.print("\n")  # Add spacing before panel
+                    self.console.print(
+                        Panel(
+                            user_message,
+                            title="[bold red]⚠️  HUMAN APPROVAL REQUIRED[/bold red]",
+                            subtitle="[dim]Respond with 'yes' or 'no'[/dim]",
+                            border_style="yellow",
+                            box=HEAVY,
+                            padding=(1, 2),
+                        )
+                    )
 
                     user_input = await self.prompt_session.prompt_async(
                         self._get_prompt(), style=self.prompt_style

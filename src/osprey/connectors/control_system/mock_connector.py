@@ -438,6 +438,12 @@ class MockConnector(ControlSystemConnector):
             return 0.0
         elif "energy" in ch_lower:
             return 1900.0  # MeV for typical storage ring
+        elif "status" in ch_lower or "ready" in ch_lower or "enable" in ch_lower:
+            return 1.0  # Status/ready/enable flags default to 1 (on/ready)
+        elif "interlock" in ch_lower:
+            return 0.0  # Safety interlocks default to 0 (clear/no active interlocks)
+        elif "mode" in ch_lower:
+            return 1.0  # Operating mode defaults to 1 (operational)
         else:
             return 100.0
 

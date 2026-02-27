@@ -398,6 +398,8 @@ class ConfigBuilder:
             "applications": self.get("applications", []),
             "current_application": self._get_current_application(),
             "registry_path": self.get("registry_path"),
+            # ===== XOPT OPTIMIZER =====
+            "xopt_optimizer": self.get("xopt_optimizer", {}),
         }
 
         return configurable
@@ -815,6 +817,33 @@ def get_agent_control_defaults() -> dict[str, Any]:
     """Get agent control defaults with automatic context detection."""
     configurable = _get_configurable()
     return configurable.get("agent_control_defaults", {})
+
+
+def get_xopt_optimizer_config(config_path: str | None = None) -> dict[str, Any]:
+    """Get XOpt optimizer configuration with automatic context detection.
+
+    This function provides access to the xopt_optimizer configuration section,
+    which controls the XOpt optimization service for autonomous machine tuning.
+
+    Configuration structure:
+        xopt_optimizer:
+          max_iterations: 3
+          state_identification:
+            mode: "react"  # or "mock"
+            mock_files: true
+          decision:
+            mode: "llm"  # or "mock"
+          yaml_generation:
+            mode: "react"  # or "mock"
+
+    Args:
+        config_path: Optional explicit path to configuration file
+
+    Returns:
+        Dictionary with xopt_optimizer configuration
+    """
+    configurable = _get_configurable(config_path)
+    return configurable.get("xopt_optimizer", {})
 
 
 def get_session_info() -> dict[str, Any]:
