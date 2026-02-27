@@ -149,6 +149,7 @@ dev = [
     "pytest-asyncio",
     "pytest-cov",  # Code coverage reporting
     "pytest-vcr",  # Optional: For recording/replaying API interactions
+    "pytest-docker",  # Docker container management for integration tests
     "vcrpy",
     "mypy",
     "pre-commit",
