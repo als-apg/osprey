@@ -19,7 +19,7 @@ class ClaudeCodeFileService:
     handlers stay thin.
     """
 
-    ALLOWED_DIRS = {"rules", "agents", "commands", "hooks", "skills"}
+    ALLOWED_DIRS = {"rules", "agents", "commands", "hooks", "skills", "output-styles"}
     ROOT_FILES = {"CLAUDE.md", ".mcp.json"}
 
     # Category assignments for well-known files
@@ -186,6 +186,8 @@ class ClaudeCodeFileService:
             return "Hooks"
         if "rules/" in rel_path:
             return "Safety"
+        if "output-styles/" in rel_path:
+            return "Output Styles"
         return "Other"
 
     @staticmethod

@@ -85,12 +85,24 @@ class TestPromptRegistryDefault:
             "hooks/hook-log",
             "skills/session-report",
             "skills/session-report/reference",
+            "output-styles/control-operator",
         ],
     )
     def test_known_artifact_exists(self, registry, name):
         art = registry.get(name)
         assert art is not None, f"Missing artifact: {name}"
         assert art.canonical_name == name
+
+    def test_categories_derived_from_canonical_names(self, registry):
+        cats = registry.categories
+        assert isinstance(cats, set)
+        assert "agents" in cats
+        assert "rules" in cats
+        assert "hooks" in cats
+        assert "skills" in cats
+        assert "commands" in cats
+        assert "output-styles" in cats
+        assert "config" in cats  # top-level artifacts without "/"
 
     def test_facility_exists(self, registry):
         art = registry.get("rules/facility")

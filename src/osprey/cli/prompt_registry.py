@@ -179,12 +179,6 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             description="Notebook artifact update hook",
         ),
         PromptArtifact(
-            canonical_name="hooks/memory-guard",
-            template_path="claude/hooks/osprey_memory_guard.py",
-            output_path=".claude/hooks/osprey_memory_guard.py",
-            description="Memory guard hook",
-        ),
-        PromptArtifact(
             canonical_name="hooks/cf-feedback-capture",
             template_path="claude/hooks/osprey_cf_feedback_capture.py",
             output_path=".claude/hooks/osprey_cf_feedback_capture.py",
@@ -195,6 +189,12 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             template_path="claude/hooks/osprey_hook_log.py",
             output_path=".claude/hooks/osprey_hook_log.py",
             description="Shared hook logging utility",
+        ),
+        PromptArtifact(
+            canonical_name="hooks/memory-guard",
+            template_path="claude/hooks/osprey_memory_guard.py",
+            output_path=".claude/hooks/osprey_memory_guard.py",
+            description="Write tool gate for Claude memory files",
         ),
         # ── Skills ──────────────────────────────────────────────────
         PromptArtifact(
@@ -221,6 +221,13 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             template_path="claude/commands/diagnose.md",
             output_path=".claude/commands/diagnose.md",
             description="Operational failure diagnosis slash command",
+        ),
+        # ── Output Styles ────────────────────────────────────────────
+        PromptArtifact(
+            canonical_name="output-styles/control-operator",
+            template_path="claude/output-styles/control-operator.md.j2",
+            output_path=".claude/output-styles/control-operator.md",
+            description="Communication style for the control assistant",
         ),
     ]
 
@@ -260,3 +267,11 @@ class PromptRegistry:
     def all_names(self) -> list[str]:
         """Return all canonical names, sorted."""
         return sorted(self._by_name.keys())
+
+    @property
+    def categories(self) -> set[str]:
+        """Return the set of all artifact categories (derived from canonical name prefixes)."""
+        return {
+            name.split("/")[0] if "/" in name else "config"
+            for name in self._by_name
+        }

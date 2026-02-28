@@ -285,7 +285,10 @@ class PromptGalleryService:
 
     # ── Untracked file detection ─────────────────────────────────────
 
-    _SCAN_DIRS = ("rules", "agents", "commands", "skills")
+    @property
+    def _scan_dirs(self) -> tuple[str, ...]:
+        """Categories where users may create new .md files (excludes hooks and config)."""
+        return tuple(sorted(self._registry.categories - {"config", "hooks"}))
 
     def scan_untracked(self) -> list[dict[str, Any]]:
         """Find files in .claude/ that are active in Claude Code but not managed.
@@ -301,7 +304,7 @@ class PromptGalleryService:
         registered_outputs: set[str] = {a.output_path for a in self._registry.all_artifacts()}
 
         untracked: list[dict[str, Any]] = []
-        for subdir_name in self._SCAN_DIRS:
+        for subdir_name in self._scan_dirs:
             subdir = claude_dir / subdir_name
             if not subdir.is_dir():
                 continue
