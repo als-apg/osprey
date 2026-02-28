@@ -215,12 +215,11 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             output_path=".claude/skills/setup-mode/SKILL.md",
             description="Configuration diagnostic and troubleshooting skill",
         ),
-        # ── Commands ─────────────────────────────────────────────────
         PromptArtifact(
-            canonical_name="commands/diagnose",
-            template_path="claude/commands/diagnose.md",
-            output_path=".claude/commands/diagnose.md",
-            description="Operational failure diagnosis slash command",
+            canonical_name="skills/diagnose",
+            template_path="claude/skills/diagnose/SKILL.md",
+            output_path=".claude/skills/diagnose/SKILL.md",
+            description="OSPREY infrastructure failure diagnosis skill",
         ),
         # ── Output Styles ────────────────────────────────────────────
         PromptArtifact(
@@ -271,7 +270,4 @@ class PromptRegistry:
     @property
     def categories(self) -> set[str]:
         """Return the set of all artifact categories (derived from canonical name prefixes)."""
-        return {
-            name.split("/")[0] if "/" in name else "config"
-            for name in self._by_name
-        }
+        return {name.split("/")[0] if "/" in name else "config" for name in self._by_name}

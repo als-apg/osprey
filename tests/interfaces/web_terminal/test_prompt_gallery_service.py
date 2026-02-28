@@ -316,12 +316,12 @@ class TestDescriptionExtraction:
         assert art["summary"] == "Safety boundaries, channel write safety, and data integrity"
         assert "tool confinement" in art["description"]
 
-    def test_command_has_summary_from_front_matter(self, service):
-        """Command artifacts get summary from added front matter."""
+    def test_skill_diagnose_has_summary_from_front_matter(self, service):
+        """Diagnose skill gets summary from skill front matter."""
         result = service.list_artifacts()
         by_name = {a["name"]: a for a in result}
-        art = by_name["commands/diagnose"]
-        assert art["summary"] == "Investigate operational failures"
+        art = by_name["skills/diagnose"]
+        assert art["summary"] == "Investigate OSPREY infrastructure and agent failures"
 
 
 # ===========================================================================

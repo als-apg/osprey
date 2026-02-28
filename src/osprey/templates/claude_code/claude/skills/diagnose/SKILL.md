@@ -1,11 +1,15 @@
 ---
-summary: Investigate operational failures
-description: Systematic investigation of operational failures with structured incident reports
+name: diagnose
+description: >
+  Investigate OSPREY tool, agent, or MCP server failures. Use when a tool call
+  returned an error, a subagent failed, or the MCP infrastructure is not
+  responding. NOT for diagnosing accelerator or machine operational issues.
+summary: Investigate OSPREY infrastructure and agent failures
 ---
 
-# Diagnose — Operational Failure Investigation
+# Diagnose — OSPREY Infrastructure Failure Investigation
 
-Systematically investigate an operational failure, gather evidence from all available sources, and produce a structured incident report for developer handoff.
+Systematically investigate an OSPREY infrastructure failure, gather evidence from all available sources, and produce a structured incident report for developer handoff.
 
 Follow these three phases in order. Do not skip phases.
 
@@ -127,7 +131,7 @@ Handoff items for the operator or developer. These are actions for HUMANS, not f
 
 ## Anti-Patterns — NEVER Do These
 
-- **NEVER attempt to fix the problem.** This command produces a report, not a resolution.
+- **NEVER attempt to fix the problem.** This skill produces a report, not a resolution.
 - **NEVER read source code.** You don't have access to OSPREY internals and shouldn't try.
 - **NEVER speculate beyond evidence.** If you don't have evidence for a cause, don't list it.
 - **NEVER stop after the first empty result.** Every source in Phase 2 must be queried.
