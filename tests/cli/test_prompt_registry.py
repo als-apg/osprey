@@ -85,6 +85,8 @@ class TestPromptRegistryDefault:
             "hooks/hook-log",
             "skills/session-report",
             "skills/session-report/reference",
+            "skills/diagnose",
+            "skills/setup-mode",
             "output-styles/control-operator",
         ],
     )
@@ -100,7 +102,7 @@ class TestPromptRegistryDefault:
         assert "rules" in cats
         assert "hooks" in cats
         assert "skills" in cats
-        assert "commands" in cats
+        assert "commands" not in cats
         assert "output-styles" in cats
         assert "config" in cats  # top-level artifacts without "/"
 

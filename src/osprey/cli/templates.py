@@ -130,7 +130,7 @@ class TemplateManager:
         Examples:
             >>> manager = TemplateManager()
             >>> manager.list_app_templates()
-            ['minimal', 'hello_world_weather', 'wind_turbine']
+            ['control_assistant']
         """
         apps_dir = self.template_root / "apps"
         if not apps_dir.exists():
@@ -163,7 +163,7 @@ class TemplateManager:
         self,
         project_name: str,
         output_dir: Path,
-        template_name: str = "minimal",
+        template_name: str = "control_assistant",
         registry_style: str = "extend",
         context: dict[str, Any] | None = None,
         force: bool = False,
@@ -180,7 +180,7 @@ class TemplateManager:
         Args:
             project_name: Name of the project (e.g., "my-assistant")
             output_dir: Parent directory where project will be created
-            template_name: Application template to use (default: "minimal")
+            template_name: Application template to use (default: "control_assistant")
             registry_style: Registry style - "extend" (recommended) or "standalone" (advanced)
             context: Additional template context variables
             force: If True, skip existence check (used when caller already handled deletion)
@@ -196,7 +196,7 @@ class TemplateManager:
             >>> project_dir = manager.create_project(
             ...     "my-assistant",
             ...     Path("/projects"),
-            ...     template_name="minimal",
+            ...     template_name="control_assistant",
             ...     registry_style="extend"
             ... )
             >>> print(project_dir)
@@ -1030,11 +1030,11 @@ proper framework operation, especially when using containerized services.
 
         # Read template_name from manifest if available
         manifest_path = project_dir / MANIFEST_FILENAME
-        template_name = "minimal"
+        template_name = "control_assistant"
         if manifest_path.exists():
             try:
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                template_name = manifest.get("creation", {}).get("template", "minimal")
+                template_name = manifest.get("creation", {}).get("template", "control_assistant")
             except (json.JSONDecodeError, OSError):
                 pass
 
@@ -1142,7 +1142,7 @@ proper framework operation, especially when using containerized services.
         ".claude/hooks/osprey_hook_log.py",
         ".claude/hooks/osprey_memory_guard.py",
         ".claude/rules/code-generation.md",
-        ".claude/commands/diagnose.md",
+        ".claude/skills/diagnose/SKILL.md",
         ".claude/skills/session-report/SKILL.md",
         ".claude/skills/session-report/reference.md",
         ".claude/skills/setup-mode/SKILL.md",
@@ -1658,8 +1658,8 @@ proper framework operation, especially when using containerized services.
         """
         parts = ["osprey", "init", init_args["project_name"]]
 
-        # Add template if not default
-        if init_args.get("template") and init_args["template"] != "minimal":
+        # Always include template for reproducibility (default may change)
+        if init_args.get("template"):
             parts.extend(["--template", init_args["template"]])
 
         # Add provider if specified

@@ -32,16 +32,16 @@ const AGENT_MODEL_OPTIONS = ['haiku', 'sonnet', 'opus'];
 const CATEGORY_HELP = {
   'system prompt': 'The main CLAUDE.md file that defines the AI assistant\'s identity, capabilities, and behavioral guidelines.',
   agents: 'Sub-agents that Claude delegates specialized tasks to (search, analysis, visualization). Each agent has its own model, tools, and instructions.',
-  commands: 'Slash commands that users invoke explicitly (e.g., /diagnose). These have access to the full conversation context.',
   config: 'Top-level configuration files: MCP server definitions (.mcp.json) and permissions (settings.json).',
   hooks: 'Python scripts that run before or after Claude uses a tool. They enforce safety rules, validate inputs, and inject error guidance.',
   instructions: 'Markdown files loaded as persistent directives. They define safety boundaries, error handling protocols, and artifact conventions.',
   skills: 'Multi-file bundles that Claude can invoke as structured workflows. Skills support companion files (CSS/JS references, templates).',
+  'output-styles': 'Markdown style guides that shape how Claude writes responses — tone, format, and epistemic discipline for control system communication.',
 };
 
 // ---- Category Routing ---- //
 
-const BEHAVIOR_CATEGORIES = new Set(['agents', 'skills', 'commands', 'rules']);
+const BEHAVIOR_CATEGORIES = new Set(['agents', 'skills', 'rules', 'output-styles']);
 const BEHAVIOR_NAMES = new Set(['claude-md']);        // config category, behavior tab
 const SAFETY_CATEGORIES = new Set(['hooks']);
 const CONFIG_NAMES = new Set(['mcp-json', 'settings-json']); // config category, config tab

@@ -80,7 +80,7 @@ use `session_log` to inspect what happened before escalating:
 
 This is a diagnostic tool. Use it after failures, not routinely.
 
-For systematic investigation of complex failures, use the `/diagnose` command.
+For systematic investigation of complex failures, use the `/diagnose` skill.
 
 ## Retries
 
