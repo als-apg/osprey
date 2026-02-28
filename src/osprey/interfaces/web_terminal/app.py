@@ -142,6 +142,7 @@ def _launch_agentsview_server(app: FastAPI) -> None:
         port = av_config.get("port", 8096)
 
         app.state.agentsview_server_url = f"http://{host}:{port}"
+        app.state.agentsview_project = av_config.get("project")
 
         from osprey.interfaces.agentsview.launcher import ensure_agentsview
 
@@ -150,6 +151,7 @@ def _launch_agentsview_server(app: FastAPI) -> None:
     except Exception:
         logger.warning("Could not auto-launch agentsview", exc_info=True)
         app.state.agentsview_server_url = None
+        app.state.agentsview_project = None
 
 
 def _launch_cui_server(app: FastAPI) -> None:

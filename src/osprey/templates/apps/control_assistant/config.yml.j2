@@ -403,11 +403,6 @@ execution:
       claude_config_path: "claude_generator_config.yml"  # Path to detailed config
       profile: "fast"        # Options: fast (DEFAULT, single-phase) | robust (multi-phase)
 
-# Python executor settings
-python_executor:
-  max_generation_retries: 3
-  max_execution_retries: 3
-  execution_timeout_seconds: 600
 # ============================================================
 # CLI CONFIGURATION
 # ============================================================
@@ -578,6 +573,7 @@ agentsview:
   host: "127.0.0.1"
   port: 8096
   auto_launch: true
+  project: "{{ project_name | replace('-', '_') }}"
 
 # ============================================================
 # CONFLUENCE WIKI

@@ -136,7 +136,11 @@ async def cui_server_config(request: Request):
 async def agentsview_server_config(request: Request):
     """Return the agentsview session analytics server URL for iframe embedding."""
     url = getattr(request.app.state, "agentsview_server_url", None)
-    return {"url": url, "available": url is not None}
+    project = getattr(request.app.state, "agentsview_project", None)
+    result: dict = {"url": url, "available": url is not None}
+    if project:
+        result["project"] = project
+    return result
 
 
 @router.get("/api/custom-panels")

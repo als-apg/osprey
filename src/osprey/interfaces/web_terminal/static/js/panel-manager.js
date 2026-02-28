@@ -149,6 +149,10 @@ async function initPanel(panel) {
     if (config.url && (config.available === undefined || config.available)) {
       state.url = config.url;
     }
+    // agentsview may return a project name for session filtering
+    if (config.project) {
+      state.project = config.project;
+    }
   } catch {
     // Config endpoint not available — panel stays disabled
   } finally {
@@ -348,6 +352,9 @@ function navigatePanel(panelId, url) {
   const embedUrl = new URL(url);
   embedUrl.searchParams.set('embedded', 'true');
   embedUrl.searchParams.set('theme', getTheme());
+  if (state.project) {
+    embedUrl.hash = `#/sessions?project=${encodeURIComponent(state.project)}`;
+  }
   state.iframe.src = embedUrl.toString();
   state.pendingUrl = null;
 }
@@ -367,19 +374,28 @@ function createIframe(panelId) {
   const embedUrl = new URL(targetUrl);
   embedUrl.searchParams.set('embedded', 'true');
   embedUrl.searchParams.set('theme', getTheme());
+  if (state.project) {
+    embedUrl.hash = `#/sessions?project=${encodeURIComponent(state.project)}`;
+  }
   iframe.src = embedUrl.toString();
   iframe.sandbox = 'allow-scripts allow-same-origin allow-popups allow-forms allow-modals';
 
   iframe.addEventListener('load', () => {
     iframe.classList.add('loaded');
-    // Forward the current session ID so the iframe can scope its API calls
-    const sid = getCurrentSessionId();
-    if (sid && iframe.contentWindow) {
+    if (iframe.contentWindow) {
       try {
+        // Sync theme immediately so there's no flash of wrong theme
         iframe.contentWindow.postMessage(
-          { type: 'osprey-session-change', session_id: sid },
+          { type: 'theme:set', theme: getTheme() },
           '*'
         );
+        const sid = getCurrentSessionId();
+        if (sid) {
+          iframe.contentWindow.postMessage(
+            { type: 'osprey-session-change', session_id: sid },
+            '*'
+          );
+        }
       } catch { /* cross-origin */ }
     }
   });
