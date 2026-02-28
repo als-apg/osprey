@@ -168,9 +168,15 @@ table { max-width: 100%; }
 # JupyterLab-style nbconvert uses <body class="jp-Notebook"> and .jp-Cell,
 # NOT the classic #notebook-container.
 _NOTEBOOK_RESPONSIVE_CSS = """<style>
-/* OSPREY: make notebook fill iframe viewport */
+/* OSPREY: make notebook fill iframe viewport without horizontal overflow.
+ * nbconvert's JupyterLab CSS has many nested elements with padding/margin
+ * that can push total width past 100%, so we apply a universal box-sizing
+ * reset and suppress horizontal scroll at the body level.  Individual code
+ * cells and output areas retain their own overflow-x: auto for wide content.
+ */
+*, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; width: 100%; height: 100%; }
-body.jp-Notebook { padding: 0 16px; overflow: auto; }
+body.jp-Notebook { padding: 0 16px; overflow-x: hidden; overflow-y: auto; }
 .jp-Cell { max-width: 100%; }
 /* Classic nbconvert fallback */
 #notebook-container, .container { max-width: 100% !important; width: 100% !important; padding: 0 16px; }
