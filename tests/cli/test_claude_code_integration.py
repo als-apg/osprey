@@ -33,7 +33,6 @@ class TestClaudeCodeIntegrationDefault:
         assert (project_dir / ".claude" / "settings.json").exists()
         assert (project_dir / ".claude" / "rules" / "safety.md").exists()
         assert (project_dir / ".claude" / "rules" / "error-handling.md").exists()
-        assert (project_dir / ".claude" / "hooks" / "osprey_memory_guard.py").exists()
         assert (project_dir / ".claude" / "hooks" / "osprey_writes_check.py").exists()
         assert (project_dir / ".claude" / "hooks" / "osprey_limits.py").exists()
         assert (project_dir / ".claude" / "hooks" / "osprey_approval.py").exists()
@@ -115,14 +114,18 @@ class TestClaudeCodeFileContents:
         assert "PostToolUse" in data["hooks"]
 
     def test_settings_json_denies_filesystem_tools(self, project_dir):
-        """Built-in filesystem/shell tools are denied; Task delegated to ask."""
+        """Built-in filesystem/shell tools are denied; Task delegated to ask.
+
+        Write is intentionally NOT denied — Claude Code's native auto memory
+        system requires Write access to persist memories across sessions.
+        """
         settings_path = project_dir / ".claude" / "settings.json"
         data = json.loads(settings_path.read_text())
 
         deny = data["permissions"]["deny"]
         assert "Bash" in deny
         assert "Edit" in deny
-        assert "Write" not in deny  # Write guarded by memory_guard hook, not deny list
+        assert "Write" not in deny  # auto memory needs Write
         assert "WebFetch" in deny
         assert "WebSearch" in deny
 
@@ -178,10 +181,10 @@ class TestClaudeCodeFileContents:
         """Hook scripts have executable permissions."""
         hooks_dir = project_dir / ".claude" / "hooks"
         hook_files = [
-            "osprey_memory_guard.py",
             "osprey_writes_check.py",
             "osprey_limits.py",
             "osprey_approval.py",
+            "osprey_memory_guard.py",
         ]
         for hook_name in hook_files:
             hook_path = hooks_dir / hook_name

@@ -317,7 +317,7 @@ class TestTemplateRendering:
         rendered = self._render(template_manager, "claude_code/claude/settings.json.j2", ctx)
         data = json.loads(rendered)
         pre_matchers = [r["matcher"] for r in data["hooks"]["PreToolUse"]]
-        assert "Write" in pre_matchers  # Fixed entry
+        assert "Write" in pre_matchers  # Fixed memory guard hook
         assert "mcp__controls__channel_write" in pre_matchers
         assert "mcp__python__execute" in pre_matchers
         post_matchers = [r["matcher"] for r in data["hooks"]["PostToolUse"]]
