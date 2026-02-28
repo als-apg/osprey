@@ -17,7 +17,10 @@ logger = logging.getLogger("osprey.services.channel_finder.mcp.hierarchical")
 # ---------------------------------------------------------------------------
 # FastMCP server instance -- imported by every tool module
 # ---------------------------------------------------------------------------
-mcp = FastMCP("channel-finder-hier")
+mcp = FastMCP(
+    "channel-finder-hier",
+    instructions="Find control-system channel addresses using hierarchical search",
+)
 
 
 # ---------------------------------------------------------------------------

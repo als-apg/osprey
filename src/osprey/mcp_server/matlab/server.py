@@ -13,7 +13,10 @@ from fastmcp import FastMCP
 
 logger = logging.getLogger("osprey.mcp_server.matlab")
 
-mcp = FastMCP("matlab")
+mcp = FastMCP(
+    "matlab",
+    instructions="Search and browse the MATLAB Middle Layer codebase",
+)
 
 
 def create_server() -> FastMCP:

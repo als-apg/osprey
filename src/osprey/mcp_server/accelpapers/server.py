@@ -13,7 +13,10 @@ from fastmcp import FastMCP
 
 logger = logging.getLogger("osprey.mcp_server.accelpapers")
 
-mcp = FastMCP("accelpapers")
+mcp = FastMCP(
+    "accelpapers",
+    instructions="Search and retrieve accelerator physics publications from INSPIRE",
+)
 
 
 def create_server() -> FastMCP:
