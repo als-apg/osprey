@@ -19,7 +19,10 @@ logger = logging.getLogger("osprey.interfaces.ariel.mcp")
 # ---------------------------------------------------------------------------
 # FastMCP server instance -- imported by every tool module
 # ---------------------------------------------------------------------------
-mcp = FastMCP("ariel")
+mcp = FastMCP(
+    "ariel",
+    instructions="Search facility logbook entries and operational records",
+)
 
 
 # ---------------------------------------------------------------------------

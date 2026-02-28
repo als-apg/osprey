@@ -12,7 +12,10 @@ from fastmcp import FastMCP
 
 logger = logging.getLogger("osprey.mcp_server.python_executor")
 
-mcp = FastMCP("python")
+mcp = FastMCP(
+    "python",
+    instructions="Execute Python code in a sandboxed environment",
+)
 
 
 def create_server() -> FastMCP:

@@ -1,6 +1,6 @@
 """OSPREY Workspace MCP Server.
 
-FastMCP server exposing memory, artifact, data context, and screen capture tools.
+FastMCP server exposing artifact, data context, and screen capture tools.
 
 Usage:
     python -m osprey.mcp_server.workspace
@@ -12,7 +12,10 @@ from fastmcp import FastMCP
 
 logger = logging.getLogger("osprey.mcp_server.workspace")
 
-mcp = FastMCP("workspace")
+mcp = FastMCP(
+    "workspace",
+    instructions="Manage artifacts, capture screens, and run data visualizations",
+)
 
 
 def create_server() -> FastMCP:
@@ -47,7 +50,6 @@ def create_server() -> FastMCP:
             facility_description,
             focus_tools,
             graph_tools,
-            memory,
             screen_capture,
             session_log,
             session_summary,

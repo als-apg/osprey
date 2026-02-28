@@ -12,7 +12,10 @@ from fastmcp import FastMCP
 
 logger = logging.getLogger("osprey.mcp_server.control_system")
 
-mcp = FastMCP("controls")
+mcp = FastMCP(
+    "controls",
+    instructions="Read and write control-system channels and query archiver history",
+)
 
 
 def create_server() -> FastMCP:
