@@ -542,7 +542,7 @@ async def terminal_ws(websocket: WebSocket):
                 except (json.JSONDecodeError, KeyError):
                     msg = None
 
-                if msg is not None:
+                if isinstance(msg, dict):
                     msg_type = msg.get("type")
 
                     if msg_type == "resize":
