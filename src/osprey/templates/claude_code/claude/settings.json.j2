@@ -8,6 +8,7 @@
   },
   "model": "{{ claude_code_model_spec.tier_to_model[claude_code_model_spec.default_model_tier] }}",
 {%- endif %}
+  "outputStyle": ".claude/output-styles/control-operator.md",
   "_PROMPT_PROVIDER_NOTE": "PROMPT-PROVIDER: section=permissions_policy. Future: source from FrameworkPromptProvider.get_permissions_policy(). Facility-customizable: allow/deny/ask tool lists, file access paths, additional facility-specific tools or restrictions.",
   "permissions": {
     "allow": [
@@ -15,7 +16,6 @@
 {%- set allow_entries = [] -%}
 {%- set _ = allow_entries.append('"Read(_agent_data/**)"') -%}
 {%- set _ = allow_entries.append('"Read(osprey-workspace/data/**)"') -%}
-{%- set _ = allow_entries.append('"Read(osprey-workspace/memory/**)"') -%}
 {%- set _ = allow_entries.append('"Read(osprey-workspace/plots/**)"') -%}
 {%- set _ = allow_entries.append('"Read(osprey-workspace/results/**)"') -%}
 {#- Per-server tool permissions -#}
@@ -68,6 +68,12 @@
       }
     ],
     "PreToolUse": [
+{%- set pre_rules = [] -%}
+{%- for s in servers if s.enabled -%}
+{%- for rule in s.hooks_pre -%}
+{%- set _ = pre_rules.append(rule) -%}
+{%- endfor -%}
+{%- endfor -%}
       {
         "matcher": "Write",
         "hooks": [
@@ -77,14 +83,7 @@
             "timeout": 5
           }
         ]
-      }
-{%- set pre_rules = [] -%}
-{%- for s in servers if s.enabled -%}
-{%- for rule in s.hooks_pre -%}
-{%- set _ = pre_rules.append(rule) -%}
-{%- endfor -%}
-{%- endfor -%}
-{%- if pre_rules %},{% endif %}
+      }{% if pre_rules %},{% endif %}
 {%- for rule in pre_rules %}
       {
         "matcher": "{{ rule.matcher }}",
