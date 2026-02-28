@@ -41,14 +41,17 @@ class AgentsviewLauncher:
     def ensure_running(self, host: str, port: int) -> None:
         """Ensure agentsview is running; launch if needed.
 
-        Safe to call multiple times — no-op after first launch.
+        Safe to call multiple times — re-launches if the process died.
         """
-        if self._launched:
+        if self._launched and self._process is not None and self._process.poll() is None:
             return
 
         with self._lock:
-            if self._launched:
+            # Re-check under lock: process may have been restarted by another thread
+            if self._launched and self._process is not None and self._process.poll() is None:
                 return
+            # Reset state so we attempt a fresh launch
+            self._launched = False
 
             if self._is_running(host, port):
                 self._launched = True
