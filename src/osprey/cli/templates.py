@@ -1133,7 +1133,6 @@ proper framework operation, especially when using containerized services.
         ".claude/rules/artifacts.md",
         ".claude/rules/workflows.md",
         ".claude/rules/facility.md",
-        ".claude/hooks/osprey_memory_guard.py",
         ".claude/hooks/osprey_writes_check.py",
         ".claude/hooks/osprey_limits.py",
         ".claude/hooks/osprey_approval.py",
@@ -1141,12 +1140,14 @@ proper framework operation, especially when using containerized services.
         ".claude/hooks/osprey_notebook_update.py",
         ".claude/hooks/osprey_cf_feedback_capture.py",
         ".claude/hooks/osprey_hook_log.py",
+        ".claude/hooks/osprey_memory_guard.py",
         ".claude/rules/code-generation.md",
         ".claude/commands/diagnose.md",
         ".claude/skills/session-report/SKILL.md",
         ".claude/skills/session-report/reference.md",
         ".claude/skills/setup-mode/SKILL.md",
         ".claude/rules/timezone.md",
+        ".claude/output-styles/control-operator.md",
     ]
 
     def _compute_regen_summary(self, ctx: dict) -> dict:

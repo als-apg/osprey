@@ -16,12 +16,12 @@ HOOKS_DIR = (
 )
 
 HOOK_FILES = [
-    "osprey_memory_guard.py",
     "osprey_writes_check.py",
     "osprey_limits.py",
     "osprey_approval.py",
     "osprey_error_guidance.py",
     "osprey_notebook_update.py",
+    "osprey_memory_guard.py",
 ]
 
 # Required fields for all hooks
@@ -116,20 +116,6 @@ class TestHookFrontMatter:
 # Individual hook-specific tests
 
 
-class TestMemoryGuardHook:
-    def test_safety_layer_is_0(self):
-        fields, _ = _parse_front_matter(_load_docstring("osprey_memory_guard.py"))
-        assert fields.get("safety_layer") == 0
-
-    def test_tools_is_write(self):
-        fields, _ = _parse_front_matter(_load_docstring("osprey_memory_guard.py"))
-        assert "Write" in fields.get("tools", "")
-
-    def test_event_is_pre_tool_use(self):
-        fields, _ = _parse_front_matter(_load_docstring("osprey_memory_guard.py"))
-        assert fields["event"] == "PreToolUse"
-
-
 class TestWritesCheckHook:
     def test_safety_layer_is_1(self):
         fields, _ = _parse_front_matter(_load_docstring("osprey_writes_check.py"))
@@ -175,3 +161,17 @@ class TestNotebookUpdateHook:
     def test_event_is_post_tool_use(self):
         fields, _ = _parse_front_matter(_load_docstring("osprey_notebook_update.py"))
         assert fields["event"] == "PostToolUse"
+
+
+class TestMemoryGuardHook:
+    def test_safety_layer_is_0(self):
+        fields, _ = _parse_front_matter(_load_docstring("osprey_memory_guard.py"))
+        assert fields.get("safety_layer") == 0
+
+    def test_event_is_pre_tool_use(self):
+        fields, _ = _parse_front_matter(_load_docstring("osprey_memory_guard.py"))
+        assert fields["event"] == "PreToolUse"
+
+    def test_tools_include_write(self):
+        fields, _ = _parse_front_matter(_load_docstring("osprey_memory_guard.py"))
+        assert "Write" in fields.get("tools", "")

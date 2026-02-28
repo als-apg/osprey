@@ -144,8 +144,8 @@ def main():
                     "File writes are restricted to Claude Code memory files only.\n"
                     f"Allowed directory: {memory_dir}/\n"
                     "Allowed extension: .md\n\n"
-                    "Use the memory_save MCP tool for OSPREY session memory,\n"
-                    "or write .md files to your Claude memory directory."
+                    "To save memories, write .md files to your Claude memory directory.\n"
+                    "Use Claude Code's native /memory command to view saved memories."
                 ),
             }
         }
