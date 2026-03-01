@@ -1,0 +1,44 @@
+{% if template_name == "lattice_design" %}
+---
+name: load-lattice
+description: >
+  Load a machine lattice file and inspect its structure.
+  Prints element summary, families, and basic parameters.
+summary: Loads and inspects a lattice file
+---
+
+# Load Lattice
+
+Load the machine lattice and display a comprehensive summary.
+
+## Steps
+
+1. Load the lattice file:
+   ```python
+   import at
+   ring = at.load_m('machine_data/als.m')
+   ```
+
+2. Print basic parameters:
+   - Number of elements: `len(ring)`
+   - Circumference: `ring.get_s_pos(len(ring))[0]`
+   - Energy: `ring.energy`
+
+3. Count elements by family:
+   ```python
+   from collections import Counter
+   families = Counter(e.FamName for e in ring)
+   ```
+
+4. List quadrupole and sextupole families with their strengths (K values).
+
+5. Compute and display tunes and chromaticities:
+   ```python
+   tunes = at.get_tune(ring)
+   chrom = at.get_chrom(ring)
+   ```
+
+## Output Format
+
+Present results as a formatted table showing element families, counts, and key parameters.
+{% endif %}

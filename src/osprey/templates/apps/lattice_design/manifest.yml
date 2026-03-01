@@ -1,0 +1,33 @@
+name: lattice_design
+description: "Lattice physics with Accelerator Toolbox"
+
+artifacts:
+  hooks:
+    - hook-log
+    - approval
+    - writes-check
+    - error-guidance
+    - memory-guard
+    - notebook-update
+  rules:
+    - safety
+    - error-handling
+    - artifacts
+    - facility
+    - workflows
+    - timezone
+    - lattice-physics
+  skills:
+    - diagnose
+    - setup-mode
+    - session-report
+    - load-lattice
+    - compute-optics
+    - fit-tune
+    - fit-chromaticity
+    - compare-optics
+  agents:
+    - data-visualizer
+    - literature-search
+  output_styles:
+    - control-operator

@@ -1,0 +1,33 @@
+{% if template_name == "lattice_design" %}
+# Lattice Physics — AT API Reference
+
+## Loading
+- `ring = at.load_m('file.m')` — Load MATLAB lattice
+- `ring = at.load_lattice('file.mat')` — Load MAT-file
+- `len(ring)` — Element count
+- `ring.energy` — Beam energy [eV]
+- `ring.get_s_pos(range(len(ring)+1))` — s positions
+
+## Linear Optics
+- `ld0, rd, ld = at.get_optics(ring, refpts=range(len(ring)+1), get_chrom=True)`
+  - `ld.beta` — Beta functions (Nx2 array: beta_x, beta_y)
+  - `ld.dispersion` — Dispersion (Nx4 array: eta_x, eta_px, eta_y, eta_py)
+  - `rd.chromaticity` — Chromaticities [xi_x, xi_y]
+- `at.get_tune(ring)` — Fractional tunes [nu_x, nu_y]
+- `at.get_chrom(ring)` — Chromaticities [xi_x, xi_y]
+
+## Fitting
+- `at.fit_tune(ring, 'QF', 'QD', [nux, nuy])` — Fit tunes (in-place)
+- `at.fit_chrom(ring, 'SFF', 'SDD', [xi_x, xi_y])` — Fit chromaticities (in-place)
+
+## Element Access
+- `[e for e in ring if e.FamName == 'QF']` — Find by family
+- `ring.get_uint32_index(at.Quadrupole)` — Indices of all quadrupoles
+- `elem.K` — Quadrupole strength
+- `elem.H` — Sextupole strength
+- `elem.Length`, `elem.BendingAngle`, `elem.PassMethod`
+
+## Visualization
+Save plots to `osprey-workspace/artifacts/` (HTML) or `osprey-workspace/plots/` (PNG).
+Use Plotly for interactive HTML artifacts, matplotlib for static plots.
+{% endif %}

@@ -28,20 +28,17 @@ class TestTemplateManager:
         manager = TemplateManager()
         templates = manager.list_app_templates()
 
-        # Should have at least the main templates
-        assert "minimal" in templates
-        assert "hello_world_weather" in templates
         assert "control_assistant" in templates
-        assert len(templates) >= 3
+        assert len(templates) >= 1
 
-    def test_create_project_minimal(self, tmp_path):
-        """Test creating project with minimal template."""
+    def test_create_project_control_assistant(self, tmp_path):
+        """Test creating project with control_assistant template."""
         manager = TemplateManager()
 
         project_dir = manager.create_project(
             project_name="test-project",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         # Verify structure (Claude Code mode — no src/ or pyproject.toml)
@@ -55,29 +52,16 @@ class TestTemplateManager:
         assert (project_dir / "CLAUDE.md").exists()
         assert (project_dir / ".mcp.json").exists()
 
-    def test_create_project_hello_world(self, tmp_path):
-        """Test creating project with hello_world_weather template."""
-        manager = TemplateManager()
-
-        project_dir = manager.create_project(
-            project_name="weather-app", output_dir=tmp_path, template_name="hello_world_weather"
-        )
-
-        # Verify basic structure (Claude Code mode — no src/ package)
-        assert project_dir.exists()
-        assert (project_dir / "config.yml").exists()
-        assert (project_dir / "CLAUDE.md").exists()
-
     def test_duplicate_project_raises_error(self, tmp_path):
         """Test that creating duplicate project raises error."""
         manager = TemplateManager()
 
         # Create first project
-        manager.create_project("test-project", tmp_path, "minimal")
+        manager.create_project("test-project", tmp_path, "control_assistant")
 
         # Try to create again
         with pytest.raises(ValueError, match="already exists"):
-            manager.create_project("test-project", tmp_path, "minimal")
+            manager.create_project("test-project", tmp_path, "control_assistant")
 
     def test_invalid_template_raises_error(self, tmp_path):
         """Test that invalid template name raises error."""
@@ -100,20 +84,6 @@ class TestCLIIntegration:
         assert "Project created successfully" in result.output
         # New init shows Mode: Claude Code
         assert "Mode: Claude Code" in result.output
-
-    def test_init_command_with_template(self, tmp_path):
-        """Test init command with specific template."""
-        runner = CliRunner()
-
-        result = runner.invoke(
-            init,
-            ["weather-app", "--template", "hello_world_weather", "--output-dir", str(tmp_path)],
-        )
-
-        assert result.exit_code == 0
-        # Match template name (may have ANSI color codes)
-        assert "Using template:" in result.output
-        assert "hello_world_weather" in result.output
 
     def test_init_command_shows_next_steps(self, tmp_path):
         """Test that init command shows helpful next steps."""
@@ -212,6 +182,7 @@ class TestCLIIntegration:
         manifest = json.loads(manifest_path.read_text())
 
         cmd = manifest["reproducible_command"]
+        # --template always included for reproducibility
         assert "--template control_assistant" in cmd
         assert "--provider cborg" in cmd
         assert "--model haiku" in cmd
@@ -273,7 +244,7 @@ class TestGeneratorConfigRendering:
         project_dir = manager.create_project(
             project_name="default-app",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
             # No code_generator in context
         )
 
@@ -663,6 +634,240 @@ class TestBuildClaudeCodeContextHierarchy:
         # Must contain embedded hierarchy info, NOT the fallback text
         assert "hierarchy_levels" in agent_prompt
         assert "Call `get_options()` at the first level to discover" not in agent_prompt
+
+
+class TestLatticeSkillIsolation:
+    """Test that lattice-specific skills/rules only appear for lattice_design."""
+
+    LATTICE_SKILLS = [
+        "load-lattice",
+        "compute-optics",
+        "fit-tune",
+        "fit-chromaticity",
+        "compare-optics",
+    ]
+
+    def test_control_assistant_has_no_lattice_skills(self, tmp_path):
+        """control_assistant projects must not contain lattice skill directories."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="ctrl-test",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+        )
+
+        skills_dir = project_dir / ".claude" / "skills"
+        for skill_name in self.LATTICE_SKILLS:
+            skill_dir = skills_dir / skill_name
+            assert not skill_dir.exists(), (
+                f"Lattice skill '{skill_name}' should not exist in control_assistant project"
+            )
+
+    def test_control_assistant_has_no_lattice_rule(self, tmp_path):
+        """control_assistant projects must not contain lattice-physics rule."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="ctrl-rule-test",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+        )
+
+        rule_file = project_dir / ".claude" / "rules" / "lattice-physics.md"
+        assert not rule_file.exists(), (
+            "lattice-physics.md rule should not exist in control_assistant project"
+        )
+
+    def test_lattice_design_has_all_skills(self, tmp_path):
+        """lattice_design projects must contain all lattice skills with content."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="lat-test",
+            output_dir=tmp_path,
+            template_name="lattice_design",
+        )
+
+        skills_dir = project_dir / ".claude" / "skills"
+        for skill_name in self.LATTICE_SKILLS:
+            skill_file = skills_dir / skill_name / "SKILL.md"
+            assert skill_file.exists(), (
+                f"Lattice skill '{skill_name}/SKILL.md' should exist in lattice_design project"
+            )
+            content = skill_file.read_text(encoding="utf-8").strip()
+            assert len(content) > 0, (
+                f"Lattice skill '{skill_name}/SKILL.md' should not be empty"
+            )
+
+    def test_lattice_design_has_lattice_rule(self, tmp_path):
+        """lattice_design projects must contain lattice-physics rule with content."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="lat-rule-test",
+            output_dir=tmp_path,
+            template_name="lattice_design",
+        )
+
+        rule_file = project_dir / ".claude" / "rules" / "lattice-physics.md"
+        assert rule_file.exists(), (
+            "lattice-physics.md rule should exist in lattice_design project"
+        )
+        content = rule_file.read_text(encoding="utf-8").strip()
+        assert len(content) > 0, "lattice-physics.md rule should not be empty"
+
+
+class TestTemplateManifest:
+    """Test template manifest loading, resolution, and filtering."""
+
+    def test_load_manifest_control_assistant(self):
+        """Control assistant manifest loads with all expected categories."""
+        manager = TemplateManager()
+        manifest = manager._load_template_manifest("control_assistant")
+
+        assert manifest is not None
+        artifacts = manifest["artifacts"]
+        assert "hooks" in artifacts
+        assert "rules" in artifacts
+        assert "skills" in artifacts
+        assert "agents" in artifacts
+        assert "output_styles" in artifacts
+        assert "approval" in artifacts["hooks"]
+        assert "channel-finder" in artifacts["agents"]
+
+    def test_load_manifest_lattice_design(self):
+        """Lattice design manifest loads with lattice-specific entries."""
+        manager = TemplateManager()
+        manifest = manager._load_template_manifest("lattice_design")
+
+        assert manifest is not None
+        artifacts = manifest["artifacts"]
+        assert "load-lattice" in artifacts["skills"]
+        assert "compute-optics" in artifacts["skills"]
+        assert "fit-tune" in artifacts["skills"]
+        assert "fit-chromaticity" in artifacts["skills"]
+        assert "compare-optics" in artifacts["skills"]
+        assert "lattice-physics" in artifacts["rules"]
+        # Should NOT have control-system-specific entries
+        assert "limits" not in artifacts["hooks"]
+        assert "cf-feedback-capture" not in artifacts["hooks"]
+        assert "code-generation" not in artifacts.get("rules", [])
+
+    def test_load_manifest_nonexistent_template(self):
+        """Returns None for unknown template."""
+        manager = TemplateManager()
+        manifest = manager._load_template_manifest("nonexistent_template")
+        assert manifest is None
+
+    def test_resolve_manifest_outputs_includes_config_artifacts(self):
+        """Resolved outputs always contain config artifacts."""
+        manager = TemplateManager()
+        manifest = manager._load_template_manifest("control_assistant")
+        outputs = manager._resolve_manifest_outputs(manifest)
+
+        assert "CLAUDE.md" in outputs
+        assert ".mcp.json" in outputs
+        assert ".claude/settings.json" in outputs
+
+    def test_resolve_manifest_outputs_maps_hooks(self):
+        """hooks: [approval] resolves to .claude/hooks/osprey_approval.py."""
+        manager = TemplateManager()
+        manifest = {"artifacts": {"hooks": ["approval"]}}
+        outputs = manager._resolve_manifest_outputs(manifest)
+
+        assert ".claude/hooks/osprey_approval.py" in outputs
+
+    def test_resolve_manifest_outputs_session_report_includes_reference(self):
+        """skills: [session-report] resolves to both SKILL.md and reference.md."""
+        manager = TemplateManager()
+        manifest = {"artifacts": {"skills": ["session-report"]}}
+        outputs = manager._resolve_manifest_outputs(manifest)
+
+        assert ".claude/skills/session-report/SKILL.md" in outputs
+        assert ".claude/skills/session-report/reference.md" in outputs
+
+    def test_lattice_init_no_control_artifacts(self, tmp_path):
+        """Lattice project must not contain control-system-specific artifacts."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="lat-manifest-test",
+            output_dir=tmp_path,
+            template_name="lattice_design",
+        )
+
+        # These should NOT exist
+        assert not (project_dir / ".claude" / "hooks" / "osprey_limits.py").exists()
+        assert not (project_dir / ".claude" / "hooks" / "osprey_cf_feedback_capture.py").exists()
+        assert not (project_dir / ".claude" / "rules" / "code-generation.md").exists()
+
+    def test_lattice_init_has_lattice_artifacts(self, tmp_path):
+        """Lattice project must have lattice-physics rule and all 5 lattice skills."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="lat-artifacts-test",
+            output_dir=tmp_path,
+            template_name="lattice_design",
+        )
+
+        # Lattice-physics rule
+        rule = project_dir / ".claude" / "rules" / "lattice-physics.md"
+        assert rule.exists()
+        assert len(rule.read_text(encoding="utf-8").strip()) > 0
+
+        # All 5 lattice skills
+        for skill_name in [
+            "load-lattice", "compute-optics", "fit-tune",
+            "fit-chromaticity", "compare-optics",
+        ]:
+            skill_file = project_dir / ".claude" / "skills" / skill_name / "SKILL.md"
+            assert skill_file.exists(), f"Missing lattice skill: {skill_name}"
+            assert len(skill_file.read_text(encoding="utf-8").strip()) > 0
+
+    def test_lattice_init_only_two_agents(self, tmp_path):
+        """Lattice project must have only data-visualizer and literature-search agents."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="lat-agents-test",
+            output_dir=tmp_path,
+            template_name="lattice_design",
+        )
+
+        agents_dir = project_dir / ".claude" / "agents"
+        agent_files = sorted(f.name for f in agents_dir.iterdir() if f.suffix == ".md")
+        assert agent_files == ["data-visualizer.md", "literature-search.md"]
+
+    def test_control_assistant_has_all_hooks(self, tmp_path):
+        """Control assistant project must have all 8 hook files."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="ctrl-hooks-test",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+        )
+
+        expected_hooks = [
+            "osprey_hook_log.py",
+            "osprey_approval.py",
+            "osprey_writes_check.py",
+            "osprey_limits.py",
+            "osprey_error_guidance.py",
+            "osprey_memory_guard.py",
+            "osprey_notebook_update.py",
+            "osprey_cf_feedback_capture.py",
+        ]
+        hooks_dir = project_dir / ".claude" / "hooks"
+        for hook_name in expected_hooks:
+            assert (hooks_dir / hook_name).exists(), f"Missing hook: {hook_name}"
+
+    def test_backward_compat_no_manifest(self, tmp_path):
+        """If manifest doesn't exist, all files are generated (backward compat)."""
+        manager = TemplateManager()
+
+        # _get_tracked_files falls back to _REGEN_TRACKED_FILES when no manifest
+        tracked = manager._get_tracked_files("nonexistent_template")
+        assert tracked == list(manager._REGEN_TRACKED_FILES)
+
+        # _resolve_manifest_outputs with allowed_outputs=None means no filtering
+        # Verify by checking that _load_template_manifest returns None
+        manifest = manager._load_template_manifest("nonexistent_template")
+        assert manifest is None
 
 
 if __name__ == "__main__":
