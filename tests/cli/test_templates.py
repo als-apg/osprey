@@ -825,8 +825,8 @@ class TestTemplateManifest:
             assert skill_file.exists(), f"Missing lattice skill: {skill_name}"
             assert len(skill_file.read_text(encoding="utf-8").strip()) > 0
 
-    def test_lattice_init_only_two_agents(self, tmp_path):
-        """Lattice project must have only data-visualizer and literature-search agents."""
+    def test_lattice_init_agents(self, tmp_path):
+        """Lattice project must have expected agents."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="lat-agents-test",
@@ -836,7 +836,11 @@ class TestTemplateManifest:
 
         agents_dir = project_dir / ".claude" / "agents"
         agent_files = sorted(f.name for f in agents_dir.iterdir() if f.suffix == ".md")
-        assert agent_files == ["data-visualizer.md", "literature-search.md"]
+        assert agent_files == [
+            "data-visualizer.md",
+            "literature-search.md",
+            "textbook-expert.md",
+        ]
 
     def test_control_assistant_has_all_hooks(self, tmp_path):
         """Control assistant project must have all 8 hook files."""

@@ -81,6 +81,12 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             description="Literature search sub-agent",
         ),
         PromptArtifact(
+            canonical_name="agents/textbook-expert",
+            template_path="claude/agents/textbook-expert.md.j2",
+            output_path=".claude/agents/textbook-expert.md",
+            description="Accelerator physics textbook expert sub-agent",
+        ),
+        PromptArtifact(
             canonical_name="agents/logbook-search",
             template_path="claude/agents/logbook-search.md.j2",
             output_path=".claude/agents/logbook-search.md",
