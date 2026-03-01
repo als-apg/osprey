@@ -14,11 +14,11 @@ from osprey.runtime import (
     write_channel,
     write_channels,
 )
-from osprey.services.python_executor.exceptions import ChannelLimitsViolationError
-from osprey.services.python_executor.execution.limits_validator import (
+from osprey.connectors.control_system.limits_validator import (
     ChannelLimitsConfig,
     LimitsValidator,
 )
+from osprey.errors import ChannelLimitsViolationError
 
 
 class MockConnector:

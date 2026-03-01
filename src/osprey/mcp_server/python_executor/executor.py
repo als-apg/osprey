@@ -96,7 +96,7 @@ def _create_execution_folder() -> Path:
 def _load_limits_validator():
     """Load LimitsValidator from config.  Returns None if disabled or unavailable."""
     try:
-        from osprey.services.python_executor.execution.limits_validator import LimitsValidator
+        from osprey.connectors.control_system.limits_validator import LimitsValidator
 
         return LimitsValidator.from_config()
     except Exception:

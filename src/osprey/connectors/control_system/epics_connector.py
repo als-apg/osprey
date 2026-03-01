@@ -134,7 +134,7 @@ class EPICSConnector(ControlSystemConnector):
         self._timeout = config.get("timeout", 5.0)
 
         # Initialize limits validator for automatic validation and verification config
-        from osprey.services.python_executor.execution.limits_validator import LimitsValidator
+        from osprey.connectors.control_system.limits_validator import LimitsValidator
 
         self._limits_validator = LimitsValidator.from_config()
         if self._limits_validator:
@@ -268,7 +268,7 @@ class EPICSConnector(ControlSystemConnector):
                 logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
             except Exception as e:
                 # Import here to avoid circular dependency
-                from osprey.services.python_executor.exceptions import ChannelLimitsViolationError
+                from osprey.errors import ChannelLimitsViolationError
 
                 # Re-raise limits violations
                 if isinstance(e, ChannelLimitsViolationError):

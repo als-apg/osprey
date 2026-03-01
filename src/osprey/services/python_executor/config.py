@@ -45,7 +45,7 @@ class PythonExecutorConfig:
         :rtype: LimitsValidator | None
         """
         if self._limits_validator is None:
-            from osprey.services.python_executor.execution.limits_validator import LimitsValidator
+            from osprey.connectors.control_system.limits_validator import LimitsValidator
 
             self._limits_validator = LimitsValidator.from_config()
 

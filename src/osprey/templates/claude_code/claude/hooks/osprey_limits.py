@@ -83,7 +83,7 @@ def main():
 
     # Try to import LimitsValidator; if unavailable, allow
     try:
-        from osprey.services.python_executor.execution.limits_validator import (
+        from osprey.connectors.control_system.limits_validator import (
             LimitsValidator,
         )
     except ImportError:
