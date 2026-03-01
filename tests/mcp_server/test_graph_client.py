@@ -19,7 +19,7 @@ class TestGetDeplotUrl:
     """Tests for get_deplot_url config resolution."""
 
     def test_default_url(self, monkeypatch, tmp_path):
-        from osprey.mcp_server.common import reset_config_cache
+        from osprey.utils.workspace import reset_config_cache
 
         monkeypatch.chdir(tmp_path)
         reset_config_cache()
@@ -29,7 +29,7 @@ class TestGetDeplotUrl:
     def test_custom_url_from_config(self, monkeypatch, tmp_path):
         import yaml
 
-        from osprey.mcp_server.common import reset_config_cache
+        from osprey.utils.workspace import reset_config_cache
 
         config = tmp_path / "config.yml"
         config.write_text(yaml.dump({"deplot": {"host": "10.0.0.5", "port": 9000}}))

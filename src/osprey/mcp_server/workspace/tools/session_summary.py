@@ -11,7 +11,8 @@ import logging
 from collections import Counter
 from pathlib import Path
 
-from osprey.mcp_server.common import make_error, resolve_workspace_root
+from osprey.mcp_server.errors import make_error
+from osprey.utils.workspace import resolve_workspace_root
 from osprey.mcp_server.workspace.server import mcp
 
 logger = logging.getLogger("osprey.mcp_server.tools.session_summary")

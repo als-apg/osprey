@@ -9,7 +9,7 @@ All data is stored in the unified ArtifactStore.
 import json
 import logging
 
-from osprey.mcp_server.common import make_error
+from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
 
 logger = logging.getLogger("osprey.mcp_server.tools.data_context_tools")

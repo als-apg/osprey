@@ -54,7 +54,7 @@ def main() -> None:
         print(f"Index built: {db_path}")
 
     elif args.command == "serve" or args.command is None:
-        from osprey.mcp_server.common import run_mcp_server
+        from osprey.mcp_server.startup import run_mcp_server
 
         run_mcp_server("osprey.mcp_server.matlab.server")
 

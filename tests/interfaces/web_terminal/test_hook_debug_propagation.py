@@ -130,10 +130,10 @@ class TestLifespanOspreyConfig:
         monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
         # Simulate stale cache from web_cmd.py pre-lifespan call
-        import osprey.mcp_server.common as common_mod
-        from osprey.mcp_server.common import reset_config_cache
+        import osprey.utils.workspace as workspace_mod
+        from osprey.utils.workspace import reset_config_cache
 
-        common_mod._config_cache = {"stale": True}
+        workspace_mod._config_cache = {"stale": True}
 
         from osprey.interfaces.web_terminal.app import create_app
 
@@ -146,7 +146,7 @@ class TestLifespanOspreyConfig:
 
             with TestClient(app):
                 # Cache should have been reset and re-populated (not stale)
-                assert common_mod._config_cache is None or common_mod._config_cache != {
+                assert workspace_mod._config_cache is None or workspace_mod._config_cache != {
                     "stale": True
                 }
 
@@ -161,7 +161,7 @@ class TestLifespanOspreyConfig:
         monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
         from osprey.interfaces.web_terminal.app import create_app
-        from osprey.mcp_server.common import reset_config_cache
+        from osprey.utils.workspace import reset_config_cache
 
         reset_config_cache()
 

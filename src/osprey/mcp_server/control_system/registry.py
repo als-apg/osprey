@@ -197,7 +197,7 @@ class MCPRegistry:
     @staticmethod
     def _load_config() -> MCPServerConfig:
         """Load config.yml via the shared config loader."""
-        from osprey.mcp_server.common import load_osprey_config, resolve_config_path
+        from osprey.utils.workspace import load_osprey_config, resolve_config_path
 
         raw = load_osprey_config()
         config_path = resolve_config_path()

@@ -9,7 +9,7 @@ auto-capture of matplotlib figures.
 import json
 import logging
 
-from osprey.mcp_server.common import make_error
+from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
 from osprey.mcp_server.workspace.tools._viz_common import (
     build_data_reader,

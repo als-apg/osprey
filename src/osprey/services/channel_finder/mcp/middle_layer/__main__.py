@@ -1,7 +1,7 @@
 """Entry point for ``python -m osprey.services.channel_finder.mcp.middle_layer``."""
 
 from osprey.mcp_env import load_dotenv_from_project
-from osprey.mcp_server.common import redirect_logging_to_stderr
+from osprey.mcp_server.startup import redirect_logging_to_stderr
 
 
 def main() -> None:

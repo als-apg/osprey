@@ -5,7 +5,7 @@ import logging
 
 import nbformat
 
-from osprey.mcp_server.common import make_error
+from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.python_executor.server import mcp
 
 logger = logging.getLogger("osprey.mcp_server.tools.execute")
@@ -240,7 +240,7 @@ async def execute(
     if artifact_ids:
         response["artifact_ids"] = artifact_ids
         try:
-            from osprey.mcp_server.common import gallery_url
+            from osprey.mcp_server.http import gallery_url
 
             response["gallery_url"] = gallery_url()
         except Exception:

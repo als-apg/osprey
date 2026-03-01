@@ -12,7 +12,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from osprey.mcp_server.common import make_error
+from osprey.mcp_server.errors import make_error
 
 logger = logging.getLogger("osprey.mcp_server.control_system.error_handling")
 

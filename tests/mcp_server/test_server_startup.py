@@ -35,7 +35,7 @@ async def test_load_osprey_config(tmp_path, monkeypatch):
     config_file = tmp_path / "config.yml"
     config_file.write_text("control_system:\n  type: mock\n  writes_enabled: true\n")
 
-    from osprey.mcp_server.common import load_osprey_config
+    from osprey.utils.workspace import load_osprey_config
 
     config = load_osprey_config()
     assert config["control_system"]["type"] == "mock"
@@ -49,7 +49,7 @@ async def test_load_osprey_config_from_env(tmp_path, monkeypatch):
     config_file.write_text("control_system:\n  type: epics\n")
     monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
 
-    from osprey.mcp_server.common import load_osprey_config
+    from osprey.utils.workspace import load_osprey_config
 
     config = load_osprey_config()
     assert config["control_system"]["type"] == "epics"
@@ -62,7 +62,7 @@ async def test_load_osprey_config_missing_file(tmp_path, monkeypatch):
     # Ensure no OSPREY_CONFIG env var
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
-    from osprey.mcp_server.common import load_osprey_config
+    from osprey.utils.workspace import load_osprey_config
 
     config = load_osprey_config()
     assert isinstance(config, dict)
@@ -83,7 +83,7 @@ async def test_load_osprey_config_resolves_env_vars(tmp_path, monkeypatch):
     # CS_HOST set → should resolve
     monkeypatch.setenv("CS_HOST", "epics-server.lbl.gov")
 
-    from osprey.mcp_server.common import load_osprey_config
+    from osprey.utils.workspace import load_osprey_config
 
     config = load_osprey_config()
     assert config["control_system"]["type"] == "mock"
@@ -93,7 +93,7 @@ async def test_load_osprey_config_resolves_env_vars(tmp_path, monkeypatch):
 @pytest.mark.unit
 async def test_make_error_format():
     """make_error produces standard error JSON format."""
-    from osprey.mcp_server.common import make_error
+    from osprey.mcp_server.errors import make_error
 
     error = make_error(
         error_type="test_error",
@@ -109,7 +109,7 @@ async def test_make_error_format():
 @pytest.mark.unit
 async def test_make_error_no_suggestions():
     """make_error with no suggestions returns empty list."""
-    from osprey.mcp_server.common import make_error
+    from osprey.mcp_server.errors import make_error
 
     error = make_error(
         error_type="simple_error",

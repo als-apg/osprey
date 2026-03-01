@@ -117,7 +117,7 @@ def main() -> None:
             print(f"  - {field['name']}: {field['type']}{facet}{optional}")
 
     elif args.command == "serve" or args.command is None:
-        from osprey.mcp_server.common import run_mcp_server
+        from osprey.mcp_server.startup import run_mcp_server
 
         run_mcp_server("osprey.mcp_server.accelpapers.server")
 

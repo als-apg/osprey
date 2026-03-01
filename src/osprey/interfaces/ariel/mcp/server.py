@@ -12,7 +12,7 @@ from datetime import datetime
 
 from fastmcp import FastMCP
 
-from osprey.mcp_server.common import make_error  # noqa: F401  (re-exported for ARIEL tools)
+from osprey.mcp_server.errors import make_error  # noqa: F401  (re-exported for ARIEL tools)
 
 logger = logging.getLogger("osprey.interfaces.ariel.mcp")
 
@@ -99,11 +99,11 @@ def serialize_entry(entry: dict, text_limit: int = 300) -> dict:
 def create_server() -> FastMCP:
     """Initialize the registry and import tool modules, then return the server."""
     from osprey.interfaces.ariel.mcp.registry import initialize_ariel_registry
-    from osprey.mcp_server.common import (
+    from osprey.mcp_server.startup import (
         initialize_workspace_singletons,
         prime_config_builder,
-        resolve_workspace_root,
     )
+    from osprey.utils.workspace import resolve_workspace_root
 
     prime_config_builder()
     initialize_ariel_registry()

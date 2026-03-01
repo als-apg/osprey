@@ -10,7 +10,8 @@ import os
 import re
 from pathlib import Path
 
-from osprey.mcp_server.common import load_osprey_config, make_error, resolve_config_path
+from osprey.mcp_server.errors import make_error
+from osprey.utils.workspace import load_osprey_config, resolve_config_path
 from osprey.mcp_server.workspace.server import mcp
 
 logger = logging.getLogger("osprey.mcp_server.tools.setup")

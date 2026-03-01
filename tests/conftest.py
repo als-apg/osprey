@@ -18,7 +18,7 @@ def reset_state_between_tests():
     This prevents state leakage between tests by:
     - Clearing OSPREY_CONFIG and CONFIG_FILE env vars
     - Resetting the registry
-    - Clearing config caches (utils.config and mcp_server.common)
+    - Clearing config caches (utils.config and utils.workspace)
     - Resetting approval manager singleton
     """
     # Reset before test
@@ -40,7 +40,7 @@ def reset_state_between_tests():
 
     # Reset MCP server config cache (separate from utils.config)
     try:
-        from osprey.mcp_server.common import reset_config_cache
+        from osprey.utils.workspace import reset_config_cache
 
         reset_config_cache()
     except ImportError:
@@ -57,7 +57,7 @@ def reset_state_between_tests():
     config_module._config_cache.clear()
 
     try:
-        from osprey.mcp_server.common import reset_config_cache
+        from osprey.utils.workspace import reset_config_cache
 
         reset_config_cache()
     except ImportError:

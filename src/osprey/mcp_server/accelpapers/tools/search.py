@@ -6,7 +6,7 @@ import logging
 from osprey.mcp_server.accelpapers import db
 from osprey.mcp_server.accelpapers.server import mcp
 from osprey.mcp_server.accelpapers.tools._filters import build_filter_string
-from osprey.mcp_server.common import make_error
+from osprey.mcp_server.errors import make_error
 
 logger = logging.getLogger("osprey.mcp_server.accelpapers.tools.search")
 

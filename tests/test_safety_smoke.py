@@ -31,7 +31,7 @@ import pytest
 import yaml
 
 from osprey.mcp_server.artifact_store import reset_artifact_store
-from osprey.mcp_server.common import reset_config_cache
+from osprey.utils.workspace import reset_config_cache
 from osprey.mcp_server.control_system.registry import initialize_mcp_registry, reset_mcp_registry
 
 # ---------------------------------------------------------------------------

@@ -19,11 +19,9 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from osprey.mcp_server.common import (
-    gather_session_metadata,
-    notify_panel_focus,
-    resolve_workspace_root,
-)
+from osprey.mcp_server.http import notify_panel_focus
+from osprey.mcp_server.session import gather_session_metadata
+from osprey.utils.workspace import resolve_workspace_root
 
 logger = logging.getLogger("osprey.interfaces.artifacts.logbook")
 
