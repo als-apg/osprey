@@ -49,7 +49,7 @@ def _create_lifespan(project_cwd: str | None = None):
         available: list[str] = []
 
         try:
-            from osprey.services.channel_finder.mcp.hierarchical.registry import (
+            from osprey.mcp_server.channel_finder_hierarchical.registry import (
                 initialize_cf_hier_registry,
             )
 
@@ -60,7 +60,7 @@ def _create_lifespan(project_cwd: str | None = None):
             logger.debug("Hierarchical pipeline not available", exc_info=True)
 
         try:
-            from osprey.services.channel_finder.mcp.middle_layer.registry import (
+            from osprey.mcp_server.channel_finder_middle_layer.registry import (
                 initialize_cf_ml_registry,
             )
 
@@ -71,7 +71,7 @@ def _create_lifespan(project_cwd: str | None = None):
             logger.debug("Middle layer pipeline not available", exc_info=True)
 
         try:
-            from osprey.services.channel_finder.mcp.in_context.registry import (
+            from osprey.mcp_server.channel_finder_in_context.registry import (
                 initialize_cf_ic_registry,
             )
 

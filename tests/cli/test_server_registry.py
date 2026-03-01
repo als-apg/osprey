@@ -151,7 +151,7 @@ class TestResolveServers:
         servers = resolve_servers({}, ctx)
         cf = [s for s in servers if s["name"] == "channel-finder"][0]
         assert cf["enabled"] is True
-        assert cf["args"] == ["-m", "osprey.services.channel_finder.mcp.hierarchical"]
+        assert cf["args"] == ["-m", "osprey.mcp_server.channel_finder_hierarchical"]
 
 
 # ---------------------------------------------------------------------------

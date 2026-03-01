@@ -12,7 +12,7 @@ class TestInfoEndpoint:
     def test_info_returns_pipeline_type(self, client):
         stats_result = json.dumps({"total_channels": 100, "facility_name": "TEST"})
         with patch(
-            "osprey.services.channel_finder.mcp.in_context.tools.statistics.statistics"
+            "osprey.mcp_server.channel_finder_in_context.tools.statistics.statistics"
         ) as mock_stats:
             mock_stats.fn.return_value = stats_result
             resp = client.get("/api/info")
@@ -33,7 +33,7 @@ class TestStatisticsEndpoint:
             }
         )
         with patch(
-            "osprey.services.channel_finder.mcp.in_context.tools.statistics.statistics"
+            "osprey.mcp_server.channel_finder_in_context.tools.statistics.statistics"
         ) as mock_stats:
             mock_stats.fn.return_value = stats_result
             resp = client.get("/api/statistics")
@@ -51,7 +51,7 @@ class TestStatisticsEndpoint:
             }
         )
         with patch(
-            "osprey.services.channel_finder.mcp.in_context.tools.statistics.statistics"
+            "osprey.mcp_server.channel_finder_in_context.tools.statistics.statistics"
         ) as mock_stats:
             mock_stats.fn.return_value = error_result
             resp = client.get("/api/statistics")
@@ -72,7 +72,7 @@ class TestValidateEndpoint:
         mock_registry = MagicMock()
         mock_registry.database = mock_db
         with patch(
-            "osprey.services.channel_finder.mcp.in_context.registry.get_cf_ic_registry",
+            "osprey.mcp_server.channel_finder_in_context.registry.get_cf_ic_registry",
             return_value=mock_registry,
         ):
             resp = client.post("/api/validate", json={"channels": ["SR:BPM:01:X", "INVALID"]})
@@ -95,7 +95,7 @@ class TestChannelsEndpoint:
             }
         )
         with patch(
-            "osprey.services.channel_finder.mcp.in_context.tools.get_channels.get_channels"
+            "osprey.mcp_server.channel_finder_in_context.tools.get_channels.get_channels"
         ) as mock_ch:
             mock_ch.fn.return_value = chunk_result
             resp = client.get("/api/channels?chunk_idx=0&chunk_size=50")
