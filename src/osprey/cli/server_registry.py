@@ -214,6 +214,21 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         ],
         hooks_post=[_post_error("mcp__accelpapers__.*")],
     ),
+    "textbooks": ServerDefinition(
+        name="textbooks",
+        module="osprey.mcp_server.textbooks",
+        args_extra=["serve"],
+        env={
+            "TEXTBOOKS_ROOT": "${TEXTBOOKS_ROOT:-}",
+        },
+        permissions_allow=[
+            "textbook_lookup",
+            "textbook_read_section",
+            "textbook_search",
+            "textbook_overview",
+        ],
+        hooks_post=[_post_error("mcp__textbooks__.*")],
+    ),
     "matlab": ServerDefinition(
         name="matlab",
         module="osprey.mcp_server.matlab",
@@ -323,6 +338,11 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
             "Creates plots, dashboards, and compiles LaTeX documents. "
             "You do NOT have visualization tools."
         ),
+    ),
+    "textbook-expert": AgentDefinition(
+        name="textbook-expert",
+        server_dependency="textbooks",
+        description="Looks up concepts, equations, and derivations in accelerator physics textbooks.",
     ),
 }
 
