@@ -89,3 +89,25 @@ def resolve_workspace_root() -> Path:
 
     logger.debug("Workspace root resolved to %s", resolved)
     return resolved
+
+
+def resolve_path(path_str: str) -> Path:
+    """Resolve a path relative to the project root from config.
+
+    Absolute paths are returned as-is. Relative paths are resolved
+    against ``project_root`` from the active configuration.
+
+    Args:
+        path_str: Path string (absolute or relative to project root)
+
+    Returns:
+        Resolved absolute Path object
+    """
+    from osprey.utils.config import get_config_builder
+
+    config_builder = get_config_builder()
+    project_root = Path(config_builder.get("project_root"))
+    path = Path(path_str)
+    if path.is_absolute():
+        return path
+    return project_root / path

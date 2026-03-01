@@ -6,8 +6,8 @@
 ## Summary
 
 - Total items: 27
-- Completed: 3
-- Remaining: 24
+- Completed: 4
+- Remaining: 23
 - P0: 2 | P1: 10 | P2: 9 | P3: 6
 
 ## Backlog
@@ -97,11 +97,9 @@
 
 **Status**: completed (2026-02-28) — Moved 42 source files and 33 test files. All 9 MCP servers now live under `mcp_server/`. Updated imports in `server_registry.py`, `logbook.py`, `channel_finder/app.py`, `channel_finder/database_api.py`, and 3 test files. No backward-compat shims (all consumers are internal). 3587 tests pass.
 
-**Status**: pending
-
 ---
 
-### [P1] RF-006: Consolidate config loading systems (pending)
+### [P1] RF-006: Consolidate config loading systems (completed 2026-02-28)
 
 **Severity**: high | **Categories**: dependency, cohesion
 **Files**: `src/osprey/utils/config.py`, `src/osprey/mcp_server/common.py`, `src/osprey/services/channel_finder/utils/config.py`
@@ -116,7 +114,7 @@
 3. Delete `services/channel_finder/utils/config.py` — have callers import directly from `osprey.utils.config`
 4. Consolidate env-var resolution (duplicate implementations in `utils/config.py` and `mcp_server/introspect.py`)
 
-**Status**: pending
+**Status**: completed (2026-02-28) — Scoped to three actionable items: (1) moved `VALID_TIERS` from `cli/claude_code_resolver.py` to `utils/config.py`, fixing the L1→L8 layering violation in `resolve_model_id()`; (2) deleted the 37-line pass-through wrapper `services/channel_finder/utils/config.py`, moved its `resolve_path()` to `utils/workspace.py`, updated 3 callers; (3) updated `logbook.py` duplicate `VALID_TIERS` to import from `utils/config`. The duplicate env-var resolution in `mcp_server/introspect.py` was intentionally left as-is (different scope: flat env dict vs recursive YAML).
 
 ---
 

@@ -17,6 +17,11 @@ import yaml
 # The short name 'CONFIG' enables easy filtering: quiet_logger(['registry', 'CONFIG'])
 logger = logging.getLogger("CONFIG")
 
+# Canonical model tier names used across the framework.
+# Defined here (utils layer) so that both cli/ and other layers can import
+# without creating layering violations.
+VALID_TIERS = frozenset(("haiku", "sonnet", "opus"))
+
 
 def resolve_env_vars(data: Any) -> Any:
     """Recursively resolve environment variables in configuration data.
@@ -582,8 +587,6 @@ def resolve_model_id(provider: str, model_id_or_tier: str, config_path: str | No
     model ID from api.providers[provider].models[tier]. Non-tier values pass
     through unchanged for backward compatibility.
     """
-    from osprey.cli.claude_code_resolver import VALID_TIERS
-
     if model_id_or_tier not in VALID_TIERS:
         return model_id_or_tier
     provider_cfg = get_provider_config(provider, config_path)
