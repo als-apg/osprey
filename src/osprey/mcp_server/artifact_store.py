@@ -257,7 +257,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
 
         # Auto-launch artifact server on first save
         try:
-            from osprey.mcp_server.server_launcher import ensure_artifact_server
+            from osprey.infrastructure.server_launcher import ensure_artifact_server
 
             ensure_artifact_server()
         except Exception as exc:
@@ -376,7 +376,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         self._notify_listeners(entry)
 
         try:
-            from osprey.mcp_server.server_launcher import ensure_artifact_server
+            from osprey.infrastructure.server_launcher import ensure_artifact_server
 
             ensure_artifact_server()
         except Exception as exc:

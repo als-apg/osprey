@@ -118,7 +118,7 @@
 
 ---
 
-### [P1] RF-007: Move server_launcher.py out of mcp_server/ (pending)
+### [P1] RF-007: Move server_launcher.py out of mcp_server/ (completed 2026-03-01)
 
 **Severity**: high | **Categories**: dependency, cohesion
 **Files**: `src/osprey/mcp_server/server_launcher.py`
@@ -132,7 +132,7 @@
 2. Update the 4 workspace tool importers
 3. This naturally resolves the mcp_server → interfaces layering violations
 
-**Status**: pending
+**Status**: completed (2026-03-01) — Moved `server_launcher.py` to `infrastructure/server_launcher.py`, updated 7 source imports + 5 patch strings in tests, updated 1 logger name assertion. No backward-compat shim needed.
 
 ---
 

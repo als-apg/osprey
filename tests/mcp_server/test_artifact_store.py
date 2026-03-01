@@ -669,7 +669,7 @@ class TestAutoLaunchLogging:
 
         with (
             patch(
-                "osprey.mcp_server.server_launcher.ensure_artifact_server",
+                "osprey.infrastructure.server_launcher.ensure_artifact_server",
                 side_effect=RuntimeError("server launch failed"),
             ),
             caplog.at_level(logging.WARNING, logger="osprey.mcp_server.artifact_store"),
@@ -692,7 +692,7 @@ class TestServerLauncherRetry:
 
     def test_server_launcher_retries_after_crash(self):
         """_launched resets to False when the server thread crashes."""
-        from osprey.mcp_server.server_launcher import ServerLauncher
+        from osprey.infrastructure.server_launcher import ServerLauncher
 
         def crash_app_factory(**kwargs):
             raise RuntimeError("app factory crash")
@@ -720,7 +720,7 @@ class TestServerLauncherRetry:
         """Health-check failure after launch produces a warning log."""
         import logging
 
-        from osprey.mcp_server.server_launcher import ServerLauncher
+        from osprey.infrastructure.server_launcher import ServerLauncher
 
         def noop_app_factory(**kwargs):
             # Return something but don't actually start a server
@@ -734,7 +734,7 @@ class TestServerLauncherRetry:
             pass_workspace=False,
         )
 
-        with caplog.at_level(logging.WARNING, logger="osprey.mcp_server.server_launcher"):
+        with caplog.at_level(logging.WARNING, logger="osprey.infrastructure.server_launcher"):
             launcher.ensure_running()
 
         assert any("health check failed" in r.message.lower() for r in caplog.records)
