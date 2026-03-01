@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import math
 import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -19,6 +18,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+from osprey.utils.timeseries import extract_timeseries_frame, lttb_downsample
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -242,81 +243,6 @@ class _SSEBroadcaster:
 MAX_TIMESERIES_FILE_BYTES = 200 * 1024 * 1024  # 200 MB
 
 
-def lttb_downsample(index: list, data: list[list], max_points: int) -> tuple[list, list[list]]:
-    """Largest-Triangle-Three-Buckets downsampling.
-
-    Operates on split-orient DataFrame arrays.  Uses the first data column as
-    the representative for triangle-area index selection, then slices all
-    columns at the same indices so every channel shares the same x-axis.
-
-    Returns (downsampled_index, downsampled_data) where data keeps all columns.
-    """
-    n = len(index)
-    if n <= max_points or max_points < 3:
-        return index, data
-
-    # Convert index to numeric for area calculation
-    x = list(range(n))
-    y = [row[0] if row else 0 for row in data]  # first channel
-
-    selected = [0]  # Always keep first point
-    bucket_size = (n - 2) / (max_points - 2)
-
-    a_idx = 0
-    for i in range(1, max_points - 1):
-        # Next bucket boundaries
-        b_start = int(math.floor((i - 1) * bucket_size)) + 1
-        b_end = int(math.floor(i * bucket_size)) + 1
-        b_end = min(b_end, n)
-
-        # Average of the bucket after this one (lookahead)
-        c_start = int(math.floor(i * bucket_size)) + 1
-        c_end = int(math.floor((i + 1) * bucket_size)) + 1
-        c_end = min(c_end, n)
-        if c_start >= n:
-            c_start = n - 1
-        if c_end > n:
-            c_end = n
-        c_len = max(c_end - c_start, 1)
-        avg_x = sum(x[c_start:c_end]) / c_len
-        avg_y = sum(y[c_start:c_end]) / c_len
-
-        # Pick point in current bucket with max triangle area
-        max_area = -1.0
-        best = b_start
-        for j in range(b_start, b_end):
-            area = abs(
-                (x[a_idx] - avg_x) * (y[j] - y[a_idx]) - (x[a_idx] - x[j]) * (avg_y - y[a_idx])
-            )
-            if area > max_area:
-                max_area = area
-                best = j
-
-        selected.append(best)
-        a_idx = best
-
-    selected.append(n - 1)  # Always keep last point
-
-    new_index = [index[i] for i in selected]
-    new_data = [data[i] for i in selected]
-    return new_index, new_data
-
-
-def _extract_timeseries_frame(raw: dict) -> tuple[dict, dict]:
-    """Extract split-orient DataFrame + query metadata from a data context file.
-
-    Handles two layouts:
-      - Archiver: raw["data"]["dataframe"] = {columns, index, data},
-                  raw["data"]["query"] = {...}
-      - Flat:     raw["data"] = {columns, index, data}
-    Returns (frame_dict, query_dict).
-    """
-    payload = raw.get("data", raw)
-    if "dataframe" in payload:
-        return payload["dataframe"], payload.get("query", {})
-    return payload, {}
-
-
 def create_app(workspace_root: Path | None = None) -> FastAPI:
     """Create the Artifact Gallery FastAPI application.
 
@@ -511,7 +437,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             )
 
         raw = json.loads(filepath.read_bytes())
-        frame, query_meta = _extract_timeseries_frame(raw)
+        frame, query_meta = extract_timeseries_frame(raw)
         columns = frame.get("columns", [])
         index = frame.get("index", [])
         rows = frame.get("data", [])

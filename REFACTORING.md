@@ -6,8 +6,8 @@
 ## Summary
 
 - Total items: 27
-- Completed: 1
-- Remaining: 26
+- Completed: 3
+- Remaining: 24
 - P0: 2 | P1: 10 | P2: 9 | P3: 6
 
 ## Backlog
@@ -31,7 +31,7 @@
 
 ---
 
-### [P0] RF-002: Move generators/config_updater.py to utils/ (pending)
+### [P0] RF-002: Move generators/config_updater.py to utils/ (completed 2026-02-28)
 
 **Severity**: high | **Categories**: structure, naming, cohesion
 **Files**: `src/osprey/generators/__init__.py`, `src/osprey/generators/config_updater.py`
@@ -46,11 +46,11 @@
 3. Delete the `generators/` package
 4. Update `__init__.py` docstring if needed
 
-**Status**: pending
+**Status**: completed (2026-02-28) — Moved config_updater.py to utils/, updated 6 source imports + 4 patch() strings in tests, moved 3 test files from tests/generators/ to tests/utils/, deleted generators/ package entirely. No backward-compat shim needed. All 3584 tests pass.
 
 ---
 
-### [P1] RF-003: Extract timeseries utilities from interfaces layer (pending)
+### [P1] RF-003: Extract timeseries utilities from interfaces layer (completed 2026-02-28)
 
 **Severity**: high | **Categories**: dependency, cohesion
 **Files**: `src/osprey/interfaces/artifacts/app.py`, `src/osprey/mcp_server/workspace/tools/archiver_downsample.py`
@@ -62,7 +62,7 @@
 1. Create `src/osprey/utils/timeseries.py` with `lttb_downsample` and `extract_timeseries_frame`
 2. Update both `interfaces/artifacts/app.py` and `mcp_server/workspace/tools/archiver_downsample.py` to import from the new location
 
-**Status**: pending
+**Status**: completed (2026-02-28) — Extracted `lttb_downsample` and `extract_timeseries_frame` (renamed from `_extract_timeseries_frame`) to `utils/timeseries.py`. Updated 3 source files and 5 test imports. Removed `import math` from `app.py` (only used by extracted code). No backward-compat shim needed.
 
 ---
 

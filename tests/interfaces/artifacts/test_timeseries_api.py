@@ -240,7 +240,7 @@ class TestLTTBAlgorithm:
     @pytest.mark.unit
     def test_preserves_endpoints(self):
         """First and last points always preserved."""
-        from osprey.interfaces.artifacts.app import lttb_downsample
+        from osprey.utils.timeseries import lttb_downsample
 
         index = list(range(100))
         data = [[float(i)] for i in range(100)]
@@ -252,7 +252,7 @@ class TestLTTBAlgorithm:
     @pytest.mark.unit
     def test_passthrough_small_data(self):
         """Data smaller than max_points passes through unchanged."""
-        from osprey.interfaces.artifacts.app import lttb_downsample
+        from osprey.utils.timeseries import lttb_downsample
 
         index = list(range(5))
         data = [[float(i)] for i in range(5)]
@@ -264,7 +264,7 @@ class TestLTTBAlgorithm:
     @pytest.mark.unit
     def test_preserves_extrema(self):
         """LTTB should preserve clear peaks and valleys."""
-        from osprey.interfaces.artifacts.app import lttb_downsample
+        from osprey.utils.timeseries import lttb_downsample
 
         # Create data with a clear spike at index 50
         n = 200
@@ -281,7 +281,7 @@ class TestLTTBAlgorithm:
     @pytest.mark.unit
     def test_multi_channel_shared_indices(self):
         """All channels use the same selected indices."""
-        from osprey.interfaces.artifacts.app import lttb_downsample
+        from osprey.utils.timeseries import lttb_downsample
 
         n = 500
         index = list(range(n))
@@ -301,7 +301,7 @@ class TestLTTBAlgorithm:
     @pytest.mark.unit
     def test_output_size_matches_max_points(self):
         """Output has exactly max_points entries."""
-        from osprey.interfaces.artifacts.app import lttb_downsample
+        from osprey.utils.timeseries import lttb_downsample
 
         index = list(range(1000))
         data = [[float(i)] for i in range(1000)]

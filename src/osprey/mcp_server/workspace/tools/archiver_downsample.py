@@ -8,7 +8,7 @@ keeping the payload small enough for inline report generation.
 import json
 import logging
 
-from osprey.interfaces.artifacts.app import _extract_timeseries_frame, lttb_downsample
+from osprey.utils.timeseries import extract_timeseries_frame, lttb_downsample
 from osprey.mcp_server.errors import make_error
 from osprey.utils.workspace import resolve_workspace_root
 from osprey.mcp_server.workspace.server import mcp
@@ -92,7 +92,7 @@ async def archiver_downsample(
             )
         )
 
-    frame, query_meta = _extract_timeseries_frame(raw)
+    frame, query_meta = extract_timeseries_frame(raw)
     all_columns = frame.get("columns", [])
     index = frame.get("index", [])
     rows = frame.get("data", [])
