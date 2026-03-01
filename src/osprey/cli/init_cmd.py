@@ -56,8 +56,8 @@ def _clear_claude_code_project_state(project_path: Path) -> None:
 @click.option(
     "--template",
     "-t",
-    default="minimal",
-    help="Application template to use (minimal, hello_world_weather, control_assistant)",
+    default="control_assistant",
+    help="Application template to use (control_assistant, lattice_design)",
 )
 @click.option(
     "--output-dir",
@@ -115,9 +115,8 @@ def init(
     Available templates:
 
     \b
-      - minimal: Bare-bones project with TODO placeholders
-      - hello_world_weather: Simple weather query example (tutorial)
       - control_assistant: Control system integration with channel finder (production-grade)
+      - lattice_design: Accelerator lattice physics with AT (pyAT) skills
 
     The generated project includes:
 
@@ -127,18 +126,13 @@ def init(
       - Documentation (README.md)
       - Claude Code integration (.mcp.json, CLAUDE.md, .claude/ hooks & rules)
       - Template data files (channel databases, logbook seeds for control_assistant)
+      - Lattice physics skills and rules (lattice_design only)
 
     Examples:
 
     \b
-      # Create minimal project
+      # Create project (uses control_assistant template by default)
       $ osprey init my-assistant
-
-      # Create from specific template
-      $ osprey init my-assistant --template hello_world_weather
-
-      # Create control system project
-      $ osprey init my-control-assistant --template control_assistant
 
       # Create in specific location
       $ osprey init my-assistant --output-dir /projects

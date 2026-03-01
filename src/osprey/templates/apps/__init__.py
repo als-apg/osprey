@@ -2,9 +2,7 @@
 
 This package contains templates for different application types:
 
-- minimal/ : Minimal starter template with TODOs
-- hello_world_weather/ : Simple tutorial application (optional)
-- wind_turbine/ : Advanced example application (optional)
+- control_assistant/ : Control system integration with channel finder (production-grade)
 
 Each template contains:
 - registry.py.j2 : Component registration
