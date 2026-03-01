@@ -13,7 +13,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import shutil
 import warnings
 from datetime import UTC, datetime, timedelta
@@ -32,6 +31,16 @@ MANIFEST_SCHEMA_VERSION = "1.1.0"
 
 # File used to store project manifest
 MANIFEST_FILENAME = ".osprey-manifest.json"
+
+# Maps manifest YAML category keys to PromptRegistry canonical-name prefixes.
+# Needed because YAML convention uses underscores while registry uses hyphens.
+_MANIFEST_CATEGORY_PREFIX = {
+    "hooks": "hooks/",
+    "rules": "rules/",
+    "skills": "skills/",
+    "agents": "agents/",
+    "output_styles": "output-styles/",
+}
 
 
 class TemplateManager:
@@ -86,6 +95,98 @@ class TemplateManager:
         raise RuntimeError(
             "Could not locate osprey templates directory. Ensure osprey is properly installed."
         )
+
+    def _load_template_manifest(self, template_name: str) -> dict | None:
+        """Load manifest.yml for a template, if it exists.
+
+        Args:
+            template_name: Name of the application template (e.g. "control_assistant")
+
+        Returns:
+            Parsed YAML dict, or None if no manifest.yml exists for this template.
+        """
+        manifest_path = self.template_root / "apps" / template_name / "manifest.yml"
+        if not manifest_path.exists():
+            return None
+
+        with open(manifest_path, encoding="utf-8") as f:
+            manifest = yaml.safe_load(f) or {}
+
+        # Validate entries against the prompt registry
+        registry = PromptRegistry.default()
+        artifacts = manifest.get("artifacts", {})
+        for category, entries in artifacts.items():
+            prefix = _MANIFEST_CATEGORY_PREFIX.get(category)
+            if prefix is None:
+                logging.getLogger("osprey.cli.templates").warning(
+                    "Unknown manifest category '%s' in template '%s'", category, template_name
+                )
+                continue
+            for entry_name in entries:
+                canonical_prefix = prefix + entry_name
+                # Check if any registry artifact starts with this prefix
+                matches = [
+                    a for a in registry.all_artifacts()
+                    if a.canonical_name == canonical_prefix
+                    or a.canonical_name.startswith(canonical_prefix + "/")
+                ]
+                if not matches:
+                    logging.getLogger("osprey.cli.templates").warning(
+                        "Manifest entry '%s/%s' in template '%s' not found in prompt registry",
+                        category, entry_name, template_name,
+                    )
+
+        return manifest
+
+    def _resolve_manifest_outputs(self, manifest: dict) -> set[str]:
+        """Resolve a template manifest to the set of output paths that should be generated.
+
+        Config artifacts (CLAUDE.md, .mcp.json, .claude/settings.json) are always included.
+        For each manifest entry, prefix-matching is used against the prompt registry to
+        handle multi-file artifacts (e.g. session-report → SKILL.md + reference.md).
+
+        Args:
+            manifest: Parsed manifest dict (from _load_template_manifest)
+
+        Returns:
+            Set of output paths (relative to project root) that the manifest allows.
+        """
+        result = {"CLAUDE.md", ".mcp.json", ".claude/settings.json"}
+
+        registry = PromptRegistry.default()
+        all_artifacts = registry.all_artifacts()
+
+        for category, entries in manifest.get("artifacts", {}).items():
+            prefix = _MANIFEST_CATEGORY_PREFIX.get(category)
+            if prefix is None:
+                continue
+            for entry_name in entries:
+                canonical_prefix = prefix + entry_name
+                # Prefix-match: include artifacts whose canonical name matches exactly
+                # OR starts with prefix + "/". This handles multi-file artifacts like
+                # session-report (skills/session-report + skills/session-report/reference).
+                for artifact in all_artifacts:
+                    if (
+                        artifact.canonical_name == canonical_prefix
+                        or artifact.canonical_name.startswith(canonical_prefix + "/")
+                    ):
+                        result.add(artifact.output_path)
+
+        return result
+
+    def _get_tracked_files(self, template_name: str) -> list[str]:
+        """Get the list of tracked files for regen, based on manifest if available.
+
+        Args:
+            template_name: Name of the application template
+
+        Returns:
+            Sorted list of output paths that should be tracked during regen.
+        """
+        manifest = self._load_template_manifest(template_name)
+        if manifest is not None:
+            return sorted(self._resolve_manifest_outputs(manifest))
+        return list(self._REGEN_TRACKED_FILES)
 
     def _detect_environment_variables(self) -> dict[str, str]:
         """Detect environment variables from the system for use in templates.
@@ -296,6 +397,16 @@ class TemplateManager:
         # 6. Copy data files from template (no src/ package)
         self._copy_template_data(project_dir, package_name, template_name, ctx)
 
+        # 6a. Copy machine_data/ for lattice templates
+        if template_name == "lattice_design":
+            machine_data_src = self.template_root / "apps" / "lattice_design" / "machine_data"
+            if machine_data_src.exists():
+                machine_data_dst = project_dir / "machine_data"
+                shutil.copytree(machine_data_src, machine_data_dst, dirs_exist_ok=True)
+                console.print(
+                    f"  [success]✓[/success] Copied machine data to [path]{machine_data_dst}[/path]"
+                )
+
         # 6b. Rebase demo logbook timestamps to current date
         self._rebase_logbook_timestamps(project_dir)
 
@@ -399,7 +510,18 @@ class TemplateManager:
         ctx["disable_servers"] = [s["name"] for s in ctx["servers"] if not s["enabled"]]
         ctx["disable_agents"] = [a["name"] for a in ctx["agents"] if not a["enabled"]]
 
-        self._create_claude_code_integration(project_dir, ctx)
+        # Load template manifest and resolve allowed outputs
+        manifest = self._load_template_manifest(template_name)
+        allowed_outputs = self._resolve_manifest_outputs(manifest) if manifest else None
+
+        # Filter agents to manifest (only generate agents the template declares)
+        if allowed_outputs is not None:
+            ctx["agents"] = [
+                a for a in ctx["agents"]
+                if f".claude/agents/{a['name']}.md" in allowed_outputs
+            ]
+
+        self._create_claude_code_integration(project_dir, ctx, allowed_outputs)
 
         return project_dir
 
@@ -792,95 +914,13 @@ class TemplateManager:
             ctx: Template context with app_class_name, app_display_name, package_name
             template_name: Name of the template being processed
         """
-        from osprey.registry import (
-            CapabilityRegistration,
-            ContextClassRegistration,
-            generate_explicit_registry_code,
-        )
-
-        # Read the compact template to extract app-specific components
-        template_path = self.template_root / "apps" / template_name / "registry.py.j2"
-        with open(template_path) as f:
-            template_content = f.read()
-
-        # Extract capabilities and context classes by parsing the template
-        # This is a simple parser that looks for CapabilityRegistration and ContextClassRegistration calls
-        capabilities = []
-        context_classes = []
-
-        # Parse CapabilityRegistration entries
-        capability_pattern = r"CapabilityRegistration\((.*?)\)"
-        for match in re.finditer(capability_pattern, template_content, re.DOTALL):
-            reg_content = match.group(1)
-
-            # Extract parameters (simple approach - could be more robust)
-            name_match = re.search(r'name\s*=\s*"([^"]+)"', reg_content)
-            module_path_match = re.search(r'module_path\s*=\s*"([^"]+)"', reg_content)
-            class_name_match = re.search(r'class_name\s*=\s*"([^"]+)"', reg_content)
-            description_match = re.search(r'description\s*=\s*"([^"]+)"', reg_content)
-            provides_match = re.search(r"provides\s*=\s*\[([^\]]+)\]", reg_content)
-            requires_match = re.search(r"requires\s*=\s*\[([^\]]*)\]", reg_content)
-
-            if name_match and module_path_match and class_name_match:
-                # Process provides list
-                provides = []
-                if provides_match:
-                    provides_str = provides_match.group(1)
-                    provides = [item.strip().strip("\"'") for item in provides_str.split(",")]
-
-                # Process requires list
-                requires = []
-                if requires_match and requires_match.group(1).strip():
-                    requires_str = requires_match.group(1)
-                    requires = [item.strip().strip("\"'") for item in requires_str.split(",")]
-
-                # Substitute template variables
-                module_path = module_path_match.group(1).replace(
-                    "{{ package_name }}", ctx["package_name"]
-                )
-                description = description_match.group(1) if description_match else ""
-
-                capabilities.append(
-                    CapabilityRegistration(
-                        name=name_match.group(1),
-                        module_path=module_path,
-                        class_name=class_name_match.group(1),
-                        description=description,
-                        provides=provides,
-                        requires=requires,
-                    )
-                )
-
-        # Parse ContextClassRegistration entries
-        context_pattern = r"ContextClassRegistration\((.*?)\)"
-        for match in re.finditer(context_pattern, template_content, re.DOTALL):
-            reg_content = match.group(1)
-
-            context_type_match = re.search(r'context_type\s*=\s*"([^"]+)"', reg_content)
-            module_path_match = re.search(r'module_path\s*=\s*"([^"]+)"', reg_content)
-            class_name_match = re.search(r'class_name\s*=\s*"([^"]+)"', reg_content)
-
-            if context_type_match and module_path_match and class_name_match:
-                # Substitute template variables
-                module_path = module_path_match.group(1).replace(
-                    "{{ package_name }}", ctx["package_name"]
-                )
-
-                context_classes.append(
-                    ContextClassRegistration(
-                        context_type=context_type_match.group(1),
-                        module_path=module_path,
-                        class_name=class_name_match.group(1),
-                    )
-                )
+        from osprey.registry import generate_explicit_registry_code
 
         # Generate the explicit registry code
         registry_code = generate_explicit_registry_code(
             app_class_name=ctx["app_class_name"],
             app_display_name=ctx["app_display_name"],
             package_name=ctx["package_name"],
-            capabilities=capabilities if capabilities else None,
-            context_classes=context_classes if context_classes else None,
         )
 
         # Write to output file
@@ -910,53 +950,58 @@ class TemplateManager:
             "api_calls",
         ]
 
-        # Conditionally add example_scripts for control_assistant with claude_code generator
+        # Conditionally add example_scripts for templates with claude_code generator
         template_name = ctx.get("template_name", "")
         code_generator = ctx.get("code_generator", "")
-        copy_example_scripts = (
-            template_name == "control_assistant" and code_generator == "claude_code"
-        )
 
-        if copy_example_scripts:
-            subdirs.append("example_scripts/plotting")
+        # Map template names to their example script subdirectories
+        _example_script_dirs = {
+            "control_assistant": ["example_scripts/plotting"],
+            "lattice_design": ["example_scripts/lattice"],
+        }
+
+        example_dirs = []
+        if code_generator == "claude_code" and template_name in _example_script_dirs:
+            example_dirs = _example_script_dirs[template_name]
+            subdirs.extend(example_dirs)
 
         for subdir in subdirs:
             subdir_path = agent_data_dir / subdir
             subdir_path.mkdir(parents=True, exist_ok=True)
 
         # Copy example script files if using claude_code generator
-        if copy_example_scripts:
+        if example_dirs:
             template_examples_dir = (
                 self.template_root
                 / "apps"
-                / "control_assistant"
+                / template_name
                 / "_agent_data"
                 / "example_scripts"
             )
             if template_examples_dir.exists():
-                # Copy plotting examples
-                template_plotting = template_examples_dir / "plotting"
-                project_plotting = agent_data_dir / "example_scripts" / "plotting"
+                for example_subdir in example_dirs:
+                    category = example_subdir.split("/")[-1]  # e.g. "plotting", "lattice"
+                    template_category = template_examples_dir / category
+                    project_category = agent_data_dir / example_subdir
 
-                if template_plotting.exists():
-                    # Copy all Python and README files
-                    files_copied = 0
-                    for file_path in template_plotting.iterdir():
-                        if file_path.is_file() and (
-                            file_path.suffix == ".py" or file_path.name == "README.md"
-                        ):
-                            shutil.copy2(file_path, project_plotting / file_path.name)
-                            files_copied += 1
+                    if template_category.exists():
+                        files_copied = 0
+                        for file_path in template_category.iterdir():
+                            if file_path.is_file() and (
+                                file_path.suffix == ".py" or file_path.name == "README.md"
+                            ):
+                                shutil.copy2(file_path, project_category / file_path.name)
+                                files_copied += 1
 
-                    if files_copied > 0:
+                        if files_copied > 0:
+                            console.print(
+                                f"  [success]✓[/success] Copied {files_copied} example script(s) to [path]_agent_data/{example_subdir}/[/path]"
+                            )
+                    else:
                         console.print(
-                            f"  [success]✓[/success] Copied {files_copied} example script(s) to [path]_agent_data/example_scripts/plotting/[/path]"
+                            f"  [warning]⚠[/warning] Template example scripts not found at {template_category}",
+                            style="yellow",
                         )
-                else:
-                    console.print(
-                        f"  [warning]⚠[/warning] Template example scripts not found at {template_plotting}",
-                        style="yellow",
-                    )
 
         console.print(
             f"  [success]✓[/success] Created agent data structure at [path]{agent_data_dir}[/path]"
@@ -996,6 +1041,23 @@ It cannot access your project configuration, secrets, or other sensitive files.
 The directories listed in `claude_generator_config.yml` are the only accessible paths.
 
 Add your own examples to help Claude generate better code for your specific use cases!
+
+"""
+
+        elif template_name == "lattice_design" and code_generator == "claude_code":
+            readme_content += """- `example_scripts/`: Example code for lattice physics workflows
+
+## Example Scripts
+
+The `example_scripts/` directory contains AT (Accelerator Toolbox) examples:
+
+- `example_scripts/lattice/`: Lattice physics workflows (included)
+  - Loading and inspecting lattice files
+  - Computing Twiss parameters and optics
+  - Tune and chromaticity fitting
+  - Interactive Plotly optics plots
+
+Add your own examples to help Claude generate better lattice physics code!
 
 """
 
@@ -1148,6 +1210,13 @@ proper framework operation, especially when using containerized services.
         ".claude/skills/setup-mode/SKILL.md",
         ".claude/rules/timezone.md",
         ".claude/output-styles/control-operator.md",
+        # lattice_design skills and rules (render empty for other templates)
+        ".claude/skills/load-lattice/SKILL.md",
+        ".claude/skills/compute-optics/SKILL.md",
+        ".claude/skills/fit-tune/SKILL.md",
+        ".claude/skills/fit-chromaticity/SKILL.md",
+        ".claude/skills/compare-optics/SKILL.md",
+        ".claude/rules/lattice-physics.md",
     ]
 
     def _compute_regen_summary(self, ctx: dict) -> dict:
@@ -1201,9 +1270,21 @@ proper framework operation, especially when using containerized services.
 
         ctx = self._build_claude_code_context(project_dir, config)
 
+        # Load template manifest for filtering
+        template_name = ctx.get("template_name", "control_assistant")
+        manifest = self._load_template_manifest(template_name)
+        allowed_outputs = self._resolve_manifest_outputs(manifest) if manifest else None
+
+        # Filter agents to manifest
+        if allowed_outputs is not None:
+            ctx["agents"] = [
+                a for a in ctx["agents"]
+                if f".claude/agents/{a['name']}.md" in allowed_outputs
+            ]
+
         # Collect checksums of existing Claude Code files before regeneration.
-        # Use known tracked files, then add agent files (always auto-managed).
-        claude_code_files = list(self._REGEN_TRACKED_FILES)
+        # Use manifest-aware tracked files, then add agent files (always auto-managed).
+        claude_code_files = self._get_tracked_files(template_name)
         agents_dir = project_dir / ".claude" / "agents"
         if agents_dir.exists():
             for agent_file in agents_dir.iterdir():
@@ -1226,7 +1307,7 @@ proper framework operation, especially when using containerized services.
                 tmp_dir = Path(tmp)
                 # Create necessary subdirectories
                 (tmp_dir / ".claude").mkdir(parents=True, exist_ok=True)
-                self._create_claude_code_integration(tmp_dir, ctx)
+                self._create_claude_code_integration(tmp_dir, ctx, allowed_outputs)
 
                 changed = []
                 unchanged = []
@@ -1267,7 +1348,7 @@ proper framework operation, especially when using containerized services.
                 shutil.copy2(src, dst)
 
         # Regenerate
-        self._create_claude_code_integration(project_dir, ctx)
+        self._create_claude_code_integration(project_dir, ctx, allowed_outputs)
 
         # Compare checksums
         changed = []
@@ -1417,7 +1498,9 @@ proper framework operation, especially when using containerized services.
         art = registry.get_by_output(output_path)
         return art.canonical_name if art else None
 
-    def _create_claude_code_integration(self, project_dir: Path, ctx: dict):
+    def _create_claude_code_integration(
+        self, project_dir: Path, ctx: dict, allowed_outputs: set[str] | None = None
+    ):
         """Create Claude Code integration files for the project.
 
         Copies template files from templates/claude_code/ into the project,
@@ -1427,9 +1510,16 @@ proper framework operation, especially when using containerized services.
         User-owned files (listed in ``ctx["user_owned"]``) are skipped during
         regeneration, preserving user customizations.
 
+        When ``allowed_outputs`` is provided (from a template manifest), only
+        files whose output path is in the set are generated. Config artifacts
+        (CLAUDE.md, .mcp.json, .claude/settings.json) should already be in the
+        set. If ``allowed_outputs`` is None, all files are generated (backward compat).
+
         Args:
             project_dir: Root directory of the project
             ctx: Template context variables
+            allowed_outputs: If set, only generate files whose output path is in this set.
+                When None, all files are generated (no manifest filtering).
         """
         claude_code_dir = self.template_root / "claude_code"
 
@@ -1463,7 +1553,9 @@ proper framework operation, especially when using containerized services.
         # user-owned so regen never overwrites user customizations.
         facility_md = project_dir / ".claude" / "rules" / "facility.md"
         facility_j2 = claude_code_dir / "claude" / "rules" / "facility.md.j2"
-        if self._is_user_owned(".claude/rules/facility.md", ctx):
+        if allowed_outputs is not None and ".claude/rules/facility.md" not in allowed_outputs:
+            pass  # Skip — not in manifest
+        elif self._is_user_owned(".claude/rules/facility.md", ctx):
             pass  # Skip — user owns it
         elif not facility_md.exists() and facility_j2.exists():
             facility_md.parent.mkdir(parents=True, exist_ok=True)
@@ -1494,6 +1586,10 @@ proper framework operation, especially when using containerized services.
                     if str(output_rel) == "rules/facility.md":
                         continue
 
+                    # Skip files not in manifest (when manifest is active)
+                    if allowed_outputs is not None and dst_rel not in allowed_outputs:
+                        continue
+
                     # Skip user-owned files
                     if self._is_user_owned(dst_rel, ctx):
                         continue
@@ -1503,8 +1599,22 @@ proper framework operation, especially when using containerized services.
                     dst_file.parent.mkdir(parents=True, exist_ok=True)
                     template_path = f"claude_code/claude/{rel_path}"
                     self.render_template(template_path, ctx, dst_file)
+
+                    # Clean up empty rendered files (template-conditional content)
+                    if dst_file.exists() and not dst_file.read_text(encoding="utf-8").strip():
+                        dst_file.unlink()
+                        # Remove empty parent dir (e.g., .claude/skills/load-lattice/)
+                        if dst_file.parent != project_dir and not any(
+                            dst_file.parent.iterdir()
+                        ):
+                            dst_file.parent.rmdir()
+                        continue
                 else:
                     dst_rel = f".claude/{rel_path}"
+
+                    # Skip files not in manifest (when manifest is active)
+                    if allowed_outputs is not None and dst_rel not in allowed_outputs:
+                        continue
 
                     # Skip user-owned files
                     if self._is_user_owned(dst_rel, ctx):

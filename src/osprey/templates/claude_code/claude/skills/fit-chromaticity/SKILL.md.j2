@@ -1,0 +1,60 @@
+{% if template_name == "lattice_design" %}
+---
+name: fit-chromaticity
+description: >
+  Correct lattice chromaticities by varying sextupole strengths.
+  Reports initial and final chromaticities and sextupole changes.
+summary: Fits chromaticities using sextupole families
+---
+
+# Fit Chromaticity
+
+Correct the horizontal and vertical chromaticities by adjusting sextupole
+family strengths.
+
+## Steps
+
+1. Load the lattice and report initial chromaticities:
+   ```python
+   import at
+   ring = at.load_m('machine_data/als.m')
+   chrom_before = at.get_chrom(ring)
+   ```
+   Print: "Initial chromaticities: xi_x = {chrom_before[0]:.4f}, xi_y = {chrom_before[1]:.4f}"
+
+   Note: natural chromaticity is negative for most storage rings. Sextupoles
+   are used to shift it to small positive values for beam stability.
+
+2. Determine target chromaticities. If the user specified targets, use those.
+   Otherwise ask:
+   > What target chromaticities would you like? (default: [1.0, 1.0])
+
+3. Record sextupole strengths before the fit:
+   ```python
+   sff_before = [e.H for e in ring if e.FamName == 'SFF'][0]
+   sdd_before = [e.H for e in ring if e.FamName == 'SDD'][0]
+   ```
+
+4. Perform the chromaticity fit (modifies the ring in-place):
+   ```python
+   at.fit_chrom(ring, 'SFF', 'SDD', [xi_x, xi_y])
+   ```
+
+5. Report results:
+   ```python
+   chrom_after = at.get_chrom(ring)
+   sff_after = [e.H for e in ring if e.FamName == 'SFF'][0]
+   sdd_after = [e.H for e in ring if e.FamName == 'SDD'][0]
+   ```
+   Print a comparison table:
+   | Parameter | Before | After | Delta |
+   |-----------|--------|-------|-------|
+   | xi_x      | ...    | ...   | ...   |
+   | xi_y      | ...    | ...   | ...   |
+   | H(SFF)    | ...    | ...   | ...   |
+   | H(SDD)    | ...    | ...   | ...   |
+
+6. If chromaticity correction is combined with a tune change, remind the user
+   that the two are coupled: adjusting sextupoles can slightly shift the tunes.
+   Suggest re-checking tunes with `/load-lattice` or iterating with `/fit-tune`.
+{% endif %}

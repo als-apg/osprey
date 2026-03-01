@@ -1,0 +1,36 @@
+name: control_assistant
+description: "Full control system deployment"
+
+artifacts:
+  hooks:
+    - hook-log
+    - approval
+    - writes-check
+    - limits
+    - error-guidance
+    - memory-guard
+    - notebook-update
+    - cf-feedback-capture
+  rules:
+    - safety
+    - error-handling
+    - artifacts
+    - facility
+    - workflows
+    - code-generation
+    - timezone
+  skills:
+    - diagnose
+    - setup-mode
+    - session-report
+  agents:
+    - channel-finder
+    - data-visualizer
+    - graph-analyst
+    - literature-search
+    - logbook-search
+    - logbook-deep-research
+    - matlab-search
+    - wiki-search
+  output_styles:
+    - control-operator
