@@ -73,7 +73,7 @@ class TestLoadPanelConfig:
     def test_no_web_section(self):
         """Missing web section returns only universal panels."""
         with patch(
-            "osprey.mcp_server.common.load_osprey_config",
+            "osprey.utils.workspace.load_osprey_config",
             return_value={},
         ):
             enabled, custom = _load_panel_config()
@@ -83,7 +83,7 @@ class TestLoadPanelConfig:
     def test_empty_panels(self):
         """Empty web.panels returns only universal panels."""
         with patch(
-            "osprey.mcp_server.common.load_osprey_config",
+            "osprey.utils.workspace.load_osprey_config",
             return_value={"web": {"panels": {}}},
         ):
             enabled, custom = _load_panel_config()
@@ -93,7 +93,7 @@ class TestLoadPanelConfig:
     def test_domain_panels_enabled(self):
         """Domain panels with enabled: true are added."""
         with patch(
-            "osprey.mcp_server.common.load_osprey_config",
+            "osprey.utils.workspace.load_osprey_config",
             return_value={
                 "web": {
                     "panels": {
@@ -113,7 +113,7 @@ class TestLoadPanelConfig:
     def test_domain_panel_disabled(self):
         """Domain panels with enabled: false are excluded."""
         with patch(
-            "osprey.mcp_server.common.load_osprey_config",
+            "osprey.utils.workspace.load_osprey_config",
             return_value={
                 "web": {
                     "panels": {
@@ -130,7 +130,7 @@ class TestLoadPanelConfig:
     def test_domain_panel_bare_true(self):
         """A bare `true` value (not dict) enables the panel."""
         with patch(
-            "osprey.mcp_server.common.load_osprey_config",
+            "osprey.utils.workspace.load_osprey_config",
             return_value={"web": {"panels": {"ariel": True}}},
         ):
             enabled, custom = _load_panel_config()
@@ -139,7 +139,7 @@ class TestLoadPanelConfig:
     def test_domain_panel_dict_defaults_enabled(self):
         """A dict without explicit enabled key defaults to enabled."""
         with patch(
-            "osprey.mcp_server.common.load_osprey_config",
+            "osprey.utils.workspace.load_osprey_config",
             return_value={"web": {"panels": {"ariel": {}}}},
         ):
             enabled, custom = _load_panel_config()
@@ -148,7 +148,7 @@ class TestLoadPanelConfig:
     def test_custom_panel_extracted(self):
         """Non-builtin panel IDs are returned as custom panels."""
         with patch(
-            "osprey.mcp_server.common.load_osprey_config",
+            "osprey.utils.workspace.load_osprey_config",
             return_value={
                 "web": {
                     "panels": {
@@ -171,7 +171,7 @@ class TestLoadPanelConfig:
     def test_mixed_builtin_and_custom(self):
         """Both builtin and custom panels are handled correctly."""
         with patch(
-            "osprey.mcp_server.common.load_osprey_config",
+            "osprey.utils.workspace.load_osprey_config",
             return_value={
                 "web": {
                     "panels": {
@@ -191,7 +191,7 @@ class TestLoadPanelConfig:
     def test_config_load_failure(self):
         """Config load failure returns universal panels only."""
         with patch(
-            "osprey.mcp_server.common.load_osprey_config",
+            "osprey.utils.workspace.load_osprey_config",
             side_effect=RuntimeError("no config"),
         ):
             enabled, custom = _load_panel_config()

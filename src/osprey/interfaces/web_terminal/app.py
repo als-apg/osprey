@@ -34,7 +34,7 @@ logger = __import__("logging").getLogger(__name__)
 def _launch_artifact_server(app: FastAPI) -> None:
     """Auto-launch the artifact gallery server if configured."""
     try:
-        from osprey.mcp_server.common import load_osprey_config
+        from osprey.utils.workspace import load_osprey_config
         from osprey.mcp_server.server_launcher import ensure_artifact_server
 
         config = load_osprey_config()
@@ -53,7 +53,7 @@ def _launch_artifact_server(app: FastAPI) -> None:
 def _launch_ariel_server(app: FastAPI) -> None:
     """Auto-launch the ARIEL logbook server if configured."""
     try:
-        from osprey.mcp_server.common import load_osprey_config
+        from osprey.utils.workspace import load_osprey_config
         from osprey.mcp_server.server_launcher import ensure_ariel_server
 
         config = load_osprey_config()
@@ -72,7 +72,7 @@ def _launch_ariel_server(app: FastAPI) -> None:
 def _launch_tuning_server(app: FastAPI) -> None:
     """Auto-launch the tuning panel server if configured."""
     try:
-        from osprey.mcp_server.common import load_osprey_config
+        from osprey.utils.workspace import load_osprey_config
         from osprey.mcp_server.server_launcher import ensure_tuning_server
 
         config = load_osprey_config()
@@ -91,7 +91,7 @@ def _launch_tuning_server(app: FastAPI) -> None:
 def _launch_deplot_server(app: FastAPI) -> None:
     """Auto-launch the DePlot graph extraction service if configured."""
     try:
-        from osprey.mcp_server.common import load_osprey_config
+        from osprey.utils.workspace import load_osprey_config
         from osprey.mcp_server.server_launcher import ensure_deplot_server
 
         config = load_osprey_config()
@@ -112,7 +112,7 @@ def _launch_deplot_server(app: FastAPI) -> None:
 def _launch_channel_finder_server(app: FastAPI) -> None:
     """Auto-launch the Channel Finder web server if configured."""
     try:
-        from osprey.mcp_server.common import load_osprey_config
+        from osprey.utils.workspace import load_osprey_config
         from osprey.mcp_server.server_launcher import ensure_channel_finder_server
 
         config = load_osprey_config()
@@ -134,7 +134,7 @@ def _launch_channel_finder_server(app: FastAPI) -> None:
 def _launch_agentsview_server(app: FastAPI) -> None:
     """Auto-launch the agentsview session analytics server if configured."""
     try:
-        from osprey.mcp_server.common import load_osprey_config
+        from osprey.utils.workspace import load_osprey_config
 
         config = load_osprey_config()
         av_config = config.get("agentsview", {})
@@ -157,7 +157,7 @@ def _launch_agentsview_server(app: FastAPI) -> None:
 def _launch_cui_server(app: FastAPI) -> None:
     """Auto-launch the CUI server subprocess if configured."""
     try:
-        from osprey.mcp_server.common import load_osprey_config
+        from osprey.utils.workspace import load_osprey_config
 
         config = load_osprey_config()
         cui_config = config.get("cui_server", {})
@@ -187,7 +187,7 @@ def _load_panel_config() -> tuple[set[str], list[dict]]:
         (enabled_builtin_ids, custom_panel_defs)
     """
     try:
-        from osprey.mcp_server.common import load_osprey_config
+        from osprey.utils.workspace import load_osprey_config
 
         config = load_osprey_config()
     except Exception:
@@ -264,7 +264,7 @@ def _create_lifespan(
                 logger.debug("Auto-set OSPREY_CONFIG=%s", candidate)
 
         # Clear any stale config cache (e.g. from web_cmd.py pre-lifespan call)
-        from osprey.mcp_server.common import reset_config_cache
+        from osprey.utils.workspace import reset_config_cache
 
         reset_config_cache()
 
@@ -310,7 +310,7 @@ def _create_lifespan(
         # Hook debug env — propagated to PTY/SDK sessions like OTEL
         app.state.hooks_env = {}
         try:
-            from osprey.mcp_server.common import load_osprey_config
+            from osprey.utils.workspace import load_osprey_config
 
             hooks_config = load_osprey_config().get("hooks", {})
             if hooks_config.get("debug"):

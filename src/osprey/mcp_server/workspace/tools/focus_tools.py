@@ -7,7 +7,8 @@ artifact_pin toggles the pinned flag for quick access filtering.
 import json
 import logging
 
-from osprey.mcp_server.common import gallery_url, make_error, post_json
+from osprey.mcp_server.errors import make_error
+from osprey.mcp_server.http import gallery_url, post_json
 from osprey.mcp_server.workspace.server import mcp
 
 logger = logging.getLogger("osprey.mcp_server.tools.focus")

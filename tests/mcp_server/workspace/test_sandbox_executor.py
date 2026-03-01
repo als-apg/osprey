@@ -208,7 +208,7 @@ class TestExecuteSandboxCode:
         """)
 
         with patch(
-            "osprey.mcp_server.common.resolve_workspace_root",
+            "osprey.utils.workspace.resolve_workspace_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -233,7 +233,7 @@ class TestExecuteSandboxCode:
         """)
 
         with patch(
-            "osprey.mcp_server.common.resolve_workspace_root",
+            "osprey.utils.workspace.resolve_workspace_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -258,7 +258,7 @@ class TestExecuteSandboxCode:
         """)
 
         with patch(
-            "osprey.mcp_server.common.resolve_workspace_root",
+            "osprey.utils.workspace.resolve_workspace_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -280,7 +280,7 @@ class TestExecuteSandboxCode:
         """)
 
         with patch(
-            "osprey.mcp_server.common.resolve_workspace_root",
+            "osprey.utils.workspace.resolve_workspace_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -296,7 +296,7 @@ class TestExecuteSandboxCode:
         code = "import subprocess\nsubprocess.run(['ls'])"
 
         with patch(
-            "osprey.mcp_server.common.resolve_workspace_root",
+            "osprey.utils.workspace.resolve_workspace_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
@@ -332,7 +332,7 @@ class TestExecuteSandboxCode:
         """)
 
         with patch(
-            "osprey.mcp_server.common.resolve_workspace_root",
+            "osprey.utils.workspace.resolve_workspace_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -351,7 +351,7 @@ class TestExecuteSandboxCode:
         code = "x = 1 / 0"
 
         with patch(
-            "osprey.mcp_server.common.resolve_workspace_root",
+            "osprey.utils.workspace.resolve_workspace_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
@@ -363,7 +363,7 @@ class TestExecuteSandboxCode:
         code = "print('hello from sandbox')"
 
         with patch(
-            "osprey.mcp_server.common.resolve_workspace_root",
+            "osprey.utils.workspace.resolve_workspace_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
@@ -404,7 +404,7 @@ print(content)
 """
 
         with patch(
-            "osprey.mcp_server.common.resolve_workspace_root",
+            "osprey.utils.workspace.resolve_workspace_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
@@ -423,7 +423,7 @@ except PermissionError:
 """
 
         with patch(
-            "osprey.mcp_server.common.resolve_workspace_root",
+            "osprey.utils.workspace.resolve_workspace_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
@@ -488,7 +488,7 @@ class TestCreateExecutionFolder:
         ws.mkdir()
 
         with patch(
-            "osprey.mcp_server.common.resolve_workspace_root",
+            "osprey.utils.workspace.resolve_workspace_root",
             return_value=ws,
         ):
             folder = create_sandbox_execution_folder()
@@ -552,7 +552,7 @@ class TestSaveArtifactBokehSupport:
         """)
 
         with patch(
-            "osprey.mcp_server.common.resolve_workspace_root",
+            "osprey.utils.workspace.resolve_workspace_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -574,7 +574,7 @@ class TestSaveArtifactBokehSupport:
         """)
 
         with patch(
-            "osprey.mcp_server.common.resolve_workspace_root",
+            "osprey.utils.workspace.resolve_workspace_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -595,7 +595,7 @@ class TestSaveArtifactBokehSupport:
         """)
 
         with patch(
-            "osprey.mcp_server.common.resolve_workspace_root",
+            "osprey.utils.workspace.resolve_workspace_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -615,7 +615,7 @@ class TestSaveArtifactBokehSupport:
         """)
 
         with patch(
-            "osprey.mcp_server.common.resolve_workspace_root",
+            "osprey.utils.workspace.resolve_workspace_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -637,7 +637,7 @@ class TestSaveArtifactBokehSupport:
         """)
 
         with patch(
-            "osprey.mcp_server.common.resolve_workspace_root",
+            "osprey.utils.workspace.resolve_workspace_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -657,7 +657,7 @@ class TestSaveArtifactBokehSupport:
         """)
 
         with patch(
-            "osprey.mcp_server.common.resolve_workspace_root",
+            "osprey.utils.workspace.resolve_workspace_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(

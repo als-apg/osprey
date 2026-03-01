@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from osprey.interfaces.ariel.mcp.registry import reset_ariel_registry
-from osprey.mcp_server.common import reset_config_cache
+from osprey.utils.workspace import reset_config_cache
 from tests.mcp_server.conftest import get_tool_fn  # noqa: F401
 
 

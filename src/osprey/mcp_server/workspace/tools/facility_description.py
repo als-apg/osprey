@@ -8,7 +8,8 @@ and operational details.
 import json
 import logging
 
-from osprey.mcp_server.common import make_error, resolve_config_path
+from osprey.mcp_server.errors import make_error
+from osprey.utils.workspace import resolve_config_path
 from osprey.mcp_server.workspace.server import mcp
 
 logger = logging.getLogger("osprey.mcp_server.tools.facility_description")

@@ -173,7 +173,7 @@ def build_viz_response(artifact_ids: list[str], title: str, stdout: str = "") ->
         response["stdout"] = stdout
     if artifact_ids:
         try:
-            from osprey.mcp_server.common import gallery_url
+            from osprey.mcp_server.http import gallery_url
 
             response["gallery_url"] = gallery_url()
         except Exception:

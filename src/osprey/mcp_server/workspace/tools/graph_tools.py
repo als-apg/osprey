@@ -10,7 +10,7 @@ import json
 import logging
 from pathlib import Path
 
-from osprey.mcp_server.common import make_error
+from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
 
 logger = logging.getLogger("osprey.mcp_server.tools.graph_tools")

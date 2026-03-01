@@ -1,6 +1,6 @@
 """Entry point for ``python -m osprey.mcp_server.workspace``."""
 
-from osprey.mcp_server.common import run_mcp_server
+from osprey.mcp_server.startup import run_mcp_server
 
 
 def main() -> None:

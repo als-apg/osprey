@@ -35,7 +35,7 @@ def _resolve_tuning_api_url(explicit: str | None = None) -> str | None:
         return env_url
 
     try:
-        from osprey.mcp_server.common import load_osprey_config
+        from osprey.utils.workspace import load_osprey_config
 
         config = load_osprey_config()
         return config.get("tuning", {}).get("api_url")

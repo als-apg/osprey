@@ -35,7 +35,7 @@ class ExecutionResult:
 
 def _read_config() -> dict:
     """Read execution-related config values from config.yml."""
-    from osprey.mcp_server.common import load_osprey_config
+    from osprey.utils.workspace import load_osprey_config
 
     config = load_osprey_config()
 
@@ -73,14 +73,14 @@ def _resolve_project_root() -> Path:
     etc.  Used as the subprocess ``cwd`` so that relative workspace paths
     (e.g. ``osprey-workspace/data/002_archiver_read.json``) resolve correctly.
     """
-    from osprey.mcp_server.common import resolve_workspace_root
+    from osprey.utils.workspace import resolve_workspace_root
 
     return resolve_workspace_root().parent
 
 
 def _create_execution_folder() -> Path:
     """Create a timestamped execution folder under the workspace."""
-    from osprey.mcp_server.common import resolve_workspace_root
+    from osprey.utils.workspace import resolve_workspace_root
 
     base = resolve_workspace_root() / "data" / "python_executions"
     base.mkdir(parents=True, exist_ok=True)

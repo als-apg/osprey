@@ -33,7 +33,7 @@ def _reset_all_config_caches(monkeypatch):
     before each test so the adapter reads from the test's own
     config.yml via monkeypatch.chdir(tmp_path).
     """
-    from osprey.mcp_server.common import reset_config_cache
+    from osprey.utils.workspace import reset_config_cache
 
     reset_config_cache()
 

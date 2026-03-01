@@ -10,7 +10,8 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
-from osprey.mcp_server.common import load_osprey_config, make_error
+from osprey.mcp_server.errors import make_error
+from osprey.utils.workspace import load_osprey_config
 from osprey.mcp_server.workspace.server import mcp
 from osprey.mcp_server.workspace.tools.screen_capture_backends import (
     BackendUnavailableError,

@@ -21,7 +21,7 @@ logger = logging.getLogger("osprey.interfaces.ariel.mcp.tools.entry")
 
 def _get_drafts_dir() -> Path:
     """Resolve the drafts directory at call time (not import time)."""
-    from osprey.mcp_server.common import resolve_workspace_root
+    from osprey.utils.workspace import resolve_workspace_root
 
     return resolve_workspace_root() / "drafts"
 
@@ -303,7 +303,7 @@ async def entry_create(
 
             drafts_dir = _get_drafts_dir()
             drafts_dir.mkdir(parents=True, exist_ok=True)
-            from osprey.mcp_server.common import gather_session_metadata
+            from osprey.mcp_server.session import gather_session_metadata
 
             draft_data = {
                 "draft_id": draft_id,
@@ -328,7 +328,7 @@ async def entry_create(
             logger.info("Draft %s created at %s", draft_id, filepath)
 
             try:
-                from osprey.mcp_server.common import notify_panel_focus
+                from osprey.mcp_server.http import notify_panel_focus
 
                 notify_panel_focus("ariel", url=url)
             except Exception:
@@ -356,7 +356,7 @@ async def entry_create(
     # --- Direct mode: write straight to the database ---
 
     try:
-        from osprey.mcp_server.common import gather_session_metadata
+        from osprey.mcp_server.session import gather_session_metadata
 
         registry = get_ariel_registry()
         service = await registry.service()

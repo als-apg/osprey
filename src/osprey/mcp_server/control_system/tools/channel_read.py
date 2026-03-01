@@ -3,7 +3,7 @@
 import json
 import logging
 
-from osprey.mcp_server.common import make_error
+from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.control_system.error_handling import ToolError, connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
 

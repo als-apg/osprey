@@ -36,7 +36,7 @@ def _create_lifespan(project_cwd: str | None = None):
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         import httpx
 
-        from osprey.mcp_server.common import load_osprey_config
+        from osprey.utils.workspace import load_osprey_config
 
         # Load config and determine pipeline type
         config = load_osprey_config()

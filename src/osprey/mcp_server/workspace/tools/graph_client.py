@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 
-from osprey.mcp_server.common import load_osprey_config
+from osprey.utils.workspace import load_osprey_config
 
 logger = logging.getLogger("osprey.mcp_server.tools.graph_client")
 

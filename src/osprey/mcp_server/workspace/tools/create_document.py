@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from osprey.mcp_server.common import make_error
+from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
 
 logger = logging.getLogger("osprey.mcp_server.tools.create_document")
@@ -194,7 +194,7 @@ async def create_document(
         "figures_included": len(resolved_files),
     }
     try:
-        from osprey.mcp_server.common import gallery_url
+        from osprey.mcp_server.http import gallery_url
 
         response["gallery_url"] = gallery_url()
     except Exception:

@@ -3,7 +3,7 @@
 import json
 import logging
 
-from osprey.mcp_server.common import make_error
+from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.matlab.db import get_connection
 from osprey.mcp_server.matlab.server import mcp
 

@@ -21,7 +21,7 @@ mcp = FastMCP(
 
 def create_server() -> FastMCP:
     """Import tool modules and return the configured server."""
-    from osprey.mcp_server.common import startup_timer
+    from osprey.mcp_server.startup import startup_timer
 
     with startup_timer("tool_imports"):
         from osprey.mcp_server.accelpapers.tools import (  # noqa: F401

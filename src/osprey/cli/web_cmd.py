@@ -9,7 +9,7 @@ import click
 
 def get_config_value(key: str, default=None):
     """Read a top-level config value from config.yml."""
-    from osprey.mcp_server.common import load_osprey_config
+    from osprey.utils.workspace import load_osprey_config
 
     return load_osprey_config().get(key, default)
 

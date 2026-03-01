@@ -87,7 +87,7 @@ async def channel_finder_server_config(request: Request):
 async def wiki_url(request: Request):
     """Return the external wiki URL for the header link button."""
     try:
-        from osprey.mcp_server.common import load_osprey_config
+        from osprey.utils.workspace import load_osprey_config
 
         config = load_osprey_config()
         confluence = config.get("confluence", {})

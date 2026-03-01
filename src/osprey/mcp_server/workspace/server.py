@@ -20,12 +20,12 @@ mcp = FastMCP(
 
 def create_server() -> FastMCP:
     """Initialize workspace singletons and import tool modules, then return the server."""
-    from osprey.mcp_server.common import (
+    from osprey.mcp_server.startup import (
         initialize_workspace_singletons,
         prime_config_builder,
-        resolve_workspace_root,
         startup_timer,
     )
+    from osprey.utils.workspace import resolve_workspace_root
 
     # Prime the main ConfigBuilder and registry so downstream services
     # (LimitsValidator, pattern_detection) find their config when tools

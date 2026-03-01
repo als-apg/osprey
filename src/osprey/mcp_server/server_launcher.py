@@ -13,7 +13,7 @@ import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
-from osprey.mcp_server.common import load_osprey_config
+from osprey.utils.workspace import load_osprey_config
 
 logger = logging.getLogger("osprey.mcp_server.server_launcher")
 
@@ -64,7 +64,7 @@ class ServerLauncher:
                 import uvicorn
 
                 if self._pass_workspace:
-                    from osprey.mcp_server.common import resolve_workspace_root
+                    from osprey.utils.workspace import resolve_workspace_root
 
                     app = self._app_factory(workspace_root=resolve_workspace_root())
                 else:

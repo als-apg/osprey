@@ -8,7 +8,8 @@ import json
 import logging
 from pathlib import Path
 
-from osprey.mcp_server.common import gallery_url, make_error
+from osprey.mcp_server.errors import make_error
+from osprey.mcp_server.http import gallery_url
 from osprey.mcp_server.workspace.server import mcp
 
 logger = logging.getLogger("osprey.mcp_server.tools.artifact_save")

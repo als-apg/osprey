@@ -9,7 +9,7 @@ from osprey.services.channel_finder.mcp.middle_layer.registry import reset_cf_ml
 def _reset_registry():
     """Reset registry singletons and config caches between tests."""
     import osprey.utils.config as _cfg
-    from osprey.mcp_server.common import reset_config_cache
+    from osprey.utils.workspace import reset_config_cache
 
     reset_config_cache()
     _cfg._default_config = None

@@ -41,7 +41,7 @@ def mock_registry():
 def app(mock_config, mock_registry):
     """Create a test Channel Finder FastAPI app with mocked dependencies."""
     with patch(
-        "osprey.mcp_server.common.load_osprey_config",
+        "osprey.utils.workspace.load_osprey_config",
         return_value=mock_config,
     ):
         from osprey.interfaces.channel_finder.app import create_app
@@ -63,7 +63,7 @@ def feedback_client(mock_config, mock_registry, tmp_path):
     from osprey.services.channel_finder.feedback.store import FeedbackStore
 
     with patch(
-        "osprey.mcp_server.common.load_osprey_config",
+        "osprey.utils.workspace.load_osprey_config",
         return_value=mock_config,
     ):
         from osprey.interfaces.channel_finder.app import create_app
@@ -82,7 +82,7 @@ def pending_review_client(mock_config, mock_registry, tmp_path):
     from osprey.services.channel_finder.feedback.store import FeedbackStore
 
     with patch(
-        "osprey.mcp_server.common.load_osprey_config",
+        "osprey.utils.workspace.load_osprey_config",
         return_value=mock_config,
     ):
         from osprey.interfaces.channel_finder.app import create_app
