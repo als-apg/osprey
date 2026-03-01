@@ -245,10 +245,10 @@ print(f"Container working directory: {{Path.cwd()}}")
             # Runtime Channel Limits Checking (Monkeypatch with Embedded Config)
             try:
                 import json
-                from osprey.services.python_executor.execution.limits_validator import (
+                from osprey.connectors.control_system.limits_validator import (
                     LimitsValidator, ChannelLimitsConfig
                 )
-                from osprey.services.python_executor.exceptions import ChannelLimitsViolationError
+                from osprey.errors import ChannelLimitsViolationError
 
                 # Deserialize embedded config
                 _limits_db_raw = json.loads('''{db_json}''')

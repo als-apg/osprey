@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, Any
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
-    from osprey.services.python_executor.execution.limits_validator import LimitsValidator
+    from osprey.connectors.control_system.limits_validator import LimitsValidator
 
 logger = get_logger("runtime")
 

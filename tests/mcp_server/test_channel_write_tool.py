@@ -57,7 +57,7 @@ async def test_channel_write_success(tmp_path, monkeypatch):
             return_value=mock_connector,
         ),
         patch(
-            "osprey.services.python_executor.execution.limits_validator.LimitsValidator.from_config",
+            "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
             return_value=None,
         ),
     ):
@@ -90,7 +90,7 @@ async def test_channel_write_with_readback(tmp_path, monkeypatch):
             return_value=mock_connector,
         ),
         patch(
-            "osprey.services.python_executor.execution.limits_validator.LimitsValidator.from_config",
+            "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
             return_value=None,
         ),
     ):
@@ -116,7 +116,7 @@ async def test_channel_write_limits_violation(tmp_path, monkeypatch):
     mock_validator.validate.side_effect = ValueError("Value 9999.0 exceeds max limit 100.0")
 
     with patch(
-        "osprey.services.python_executor.execution.limits_validator.LimitsValidator.from_config",
+        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=mock_validator,
     ):
         fn = _get_channel_write()
@@ -144,7 +144,7 @@ async def test_channel_write_connection_error(tmp_path, monkeypatch):
             return_value=mock_connector,
         ),
         patch(
-            "osprey.services.python_executor.execution.limits_validator.LimitsValidator.from_config",
+            "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
             return_value=None,
         ),
     ):
@@ -179,7 +179,7 @@ async def test_channel_write_multiple_operations(tmp_path, monkeypatch):
             return_value=mock_connector,
         ),
         patch(
-            "osprey.services.python_executor.execution.limits_validator.LimitsValidator.from_config",
+            "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
             return_value=None,
         ),
     ):
@@ -217,7 +217,7 @@ async def test_channel_write_missing_channel_key(tmp_path, monkeypatch):
     (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
 
     with patch(
-        "osprey.services.python_executor.execution.limits_validator.LimitsValidator.from_config",
+        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=None,
     ):
         fn = _get_channel_write()

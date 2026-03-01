@@ -24,7 +24,7 @@ from .exceptions import (
     PythonExecutorException,
 )
 from .execution.control import ExecutionControlConfig, ExecutionMode
-from .execution.limits_validator import LimitsValidator
+from osprey.connectors.control_system.limits_validator import LimitsValidator
 from .models import (
     ContainerEndpointConfig,
     ExecutionModeConfig,

@@ -66,7 +66,7 @@
 
 ---
 
-### [P1] RF-004: Move LimitsValidator to shared safety module (pending)
+### [P1] RF-004: Move LimitsValidator to connectors/control_system/ (completed)
 
 **Severity**: high | **Categories**: dependency, cohesion
 **Files**: `src/osprey/services/python_executor/execution/limits_validator.py`, `src/osprey/services/python_executor/exceptions.py`
@@ -75,13 +75,7 @@
 
 **Problem**: `LimitsValidator` and `ChannelLimitsViolationError` are placed in `services/python_executor/` but are imported across 5 layers: runtime/ (L2), registry/ (L3), connectors/ (L4), mcp_server/ (L6), and templates/. This creates severe layering violations — connectors (L4) and runtime (L2) reach up into services (L5) for a safety-critical component. The import path `osprey.services.python_executor.execution.limits_validator` obscures that this is a framework-level safety primitive, not a Python-executor-specific concern.
 
-**Approach**:
-1. Create `src/osprey/safety/` package with `limits_validator.py` and move `ChannelLimitsViolationError` to `osprey/errors.py`
-2. Update all 9+ importers to use the new paths
-3. Add backward-compat re-exports in old location temporarily
-4. Remove re-exports after all imports are updated
-
-**Status**: pending
+**Status**: completed (2026-02-28) — Moved `LimitsValidator` to `connectors/control_system/limits_validator.py` and `ChannelLimitsViolationError` to `errors.py` (inherits from `Exception` directly). Updated 13 source files + 3 test files. Backward-compat re-exports in `services/python_executor/exceptions.py` and `services/python_executor/execution/limits_validator.py`.
 
 ---
 

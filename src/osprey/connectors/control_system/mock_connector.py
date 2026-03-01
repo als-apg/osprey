@@ -78,16 +78,14 @@ class MockConnector(ControlSystemConnector):
             try:
                 from osprey.utils.config import get_config_value
 
-                self._enable_writes = get_config_value(
-                    "control_system.writes_enabled", False
-                )
+                self._enable_writes = get_config_value("control_system.writes_enabled", False)
             except (FileNotFoundError, KeyError, RuntimeError):
                 # Config not available (test environment) - default to False (safe)
                 self._enable_writes = False
                 logger.debug("Config unavailable - defaulting writes_enabled to False")
 
         # Initialize limits validator for automatic validation and verification config
-        from osprey.services.python_executor.execution.limits_validator import LimitsValidator
+        from osprey.connectors.control_system.limits_validator import LimitsValidator
 
         self._limits_validator = LimitsValidator.from_config()
         if self._limits_validator:
@@ -174,7 +172,7 @@ class MockConnector(ControlSystemConnector):
                 logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
             except Exception as e:
                 # Import here to avoid circular dependency
-                from osprey.services.python_executor.exceptions import ChannelLimitsViolationError
+                from osprey.errors import ChannelLimitsViolationError
 
                 # Re-raise limits violations
                 if isinstance(e, ChannelLimitsViolationError):
