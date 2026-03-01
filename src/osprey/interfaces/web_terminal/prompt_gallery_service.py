@@ -38,6 +38,16 @@ _EXT_LANG = {
 _FM_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 _PY_FM_RE = re.compile(r'^(?:#!.*\n)?"""\n---\n(.*?)\n---', re.DOTALL)
 
+# Subdirectories under .claude/ to scan for artifact files
+_CLAUDE_SUBDIRS = ("agents", "commands", "hooks", "output-styles", "rules", "skills")
+
+# Config-tier files: (relative_path, relative_path) — checked first in scan order
+_CONFIG_FILES = (
+    ("CLAUDE.md", "CLAUDE.md"),
+    (".mcp.json", ".mcp.json"),
+    (".claude/settings.json", ".claude/settings.json"),
+)
+
 
 class PromptGalleryService:
     """Service for the Prompt Gallery web UI.
@@ -66,55 +76,66 @@ class PromptGalleryService:
     def list_artifacts(self) -> list[dict[str, Any]]:
         """Return all artifacts with status and metadata.
 
-        Includes both registry-defined artifacts and custom user-owned files
-        that were registered via :meth:`register_untracked`.
+        Filesystem-first: only artifacts whose files exist on disk are
+        returned, enriched with registry metadata where available.
+        Custom user-owned files (registered via :meth:`register_untracked`)
+        are also included.
         """
-        result = []
+        result: list[dict[str, Any]] = []
         registry_names: set[str] = set()
 
-        for art in self._registry.all_artifacts():
-            registry_names.add(art.canonical_name)
-            is_owned = art.canonical_name in self._user_owned
-            category = art.canonical_name.split("/")[0] if "/" in art.canonical_name else "config"
+        # Phase 1: filesystem-driven discovery
+        for _abs_path, rel_path in self._scan_all_files():
+            art = self._registry.get_by_output(rel_path)
 
-            fm = self._extract_front_matter(art)
-            summary = fm.get("summary") or art.description
-            description = fm.get("description") or art.description
+            if art is not None:
+                # Registry-backed artifact that exists on disk
+                registry_names.add(art.canonical_name)
+                is_owned = art.canonical_name in self._user_owned
+                category = (
+                    art.canonical_name.split("/")[0]
+                    if "/" in art.canonical_name
+                    else "config"
+                )
+                fm = self._read_front_matter_from_disk(rel_path, art)
+                summary = fm.get("summary") or art.description
+                description = fm.get("description") or art.description
 
-            result.append(
-                {
-                    "name": art.canonical_name,
-                    "category": category,
-                    "summary": summary,
-                    "description": description,
-                    "output_path": art.output_path,
-                    "status": "user-owned" if is_owned else "framework",
-                    "custom": False,
-                    "language": self._infer_language(art.output_path),
-                }
-            )
-
-        # Include custom user-owned files not backed by a framework template
-        for name in self._user_owned:
-            if name in registry_names:
-                continue
-            output_path = self._canonical_to_path(name)
-            fm = self._extract_custom_front_matter(output_path)
-            summary = fm.get("summary", "(custom user file)")
-            description = fm.get("description", "(custom user file — no framework template)")
-            category = name.split("/")[0] if "/" in name else "other"
-            result.append(
-                {
-                    "name": name,
-                    "category": category,
-                    "summary": summary,
-                    "description": description,
-                    "output_path": output_path,
-                    "status": "user-owned",
-                    "custom": True,
-                    "language": self._infer_language(output_path),
-                }
-            )
+                result.append(
+                    {
+                        "name": art.canonical_name,
+                        "category": category,
+                        "summary": summary,
+                        "description": description,
+                        "output_path": art.output_path,
+                        "status": "user-owned" if is_owned else "framework",
+                        "custom": False,
+                        "language": self._infer_language(art.output_path),
+                    }
+                )
+            else:
+                # Not in registry — check if it's a registered custom artifact
+                canonical = self._path_to_canonical(rel_path)
+                if canonical in self._user_owned and canonical not in registry_names:
+                    registry_names.add(canonical)
+                    fm = self._read_front_matter_from_disk(rel_path)
+                    summary = fm.get("summary", "(custom user file)")
+                    description = fm.get(
+                        "description", "(custom user file — no framework template)"
+                    )
+                    category = canonical.split("/")[0] if "/" in canonical else "other"
+                    result.append(
+                        {
+                            "name": canonical,
+                            "category": category,
+                            "summary": summary,
+                            "description": description,
+                            "output_path": rel_path,
+                            "status": "user-owned",
+                            "custom": True,
+                            "language": self._infer_language(rel_path),
+                        }
+                    )
 
         return result
 
@@ -404,18 +425,67 @@ class PromptGalleryService:
             "language": self._infer_language(output_path),
         }
 
-    def _extract_custom_front_matter(self, output_path: str) -> dict[str, str]:
-        """Extract front matter from a custom user file on disk."""
-        fpath = self.project_dir / output_path
-        if not fpath.exists():
+    def _scan_all_files(self) -> list[tuple[Path, str]]:
+        """Yield all existing Claude Code files as (absolute_path, rel_path) pairs.
+
+        Mirrors ClaudeCodeFileService._collect_targets() but used for prompt
+        gallery discovery.  Config-tier files come first, then rglob on each
+        subdirectory.
+        """
+        targets: list[tuple[Path, str]] = []
+
+        # Config-tier files
+        for rel_path, _ in _CONFIG_FILES:
+            fpath = self.project_dir / rel_path
+            if fpath.is_file():
+                targets.append((fpath, rel_path))
+
+        # Subdirectory files
+        claude_dir = self.project_dir / ".claude"
+        for subdir_name in _CLAUDE_SUBDIRS:
+            subdir = claude_dir / subdir_name
+            if not subdir.is_dir():
+                continue
+            for fpath in sorted(subdir.rglob("*")):
+                if fpath.is_file() and not fpath.name.startswith("."):
+                    rel = str(fpath.relative_to(self.project_dir))
+                    targets.append((fpath, rel))
+
+        return targets
+
+    def _read_front_matter_from_disk(
+        self,
+        rel_path: str,
+        art: PromptArtifact | None = None,
+    ) -> dict[str, str]:
+        """Extract front-matter from on-disk content, falling back to rendered template.
+
+        Reads the file at *rel_path* first (reflects user modifications).
+        Falls back to ``_render_framework(art)`` only if the file is absent
+        AND a ``PromptArtifact`` is provided.  Uses both ``_FM_RE`` and
+        ``_PY_FM_RE`` patterns so ``.py`` hook files are handled correctly.
+        """
+        content: str | None = None
+        fpath = self.project_dir / rel_path
+        if fpath.is_file():
+            try:
+                content = fpath.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, PermissionError, OSError):
+                pass
+
+        if content is None and art is not None:
+            try:
+                content = self._render_framework(art)
+            except Exception:
+                return {}
+
+        if content is None:
             return {}
-        try:
-            content = fpath.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, PermissionError, OSError):
-            return {}
-        match = _FM_RE.match(content)
+
+        match = _FM_RE.match(content) or _PY_FM_RE.match(content)
         if not match:
             return {}
+
         fields: dict[str, str] = {}
         for line in match.group(1).split("\n"):
             kv = re.match(r'^(\w[\w-]*):\s*"?(.*?)"?\s*$', line)
@@ -436,24 +506,6 @@ class PromptGalleryService:
             self._manager = TemplateManager()
             self._ctx = self._manager._build_claude_code_context(self.project_dir, self._config)
         return self._manager, self._ctx  # type: ignore[return-value]
-
-    def _extract_front_matter(self, art: PromptArtifact) -> dict[str, str]:
-        """Extract front matter fields from the artifact's rendered content."""
-        try:
-            content = self._render_framework(art)
-        except Exception:
-            return {}
-
-        match = _FM_RE.match(content) or _PY_FM_RE.match(content)
-        if not match:
-            return {}
-
-        fields: dict[str, str] = {}
-        for line in match.group(1).split("\n"):
-            kv = re.match(r'^(\w[\w-]*):\s*"?(.*?)"?\s*$', line)
-            if kv:
-                fields[kv.group(1)] = kv.group(2)
-        return fields
 
     def _render_framework(self, art: PromptArtifact) -> str:
         """Render the framework template with the current config context."""
