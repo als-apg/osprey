@@ -117,6 +117,20 @@ agentsview:
   project: "{{ project_name | replace('-', '_') }}"
 
 # ============================================================
+# WEB PANEL CONFIGURATION
+# ============================================================
+# Controls which panel tabs appear in the web terminal (osprey web).
+# Universal panels (Workspace, Activity, Session Analytics) are always shown.
+# No domain-specific panels enabled for lattice design template.
+
+web:
+  panels: {}
+  # Custom panels can be added here:
+  # my-dashboard:
+  #   label: "DASHBOARD"
+  #   url: "http://localhost:3000"
+
+# ============================================================
 # CLAUDE CODE INTEGRATION
 # ============================================================
 

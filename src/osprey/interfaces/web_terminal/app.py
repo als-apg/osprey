@@ -175,26 +175,44 @@ def _launch_cui_server(app: FastAPI) -> None:
         app.state.cui_server_url = None
 
 
-def _load_custom_panels() -> list[dict]:
-    """Read web.panels from config.yml and return panel definitions."""
+# Panel classification constants
+UNIVERSAL_PANELS = {"artifacts", "session", "session-analytics"}
+BUILTIN_PANELS = {"artifacts", "ariel", "tuning", "channel-finder", "session", "session-analytics"}
+
+
+def _load_panel_config() -> tuple[set[str], list[dict]]:
+    """Read web.panels from config.yml.
+
+    Returns:
+        (enabled_builtin_ids, custom_panel_defs)
+    """
     try:
         from osprey.mcp_server.common import load_osprey_config
 
         config = load_osprey_config()
     except Exception:
-        return []
+        return set(UNIVERSAL_PANELS), []
+
     panels_config = config.get("web", {}).get("panels", {})
-    result = []
+
+    enabled = set(UNIVERSAL_PANELS)  # Always on
+    custom = []
+
     for panel_id, spec in panels_config.items():
-        result.append(
-            {
-                "id": panel_id,
-                "label": spec.get("label", panel_id.upper()),
-                "url": spec.get("url", ""),
-                "healthEndpoint": spec.get("health_endpoint"),
-            }
-        )
-    return result
+        if panel_id in BUILTIN_PANELS:
+            if spec is True or (isinstance(spec, dict) and spec.get("enabled", True)):
+                enabled.add(panel_id)
+        else:
+            custom.append(
+                {
+                    "id": panel_id,
+                    "label": spec.get("label", panel_id.upper()),
+                    "url": spec.get("url", ""),
+                    "healthEndpoint": spec.get("health_endpoint"),
+                }
+            )
+
+    return enabled, custom
 
 
 def _load_web_config(config_path: str | Path | None = None) -> dict:
@@ -268,16 +286,26 @@ def _create_lifespan(
         app.state.watcher = WorkspaceWatcher(workspace_dir, app.state.broadcaster)
         app.state.watcher.start()
 
+        # Load panel config and conditionally launch servers
+        enabled_panels, custom_panels = _load_panel_config()
+        app.state.enabled_panels = enabled_panels
+        app.state.custom_panels = custom_panels
+
+        # Universal servers — always launched
         _launch_artifact_server(app)
-        _launch_ariel_server(app)
-        _launch_tuning_server(app)
         _launch_cui_server(app)
-        _launch_deplot_server(app)
-        _launch_channel_finder_server(app)
         _launch_agentsview_server(app)
 
-        # Load custom panels from config
-        app.state.custom_panels = _load_custom_panels()
+        # Domain servers — template-controlled
+        if "ariel" in enabled_panels:
+            _launch_ariel_server(app)
+        if "tuning" in enabled_panels:
+            _launch_tuning_server(app)
+        if "channel-finder" in enabled_panels:
+            _launch_channel_finder_server(app)
+
+        # Standalone services — always launched (not panel-tied)
+        _launch_deplot_server(app)
 
         # Hook debug env — propagated to PTY/SDK sessions like OTEL
         app.state.hooks_env = {}

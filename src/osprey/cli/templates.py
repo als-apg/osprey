@@ -126,15 +126,26 @@ class TemplateManager:
                 canonical_prefix = prefix + entry_name
                 # Check if any registry artifact starts with this prefix
                 matches = [
-                    a for a in registry.all_artifacts()
+                    a
+                    for a in registry.all_artifacts()
                     if a.canonical_name == canonical_prefix
                     or a.canonical_name.startswith(canonical_prefix + "/")
                 ]
                 if not matches:
                     logging.getLogger("osprey.cli.templates").warning(
                         "Manifest entry '%s/%s' in template '%s' not found in prompt registry",
-                        category, entry_name, template_name,
+                        category,
+                        entry_name,
+                        template_name,
                     )
+
+        # Validate web_panels entries
+        valid_panel_ids = {"ariel", "channel-finder", "tuning"}
+        for panel_id in manifest.get("web_panels", []):
+            if panel_id not in valid_panel_ids:
+                logging.getLogger("osprey.cli.templates").warning(
+                    "Unknown web_panel '%s' in template '%s'", panel_id, template_name
+                )
 
         return manifest
 
@@ -517,8 +528,7 @@ class TemplateManager:
         # Filter agents to manifest (only generate agents the template declares)
         if allowed_outputs is not None:
             ctx["agents"] = [
-                a for a in ctx["agents"]
-                if f".claude/agents/{a['name']}.md" in allowed_outputs
+                a for a in ctx["agents"] if f".claude/agents/{a['name']}.md" in allowed_outputs
             ]
 
         self._create_claude_code_integration(project_dir, ctx, allowed_outputs)
@@ -972,11 +982,7 @@ class TemplateManager:
         # Copy example script files if using claude_code generator
         if example_dirs:
             template_examples_dir = (
-                self.template_root
-                / "apps"
-                / template_name
-                / "_agent_data"
-                / "example_scripts"
+                self.template_root / "apps" / template_name / "_agent_data" / "example_scripts"
             )
             if template_examples_dir.exists():
                 for example_subdir in example_dirs:
@@ -1278,8 +1284,7 @@ proper framework operation, especially when using containerized services.
         # Filter agents to manifest
         if allowed_outputs is not None:
             ctx["agents"] = [
-                a for a in ctx["agents"]
-                if f".claude/agents/{a['name']}.md" in allowed_outputs
+                a for a in ctx["agents"] if f".claude/agents/{a['name']}.md" in allowed_outputs
             ]
 
         # Collect checksums of existing Claude Code files before regeneration.
@@ -1604,9 +1609,7 @@ proper framework operation, especially when using containerized services.
                     if dst_file.exists() and not dst_file.read_text(encoding="utf-8").strip():
                         dst_file.unlink()
                         # Remove empty parent dir (e.g., .claude/skills/load-lattice/)
-                        if dst_file.parent != project_dir and not any(
-                            dst_file.parent.iterdir()
-                        ):
+                        if dst_file.parent != project_dir and not any(dst_file.parent.iterdir()):
                             dst_file.parent.rmdir()
                         continue
                 else:

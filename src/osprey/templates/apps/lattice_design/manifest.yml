@@ -31,3 +31,5 @@ artifacts:
     - literature-search
   output_styles:
     - control-operator
+
+web_panels: []
