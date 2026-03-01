@@ -4,7 +4,7 @@ from textwrap import dedent
 
 import pytest
 
-from osprey.generators.config_updater import (
+from osprey.utils.config_updater import (
     get_epics_gateway_config,
     get_facility_from_gateway_config,
     set_epics_gateway_config,

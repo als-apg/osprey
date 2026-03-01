@@ -4,7 +4,7 @@ from textwrap import dedent
 
 import pytest
 
-from osprey.generators.config_updater import (
+from osprey.utils.config_updater import (
     get_control_system_type,
     set_control_system_type,
 )
