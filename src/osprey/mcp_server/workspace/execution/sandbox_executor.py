@@ -202,6 +202,7 @@ def _create_sandbox_wrapper(
     user_code: str,
     execution_folder: Path,
     workspace_root: Path,
+    project_root: Path | None = None,
 ) -> str:
     """Generate a wrapped script with filesystem sandboxing and output capture.
 
@@ -216,6 +217,7 @@ def _create_sandbox_wrapper(
     """
     exec_folder_str = str(execution_folder)
     workspace_str = str(workspace_root)
+    project_root_str = str(project_root) if project_root else str(workspace_root.parent)
 
     return f'''\
 import sys
@@ -236,6 +238,9 @@ _ALLOWED_ROOTS = [
     Path(r"{exec_folder_str}").resolve(),
     Path(r"{workspace_str}").resolve(),
 ]
+# Project root — read-only access for data files (machine_data/, etc.)
+_PROJECT_ROOT = Path(r"{project_root_str}").resolve()
+_ALLOWED_ROOTS.append(_PROJECT_ROOT)
 # Also allow tempfile directory
 import tempfile as _tempfile
 _ALLOWED_ROOTS.append(Path(_tempfile.gettempdir()).resolve())
@@ -260,6 +265,16 @@ def _sandboxed_open(file, mode="r", *args, **kwargs):
     for root in _ALLOWED_ROOTS:
         try:
             path.relative_to(root)
+            # Project root is read-only — block writes outside workspace
+            if root == _PROJECT_ROOT and mode not in ("r", "rb"):
+                _ws = Path(r"{workspace_str}").resolve()
+                try:
+                    path.relative_to(_ws)
+                except ValueError:
+                    raise PermissionError(
+                        f"Sandbox: write denied for '{{path}}'. "
+                        f"Writes are only allowed in the workspace directory."
+                    )
             return _original_open(file, mode, *args, **kwargs)
         except ValueError:
             continue
@@ -595,14 +610,14 @@ async def execute_sandbox_code(
     from osprey.utils.workspace import resolve_workspace_root
 
     workspace_root = resolve_workspace_root()
-    wrapped_code = _create_sandbox_wrapper(code, execution_folder, workspace_root)
+    project_root = workspace_root.parent
+    wrapped_code = _create_sandbox_wrapper(
+        code, execution_folder, workspace_root, project_root
+    )
 
     # 3. Write script and spawn subprocess
     script_path = execution_folder / "wrapped_script.py"
     script_path.write_text(wrapped_code, encoding="utf-8")
-
-    # Use project root as cwd so relative workspace paths resolve
-    project_root = workspace_root.parent
 
     start_time = time.time()
 
