@@ -65,7 +65,7 @@ AGENT_DEFAULT_TIERS: dict[str, str] = {
     "graph-analyst": "sonnet",
 }
 
-VALID_TIERS = frozenset(("haiku", "sonnet", "opus"))
+from osprey.utils.config import VALID_TIERS
 
 # Env vars that settings.json controls — scrubbed from shell before execvp
 # so the per-project env block is authoritative.

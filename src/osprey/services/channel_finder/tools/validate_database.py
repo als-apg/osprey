@@ -314,7 +314,8 @@ def run_validation(
     Returns:
         0 if valid, 1 if invalid.
     """
-    from osprey.services.channel_finder.utils.config import get_config, resolve_path
+    from osprey.utils.config import load_config as get_config
+    from osprey.utils.workspace import resolve_path
 
     pipeline_type = pipeline
 

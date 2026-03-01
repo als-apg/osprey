@@ -331,12 +331,12 @@ def create_namer_from_config(config_path: str | None = None) -> LLMChannelNamer:
     Returns:
         Configured LLMChannelNamer instance
     """
-    from osprey.services.channel_finder.utils.config import get_config, load_config
+    from osprey.utils.config import load_config
 
     if config_path:
         config = load_config(str(config_path))
     else:
-        config = get_config()
+        config = load_config()
 
     name_gen_config = config.get("channel_finder", {}).get("channel_name_generation", {})
 

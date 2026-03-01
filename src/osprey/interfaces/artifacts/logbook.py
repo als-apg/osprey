@@ -331,8 +331,7 @@ def _clean_llm_json(text: str) -> str:
     return text
 
 
-# Valid model tier names for the model selector
-VALID_TIERS = {"haiku", "sonnet", "opus"}
+from osprey.utils.config import VALID_TIERS
 
 # Default composition config when logbook.composition is absent from config.yml
 _DEFAULT_COMPOSITION = {
