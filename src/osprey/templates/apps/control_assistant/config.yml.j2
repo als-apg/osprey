@@ -672,6 +672,27 @@ claude_code:
   #   logbook-search: haiku
   #   logbook-deep-research: sonnet
 
+# ============================================================
+# WEB PANEL CONFIGURATION
+# ============================================================
+# Controls which panel tabs appear in the web terminal (osprey web).
+# Universal panels (Workspace, Activity, Session Analytics) are always shown.
+# Domain-specific panels are listed here — remove or disable as needed.
+
+web:
+  panels:
+    ariel:
+      enabled: true
+    channel-finder:
+      enabled: true
+    tuning:
+      enabled: true
+    # Custom panels can be added here:
+    # my-grafana:
+    #   label: "GRAFANA"
+    #   url: "http://grafana.local:3000"
+    #   health_endpoint: "/api/health"
+
 # ──────────────────────────────────────────────────────────────────────
 # User-Owned Prompt Artifacts
 # ──────────────────────────────────────────────────────────────────────

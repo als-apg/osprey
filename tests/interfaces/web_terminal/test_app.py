@@ -174,18 +174,18 @@ class TestPanelFocus:
         assert data["status"] == "ok"
         assert data["active_panel"] == "artifacts"
 
-    def test_set_panel_focus_ariel(self, client):
+    def test_set_panel_focus_session(self, client):
         resp = client.post(
             "/api/panel-focus",
-            json={"panel": "ariel"},
+            json={"panel": "session"},
         )
         assert resp.status_code == 200
-        assert resp.json()["active_panel"] == "ariel"
+        assert resp.json()["active_panel"] == "session"
 
     def test_get_reflects_set(self, client):
-        client.post("/api/panel-focus", json={"panel": "ariel"})
+        client.post("/api/panel-focus", json={"panel": "session"})
         resp = client.get("/api/panel-focus")
-        assert resp.json()["active_panel"] == "ariel"
+        assert resp.json()["active_panel"] == "session"
 
     def test_set_unknown_panel_422(self, client):
         resp = client.post(
@@ -197,10 +197,10 @@ class TestPanelFocus:
     def test_set_panel_focus_with_url(self, client):
         resp = client.post(
             "/api/panel-focus",
-            json={"panel": "ariel", "url": "http://localhost:8085/#create?draft=abc"},
+            json={"panel": "artifacts", "url": "http://localhost:8086/gallery"},
         )
         assert resp.status_code == 200
-        assert resp.json()["active_panel"] == "ariel"
+        assert resp.json()["active_panel"] == "artifacts"
 
     def test_set_panel_focus_broadcasts_event(self, client):
         """SSE broadcast should be called with a panel_focus event."""

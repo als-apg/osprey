@@ -34,3 +34,8 @@ artifacts:
     - wiki-search
   output_styles:
     - control-operator
+
+web_panels:
+  - ariel
+  - channel-finder
+  - tuning

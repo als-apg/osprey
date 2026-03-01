@@ -143,11 +143,12 @@ async def agentsview_server_config(request: Request):
     return result
 
 
-@router.get("/api/custom-panels")
-async def get_custom_panels(request: Request):
-    """Return user-defined panels from config.yml web.panels section."""
-    panels = getattr(request.app.state, "custom_panels", [])
-    return panels
+@router.get("/api/panels")
+async def get_panels(request: Request):
+    """Return panel configuration: enabled built-in panels + custom panels."""
+    enabled = list(getattr(request.app.state, "enabled_panels", set()))
+    custom = getattr(request.app.state, "custom_panels", [])
+    return {"enabled": enabled, "custom": custom}
 
 
 class PanelFocusRequest(BaseModel):
@@ -165,17 +166,8 @@ async def get_panel_focus(request: Request):
 @router.post("/api/panel-focus")
 async def set_panel_focus(body: PanelFocusRequest, request: Request):
     """Set the active panel and broadcast a focus event via SSE."""
-    known = {
-        "artifacts",
-        "ariel",
-        "tuning",
-        "channel-finder",
-        "session",
-        "session-analytics",
-    }
-    # Include custom panel IDs
-    custom = getattr(request.app.state, "custom_panels", [])
-    known |= {p["id"] for p in custom}
+    known = set(getattr(request.app.state, "enabled_panels", set()))
+    known |= {p["id"] for p in getattr(request.app.state, "custom_panels", [])}
     if body.panel not in known:
         raise HTTPException(status_code=422, detail=f"Unknown panel: {body.panel}")
     request.app.state.active_panel = body.panel
