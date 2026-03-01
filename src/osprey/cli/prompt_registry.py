@@ -252,6 +252,42 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             output_path=".claude/skills/compare-optics/SKILL.md",
             description="Compare optics before/after changes (lattice_design only)",
         ),
+        PromptArtifact(
+            canonical_name="skills/resonance-diagram",
+            template_path="claude/skills/resonance-diagram/SKILL.md.j2",
+            output_path=".claude/skills/resonance-diagram/SKILL.md",
+            description="Resonance diagram visualization (lattice_design only)",
+        ),
+        PromptArtifact(
+            canonical_name="skills/resonance-diagram/reference",
+            template_path="claude/skills/resonance-diagram/references/resonance_diagram.py",
+            output_path=".claude/skills/resonance-diagram/references/resonance_diagram.py",
+            description="Reference implementation for resonance diagram",
+        ),
+        PromptArtifact(
+            canonical_name="skills/dynamic-aperture",
+            template_path="claude/skills/dynamic-aperture/SKILL.md.j2",
+            output_path=".claude/skills/dynamic-aperture/SKILL.md",
+            description="Dynamic aperture computation (lattice_design only)",
+        ),
+        PromptArtifact(
+            canonical_name="skills/dynamic-aperture/reference",
+            template_path="claude/skills/dynamic-aperture/references/dynamic_aperture.py",
+            output_path=".claude/skills/dynamic-aperture/references/dynamic_aperture.py",
+            description="Reference implementation for dynamic aperture",
+        ),
+        PromptArtifact(
+            canonical_name="skills/frequency-map",
+            template_path="claude/skills/frequency-map/SKILL.md.j2",
+            output_path=".claude/skills/frequency-map/SKILL.md",
+            description="Frequency map analysis (lattice_design only)",
+        ),
+        PromptArtifact(
+            canonical_name="skills/frequency-map/reference",
+            template_path="claude/skills/frequency-map/references/frequency_map.py",
+            output_path=".claude/skills/frequency-map/references/frequency_map.py",
+            description="Reference implementation for frequency map analysis",
+        ),
         # ── Rules (lattice_design) ────────────────────────────────
         PromptArtifact(
             canonical_name="rules/lattice-physics",

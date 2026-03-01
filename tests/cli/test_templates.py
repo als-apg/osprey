@@ -645,6 +645,9 @@ class TestLatticeSkillIsolation:
         "fit-tune",
         "fit-chromaticity",
         "compare-optics",
+        "resonance-diagram",
+        "dynamic-aperture",
+        "frequency-map",
     ]
 
     def test_control_assistant_has_no_lattice_skills(self, tmp_path):
@@ -693,9 +696,7 @@ class TestLatticeSkillIsolation:
                 f"Lattice skill '{skill_name}/SKILL.md' should exist in lattice_design project"
             )
             content = skill_file.read_text(encoding="utf-8").strip()
-            assert len(content) > 0, (
-                f"Lattice skill '{skill_name}/SKILL.md' should not be empty"
-            )
+            assert len(content) > 0, f"Lattice skill '{skill_name}/SKILL.md' should not be empty"
 
     def test_lattice_design_has_lattice_rule(self, tmp_path):
         """lattice_design projects must contain lattice-physics rule with content."""
@@ -707,9 +708,7 @@ class TestLatticeSkillIsolation:
         )
 
         rule_file = project_dir / ".claude" / "rules" / "lattice-physics.md"
-        assert rule_file.exists(), (
-            "lattice-physics.md rule should exist in lattice_design project"
-        )
+        assert rule_file.exists(), "lattice-physics.md rule should exist in lattice_design project"
         content = rule_file.read_text(encoding="utf-8").strip()
         assert len(content) > 0, "lattice-physics.md rule should not be empty"
 
@@ -811,10 +810,16 @@ class TestTemplateManifest:
         assert rule.exists()
         assert len(rule.read_text(encoding="utf-8").strip()) > 0
 
-        # All 5 lattice skills
+        # All 8 lattice skills
         for skill_name in [
-            "load-lattice", "compute-optics", "fit-tune",
-            "fit-chromaticity", "compare-optics",
+            "load-lattice",
+            "compute-optics",
+            "fit-tune",
+            "fit-chromaticity",
+            "compare-optics",
+            "resonance-diagram",
+            "dynamic-aperture",
+            "frequency-map",
         ]:
             skill_file = project_dir / ".claude" / "skills" / skill_name / "SKILL.md"
             assert skill_file.exists(), f"Missing lattice skill: {skill_name}"

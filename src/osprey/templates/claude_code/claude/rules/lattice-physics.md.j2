@@ -25,6 +25,12 @@
 - `at.fit_tune(ring, 'QF', 'QD', [nux, nuy])` — Fit tunes (in-place)
 - `at.fit_chrom(ring, 'SFF', 'SDD', [xi_x, xi_y])` — Fit chromaticities (in-place)
 
+## Tracking
+- `ring.track(rin, nturns=N)` — Track 6D phase-space vector for N turns
+- `ring.track(rin, nturns=N, refpts=[0])` — Get turn-by-turn data at observation point
+- Input: rin shape (6,) or (6, nparticles); output includes NaN if particle lost
+- Survival check: `np.all(np.isfinite(rout))` — True if particle survived all turns
+
 ## Element Access
 - `[e for e in ring if e.FamName == 'QF']` — Find by family
 - `ring.get_uint32_index(at.Quadrupole)` — Indices of all quadrupoles
