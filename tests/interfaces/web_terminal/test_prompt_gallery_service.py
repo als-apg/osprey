@@ -56,12 +56,19 @@ def _get_user_owned(project_dir: Path) -> list[str]:
 class TestListArtifacts:
     """Tests for PromptGalleryService.list_artifacts()."""
 
-    def test_list_artifacts_count(self, service):
-        """Total count matches PromptRegistry.default().all_artifacts()."""
-        registry = PromptRegistry.default()
-        expected = len(registry.all_artifacts())
+    def test_list_artifacts_only_existing_files(self, service, project_dir):
+        """Every returned artifact corresponds to a file that exists on disk."""
         result = service.list_artifacts()
-        assert len(result) == expected
+        assert len(result) > 0, "Expected at least some artifacts from osprey init"
+        for art in result:
+            fpath = project_dir / art["output_path"]
+            assert fpath.exists(), f"{art['output_path']} listed but not on disk"
+
+    def test_list_artifacts_bounded_by_registry(self, service):
+        """Returned count is at most the registry size (no phantom artifacts)."""
+        registry = PromptRegistry.default()
+        result = service.list_artifacts()
+        assert len(result) <= len(registry.all_artifacts())
 
     def test_list_artifacts_status_framework(self, service):
         """An artifact without user-ownership has status 'framework'."""
@@ -97,6 +104,35 @@ class TestListArtifacts:
         framework = sum(1 for a in result if a["status"] == "framework")
         owned = sum(1 for a in result if a["status"] == "user-owned")
         assert framework + owned == len(result)
+
+    def test_list_artifacts_reads_disk_metadata(self, service, project_dir):
+        """Modifying front-matter on disk is reflected in list_artifacts()."""
+        # Claim and overwrite with custom front-matter
+        service.scaffold_override(SAFE_ARTIFACT)
+        disk_path = project_dir / ".claude" / "rules" / "safety.md"
+        disk_path.write_text(
+            "---\nsummary: Custom safety summary\n"
+            "description: Custom safety description\n---\n# Custom\n",
+            encoding="utf-8",
+        )
+
+        svc = PromptGalleryService(project_dir)
+        result = svc.list_artifacts()
+        by_name = {a["name"]: a for a in result}
+        assert by_name[SAFE_ARTIFACT]["summary"] == "Custom safety summary"
+        assert by_name[SAFE_ARTIFACT]["description"] == "Custom safety description"
+
+    def test_list_artifacts_excludes_missing_files(self, project_dir):
+        """Artifacts not on disk are not returned (filesystem-first)."""
+        # Delete a known artifact file from the initialized project
+        safety_file = project_dir / ".claude" / "rules" / "safety.md"
+        if safety_file.exists():
+            safety_file.unlink()
+
+        svc = PromptGalleryService(project_dir)
+        result = svc.list_artifacts()
+        names = {a["name"] for a in result}
+        assert SAFE_ARTIFACT not in names
 
 
 # ===========================================================================
