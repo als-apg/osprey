@@ -12,9 +12,14 @@
 - `ld0, rd, ld = at.get_optics(ring, refpts=range(len(ring)+1), get_chrom=True)`
   - `ld.beta` — Beta functions (Nx2 array: beta_x, beta_y)
   - `ld.dispersion` — Dispersion (Nx4 array: eta_x, eta_px, eta_y, eta_py)
+  - `rd.tune` — Tunes [nu_x, nu_y] (fractional, same as `at.get_tune`)
   - `rd.chromaticity` — Chromaticities [xi_x, xi_y]
-- `at.get_tune(ring)` — Fractional tunes [nu_x, nu_y]
+- `at.get_tune(ring)` — Fractional tunes only (integer parts not included)
 - `at.get_chrom(ring)` — Chromaticities [xi_x, xi_y]
+
+### ALS Working Point
+- nu_x ≈ 14.25, nu_y ≈ 8.18 (integer parts: 14, 8)
+- `at.get_tune()` and `rd.tune` return fractional parts only (~0.25, ~0.18)
 
 ## Fitting
 - `at.fit_tune(ring, 'QF', 'QD', [nux, nuy])` — Fit tunes (in-place)
