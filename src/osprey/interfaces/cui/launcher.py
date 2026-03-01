@@ -116,7 +116,7 @@ class CUIProcessLauncher:
 
 
 # ---------------------------------------------------------------------------
-# Module-level helpers (same pattern as server_launcher.py)
+# Module-level helpers (same pattern as infrastructure/server_launcher.py)
 # ---------------------------------------------------------------------------
 
 

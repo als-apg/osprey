@@ -35,7 +35,7 @@ def _launch_artifact_server(app: FastAPI) -> None:
     """Auto-launch the artifact gallery server if configured."""
     try:
         from osprey.utils.workspace import load_osprey_config
-        from osprey.mcp_server.server_launcher import ensure_artifact_server
+        from osprey.infrastructure.server_launcher import ensure_artifact_server
 
         config = load_osprey_config()
         art_config = config.get("artifact_server", {})
@@ -54,7 +54,7 @@ def _launch_ariel_server(app: FastAPI) -> None:
     """Auto-launch the ARIEL logbook server if configured."""
     try:
         from osprey.utils.workspace import load_osprey_config
-        from osprey.mcp_server.server_launcher import ensure_ariel_server
+        from osprey.infrastructure.server_launcher import ensure_ariel_server
 
         config = load_osprey_config()
         ariel_web = config.get("ariel", {}).get("web", {})
@@ -73,7 +73,7 @@ def _launch_tuning_server(app: FastAPI) -> None:
     """Auto-launch the tuning panel server if configured."""
     try:
         from osprey.utils.workspace import load_osprey_config
-        from osprey.mcp_server.server_launcher import ensure_tuning_server
+        from osprey.infrastructure.server_launcher import ensure_tuning_server
 
         config = load_osprey_config()
         tuning_web = config.get("tuning", {}).get("web", {})
@@ -92,7 +92,7 @@ def _launch_deplot_server(app: FastAPI) -> None:
     """Auto-launch the DePlot graph extraction service if configured."""
     try:
         from osprey.utils.workspace import load_osprey_config
-        from osprey.mcp_server.server_launcher import ensure_deplot_server
+        from osprey.infrastructure.server_launcher import ensure_deplot_server
 
         config = load_osprey_config()
         deplot = config.get("deplot", {})
@@ -113,7 +113,7 @@ def _launch_channel_finder_server(app: FastAPI) -> None:
     """Auto-launch the Channel Finder web server if configured."""
     try:
         from osprey.utils.workspace import load_osprey_config
-        from osprey.mcp_server.server_launcher import ensure_channel_finder_server
+        from osprey.infrastructure.server_launcher import ensure_channel_finder_server
 
         config = load_osprey_config()
         cf = config.get("channel_finder", {})

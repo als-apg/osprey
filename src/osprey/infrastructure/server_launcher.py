@@ -15,7 +15,7 @@ from pathlib import Path
 
 from osprey.utils.workspace import load_osprey_config
 
-logger = logging.getLogger("osprey.mcp_server.server_launcher")
+logger = logging.getLogger("osprey.infrastructure.server_launcher")
 
 
 class ServerLauncher:
