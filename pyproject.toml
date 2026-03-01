@@ -115,10 +115,6 @@ dependencies = [
     "psycopg[binary,pool]>=3.1.0,<4.0.0",
     "psycopg-pool>=3.1.0,<4.0.0",
 
-    # ARIEL Web Interface (FastAPI server for web-based logbook search)
-    "fastapi>=0.109.0",
-    "uvicorn[standard]>=0.27.0",
-
     # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
     "aiohttp-socks>=0.8.0",
 
@@ -164,21 +160,6 @@ dev = [
     "psycopg-pool>=3.1.0,<4.0.0",  # ARIEL search integration tests
 ]
 
-# Storage backends (databases, PostgreSQL checkpointing, vector/memory storage)
-# Note: psycopg may require system PostgreSQL headers (libpq-dev) on some systems
-storage = [
-    # Database connectors
-    "pymongo",
-    "neo4j",
-    "qdrant-client",
-    # PostgreSQL
-    "psycopg[pool]>=3.1.0,<4.0.0",
-    "psycopg-pool>=3.1.0,<4.0.0",
-    # Memory and vector storage
-    "mem0ai>=0.1.88",
-    "vecs>=0.4.5",
-]
-
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
 # See _ISSUES/MAJOR/ARIEL/ for specification
 ariel = [
@@ -197,6 +178,11 @@ sheets = [
     "gspread>=6.0.0",
 ]
 
+# Lattice physics (Accelerator Toolbox for lattice_design template)
+lattice = [
+    "accelerator-toolbox[plot]",
+]
+
 # Graph data extraction (DePlot service + comparison tools)
 graph = [
     "opencv-python-headless>=4.8.0",
@@ -213,7 +199,7 @@ screen-capture-linux = [
 
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,storage,ariel,sheets,graph,screen-capture-linux]"
+    "osprey-framework[docs,dev,storage,ariel,sheets,lattice,graph,screen-capture-linux]"
 ]
 
 [project.urls]
@@ -228,9 +214,6 @@ Changelog = "https://github.com/als-apg/osprey/blob/main/CHANGELOG.md"
 [project.scripts]
 # Main CLI entry point (Click group with subcommands)
 osprey = "osprey.cli.main:cli"
-
-# Legacy entry points (maintained for backward compatibility)
-alpha-berkeley-deploy = "osprey.deployment.container_manager:main"
 
 # Hatchling build configuration
 [tool.hatch.version]
@@ -266,11 +249,6 @@ module = [
     "numpy.*",
     "matplotlib.*",
     "pyepics.*",
-    "pymongo.*",
-    "neo4j.*",
-    "qdrant_client.*",
-    "mem0.*",
-    "langfuse.*",
     "podman.*",
 ]
 ignore_missing_imports = true
