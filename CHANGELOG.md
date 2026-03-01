@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Init**: Config now uses tier names (haiku/sonnet/opus) instead of provider-specific model IDs; default tier changed to haiku
 - **Services**: Services now resolve tier names to provider-specific model IDs via `resolve_model_id`
 - **AccelPapers**: Migrated search backend from SQLite FTS5 to Typesense for hybrid BM25 + vector search
+- **MCP Servers**: Consolidate all 9 MCP servers under `mcp_server/` — moved ARIEL MCP from `interfaces/ariel/mcp/` and 3 channel finder MCPs from `services/channel_finder/mcp/` (RF-005)
 - **AccelPapers**: Embedding URL, model, and API key now configurable via `ACCELPAPERS_OLLAMA_URL`, `ACCELPAPERS_EMBEDDING_MODEL`, `ACCELPAPERS_EMBEDDING_API_KEY` env vars; `--data-dir` falls back to `ACCELPAPERS_DATA_DIR`; added `--ollama-url` CLI flag
 
 ## [0.11.3] - 2026-02-22

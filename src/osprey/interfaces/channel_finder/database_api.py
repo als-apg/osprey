@@ -164,7 +164,7 @@ async def get_info(request: Request):
 
     try:
         if pt == "hierarchical":
-            from osprey.services.channel_finder.mcp.hierarchical.registry import (
+            from osprey.mcp_server.channel_finder_hierarchical.registry import (
                 get_cf_hier_registry,
             )
 
@@ -178,7 +178,7 @@ async def get_info(request: Request):
             }
 
         elif pt == "middle_layer":
-            from osprey.services.channel_finder.mcp.middle_layer.tools.list_systems import (
+            from osprey.mcp_server.channel_finder_middle_layer.tools.list_systems import (
                 list_systems,
             )
 
@@ -187,7 +187,7 @@ async def get_info(request: Request):
             info["metadata"] = {"system_count": parsed.get("total", 0)}
 
         else:  # in_context
-            from osprey.services.channel_finder.mcp.in_context.tools.statistics import (
+            from osprey.mcp_server.channel_finder_in_context.tools.statistics import (
                 statistics,
             )
 
@@ -231,7 +231,7 @@ async def get_statistics(request: Request):
 
     try:
         if pt == "hierarchical":
-            from osprey.services.channel_finder.mcp.hierarchical.registry import (
+            from osprey.mcp_server.channel_finder_hierarchical.registry import (
                 get_cf_hier_registry,
             )
 
@@ -239,14 +239,14 @@ async def get_statistics(request: Request):
             return db.get_statistics()
 
         elif pt == "middle_layer":
-            from osprey.services.channel_finder.mcp.middle_layer.tools.statistics import (
+            from osprey.mcp_server.channel_finder_middle_layer.tools.statistics import (
                 statistics,
             )
 
             result = statistics.fn()
 
         else:  # in_context
-            from osprey.services.channel_finder.mcp.in_context.tools.statistics import (
+            from osprey.mcp_server.channel_finder_in_context.tools.statistics import (
                 statistics,
             )
 
@@ -268,7 +268,7 @@ async def validate_channels(request: Request, body: ValidateRequest):
 
     try:
         if pt == "hierarchical":
-            from osprey.services.channel_finder.mcp.hierarchical.registry import (
+            from osprey.mcp_server.channel_finder_hierarchical.registry import (
                 get_cf_hier_registry,
             )
 
@@ -287,7 +287,7 @@ async def validate_channels(request: Request, body: ValidateRequest):
             }
 
         elif pt == "middle_layer":
-            from osprey.services.channel_finder.mcp.middle_layer.tools.validate import (
+            from osprey.mcp_server.channel_finder_middle_layer.tools.validate import (
                 validate,
             )
 
@@ -295,7 +295,7 @@ async def validate_channels(request: Request, body: ValidateRequest):
             return _parse_tool_result(result)
 
         else:  # in_context
-            from osprey.services.channel_finder.mcp.in_context.registry import (
+            from osprey.mcp_server.channel_finder_in_context.registry import (
                 get_cf_ic_registry,
             )
 
@@ -337,7 +337,7 @@ async def explore_options(request: Request, level: str, selections: str | None =
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
     try:
-        from osprey.services.channel_finder.mcp.hierarchical.tools.get_options import (
+        from osprey.mcp_server.channel_finder_hierarchical.tools.get_options import (
             get_options,
         )
 
@@ -366,7 +366,7 @@ async def explore_build(request: Request, selections: str):
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
     try:
-        from osprey.services.channel_finder.mcp.hierarchical.tools.build_channels import (
+        from osprey.mcp_server.channel_finder_hierarchical.tools.build_channels import (
             build_channels,
         )
 
@@ -390,7 +390,7 @@ async def explore_hierarchy_info(request: Request):
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
     try:
-        from osprey.services.channel_finder.mcp.hierarchical.registry import (
+        from osprey.mcp_server.channel_finder_hierarchical.registry import (
             get_cf_hier_registry,
         )
 
@@ -422,7 +422,7 @@ async def explore_systems(request: Request):
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
     try:
-        from osprey.services.channel_finder.mcp.middle_layer.tools.list_systems import (
+        from osprey.mcp_server.channel_finder_middle_layer.tools.list_systems import (
             list_systems,
         )
 
@@ -448,7 +448,7 @@ async def explore_families(request: Request, system: str):
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
     try:
-        from osprey.services.channel_finder.mcp.middle_layer.tools.list_families import (
+        from osprey.mcp_server.channel_finder_middle_layer.tools.list_families import (
             list_families,
         )
 
@@ -481,7 +481,7 @@ async def explore_fields(
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
     try:
-        from osprey.services.channel_finder.mcp.middle_layer.tools.inspect_fields import (
+        from osprey.mcp_server.channel_finder_middle_layer.tools.inspect_fields import (
             inspect_fields,
         )
 
@@ -520,7 +520,7 @@ async def explore_channels(
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
     try:
-        from osprey.services.channel_finder.mcp.middle_layer.tools.list_channels import (
+        from osprey.mcp_server.channel_finder_middle_layer.tools.list_channels import (
             list_channels,
         )
 
@@ -583,7 +583,7 @@ async def get_channels(
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
     try:
-        from osprey.services.channel_finder.mcp.in_context.tools.get_channels import (
+        from osprey.mcp_server.channel_finder_in_context.tools.get_channels import (
             get_channels as _get_channels,
         )
 
@@ -606,19 +606,19 @@ def _get_db_path(request: Request) -> str:
     """Get the database file path for the active pipeline type."""
     pt = _pipeline_type(request)
     if pt == "hierarchical":
-        from osprey.services.channel_finder.mcp.hierarchical.registry import (
+        from osprey.mcp_server.channel_finder_hierarchical.registry import (
             get_cf_hier_registry,
         )
 
         return get_cf_hier_registry().database.db_path
     elif pt == "middle_layer":
-        from osprey.services.channel_finder.mcp.middle_layer.registry import (
+        from osprey.mcp_server.channel_finder_middle_layer.registry import (
             get_cf_ml_registry,
         )
 
         return get_cf_ml_registry().database.db_path
     else:
-        from osprey.services.channel_finder.mcp.in_context.registry import (
+        from osprey.mcp_server.channel_finder_in_context.registry import (
             get_cf_ic_registry,
         )
 
@@ -629,19 +629,19 @@ def _get_database(request: Request):
     """Get the database instance for the active pipeline type."""
     pt = _pipeline_type(request)
     if pt == "hierarchical":
-        from osprey.services.channel_finder.mcp.hierarchical.registry import (
+        from osprey.mcp_server.channel_finder_hierarchical.registry import (
             get_cf_hier_registry,
         )
 
         return get_cf_hier_registry().database
     elif pt == "middle_layer":
-        from osprey.services.channel_finder.mcp.middle_layer.registry import (
+        from osprey.mcp_server.channel_finder_middle_layer.registry import (
             get_cf_ml_registry,
         )
 
         return get_cf_ml_registry().database
     else:
-        from osprey.services.channel_finder.mcp.in_context.registry import (
+        from osprey.mcp_server.channel_finder_in_context.registry import (
             get_cf_ic_registry,
         )
 

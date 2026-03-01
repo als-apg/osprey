@@ -175,7 +175,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
     ),
     "ariel": ServerDefinition(
         name="ariel",
-        module="osprey.interfaces.ariel.mcp",
+        module="osprey.mcp_server.ariel",
         env={
             "OSPREY_CONFIG": "{project_root}/config.yml",
             "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}",
@@ -235,7 +235,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
     ),
     "channel-finder": ServerDefinition(
         name="channel-finder",
-        module="osprey.services.channel_finder.mcp.{channel_finder_pipeline}",
+        module="osprey.mcp_server.channel_finder_{channel_finder_pipeline}",
         env={
             "OSPREY_CONFIG": "{project_root}/config.yml",
         },

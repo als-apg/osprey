@@ -79,7 +79,7 @@
 
 ---
 
-### [P1] RF-005: Consolidate MCP servers under mcp_server/ (pending)
+### [P1] RF-005: Consolidate MCP servers under mcp_server/ (completed)
 
 **Severity**: high | **Categories**: dependency, cohesion
 **Files**: `src/osprey/interfaces/ariel/mcp/`, `src/osprey/services/channel_finder/mcp/`
@@ -94,6 +94,8 @@
 3. Move `services/channel_finder/mcp/in_context/` to `mcp_server/channel_finder_in_context/`
 4. Move `services/channel_finder/mcp/middle_layer/` to `mcp_server/channel_finder_middle_layer/`
 5. Update server_registry.py entry points and all imports
+
+**Status**: completed (2026-02-28) — Moved 42 source files and 33 test files. All 9 MCP servers now live under `mcp_server/`. Updated imports in `server_registry.py`, `logbook.py`, `channel_finder/app.py`, `channel_finder/database_api.py`, and 3 test files. No backward-compat shims (all consumers are internal). 3587 tests pass.
 
 **Status**: pending
 
