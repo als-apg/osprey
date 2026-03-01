@@ -1,0 +1,74 @@
+{% if template_name == "lattice_design" %}
+---
+name: frequency-map
+description: >
+  Perform frequency map analysis to visualize nonlinear beam dynamics.
+  Tracks particles across a grid, computes tune diffusion, and plots
+  in tune space with resonance line overlay.
+summary: Frequency map analysis with diffusion visualization
+---
+
+# Frequency Map Analysis
+
+Frequency map analysis (FMA) reveals the nonlinear dynamics of the lattice
+by tracking how particle tunes change over time. Stable particles have
+constant tunes; chaotic particles show tune diffusion near resonances.
+
+> **Reference implementation**: Read `references/frequency_map.py` for a
+> complete working script. Use it as a starting point and adapt as needed.
+
+## Steps
+
+1. Load the lattice:
+   ```python
+   import numpy as np
+   import at
+   ring = at.load_m('machine_data/als.m')
+   tunes_ref = at.get_tune(ring)
+   ```
+
+2. Set up a grid of initial conditions in (x, y) physical space:
+   ```python
+   n_half = 256  # turns per half
+   nx, ny = 15, 15
+   x_vals = np.linspace(0.0005, 0.015, nx)  # 0.5 to 15 mm
+   y_vals = np.linspace(0.0005, 0.008, ny)  # 0.5 to 8 mm
+   ```
+
+3. For each grid point, track for 2×N turns and get turn-by-turn data:
+   ```python
+   rin = np.zeros(6)
+   rin[0] = x0
+   rin[2] = y0
+   rout = ring.track(rin, nturns=2*n_half, refpts=[0])
+   ```
+   Skip particles that are lost (`np.isfinite` check).
+
+4. Compute tunes from first half and second half via FFT:
+   ```python
+   # Apply Hanning window, take FFT, find peak frequency
+   data = turn_data - np.mean(turn_data)
+   data *= np.hanning(len(data))
+   spectrum = np.abs(np.fft.rfft(data))
+   freqs = np.fft.rfftfreq(len(data))
+   tune = freqs[np.argmax(spectrum[1:]) + 1]
+   ```
+
+5. Compute the diffusion rate as a chaos indicator:
+   ```python
+   dnux = nux_second_half - nux_first_half
+   dnuy = nuy_second_half - nuy_first_half
+   diffusion = np.log10(np.sqrt(dnux**2 + dnuy**2))
+   ```
+   Low diffusion (< -10) = stable. High diffusion (> -4) = chaotic.
+
+6. Plot in tune space, colored by diffusion rate. Use the Viridis_r
+   colorscale (blue = stable, yellow = chaotic). Overlay resonance
+   lines for orders 1-4 as light gray lines.
+
+7. Save the figure:
+   ```python
+   save_artifact(fig, "Frequency Map", "FMA with diffusion coloring")
+   ```
+   Alternative: `fig.write_html("osprey-workspace/artifacts/frequency_map.html")`
+{% endif %}

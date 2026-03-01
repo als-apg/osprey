@@ -26,6 +26,9 @@ artifacts:
     - fit-tune
     - fit-chromaticity
     - compare-optics
+    - resonance-diagram
+    - dynamic-aperture
+    - frequency-map
   agents:
     - data-visualizer
     - literature-search
