@@ -90,9 +90,10 @@ def main():
 
     tool_input = hook_input.get("tool_input", {})
 
-    # For execute: allow readonly even when writes disabled
+    # For execute: allow readonly even when writes disabled.
+    # The server defaults execution_mode to "readonly", so treat missing as readonly.
     if tool_name == "mcp__python__execute":
-        if tool_input.get("execution_mode") == "readonly":
+        if tool_input.get("execution_mode", "readonly") == "readonly":
             sys.exit(0)
 
     project_dir = get_project_dir(hook_input)

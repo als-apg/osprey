@@ -19,9 +19,11 @@ never fabricated.
 
 - `execute`: Lives on the `python` server. Always use `execution_mode: "readonly"`.
   AT code does not interact with the control system.
-- Save interactive plots as HTML to `osprey-workspace/artifacts/` for the gallery.
-- Save static plots (PNG) to `osprey-workspace/plots/`.
-- Use Plotly for interactive artifacts, matplotlib for quick static plots.
+- For interactive Plotly plots, use `create_interactive_plot` (workspace tool) —
+  it supports `at`, numpy, pandas, scipy, plotly. Call `save_artifact(fig, "title")` to produce output.
+- For static matplotlib plots, use `execute` with `execution_mode: "readonly"`.
+- Prefer `create_interactive_plot` over `execute` when the goal is a Plotly artifact —
+  it handles artifact registration automatically.
 
 ## Lattice File
 

@@ -8,20 +8,21 @@ Demonstrates:
 
 import at
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 # --- Load lattice and compute optics ---
 ring = at.load_m("machine_data/als.m")
 refpts = range(len(ring) + 1)
-ld0, ringdata, ld = at.get_optics(ring, refpts=refpts, get_chrom=True)
+ld0, rd, ld = at.get_optics(ring, refpts=refpts, get_chrom=True)
 
 # --- Extract results ---
 s_pos = ring.get_s_pos(refpts)
 beta_x = ld.beta[:, 0]
 beta_y = ld.beta[:, 1]
-tunes = ringdata.tune
-chroms = ringdata.chromaticity
+tunes = rd.tune
+chroms = rd.chromaticity
 
 # --- Print summary ---
 print("ALS Linear Optics")

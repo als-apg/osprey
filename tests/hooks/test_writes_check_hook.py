@@ -75,6 +75,27 @@ def test_writes_disabled_allows_python_readonly(tmp_path, hook_runner, make_conf
 
 
 @pytest.mark.unit
+def test_writes_disabled_allows_python_missing_execution_mode(tmp_path, hook_runner, make_config):
+    """Writes disabled allows python_execute when execution_mode is omitted.
+
+    The server defaults execution_mode to "readonly", so when the agent omits
+    the parameter (relying on the server default), the hook must treat it as
+    readonly rather than blocking the call.
+    """
+    config = make_config({"control_system": {"writes_enabled": False}})
+
+    result = hook_runner(
+        "osprey_writes_check.py",
+        "mcp__python__execute",
+        {"code": "print(42)"},  # no execution_mode — server defaults to "readonly"
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is None  # Allowed through (treated as readonly)
+
+
+@pytest.mark.unit
 def test_writes_disabled_allows_channel_read(tmp_path, hook_runner, make_config):
     """Writes disabled does not affect channel_read (read-only tool)."""
     config = make_config({"control_system": {"writes_enabled": False}})

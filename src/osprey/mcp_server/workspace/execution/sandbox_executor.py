@@ -51,6 +51,8 @@ class SandboxExecutionResult:
 # Import whitelist and dangerous pattern blocklist
 # ---------------------------------------------------------------------------
 _ALLOWED_IMPORTS: set[str] = {
+    # Accelerator physics
+    "at",
     # Data science
     "numpy",
     "pandas",
@@ -497,7 +499,7 @@ def _indent_code(code: str, spaces: int = 4) -> str:
 # ---------------------------------------------------------------------------
 def create_sandbox_execution_folder() -> Path:
     """Create a timestamped folder under ``osprey-workspace/data/sandbox_executions/``."""
-    from osprey.mcp_server.common import resolve_workspace_root
+    from osprey.utils.workspace import resolve_workspace_root
 
     base = resolve_workspace_root() / "data" / "sandbox_executions"
     base.mkdir(parents=True, exist_ok=True)
@@ -590,7 +592,7 @@ async def execute_sandbox_code(
         )
 
     # 2. Generate wrapper
-    from osprey.mcp_server.common import resolve_workspace_root
+    from osprey.utils.workspace import resolve_workspace_root
 
     workspace_root = resolve_workspace_root()
     wrapped_code = _create_sandbox_wrapper(code, execution_folder, workspace_root)
