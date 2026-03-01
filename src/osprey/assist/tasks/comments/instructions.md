@@ -129,31 +129,26 @@ for item in items:
 
 **Framework Integration Comments**
 ```python
-# Use streaming writer for real-time status updates
-from langgraph.config import get_stream_writer
-streaming = get_stream_writer()
+# MCP tool returns structured response for Claude Code to interpret
+result = {"channels": found_channels, "confidence": match_scores}
 
-# Centralized error handling ensures consistent behavior across capabilities
+# Centralized error handling ensures consistent behavior across MCP tools
 try:
-    result = await execute_capability(state)
+    result = await execute_tool(params)
 except Exception as exc:
-    # Route all errors back to router for unified retry handling
+    # Classify errors for appropriate MCP error responses
     error_classification = classify_error(exc, context)
     return create_error_response(error_classification)
 ```
 
-**State Management Clarity**
+**Configuration Clarity**
 ```python
-# Update execution context with capability results and timing
-state_updates = StateManager.handle_capability_completion(
-    state, result, step, capability_name, execution_time
-)
+# Load connector config from project config.yml
+connector = ConnectorFactory.create(config["control_system"])
 
-# Create fresh state while preserving user session data
-fresh_state = StateManager.create_fresh_state(
-    user_input=message_content,
-    current_state=current_state  # Maintains persistent fields
-)
+# Runtime API provides safe channel access for generated scripts
+from osprey.runtime import write_channel, read_channel
+value = read_channel("SR:BPM:X")
 ```
 
 ### Future Work Comments
@@ -174,19 +169,18 @@ if operation_count % 1000 == 0:
 
 **Multi-Step Processes**
 ```python
-def process_interrupt_flow(user_input, compiled_graph, config):
-    # Step 1: Detect approval or rejection in user input
-    approval_data = detect_approval_response(user_input)
+async def execute_with_approval(channel: str, value: float, connector):
+    # Step 1: Validate the write request against safety limits
+    safety_result = check_safety_limits(channel, value)
 
-    # Step 2: Extract business payload from interrupt state
-    success, payload = extract_resume_payload(compiled_graph, config)
+    # Step 2: Request human approval via Claude Code prompt
+    if safety_result.requires_approval:
+        approved = await request_approval(channel, value, safety_result)
 
-    # Step 3: Merge approval decision with business data for state injection
-    if success and approval_data["approved"]:
-        resume_command = Command(update={
-            "approval_approved": True,
-            "approved_payload": payload
-        })
+    # Step 3: Execute the write only after explicit approval
+    if approved:
+        result = await connector.write(channel, value)
+        return {"status": "success", "channel": channel, "value": value}
 ```
 
 **Error Handling Strategy**
@@ -210,33 +204,28 @@ Use comment blocks to organize code into logical sections, but only when the sec
 
 ```python
 # ================================================================
-# CORE EXECUTION PIPELINE
+# CHANNEL FINDER PIPELINE
 # ================================================================
 
-async def execute_capability_pipeline(state, capability):
-    # Validation and setup phase
-    step = StateManager.get_current_step(state)
+async def find_channels(query: str, pipeline_mode: str) -> list[dict]:
+    # Select pipeline based on configuration
+    pipeline = get_pipeline(pipeline_mode)
     start_time = time.time()
 
-    # Main execution with streaming support
-    from langgraph.config import get_stream_writer
-    streaming = get_stream_writer()
-    if streaming:
-        streaming({"event_type": "status", "message": f"Executing {capability.name}"})
+    # Execute search with configured provider
+    results = await pipeline.search(query)
+    search_time = time.time() - start_time
 
-    # State management and result processing
-    result = await capability.execute(state)
-    execution_time = time.time() - start_time
-
-    return StateManager.handle_completion(state, result, step, execution_time)
+    logger.info(f"Found {len(results)} channels in {search_time:.2f}s")
+    return results
 
 # ================================================================
 # ERROR HANDLING AND RECOVERY
 # ================================================================
 
-def classify_capability_error(exc, context):
+def classify_connector_error(exc, context):
     # Error classification logic follows domain-specific patterns
-    if isinstance(exc, ValidationError):
+    if isinstance(exc, ConnectionError):
         return ErrorClassification(severity=ErrorSeverity.RETRIABLE)
 ```
 
@@ -298,33 +287,24 @@ def process_payment(amount, currency):
 
 ## Framework-Specific Guidelines
 
-### LangGraph Integration Comments
+### MCP Server and Tool Comments
 
-**State Management**
+**Tool Implementation**
 ```python
-# LangGraph requires flat state structure for serialization
-state_updates = {
-    "execution_context": updated_context,
-    "current_step_index": step.index + 1,
-    "task_current_task": extracted_task
-}
-
-# Command pattern for interrupt resume with state injection
-resume_command = Command(update={"approval_approved": True})
+# MCP tool for reading control system channels
+@server.tool()
+async def read_channels(channel_names: list[str]) -> dict:
+    connector = get_connector()
+    results = {}
+    for name in channel_names:
+        results[name] = await connector.read(name)
+    return results
 ```
 
-**Capability and Infrastructure Nodes**
+**Registry and Provider Comments**
 ```python
-# Convention-based auto-discovery eliminates manual registration
-@capability_node
-class DataAnalysisCapability(BaseCapability):
-    name = "data_analysis"  # Required for auto-discovery
-
-    @staticmethod
-    async def execute(state: AgentState, **kwargs):
-        # Explicit logger retrieval follows professional patterns
-        from configs.logger import get_logger
-        logger = get_logger("data_analysis")
+# Lazy-load providers to avoid import-time network calls on air-gapped machines
+provider = get_provider_registry().get_provider("cborg")
 ```
 
 ### Application-Specific Context
@@ -350,36 +330,26 @@ Comments should be stateless and timeless - written as if the current implementa
 
 ```python
 # BAD: References development history
-def create_capability_node(cls):
-    # Migrated from PydanticAI to LangGraph - maintains backward compatibility
-    # Auto-discovery patterns preserved from original decorator system
-    capability_name = getattr(cls, 'name', None)
+def create_connector(config):
+    # Migrated from direct EPICS calls to connector abstraction layer
+    # Old system used raw caget/caput, now uses ConnectorFactory
+    return ConnectorFactory.create(config)
 
 # BAD: References old system components
-def handle_state_updates(state, result):
-    # StateManager replaces Monitor responsibilities
-    # Legacy Monitor used to handle step progression
-    return StateManager.update_execution_context(state, result)
-
-# BAD: Migration commentary
-def process_message(user_input):
-    # New Gateway pattern replaces old direct processing
-    return gateway.process_message(user_input)
+def register_provider(name, adapter):
+    # ProviderRegistry replaces old RegistryManager provider handling
+    # Legacy system used inline imports instead of lazy loading
+    return get_provider_registry().register_provider(name, adapter)
 
 # GOOD: Describes current system purpose
-def create_capability_node(cls):
-    # Auto-discover capability components using naming conventions
-    capability_name = getattr(cls, 'name', None)
+def create_connector(config):
+    # Factory selects connector type (EPICS, Mock) from config
+    return ConnectorFactory.create(config)
 
 # GOOD: Explains current functionality
-def handle_state_updates(state, result):
-    # Update execution context with capability results and timing
-    return StateManager.update_execution_context(state, result)
-
-# GOOD: Focuses on current behavior
-def process_message(user_input):
-    # Centralized message processing with interrupt handling
-    return gateway.process_message(user_input)
+def register_provider(name, adapter):
+    # Lazy-register provider for on-demand import
+    return get_provider_registry().register_provider(name, adapter)
 ```
 
 **Why this matters for publication:**
@@ -440,39 +410,31 @@ def optimize_query():
 ### Effective Framework Comments
 
 ```python
-# Gateway centralizes all message processing and state management
-class Gateway:
-    async def process_message(self, user_input, compiled_graph, config):
-        # Check for pending interrupts first (approval flow)
-        if self._has_pending_interrupts(compiled_graph, config):
-            return await self._handle_interrupt_flow(user_input, compiled_graph, config)
+# MCP server exposes control system operations as tools for Claude Code
+@server.tool()
+async def write_channel(channel_name: str, value: float) -> str:
+    # Validate channel exists before attempting write
+    connector = get_connector()
+    if not await connector.channel_exists(channel_name):
+        return f"Channel {channel_name} not found"
 
-        # Process as new conversation turn with fresh state
-        return await self._handle_new_message_flow(user_input, compiled_graph, config)
-
-# Streamlined context storage for framework state management
-def store_context(state, data_type, context_key, result):
-    # Merge context data into flat state structure for framework compatibility
-    context_data = state.get("execution_context", {}).get("context_data", {})
-    context_data.setdefault(data_type, {})[context_key] = result
-    return {"execution_context": {"context_data": context_data}}
+    # Write requires human approval via Claude Code's permission system
+    await connector.write(channel_name, value)
+    return f"Successfully wrote {value} to {channel_name}"
 ```
 
 ### Error Handling Patterns
 
 ```python
-# Consistent error handling across all framework components
+# Consistent error handling across all MCP tools
 try:
-    result = await execute_func(state)
-except Exception as exc:
-    # All errors route back to router for unified retry handling
-    error_classification = classify_error(exc, context)
-    return create_router_command(error_classification)
-
-# StateManager provides centralized state operations
-# - Step progression: StateManager.get_current_step()
-# - History management: StateManager.handle_completion()
-# - Control flow: Router coordinates retry decisions
+    result = await connector.read(channel_name)
+except ConnectionError as exc:
+    # Connection errors are retriable — report clearly for retry decision
+    return f"Connection failed: {exc}. Check control system connectivity."
+except ValueError as exc:
+    # Validation errors indicate bad input — no retry will help
+    return f"Invalid channel: {exc}"
 ```
 
 ## Conclusion

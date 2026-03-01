@@ -97,18 +97,13 @@ class TestRegistryConfigArielFields:
     """Test RegistryConfig with new ARIEL fields."""
 
     def test_default_ariel_fields_empty(self):
-        config = RegistryConfig(
-            capabilities=[],
-            context_classes=[],
-        )
+        config = RegistryConfig()
         assert config.ariel_search_modules == []
         assert config.ariel_enhancement_modules == []
         assert config.ariel_pipelines == []
 
     def test_ariel_fields_in_config(self):
         config = RegistryConfig(
-            capabilities=[],
-            context_classes=[],
             ariel_search_modules=[
                 ArielSearchModuleRegistration(
                     name="keyword",
@@ -138,24 +133,18 @@ class TestRegistryConfigArielFields:
         assert len(config.ariel_pipelines) == 1
 
     def test_initialization_order_includes_ariel_types(self):
-        config = RegistryConfig(
-            capabilities=[],
-            context_classes=[],
-        )
+        config = RegistryConfig()
         assert "ariel_search_modules" in config.initialization_order
         assert "ariel_enhancement_modules" in config.initialization_order
         assert "ariel_pipelines" in config.initialization_order
 
-    def test_ariel_types_before_capabilities_in_init_order(self):
-        config = RegistryConfig(
-            capabilities=[],
-            context_classes=[],
-        )
+    def test_ariel_types_before_services_in_init_order(self):
+        config = RegistryConfig()
         order = config.initialization_order
-        cap_idx = order.index("capabilities")
-        assert order.index("ariel_search_modules") < cap_idx
-        assert order.index("ariel_enhancement_modules") < cap_idx
-        assert order.index("ariel_pipelines") < cap_idx
+        svc_idx = order.index("services")
+        assert order.index("ariel_search_modules") < svc_idx
+        assert order.index("ariel_enhancement_modules") < svc_idx
+        assert order.index("ariel_pipelines") < svc_idx
 
 
 class TestArielRegistrationImports:

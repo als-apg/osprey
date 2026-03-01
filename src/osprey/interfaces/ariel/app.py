@@ -107,7 +107,8 @@ def _create_lifespan(config_path: str | Path | None = None):
         """
         logger.info("Starting ARIEL Web Interface...")
 
-        # Initialize the framework-only registry before any search code runs.
+        # Initialize framework-only registry so ARIEL search modules can
+        # resolve connectors and services via get_service() / get_connector().
         try:
             import osprey.registry.manager as _reg_mod
 

@@ -51,8 +51,6 @@ from osprey.registry import RegistryConfigProvider, extend_framework_registry, P
 class AppProvider(RegistryConfigProvider):
     def get_registry_config(self):
         return extend_framework_registry(
-            capabilities=[],
-            context_classes=[],
             providers=[
                 ProviderRegistration(
                     module_path="test_app.providers.custom",
@@ -91,8 +89,6 @@ from osprey.registry import RegistryConfigProvider, extend_framework_registry, P
 class AppProvider(RegistryConfigProvider):
     def get_registry_config(self):
         return extend_framework_registry(
-            capabilities=[],
-            context_classes=[],
             providers=[
                 ProviderRegistration(
                     module_path="app.providers.custom1",
@@ -126,8 +122,6 @@ from osprey.registry import RegistryConfigProvider, extend_framework_registry
 class AppProvider(RegistryConfigProvider):
     def get_registry_config(self):
         return extend_framework_registry(
-            capabilities=[],
-            context_classes=[],
             providers=[]  # Empty list
         )
 """
@@ -155,8 +149,6 @@ from osprey.registry import RegistryConfigProvider, extend_framework_registry
 class AppProvider(RegistryConfigProvider):
     def get_registry_config(self):
         return extend_framework_registry(
-            capabilities=[],
-            context_classes=[],
             exclude_providers=["anthropic", "google"]
         )
 """
@@ -180,8 +172,6 @@ from osprey.registry import RegistryConfigProvider, extend_framework_registry, P
 class AppProvider(RegistryConfigProvider):
     def get_registry_config(self):
         return extend_framework_registry(
-            capabilities=[],
-            context_classes=[],
             providers=[
                 ProviderRegistration(
                     module_path="app.providers.only",
@@ -212,7 +202,6 @@ class TestHelperFunctionProviderSupport:
     def test_helper_with_providers_parameter(self):
         """Test that helper function accepts providers parameter."""
         config = extend_framework_registry(
-            capabilities=[],
             providers=[
                 ProviderRegistration(
                     module_path="my_app.providers.custom", class_name="CustomProvider"
@@ -227,9 +216,7 @@ class TestHelperFunctionProviderSupport:
 
     def test_helper_with_exclude_providers(self):
         """Test that helper function accepts exclude_providers parameter."""
-        config = extend_framework_registry(
-            capabilities=[], exclude_providers=["anthropic", "google"]
-        )
+        config = extend_framework_registry(exclude_providers=["anthropic", "google"])
 
         # Exclusions stored in framework_exclusions
         assert config.framework_exclusions is not None
@@ -243,7 +230,7 @@ class TestHelperFunctionProviderSupport:
             module_path="my_app.providers.custom_anthropic", class_name="CustomAnthropicProvider"
         )
 
-        config = extend_framework_registry(capabilities=[], override_providers=[override_provider])
+        config = extend_framework_registry(override_providers=[override_provider])
 
         # Override provider included in config
         assert len(config.providers) == 1
@@ -260,7 +247,7 @@ class TestHelperFunctionProviderSupport:
         )
 
         config = extend_framework_registry(
-            capabilities=[], providers=[regular_provider], override_providers=[override_provider]
+            providers=[regular_provider], override_providers=[override_provider]
         )
 
         # Both should be included
@@ -289,7 +276,6 @@ from osprey.registry import (
 class AppProvider(RegistryConfigProvider):
     def get_registry_config(self) -> RegistryConfig:
         return extend_framework_registry(
-            capabilities=[],
             providers=[
                 ProviderRegistration(
                     module_path="app.providers.custom",
@@ -327,7 +313,6 @@ from osprey.registry import (
 class AppProvider(RegistryConfigProvider):
     def get_registry_config(self) -> RegistryConfig:
         return extend_framework_registry(
-            capabilities=[],
             providers=[
                 ProviderRegistration(
                     module_path="app.providers.custom",
@@ -357,7 +342,7 @@ class TestProviderRegistrationDataclass:
         """Test ProviderRegistration can be used in RegistryConfig."""
         provider_reg = ProviderRegistration(module_path="test.provider", class_name="TestProvider")
 
-        config = RegistryConfig(capabilities=[], context_classes=[], providers=[provider_reg])
+        config = RegistryConfig(providers=[provider_reg])
 
         assert len(config.providers) == 1
         assert config.providers[0] is provider_reg
@@ -385,7 +370,6 @@ from osprey.registry import (
 class AppProvider(RegistryConfigProvider):
     def get_registry_config(self):
         return extend_framework_registry(
-            capabilities=[],
             override_providers=[
                 ProviderRegistration(
                     module_path="my_app.providers.custom_openai",
@@ -424,11 +408,7 @@ from osprey.registry import RegistryConfigProvider, extend_framework_registry
 
 class AppProvider(RegistryConfigProvider):
     def get_registry_config(self):
-        return extend_framework_registry(
-            capabilities=[],
-            context_classes=[]
-            # No providers field at all
-        )
+        return extend_framework_registry()  # No providers field at all
 """
         )
 

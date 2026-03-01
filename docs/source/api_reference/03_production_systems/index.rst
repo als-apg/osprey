@@ -10,7 +10,6 @@ Production Systems
    01_human-approval
    02_data-management
    03_python-execution
-   04_memory-storage
    05_container-management
    06_control-system-connectors
    07_ariel-search
@@ -25,7 +24,6 @@ Production Systems
    - **Human Approval System** - LangGraph-native approval workflows with rich context, security analysis, and resumable execution
    - **Data Management Framework** - Unified data source integration with provider discovery, concurrent retrieval, and LLM-optimized formatting
    - **Python Execution Service** - Container-isolated code generation and execution with approval integration and flexible deployment modes
-   - **Memory Storage System** - Persistent user memory with structured operations, data source integration, and approval workflows
    - **Container Management System** - Podman-based service orchestration with hierarchical discovery and Jinja2 template processing
    - **ARIEL Search Service** - Logbook search with pluggable search modules, execution pipelines, ingestion adapters, and enhancement modules
 
@@ -76,17 +74,6 @@ The Seven Pillars
       **Secure Code Execution**
 
       Container-isolated Python execution with approval integration and flexible deployment.
-
-   .. grid-item-card:: 🧠 Memory Storage System
-      :link: 04_memory-storage
-      :link-type: doc
-      :class-header: bg-warning text-white
-      :class-body: text-center
-      :shadow: md
-
-      **Persistent User Memory**
-
-      Structured memory operations with data source integration and approval workflows.
 
    .. grid-item-card:: 🚢 Container Management
       :link: 05_container-management

@@ -53,7 +53,6 @@ def _initialize_registry(verbose: bool = False):
     with quiet_logger(
         [
             "REGISTRY",
-            "osprey.approval",
             "osprey.services",
             "connector_factory",
         ]

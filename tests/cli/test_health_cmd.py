@@ -28,28 +28,7 @@ project_name: test_project
 project_root: ${PROJECT_ROOT}
 
 models:
-  orchestrator:
-    provider: cborg
-    model_id: anthropic/claude-haiku
-  response:
-    provider: cborg
-    model_id: anthropic/claude-haiku
-  classifier:
-    provider: cborg
-    model_id: anthropic/claude-haiku
-  approval:
-    provider: cborg
-    model_id: anthropic/claude-haiku
-  task_extraction:
-    provider: cborg
-    model_id: anthropic/claude-haiku
-  memory:
-    provider: cborg
-    model_id: anthropic/claude-haiku
   python_code_generator:
-    provider: cborg
-    model_id: anthropic/claude-haiku
-  time_parsing:
     provider: cborg
     model_id: anthropic/claude-haiku
 

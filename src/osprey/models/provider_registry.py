@@ -58,6 +58,8 @@ _BUILTIN_PROVIDERS: dict[str, _ProviderEntry] = {
     "cborg": _ProviderEntry("osprey.models.providers.cborg", "CBorgProviderAdapter"),
     "stanford": _ProviderEntry("osprey.models.providers.stanford", "StanfordProviderAdapter"),
     "argo": _ProviderEntry("osprey.models.providers.argo", "ArgoProviderAdapter"),
+    "amsc": _ProviderEntry("osprey.models.providers.amsc", "AMSCProviderAdapter"),
+    "als-apg": _ProviderEntry("osprey.models.providers.als_apg", "ALSAPGProviderAdapter"),
     "asksage": _ProviderEntry("osprey.models.providers.asksage", "AskSageProviderAdapter"),
     "vllm": _ProviderEntry("osprey.models.providers.vllm", "VLLMProviderAdapter"),
 }

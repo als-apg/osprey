@@ -1,23 +1,9 @@
-"""Code Execution Subsystem.
+"""Execution subsystem — channel write safety limits.
 
-This module provides the execution infrastructure for running generated Python code
-in isolated environments, including container-based and local execution engines.
-
-Components:
-    - ContainerExecutor: Container-based execution engine
-    - ExecutionWrapper: Execution wrapper utilities
-    - ExecutionControl: Execution control and monitoring logic
-
-The execution subsystem handles secure code execution with support for
-multiple execution environments (container, local) and comprehensive
-result collection.
-
-Examples:
-    Direct container execution::
-
-        >>> from osprey.services.python_executor.execution.container_engine import ContainerExecutor
-        >>> executor = ContainerExecutor(config)
-        >>> result = await executor.execute_code(code, context)
+Provides :class:`LimitsValidator` for enforcing configured min/max/step
+constraints on control system channel writes.
 """
 
-__all__: list[str] = []
+from .limits_validator import LimitsValidator
+
+__all__ = ["LimitsValidator"]

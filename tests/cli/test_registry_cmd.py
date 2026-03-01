@@ -9,9 +9,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from osprey.cli.registry_cmd import (
-    _display_capabilities_table,
-    _display_context_classes_table,
-    _display_data_sources_table,
     _display_providers_table,
     _display_services_table,
     display_registry_contents,
@@ -26,46 +23,9 @@ def mock_registry():
 
     # Mock stats
     registry.get_stats.return_value = {
-        "capabilities": 2,
-        "nodes": 3,
-        "context_classes": 1,
-        "data_sources": 2,
         "services": 1,
-        "capability_names": ["test_capability", "another_capability"],
-        "node_names": ["test_node", "infrastructure_node"],
-        "context_types": ["test_context"],
-        "data_source_names": ["test_ds"],
         "service_names": ["test_service"],
     }
-
-    # Mock capabilities
-    cap1 = MagicMock()
-    cap1.name = "test_capability"
-    cap1.provides = ["test_context"]
-    cap1.requires = []
-    cap1.description = "Test capability"
-
-    cap2 = MagicMock()
-    cap2.name = "another_capability"
-    cap2.provides = ["another_context"]
-    cap2.requires = ["test_context"]
-    cap2.description = "Another capability"
-
-    registry.get_all_capabilities.return_value = [cap1, cap2]
-
-    # Mock nodes
-    registry.get_all_nodes.return_value = {
-        "test_node": MagicMock(__class__=MagicMock(__name__="TestNode")),
-        "infrastructure_node": MagicMock(__class__=MagicMock(__name__="InfraNode")),
-    }
-
-    # Mock context classes
-    registry.get_all_context_classes.return_value = {"test_context": type("TestContext", (), {})}
-
-    # Mock data sources
-    registry.get_data_source.return_value = MagicMock(
-        __class__=MagicMock(__name__="TestDataSource")
-    )
 
     # Mock services
     registry.get_service.return_value = MagicMock(__class__=MagicMock(__name__="TestService"))
@@ -130,76 +90,6 @@ class TestDisplayRegistryContents:
 
                 # Should succeed
                 assert result is True
-
-
-class TestDisplayCapabilitiesTable:
-    """Test _display_capabilities_table function."""
-
-    def test_displays_capabilities(self, mock_registry):
-        """Test displaying capabilities table."""
-        # Should not raise exception
-        _display_capabilities_table(mock_registry, verbose=False)
-
-        # Should call get_all_capabilities
-        assert mock_registry.get_all_capabilities.called
-
-    def test_displays_capabilities_verbose(self, mock_registry):
-        """Test displaying capabilities table in verbose mode."""
-        # Should not raise exception
-        _display_capabilities_table(mock_registry, verbose=True)
-
-        assert mock_registry.get_all_capabilities.called
-
-    def test_handles_tuple_provides_and_requires(self, mock_registry):
-        """Test handling of tuple values in provides/requires."""
-        # Create capability with tuple values
-        cap = MagicMock()
-        cap.name = "test"
-        cap.provides = [("context", "type")]
-        cap.requires = [("required", "context")]
-        cap.description = "Test"
-
-        mock_registry.get_all_capabilities.return_value = [cap]
-
-        # Should not raise exception
-        _display_capabilities_table(mock_registry, verbose=True)
-
-    def test_handles_empty_provides_and_requires(self, mock_registry):
-        """Test handling of empty provides/requires."""
-        cap = MagicMock()
-        cap.name = "test"
-        cap.provides = []
-        cap.requires = []
-        cap.description = "Test"
-
-        mock_registry.get_all_capabilities.return_value = [cap]
-
-        # Should not raise exception
-        _display_capabilities_table(mock_registry, verbose=False)
-
-
-class TestDisplayContextClassesTable:
-    """Test _display_context_classes_table function."""
-
-    def test_displays_context_classes(self, mock_registry):
-        """Test displaying context classes table."""
-        # Should not raise exception
-        _display_context_classes_table(mock_registry, verbose=False)
-
-        # Should get context classes
-        assert mock_registry.get_all_context_classes.called
-
-
-class TestDisplayDataSourcesTable:
-    """Test _display_data_sources_table function."""
-
-    def test_displays_data_sources(self, mock_registry):
-        """Test displaying data sources table."""
-        # Should not raise exception
-        _display_data_sources_table(mock_registry, verbose=False)
-
-        # Should get stats for data source names
-        assert mock_registry.get_stats.called
 
 
 class TestDisplayServicesTable:

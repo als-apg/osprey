@@ -5,7 +5,6 @@ Provides centralized factory for instantiating and configuring connectors
 based on configuration. Connectors are registered through the Osprey registry
 system for unified component management and lazy loading.
 
-Related to Issue #18 - Control System Abstraction (Layer 2 - Factory)
 """
 
 import importlib

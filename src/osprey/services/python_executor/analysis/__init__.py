@@ -1,15 +1,7 @@
-"""Code Analysis Subsystem.
+"""Code Analysis Subsystem — pattern detection for control system operations.
 
-This module provides static analysis infrastructure for Python code,
-including security pattern detection and execution policy analysis.
-
-Components:
-    - detect_control_system_operations: Detect control system operations in code
-    - get_framework_standard_patterns: Get framework-standard control-system-agnostic patterns
-    - ExecutionPolicyAnalyzer: Execution mode and approval decision logic
-
-The analysis subsystem validates generated code before execution,
-detecting security risks and determining appropriate execution policies.
+Provides functions to detect control system read/write operations in code,
+used by the approval hook to determine whether human review is needed.
 
 Examples:
     Using pattern detection::

@@ -5,7 +5,7 @@ requiring API keys, containers, or real hardware. Tests run the hook chain
 (as subprocesses, matching real Claude Code behavior) and then call MCP tools
 directly against the MockConnector.
 
-The 9 scenarios mirror what an operator would manually test after setting up
+Scenarios mirror what an operator would manually test after setting up
 a new control_assistant project:
 
   1. Read channel        → passes through, no hooks fire
@@ -13,9 +13,9 @@ a new control_assistant project:
   3. Write over limits   → limits hook denies
   4. Write to read-only  → limits hook denies
   5. Write to unlisted   → approval hook asks (permissive mode)
-  6. Python with caput   → approval hook asks + tool safety_error
-  7. Python with Tango   → approval hook asks (framework patterns)
-  8. Safe Python code    → passes through
+  6. Python with caput   → approval hook asks (hook chain only)
+  7. Python with Tango   → approval hook asks (hook chain only)
+  8. Safe Python code    → passes through (hook chain only)
   9. Writes disabled     → writes_check hook denies
 
 No LLMs, no containers, no EPICS — just the safety infrastructure.
@@ -26,7 +26,6 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
 
 import pytest
 import yaml
@@ -34,7 +33,6 @@ import yaml
 from osprey.mcp_server.artifact_store import reset_artifact_store
 from osprey.mcp_server.common import reset_config_cache
 from osprey.mcp_server.control_system.registry import initialize_mcp_registry, reset_mcp_registry
-from osprey.mcp_server.memory_store import reset_memory_store
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -62,7 +60,6 @@ def _reset_singletons():
     yield
     reset_mcp_registry()
     reset_artifact_store()
-    reset_memory_store()
     reset_config_cache()
 
 
@@ -207,12 +204,6 @@ def _get_channel_write():
     from osprey.mcp_server.control_system.tools.channel_write import channel_write
 
     return channel_write.fn if hasattr(channel_write, "fn") else channel_write
-
-
-def _get_python_execute():
-    from osprey.mcp_server.python_executor.tools.python_execute import execute
-
-    return execute.fn if hasattr(execute, "fn") else execute
 
 
 # ===========================================================================
@@ -389,24 +380,6 @@ def test_6_python_caput_hooks_ask_approval(smoke_env):
     assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
 
 
-@pytest.mark.integration
-async def test_6_python_caput_tool_blocks_in_readonly(smoke_env, monkeypatch):
-    """execute tool rejects caput() in readonly mode (safety_error)."""
-    monkeypatch.chdir(smoke_env["tmp_path"])
-    monkeypatch.setenv("OSPREY_CONFIG", str(smoke_env["config_path"]))
-
-    fn = _get_python_execute()
-    result = await fn(
-        code="caput('SR:BEAM:CURRENT', 100)",
-        description="caput test",
-        execution_mode="readonly",
-    )
-
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "safety_error"
-
-
 # ===========================================================================
 # SCENARIO 7: Python with Tango pattern — approval hook asks (framework detection)
 # ===========================================================================
@@ -425,24 +398,6 @@ def test_7_python_tango_hooks_ask_approval(smoke_env):
     assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
 
 
-@pytest.mark.integration
-async def test_7_python_tango_tool_blocks_in_readonly(smoke_env, monkeypatch):
-    """execute tool rejects Tango write patterns in readonly mode."""
-    monkeypatch.chdir(smoke_env["tmp_path"])
-    monkeypatch.setenv("OSPREY_CONFIG", str(smoke_env["config_path"]))
-
-    fn = _get_python_execute()
-    result = await fn(
-        code="device.write_attribute('MOTOR:POS', 100)",
-        description="tango test",
-        execution_mode="readonly",
-    )
-
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "safety_error"
-
-
 # ===========================================================================
 # SCENARIO 8: Safe Python code — passes through
 # ===========================================================================
@@ -458,36 +413,6 @@ def test_8_safe_python_hooks_pass_through(smoke_env):
         smoke_env["tmp_path"],
     )
     assert result is None, f"Hooks should pass through for safe code, but {blocked_by} fired"
-
-
-@pytest.mark.integration
-async def test_8_safe_python_tool_executes(smoke_env, monkeypatch):
-    """execute tool passes safety checks for non-write code."""
-    monkeypatch.chdir(smoke_env["tmp_path"])
-    monkeypatch.setenv("OSPREY_CONFIG", str(smoke_env["config_path"]))
-
-    from osprey.mcp_server.python_executor.executor import ExecutionResult
-
-    mock_exec = AsyncMock(
-        return_value=ExecutionResult(
-            success=True,
-            stdout="6.283185307179586\n",
-            stderr="",
-            execution_method_used="local",
-        )
-    )
-
-    with patch("osprey.mcp_server.python_executor.executor.execute_code", mock_exec):
-        fn = _get_python_execute()
-        result = await fn(
-            code="import math; print(math.pi * 2)",
-            description="safe math",
-            execution_mode="readonly",
-        )
-
-    data = json.loads(result)
-    assert data["status"] == "success"
-    assert "6.283" in data["summary"]["output"]
 
 
 # ===========================================================================

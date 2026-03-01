@@ -4,14 +4,16 @@ Abstract base class for control system connectors.
 Provides protocol-agnostic interfaces for reading/writing process variables,
 subscribing to changes, and retrieving metadata from various control systems.
 
-Related to Issue #18 - Control System Abstraction (Layer 2)
 """
 
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
+
+logger = logging.getLogger("osprey.connectors.control_system")
 
 
 @dataclass
@@ -91,6 +93,57 @@ class ControlSystemConnector(ABC):
         >>> finally:
         >>>     await connector.disconnect()
     """
+
+    _limits_validator: Any = None  # Initialized by subclasses in connect()
+
+    def _get_verification_config(
+        self, channel_address: str, value: float
+    ) -> tuple[str, float | None]:
+        """Get verification level and tolerance for a channel write.
+
+        Priority:
+        1. Per-channel config from limits database
+        2. Global config from config.yml
+        3. Fallback: callback with no tolerance
+
+        Args:
+            channel_address: Channel being written
+            value: Value being written (for percentage tolerance calculation)
+
+        Returns:
+            Tuple of (verification_level, tolerance)
+        """
+        # Try per-channel config first (if limits validator available)
+        if self._limits_validator:
+            level, tolerance = self._limits_validator.get_verification_config(
+                channel_address, value
+            )
+            if level is not None:
+                logger.debug(f"Using per-channel verification for {channel_address}: {level}")
+                return level, tolerance
+
+        # Fall back to global config (or hardcoded defaults if config unavailable)
+        try:
+            from osprey.utils.config import get_config_value
+
+            level = get_config_value("control_system.write_verification.default_level", "callback")
+
+            # Calculate tolerance for readback verification
+            tolerance = None
+            if level == "readback":
+                default_percent = get_config_value(
+                    "control_system.write_verification.default_tolerance_percent", 0.1
+                )
+                tolerance = abs(value) * default_percent / 100.0
+
+            logger.debug(f"Using global verification config for {channel_address}: {level}")
+            return level, tolerance
+        except (FileNotFoundError, KeyError, RuntimeError):
+            # Config not available - use hardcoded safe defaults
+            logger.debug(
+                f"Using hardcoded verification defaults for {channel_address} (config unavailable)"
+            )
+            return "callback", None
 
     @abstractmethod
     async def connect(self, config: dict[str, Any]) -> None:

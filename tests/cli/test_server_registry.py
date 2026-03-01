@@ -31,14 +31,14 @@ class TestResolveServers:
     """Tests for resolve_servers()."""
 
     def test_resolve_default_config(self):
-        """No overrides → 5 core servers enabled, optional servers disabled."""
+        """No overrides → core servers enabled, optional servers disabled."""
         ctx = _base_ctx()
         servers = resolve_servers({}, ctx)
         enabled = {s["name"] for s in servers if s["enabled"]}
         disabled = {s["name"] for s in servers if not s["enabled"]}
 
         # Core servers always on
-        assert {"controls", "python", "workspace", "ariel", "accelpapers"} <= enabled
+        assert {"controls", "workspace", "ariel", "accelpapers"} <= enabled
         # Conditional servers off (conditions not in ctx)
         assert {"matlab", "channel-finder", "confluence"} <= disabled
 
@@ -172,7 +172,6 @@ class TestResolveAgents:
 
         assert {"logbook-search", "logbook-deep-research", "literature-search"} <= enabled
         assert {"wiki-search", "matlab-search", "graph-analyst", "channel-finder"} <= disabled
-        # data-visualizer depends on python server (enabled by default)
         assert "data-visualizer" in enabled
 
     def test_disable_framework_agent(self):
@@ -186,14 +185,6 @@ class TestResolveAgents:
         )
         names = {a["name"]: a["enabled"] for a in agents}
         assert names["logbook-search"] is False
-
-    def test_server_dependency(self):
-        """python server disabled → data-visualizer disabled."""
-        ctx = _base_ctx()
-        servers = resolve_servers({"servers": {"python": {"enabled": False}}}, ctx)
-        agents = resolve_agents({}, ctx, resolved_servers=servers)
-        names = {a["name"]: a["enabled"] for a in agents}
-        assert names["data-visualizer"] is False
 
     def test_conditional_agent(self):
         """confluence in ctx → wiki-search enabled."""
@@ -271,7 +262,6 @@ class TestTemplateRendering:
         data = json.loads(rendered)
         assert "mcpServers" in data
         assert "controls" in data["mcpServers"]
-        assert "python" in data["mcpServers"]
         assert "workspace" in data["mcpServers"]
         # Conditional servers not present
         assert "matlab" not in data["mcpServers"]
@@ -312,14 +302,13 @@ class TestTemplateRendering:
         assert "PostToolUse" in data["hooks"]
 
     def test_render_settings_json_hooks(self, template_manager):
-        """Hook rules from controls and python servers appear in rendered output."""
+        """Hook rules from controls server appear in rendered output."""
         ctx = self._full_ctx()
         rendered = self._render(template_manager, "claude_code/claude/settings.json.j2", ctx)
         data = json.loads(rendered)
         pre_matchers = [r["matcher"] for r in data["hooks"]["PreToolUse"]]
         assert "Write" in pre_matchers  # Fixed memory guard hook
         assert "mcp__controls__channel_write" in pre_matchers
-        assert "mcp__python__execute" in pre_matchers
         post_matchers = [r["matcher"] for r in data["hooks"]["PostToolUse"]]
         assert "NotebookEdit" in post_matchers  # Fixed entry
         assert "mcp__controls__.*" in post_matchers

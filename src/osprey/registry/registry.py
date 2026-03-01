@@ -11,8 +11,6 @@ from .base import (
     ArielIngestionAdapterRegistration,
     ArielPipelineRegistration,
     ArielSearchModuleRegistration,
-    CapabilityRegistration,
-    CodeGeneratorRegistration,
     ConnectorRegistration,
     RegistryConfig,
     RegistryConfigProvider,
@@ -33,52 +31,7 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
         :rtype: RegistryConfig
         """
         return RegistryConfig(
-            core_nodes=[],
-            capabilities=[
-                CapabilityRegistration(
-                    name="channel_finding",
-                    module_path="osprey.capabilities.channel_finding",
-                    class_name="ChannelFindingCapability",
-                    description="Resolve natural-language queries to control system channel addresses",
-                    provides=["CHANNEL_ADDRESSES"],
-                    requires=[],
-                ),
-                CapabilityRegistration(
-                    name="channel_read",
-                    module_path="osprey.capabilities.channel_read",
-                    class_name="ChannelReadCapability",
-                    description="Read current values from control system channels",
-                    provides=["CHANNEL_VALUES"],
-                    requires=["CHANNEL_ADDRESSES"],
-                ),
-                CapabilityRegistration(
-                    name="channel_write",
-                    module_path="osprey.capabilities.channel_write",
-                    class_name="ChannelWriteCapability",
-                    description="Write values to control system channels (requires approval)",
-                    provides=["CHANNEL_WRITE_RESULTS"],
-                    requires=["CHANNEL_ADDRESSES"],
-                ),
-                CapabilityRegistration(
-                    name="archiver_retrieval",
-                    module_path="osprey.capabilities.archiver_retrieval",
-                    class_name="ArchiverRetrievalCapability",
-                    description="Retrieve historical time-series data from archiver systems",
-                    provides=["ARCHIVER_DATA"],
-                    requires=["CHANNEL_ADDRESSES", "TIME_RANGE"],
-                ),
-            ],
-            context_classes=[],
-            data_sources=[],
             services=[
-                ServiceRegistration(
-                    name="python_executor",
-                    module_path="osprey.services.python_executor",
-                    class_name="PythonExecutionRequest",
-                    description="Python code generation and secure execution service",
-                    provides=["EXECUTION_RESULTS"],
-                    requires=[],
-                ),
                 ServiceRegistration(
                     name="channel_finder",
                     module_path="osprey.services.channel_finder",
@@ -88,7 +41,6 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     requires=[],
                 ),
             ],
-            framework_prompt_providers=[],
             # Framework AI model providers — built-in table now lives in
             # osprey.models.provider_registry (single source of truth).
             # RegistryManager._initialize_providers() delegates to it.
@@ -124,24 +76,6 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     module_path="osprey.connectors.archiver.epics_archiver_connector",
                     class_name="EPICSArchiverConnector",
                     description="EPICS Archiver Appliance connector",
-                ),
-            ],
-            # Framework code generators for Python executor
-            code_generators=[
-                # Basic LLM-based generator (always available)
-                CodeGeneratorRegistration(
-                    name="basic",
-                    module_path="osprey.services.python_executor.generation.basic_generator",
-                    class_name="BasicLLMCodeGenerator",
-                    description="Simple single-pass LLM code generator",
-                ),
-                # Claude Code SDK generator (optional dependency)
-                CodeGeneratorRegistration(
-                    name="claude_code",
-                    module_path="osprey.services.python_executor.generation.claude_code_generator",
-                    class_name="ClaudeCodeGenerator",
-                    description="Claude Code SDK-based generator with multi-turn reasoning and codebase awareness",
-                    optional_dependencies=["claude-agent-sdk"],
                 ),
             ],
             # ARIEL search modules
@@ -212,7 +146,6 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
             initialization_order=[
                 "providers",
                 "connectors",
-                "code_generators",
                 "ariel_search_modules",
                 "ariel_enhancement_modules",
                 "ariel_pipelines",

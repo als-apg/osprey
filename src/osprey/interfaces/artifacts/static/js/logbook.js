@@ -21,7 +21,7 @@
 
   let modal = null;
   let currentPhase = "steering";
-  let currentOpts = {};          // {artifact_id, context_id}
+  let currentOpts = {};          // {artifact_id}
   let allArtifacts = [];         // cached from /api/artifacts for "Choose…" picker
 
   // ---- Modal DOM ----
@@ -393,8 +393,6 @@
     } else if (currentOpts.artifact_id) {
       body.artifact_id = currentOpts.artifact_id;
     }
-    if (currentOpts.context_id != null) body.context_id = currentOpts.context_id;
-
     // Context controls
     body.include_session_log = ctxVals.include_session_log;
 

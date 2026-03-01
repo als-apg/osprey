@@ -14,7 +14,7 @@ Key capabilities include:
 
 .. seealso::
    :func:`get_chat_completion` : Main chat completion interface
-   :mod:`configs.config` : Provider configuration management
+   :mod:`osprey.utils.config` : Provider configuration management
 """
 
 from __future__ import annotations

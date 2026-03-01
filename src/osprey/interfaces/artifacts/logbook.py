@@ -46,7 +46,6 @@ class AssembleResponse(BaseModel):
 
 class ComposeRequest(BaseModel):
     artifact_id: str | None = None
-    context_id: int | None = None
     purpose: str | None = None
     detail_level: str | None = None
     nudge: str | None = None
@@ -90,22 +89,19 @@ class SubmitResponse(BaseModel):
 class ComposedContext:
     artifact_meta: dict[str, Any] | None
     artifacts_meta: list[dict[str, Any]]  # multi-artifact support
-    context_meta: dict[str, Any] | None
     audit_trail: list[dict[str, Any]]
     chat_history: list[dict[str, Any]]
 
 
 async def gather_context(
     artifact_id: str | None,
-    context_id: int | None,
     artifact_store: Any,
-    context_store: Any,
     project_dir: Path,
     *,
     artifact_ids: list[str] | None = None,
     include_session_log: bool = True,
 ) -> ComposedContext:
-    """Gather metadata from artifact/context stores and the session transcript.
+    """Gather metadata from artifact store and the session transcript.
 
     If *artifact_ids* is provided, those artifacts are loaded (multi-artifact
     mode) and *artifact_id* is ignored.  If *include_session_log* is False
@@ -113,7 +109,6 @@ async def gather_context(
     """
     artifact_meta: dict[str, Any] | None = None
     artifacts_meta: list[dict[str, Any]] = []
-    context_meta: dict[str, Any] | None = None
 
     if artifact_ids is not None:
         # Multi-artifact mode
@@ -130,10 +125,6 @@ async def gather_context(
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
         artifact_meta = entry.to_dict()
         artifacts_meta = [artifact_meta]
-
-    if context_id is not None:
-        # DataContext has been removed; context_id lookups always 404
-        raise HTTPException(status_code=404, detail=f"Context entry {context_id} not found")
 
     # Read audit trail and chat history from transcript
     audit_trail: list[dict[str, Any]] = []
@@ -152,7 +143,6 @@ async def gather_context(
     return ComposedContext(
         artifact_meta=artifact_meta,
         artifacts_meta=artifacts_meta,
-        context_meta=context_meta,
         audit_trail=audit_trail,
         chat_history=chat_history,
     )
@@ -297,15 +287,6 @@ def _build_user_prompt(ctx: ComposedContext) -> str:
             sections.append(_format_artifact_section(label, meta))
     elif ctx.artifact_meta:
         sections.append(_format_artifact_section("Artifact", ctx.artifact_meta))
-
-    if ctx.context_meta:
-        sections.append(
-            "## Data Context\n"
-            f"Tool: {ctx.context_meta.get('tool', 'N/A')}\n"
-            f"Description: {ctx.context_meta.get('description', 'N/A')}\n"
-            f"Data type: {ctx.context_meta.get('data_type', 'N/A')}\n"
-            f"Summary: {json.dumps(ctx.context_meta.get('summary', {}), default=str)}"
-        )
 
     if ctx.chat_history:
         chat_lines = []
@@ -490,11 +471,10 @@ async def assemble_prompt_endpoint(req: AssembleRequest):
 async def compose(req: ComposeRequest, request: Request):
     """Gather context and compose a logbook entry draft via LLM."""
     # artifact_ids overrides artifact_id; at least one source required
-    has_artifacts = req.artifact_ids or req.artifact_id
-    if not has_artifacts and req.context_id is None:
+    if not req.artifact_ids and not req.artifact_id:
         raise HTTPException(
             status_code=422,
-            detail="At least one of artifact_id, artifact_ids, or context_id is required",
+            detail="At least one of artifact_id or artifact_ids is required",
         )
 
     store = request.app.state.artifact_store
@@ -507,9 +487,7 @@ async def compose(req: ComposeRequest, request: Request):
 
     ctx = await gather_context(
         artifact_id=req.artifact_id,
-        context_id=req.context_id,
         artifact_store=store,
-        context_store=None,
         project_dir=project_dir,
         artifact_ids=effective_artifact_ids,
         include_session_log=req.include_session_log,

@@ -13,7 +13,7 @@ Key features:
 
 .. seealso::
    :func:`get_chat_completion` : Direct chat completion requests (LiteLLM-based)
-   :mod:`configs.config` : Provider configuration management
+   :mod:`osprey.utils.config` : Provider configuration management
 """
 
 import warnings

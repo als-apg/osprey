@@ -112,9 +112,7 @@ async def introspect_server(
             async with stdio_client(params) as (read, write):
                 async with ClientSession(read, write) as session:
                     init_result = await session.initialize()
-                    base_info["description"] = getattr(
-                        init_result, "instructions", None
-                    ) or ""
+                    base_info["description"] = getattr(init_result, "instructions", None) or ""
                     result = await session.list_tools()
 
                     tools = [

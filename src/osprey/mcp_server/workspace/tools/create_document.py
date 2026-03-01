@@ -181,6 +181,8 @@ async def create_document(
         tex_entry.source_agent = "data-visualizer"
         output_artifact_ids.append(tex_entry.id)
 
+        # TODO: Replace with a public API method once BaseStore
+        # exposes one (currently only _save_index exists).
         store._save_index()
 
     response: dict = {

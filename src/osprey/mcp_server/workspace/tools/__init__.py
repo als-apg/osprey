@@ -1,1 +1,1 @@
-"""Workspace MCP tools — memory, artifacts, data context, and screen capture."""
+"""Workspace MCP tools — artifacts, data context, and screen capture."""

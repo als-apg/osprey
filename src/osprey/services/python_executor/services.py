@@ -6,7 +6,6 @@ NotebookManager creates Jupyter notebooks for execution tracking.
 
 import json
 import os
-import textwrap
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -480,7 +479,7 @@ class NotebookManager:
         - **Approval Integration**: Notebooks formatted for human review and approval workflows
         - **URL Generation**: Jupyter-accessible URLs for direct notebook access
 
-    :param configurable: LangGraph configurable dictionary containing service configuration
+    :param configurable: Configuration dictionary containing service configuration
     :type configurable: Dict[str, Any]
 
     .. note::
@@ -520,7 +519,7 @@ class NotebookManager:
         creates a FileManager instance for URL generation and file operations.
         This ensures consistent behavior across all file system operations.
 
-        :param configurable: LangGraph configurable dictionary containing service settings
+        :param configurable: Configuration dictionary containing service settings
         :type configurable: Dict[str, Any]
 
         .. note::
@@ -555,10 +554,6 @@ class NotebookManager:
         Returns:
             Path to created notebook
         """
-        # Ensure context.json exists (should already be there, but verify)
-        if not context.context_file_path:
-            logger.warning("Context file not found when creating notebook - this should not happen")
-
         # Generate filename
         attempt_number = context.get_next_attempt_number()
         timestamp = datetime.now().strftime("%H%M%S")
@@ -572,7 +567,6 @@ class NotebookManager:
             code=code,
             error_context=error_context,
             approval_context=approval_context,
-            context_file_path=context.context_file_path,
         )
 
         # Save notebook
@@ -617,12 +611,6 @@ class NotebookManager:
         Returns:
             Path to created notebook
         """
-        # Ensure context.json exists (should already be there, but verify)
-        if not context.context_file_path:
-            logger.warning(
-                "Context file not found when creating final notebook - this should not happen"
-            )
-
         notebook_path = context.folder_path / "notebook.ipynb"
 
         # Create notebook content
@@ -630,7 +618,6 @@ class NotebookManager:
             code=code,
             results=results,
             error_context=error_context,
-            context_file_path=context.context_file_path,
             figure_paths=figure_paths or [],
             execution_folder=context.folder_path,
         )
@@ -649,7 +636,6 @@ class NotebookManager:
         code: str,
         error_context: str | None = None,
         approval_context: str | None = None,
-        context_file_path: Path | None = None,
     ) -> nbformat.NotebookNode:
         """Create notebook content for attempt notebooks."""
         cells = []
@@ -667,21 +653,6 @@ class NotebookManager:
 
         cells.append(nbformat.v4.new_markdown_cell(header))
 
-        # Context loading if available
-        if context_file_path:
-            context_code = textwrap.dedent(
-                """
-                # Load execution context
-                from osprey.context import load_context
-                context = load_context('../context.json')
-
-                # Configure runtime utilities from context
-                from osprey.runtime import configure_from_context
-                configure_from_context(context)
-                """
-            )
-            cells.append(nbformat.v4.new_code_cell(context_code))
-
         # Main code
         cells.append(nbformat.v4.new_code_cell(code))
 
@@ -694,7 +665,6 @@ class NotebookManager:
         code: str,
         results: dict[str, Any] | None = None,
         error_context: str | None = None,
-        context_file_path: Path | None = None,
         figure_paths: list[Path] = None,
         execution_folder: Path | None = None,
     ) -> nbformat.NotebookNode:
@@ -712,21 +682,6 @@ class NotebookManager:
             )
 
         cells.append(nbformat.v4.new_markdown_cell(header))
-
-        # Context loading if available
-        if context_file_path:
-            context_code = textwrap.dedent(
-                """
-                # Load execution context
-                from osprey.context import load_context
-                context = load_context('context.json')
-
-                # Configure runtime utilities from context
-                from osprey.runtime import configure_from_context
-                configure_from_context(context)
-                """
-            )
-            cells.append(nbformat.v4.new_code_cell(context_code))
 
         # Main code
         cells.append(nbformat.v4.new_code_cell(code))

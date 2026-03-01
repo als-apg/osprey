@@ -4,7 +4,6 @@ Abstract base class for archiver connectors.
 Provides protocol-agnostic interfaces for retrieving historical data
 from various archiver systems (EPICS Archiver Appliance, Tango HDB++, LabVIEW, etc.).
 
-Related to Issue #18 - Control System Abstraction (Layer 2)
 """
 
 from abc import ABC, abstractmethod

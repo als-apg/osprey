@@ -136,7 +136,8 @@ async def submit_response(
             "cited_entries": len(cited),
             "source_agent": agent,
         }
-        # Persist the updated fields
+        # TODO: Replace with a public API method once BaseStore
+        # exposes one (currently only _save_index exists).
         store._save_index()
 
         response = artifact.to_tool_response()

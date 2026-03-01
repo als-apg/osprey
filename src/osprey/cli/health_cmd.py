@@ -162,36 +162,42 @@ class HealthChecker:
     def _check_config_structure(self, config: dict):
         """Check configuration structure and required sections."""
 
-        required_models = [
-            "orchestrator",
-            "response",
-            "classifier",
-            "approval",
-            "task_extraction",
-            "memory",
+        # In the MCP architecture, only python_code_generator is actively consumed
+        # by live code (basic_generator.py). Other model roles are optional and
+        # application-specific.
+        recommended_models = [
             "python_code_generator",
-            "time_parsing",
         ]
 
         models = config.get("models", {})
-        missing_models = [m for m in required_models if m not in models]
 
-        if missing_models:
+        if not models:
             self.add_result(
-                "required_models",
-                "error",
-                f"Missing required models: {', '.join(missing_models)}",
-                "Framework requires 8 models: " + ", ".join(required_models),
+                "model_configs",
+                "warning",
+                "No models section in config",
+                "The models section is optional but python_code_generator is needed "
+                "for Python code execution.",
             )
-            missing_str = ", ".join(missing_models)
-            console.print(f"  {Messages.error(f'Missing required models: {missing_str}')}")
+            console.print(f"  {Messages.warning('No models configured')}")
         else:
-            self.add_result(
-                "required_models", "ok", f"All {len(required_models)} required models defined"
-            )
-            console.print(
-                f"  {Messages.success(f'All {len(required_models)} required models defined')}"
-            )
+            missing_recommended = [m for m in recommended_models if m not in models]
+            if missing_recommended:
+                missing_str = ", ".join(missing_recommended)
+                self.add_result(
+                    "recommended_models",
+                    "warning",
+                    f"Missing recommended models: {missing_str}",
+                    "python_code_generator is used by the Python execution service.",
+                )
+                console.print(f"  {Messages.warning(f'Missing recommended model: {missing_str}')}")
+            else:
+                self.add_result(
+                    "recommended_models",
+                    "ok",
+                    f"{len(models)} model(s) defined (including python_code_generator)",
+                )
+                console.print(f"  {Messages.success(f'{len(models)} model(s) defined')}")
 
         # Check model configurations
         invalid_models = []

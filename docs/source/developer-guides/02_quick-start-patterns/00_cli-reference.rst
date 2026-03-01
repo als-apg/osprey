@@ -862,10 +862,6 @@ Use ``/exit`` to return to normal orchestrated mode:
 
    Not all capabilities support direct chat mode. Only capabilities with ``direct_chat_enabled = True`` appear in the ``/chat`` list. See :doc:`01_building-your-first-capability` for how to enable this on your own capabilities.
 
-.. seealso::
-   :doc:`../../api_reference/01_core_framework/06_command_system`
-       Complete API reference for the centralized command system
-
 osprey deploy
 ================
 

@@ -60,11 +60,9 @@ Examples:
    :func:`render_template` : Template processing engine
 """
 
-import argparse
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import yaml
@@ -165,8 +163,7 @@ def find_service_config(config, service_name):
             if service_config:
                 return service_config, os.path.join(service_config["path"], TEMPLATE_FILENAME)
 
-    # Handle short names - check legacy services first for backward compatibility
-    # TODO: remove this once we have migrated all services to the new config structure
+    # Handle short names - check legacy services for backward compatibility
     legacy_services = config.get("services", {})
     service_config = legacy_services.get(service_name)
     if service_config:
@@ -552,7 +549,6 @@ def _ensure_agent_data_structure(config):
         "user_memory_dir",
         "registry_exports_dir",
         "prompts_dir",
-        "checkpoints",
     ]
 
     for subdir_key in subdirs:
@@ -765,68 +761,37 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
 
             # Adjust paths for container environment
             # In containers, src/ is copied to repo_src/, so config paths must be updated
-            # For pipelines service: working directory is /app but files are mounted at /pipelines
-            # For other services: working directory matches mount point
 
-            def adjust_src_paths_recursive(obj, is_pipelines):
+            def adjust_src_paths_recursive(obj):
                 """Recursively adjust all src/ paths in config for container environment.
 
-                When deploying to containers, the deployment system copies src/ → repo_src/.
+                When deploying to containers, the deployment system copies src/ -> repo_src/.
                 Any config values that are paths starting with 'src/' must be updated to
-                'repo_src/' (or '/pipelines/repo_src/' for pipelines service) to work correctly
-                in the container environment.
+                'repo_src/' to work correctly in the container environment.
 
                 Args:
                     obj: Config dictionary or list to process
-                    is_pipelines: Whether this is the pipelines service (needs absolute paths)
                 """
                 if isinstance(obj, dict):
                     for key, value in obj.items():
                         if isinstance(value, str):
-                            # Only adjust paths that clearly start with src/ directory reference
-                            # This is safe because 'src/' at start is always a path to source files
                             if value.startswith("src/"):
-                                if is_pipelines:
-                                    # Pipelines: absolute path since working dir (/app) != mount point (/pipelines)
-                                    obj[key] = (
-                                        f"/pipelines/repo_src/{value[4:]}"  # Remove 'src/' prefix
-                                    )
-                                    logger.debug(
-                                        f"Container path adjustment: {value} -> {obj[key]}"
-                                    )
-                                else:
-                                    # Other services: relative path since working dir == mount point
-                                    obj[key] = f"repo_src/{value[4:]}"
-                                    logger.debug(
-                                        f"Container path adjustment: {value} -> {obj[key]}"
-                                    )
+                                obj[key] = f"repo_src/{value[4:]}"
+                                logger.debug(f"Container path adjustment: {value} -> {obj[key]}")
                             elif value.startswith("./src/"):
-                                if is_pipelines:
-                                    obj[key] = (
-                                        f"/pipelines/repo_src/{value[6:]}"  # Remove './src/' prefix
-                                    )
-                                    logger.debug(
-                                        f"Container path adjustment: {value} -> {obj[key]}"
-                                    )
-                                else:
-                                    obj[key] = f"./repo_src/{value[6:]}"
-                                    logger.debug(
-                                        f"Container path adjustment: {value} -> {obj[key]}"
-                                    )
+                                obj[key] = f"./repo_src/{value[6:]}"
+                                logger.debug(f"Container path adjustment: {value} -> {obj[key]}")
                         elif isinstance(value, (dict, list)):
-                            adjust_src_paths_recursive(value, is_pipelines)
+                            adjust_src_paths_recursive(value)
                 elif isinstance(obj, list):
                     for item in obj:
                         if isinstance(item, (dict, list)):
-                            adjust_src_paths_recursive(item, is_pipelines)
-
-            # Determine if this is a pipelines service
-            is_pipelines_service = "pipelines" in source_dir
+                            adjust_src_paths_recursive(item)
 
             # Recursively adjust all src/ paths in the config
-            adjust_src_paths_recursive(flattened_config, is_pipelines_service)
+            adjust_src_paths_recursive(flattened_config)
 
-            # Handle claude_config_path: copy the file and adjust path for pipelines
+            # Handle claude_config_path: copy the file and adjust path
             # The config explicitly specifies which file to use, so we copy exactly that
             # and update the reference to match where we put it
             claude_generators = (
@@ -840,12 +805,7 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
                 shutil.copy2(claude_config_path, dst_path)
                 logger.debug(f"Copied {claude_config_path} to {dst_path}")
 
-                # Update path in config: pipelines needs absolute path, others use filename
-                if is_pipelines_service:
-                    claude_generators["claude_config_path"] = f"/pipelines/{filename}"
-                    logger.debug(f"Updated claude_config_path for pipelines: /pipelines/{filename}")
-                else:
-                    claude_generators["claude_config_path"] = filename
+                claude_generators["claude_config_path"] = filename
 
             config_yml_dst = os.path.join(out_dir, "config.yml")
             with open(config_yml_dst, "w") as f:
@@ -866,110 +826,6 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
             render_kernel_templates(source_dir, config, out_dir)
 
     return compose_filepath
-
-
-def parse_args():
-    """Parse command-line arguments for container management operations.
-
-    This function defines and processes the command-line interface for the
-    container management system, supporting configuration file specification,
-    deployment commands (up/down), and operational flags like detached mode.
-
-    The argument parser enforces logical constraints, such as requiring the
-    'up' command when using detached mode, and provides clear error messages
-    for invalid argument combinations.
-
-    :return: Parsed command-line arguments
-    :rtype: argparse.Namespace
-    :raises SystemExit: If invalid argument combinations are provided
-
-    Command-line Interface:
-        python container_manager.py CONFIG [COMMAND] [OPTIONS]
-
-        Positional Arguments:
-            CONFIG: Path to the configuration file (required)
-            COMMAND: Deployment command - 'up' or 'down' (optional)
-
-        Options:
-            -d, --detached: Run in detached mode (only with 'up' or 'rebuild')
-            --dev: Development mode - use local osprey package instead of PyPI
-
-    Examples:
-        Generate compose files only::
-
-            $ python container_manager.py config.yml
-            # Creates build directory and compose files without deployment
-
-        Deploy services in foreground::
-
-            $ python container_manager.py config.yml up
-            # Deploys services and shows output (uses PyPI framework)
-
-        Deploy services in background::
-
-            $ python container_manager.py config.yml up -d
-            # Deploys services in detached mode (uses PyPI framework)
-
-        Deploy with local osprey for development::
-
-            $ python container_manager.py config.yml up --dev
-            # Deploys services using local osprey package for testing
-
-        Deploy with local osprey in background::
-
-            $ python container_manager.py config.yml up -d --dev
-            # Deploys services in detached mode with local osprey
-
-        Stop services::
-
-            $ python container_manager.py config.yml down
-            # Stops and removes deployed services
-
-        Clean deployment (remove images/volumes)::
-
-            $ python container_manager.py config.yml clean
-            # Removes containers, images, volumes, and networks
-
-        Rebuild from scratch with local framework::
-
-            $ python container_manager.py config.yml rebuild -d --dev
-            # Clean + rebuild + start in detached mode with local framework
-
-    .. seealso::
-       :func:`main execution block` : Uses parsed arguments for deployment operations
-    """
-    parser = argparse.ArgumentParser(description="Run podman compose with config file.")
-
-    # Mandatory config path
-    parser.add_argument("config", help="Path to the config file")
-
-    # Optional command
-    parser.add_argument(
-        "command",
-        nargs="?",
-        choices=["up", "down", "clean", "rebuild"],
-        help="Command to run: 'up' (start), 'down' (stop), 'clean' (remove images/volumes), 'rebuild' (clean + up). If not provided, just generate compose files",
-    )
-
-    # Optional -d / --detached flag
-    parser.add_argument(
-        "-d", "--detached", action="store_true", help="Run in detached mode. Only valid with 'up'."
-    )
-
-    # Optional --dev flag for local osprey development
-    parser.add_argument(
-        "--dev",
-        action="store_true",
-        help="Development mode: copy local osprey package to containers instead of using PyPI version. Use this when testing local osprey changes.",
-    )
-
-    args = parser.parse_args()
-
-    # Validation
-    if args.detached and args.command not in ["up", "rebuild"]:
-        parser.error("The -d/--detached flag is only allowed with 'up' or 'rebuild'.")
-
-    return args
 
 
 def _incremental_setup_build_dir(template_path, config, service_config, out_dir, dev_mode=False):
@@ -1584,74 +1440,3 @@ def rebuild_deployment(config_path, detached=False, dev_mode=False, expose_netwo
 
     logger.info(f"Running command:\n    {' '.join(cmd)}")
     os.execvpe(cmd[0], cmd, env)
-
-
-if __name__ == "__main__":
-    """Main execution block for container management operations.
-
-    This section orchestrates the complete deployment workflow:
-    1. Parse command-line arguments
-    2. Load and validate configuration
-    3. Discover and process services
-    4. Generate build directories and compose files
-    5. Execute Podman Compose commands if requested
-
-    The execution block handles errors gracefully, providing clear feedback
-    for configuration issues, missing services, or deployment failures.
-    Exit codes indicate success (0) or various failure conditions (1).
-
-    Workflow:
-        1. Configuration Loading: Use ConfigBuilder to load and merge
-           configuration files with proper error handling
-        2. Service Discovery: Process deployed_services list to identify
-           active services for deployment
-        3. Template Processing: Generate build directories for root services
-           and each deployed service
-        4. Container Orchestration: Execute Podman Compose with generated
-           files and environment configuration
-
-    Examples:
-        Successful deployment workflow::
-
-            $ python container_manager.py config.yml up -d
-            Deployed services: osprey.jupyter, applications.als_assistant.mongo
-            Generated compose files:
-             - build/services/docker-compose.yml
-             - build/services/osprey/jupyter/docker-compose.yml
-             - build/services/applications/als_assistant/mongo/docker-compose.yml
-            Running command:
-                podman compose -f build/services/docker-compose.yml \
-                               -f build/services/osprey/jupyter/docker-compose.yml \
-                               -f build/services/applications/als_assistant/mongo/docker-compose.yml \
-                               --env-file .env up -d
-
-    .. seealso::
-       :func:`parse_args` : Command-line argument processing
-       :class:`configs.config.ConfigBuilder` : Configuration management
-       :func:`find_service_config` : Service discovery implementation
-    """
-    args = parse_args()
-
-    try:
-        if args.command == "up":
-            deploy_up(args.config, detached=args.detached, dev_mode=args.dev)
-        elif args.command == "down":
-            deploy_down(args.config, dev_mode=args.dev)
-        elif args.command == "clean":
-            # For clean, we need to prepare files first
-            _, compose_files = prepare_compose_files(args.config, dev_mode=args.dev)
-            clean_deployment(compose_files)
-        elif args.command == "rebuild":
-            rebuild_deployment(args.config, detached=args.detached, dev_mode=args.dev)
-        else:
-            # No command specified - just generate compose files
-            _, compose_files = prepare_compose_files(args.config, dev_mode=args.dev)
-            logger.success("Generated compose files:")
-            for compose_file in compose_files:
-                logger.info(f" - {compose_file}")
-    except RuntimeError as e:
-        logger.error(f"Error: {e}")
-        sys.exit(1)
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        sys.exit(1)

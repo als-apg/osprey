@@ -492,71 +492,9 @@ def get_code_generator_metadata() -> dict[str, dict[str, Any]]:
     if _code_generator_cache is not None:
         return _code_generator_cache
 
-    import importlib
-
     try:
-        # Import osprey registry provider directly (no config.yml needed!)
-        from osprey.registry.registry import FrameworkRegistryProvider
-
-        # Get osprey registry config (doesn't require project config)
-        framework_registry = FrameworkRegistryProvider()
-        config = framework_registry.get_registry_config()
-
+        # Code generators were removed from the registry
         generators = {}
-
-        # Load each code generator registration from osprey config
-        for gen_reg in config.code_generators:
-            # Skip mock generators (for testing only)
-            if gen_reg.name == "mock":
-                if os.environ.get("DEBUG"):
-                    console.print("[dim]Skipping mock generator (testing only)[/dim]")
-                continue
-
-            try:
-                # Try to import the generator to check availability
-                module = importlib.import_module(gen_reg.module_path)
-                _ = getattr(module, gen_reg.class_name)  # Check class exists
-
-                # Generator is available
-                generators[gen_reg.name] = {
-                    "name": gen_reg.name,
-                    "description": gen_reg.description,
-                    "available": True,
-                    "optional_dependencies": (
-                        gen_reg.optional_dependencies
-                        if hasattr(gen_reg, "optional_dependencies")
-                        else []
-                    ),
-                }
-
-            except ImportError as e:
-                # Generator not available (missing dependencies)
-                if hasattr(gen_reg, "optional_dependencies") and gen_reg.optional_dependencies:
-                    # Optional dependency not installed - include but mark unavailable
-                    generators[gen_reg.name] = {
-                        "name": gen_reg.name,
-                        "description": gen_reg.description,
-                        "available": False,
-                        "optional_dependencies": gen_reg.optional_dependencies,
-                        "import_error": str(e),
-                    }
-                    if os.environ.get("DEBUG"):
-                        console.print(f"[dim]Generator '{gen_reg.name}' unavailable: {e}[/dim]")
-                else:
-                    # Required dependency missing - this is an error
-                    if os.environ.get("DEBUG"):
-                        console.print(
-                            f"[dim]Warning: Could not load generator {gen_reg.name}: {e}[/dim]"
-                        )
-                    continue
-
-            except Exception as e:
-                # Other errors - skip this generator
-                if os.environ.get("DEBUG"):
-                    console.print(
-                        f"[dim]Warning: Could not load generator {gen_reg.name}: {e}[/dim]"
-                    )
-                continue
 
         if not generators:
             console.print(
@@ -776,8 +714,6 @@ def select_template(templates: list[str]) -> str | None:
     """
     # Template descriptions (could also come from template metadata)
     descriptions = {
-        "minimal": "Empty project structure with TODO placeholders",
-        "hello_world_weather": "Single capability weather example (tutorial)",
         "control_assistant": "Control system integration with channel finder (production-grade)",
     }
 
@@ -800,8 +736,6 @@ def get_default_name_for_template(template: str) -> str:
         Default project name suggestion
     """
     defaults = {
-        "minimal": "my-agent",
-        "hello_world_weather": "weather-agent",
         "control_assistant": "my-control-assistant",
     }
     return defaults.get(template, "my-project")
@@ -1964,83 +1898,6 @@ def handle_health_action(project_path: Path | None = None):
                 os.chdir(original_dir)
             except (OSError, PermissionError) as e:
                 console.print(f"\n{Messages.warning(f'Could not restore directory: {e}')}")
-
-    input("\nPress ENTER to continue...")
-
-
-def handle_workflows_action():
-    """Handle workflows export action from interactive menu.
-
-    Exports AI workflow markdown files to a local directory for easy
-    access by AI coding assistants.
-    """
-    from osprey.cli.workflows_cmd import get_workflows_source_path
-
-    console.print(f"\n{Messages.header('Export AI Workflow Files')}")
-    console.print(
-        f"[{Styles.DIM}]These markdown files guide AI coding assistants through common tasks[/{Styles.DIM}]\n"
-    )
-
-    # Check if workflows are available
-    source = get_workflows_source_path()
-    if not source or not source.exists():
-        console.print(Messages.error("Workflow files not found in installed package"))
-        console.print(
-            f"[{Styles.DIM}]This might indicate a packaging issue. "
-            f"Try reinstalling: uv pip install --force-reinstall osprey-framework[/{Styles.DIM}]"
-        )
-        input("\nPress ENTER to continue...")
-        return
-
-    # Simple: export to default location in current directory
-    target = Path.cwd() / "osprey-workflows"
-
-    # Check if already exists
-    if target.exists():
-        console.print(f"{Messages.info('Target directory already exists:')} {target}\n")
-        overwrite = questionary.confirm(
-            "Overwrite existing files?", default=False, style=custom_style
-        ).ask()
-
-        if not overwrite:
-            console.print(f"[{Styles.DIM}]Export cancelled[/{Styles.DIM}]")
-            input("\nPress ENTER to continue...")
-            return
-
-    try:
-        # Call the export function programmatically
-        import shutil
-
-        # Create target directory
-        target.mkdir(parents=True, exist_ok=True)
-
-        # Copy workflow files
-        console.print(f"{Messages.header('Exporting workflows to:')} {target}\n")
-
-        copied = 0
-        for wf_file in source.iterdir():
-            if wf_file.suffix == ".md":
-                dest_file = target / wf_file.name
-                shutil.copy2(wf_file, dest_file)
-                console.print(f"  [{Styles.SUCCESS}]✓[/{Styles.SUCCESS}] {wf_file.name}")
-                copied += 1
-
-        console.print(f"\n{Messages.success(f'✓ Exported {copied} workflow files')}")
-
-        # Usage instructions
-        console.print(f"\n{Messages.header('Usage in AI coding assistants:')}")
-        console.print(
-            f"  {Messages.command('@src/osprey/workflows/testing-workflow.md What type of test?')}"
-        )
-        console.print(
-            f"  {Messages.command('@src/osprey/workflows/pre-merge-cleanup.md Scan changes')}"
-        )
-        console.print(
-            f"\n[{Styles.DIM}]Learn more: https://als-apg.github.io/osprey/contributing/03_ai-assisted-development.html[/{Styles.DIM}]"
-        )
-
-    except Exception as e:
-        console.print(f"\n{Messages.error(f'Export failed: {e}')}")
 
     input("\nPress ENTER to continue...")
 

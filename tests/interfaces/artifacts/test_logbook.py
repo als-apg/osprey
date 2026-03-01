@@ -1,12 +1,10 @@
 """Tests for the Logbook Entry Composer API.
 
 Covers:
-  - Validation: neither artifact_id nor context_id → 422
+  - Validation: no artifact_id provided → 422
   - Artifact not found → 404
-  - Context not found (int ID) → 404
   - Missing provider config → 503
   - Successful compose with artifact (mocked LLM)
-  - Successful compose with context (mocked LLM)
   - Submit creates draft JSON in workspace/drafts/
   - Submit response includes ARIEL URL with draft_id
   - Submit calls notify_panel_focus
@@ -93,7 +91,7 @@ class TestLogbookCompose:
 
     @pytest.mark.unit
     def test_compose_requires_id(self, app_client):
-        """422 when neither artifact_id nor context_id provided."""
+        """422 when no artifact_id provided."""
         resp = app_client.post("/api/logbook/compose", json={})
         assert resp.status_code == 422
         assert "at least one" in resp.json()["detail"].lower()
@@ -106,18 +104,6 @@ class TestLogbookCompose:
             resp = app_client.post(
                 "/api/logbook/compose",
                 json={"artifact_id": "nonexistent"},
-            )
-        assert resp.status_code == 404
-        assert "not found" in resp.json()["detail"].lower()
-
-    @pytest.mark.unit
-    def test_compose_context_not_found(self, app_client):
-        """404 for nonexistent context_id (int)."""
-        p1, p2 = _patch_model_resolution()
-        with p1, p2:
-            resp = app_client.post(
-                "/api/logbook/compose",
-                json={"context_id": 9999},
             )
         assert resp.status_code == 404
         assert "not found" in resp.json()["detail"].lower()

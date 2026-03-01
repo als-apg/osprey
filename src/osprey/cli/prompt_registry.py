@@ -221,6 +221,44 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             output_path=".claude/skills/diagnose/SKILL.md",
             description="OSPREY infrastructure failure diagnosis skill",
         ),
+        # ── Skills (lattice_design) ──────────────────────────────
+        PromptArtifact(
+            canonical_name="skills/load-lattice",
+            template_path="claude/skills/load-lattice/SKILL.md.j2",
+            output_path=".claude/skills/load-lattice/SKILL.md",
+            description="Load and inspect lattice file (lattice_design only)",
+        ),
+        PromptArtifact(
+            canonical_name="skills/compute-optics",
+            template_path="claude/skills/compute-optics/SKILL.md.j2",
+            output_path=".claude/skills/compute-optics/SKILL.md",
+            description="Compute Twiss optics (lattice_design only)",
+        ),
+        PromptArtifact(
+            canonical_name="skills/fit-tune",
+            template_path="claude/skills/fit-tune/SKILL.md.j2",
+            output_path=".claude/skills/fit-tune/SKILL.md",
+            description="Fit tunes with quadrupoles (lattice_design only)",
+        ),
+        PromptArtifact(
+            canonical_name="skills/fit-chromaticity",
+            template_path="claude/skills/fit-chromaticity/SKILL.md.j2",
+            output_path=".claude/skills/fit-chromaticity/SKILL.md",
+            description="Fit chromaticity with sextupoles (lattice_design only)",
+        ),
+        PromptArtifact(
+            canonical_name="skills/compare-optics",
+            template_path="claude/skills/compare-optics/SKILL.md.j2",
+            output_path=".claude/skills/compare-optics/SKILL.md",
+            description="Compare optics before/after changes (lattice_design only)",
+        ),
+        # ── Rules (lattice_design) ────────────────────────────────
+        PromptArtifact(
+            canonical_name="rules/lattice-physics",
+            template_path="claude/rules/lattice-physics.md.j2",
+            output_path=".claude/rules/lattice-physics.md",
+            description="AT API reference card (lattice_design only)",
+        ),
         # ── Output Styles ────────────────────────────────────────────
         PromptArtifact(
             canonical_name="output-styles/control-operator",

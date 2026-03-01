@@ -95,7 +95,6 @@ API Reference
          * :doc:`03_production_systems/01_human-approval` - ApprovalManager, approval workflows
          * :doc:`03_production_systems/02_data-management` - DataSourceManager, provider framework
          * :doc:`03_production_systems/03_python-execution` - PythonExecutorService, secure execution
-         * :doc:`03_production_systems/04_memory-storage` - Memory management and persistence
          * :doc:`03_production_systems/05_container-management` - Container orchestration and deployment
          * :doc:`04_error_handling/01_classification_system` - Error classification and severity levels
          * :doc:`04_error_handling/02_exception_reference` - Exception hierarchy and handling
@@ -195,7 +194,6 @@ Core API Sections
    * :doc:`03_production_systems/01_human-approval` - LangGraph-native approval workflows
    * :doc:`03_production_systems/02_data-management` - Unified data source integration
    * :doc:`03_production_systems/03_python-execution` - Secure code generation and execution
-   * :doc:`03_production_systems/04_memory-storage` - Persistent user memory management
    * :doc:`03_production_systems/05_container-management` - Service orchestration and deployment
 
    **🛡️ Error Handling**
