@@ -135,6 +135,7 @@ CLAUDE.md
 # Tutorials and examples
 weather-agent/
 my-control-assistant/
+my-lattice-assistant/
 my-agent/_audit/
 
 # OSPREY workspace (runtime data, not tracked)

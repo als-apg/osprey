@@ -46,14 +46,6 @@ def reset_state_between_tests():
     except ImportError:
         pass
 
-    # Reset approval manager singleton to prevent approval state pollution
-    try:
-        import osprey.approval.approval_manager as approval_module
-
-        approval_module._approval_manager = None
-    except ImportError:
-        pass  # Approval manager might not be available in all test environments
-
     yield
 
     # Reset after test
@@ -68,14 +60,6 @@ def reset_state_between_tests():
         from osprey.mcp_server.common import reset_config_cache
 
         reset_config_cache()
-    except ImportError:
-        pass
-
-    # Reset approval manager singleton again
-    try:
-        import osprey.approval.approval_manager as approval_module
-
-        approval_module._approval_manager = None
     except ImportError:
         pass
 
@@ -204,10 +188,7 @@ class TestRegistryProvider(RegistryConfigProvider):
     def get_registry_config(self):
         # Use extend_framework_registry helper - the recommended way
         # This extends the framework registry with no additions
-        return extend_framework_registry(
-            capabilities=[],
-            context_classes=[]
-        )
+        return extend_framework_registry()
 """
     )
 
@@ -289,10 +270,7 @@ class TestRegistryProvider(RegistryConfigProvider):
     def get_registry_config(self):
         # Use extend_framework_registry helper - the recommended way
         # This extends the framework registry with no additions
-        return extend_framework_registry(
-            capabilities=[],
-            context_classes=[]
-        )
+        return extend_framework_registry()
 """
     )
 
@@ -347,33 +325,3 @@ class TestRegistryProvider(RegistryConfigProvider):
     # to avoid state pollution between tests
 
     return config_file
-
-
-@pytest.fixture
-def mock_code_generator():
-    """Fixture providing a MockCodeGenerator for testing.
-
-    Creates a fresh MockCodeGenerator with success behavior.
-    This is a globally-available fixture for any test that needs
-    deterministic code generation.
-
-    Returns:
-        MockCodeGenerator configured for successful execution
-
-    Examples:
-        Basic usage::
-
-            def test_something(mock_code_generator):
-                code = await mock_code_generator.generate_code(request, [])
-                assert 'results' in code
-
-        With custom code::
-
-            def test_custom(mock_code_generator):
-                mock_code_generator.set_code("results = {'value': 42}")
-                code = await mock_code_generator.generate_code(request, [])
-                assert code == "results = {'value': 42}"
-    """
-    from osprey.services.python_executor.generation import MockCodeGenerator
-
-    return MockCodeGenerator(behavior="success")

@@ -10,7 +10,6 @@ Production Systems
    01_human-approval-workflows
    02_data-source-integration
    03_python-execution-service/index
-   04_memory-storage-service
    05_container-and-deployment
    06_control-system-integration
    07_logbook-search-service/index
@@ -24,7 +23,6 @@ Production Systems
    - LangGraph-native approval workflows with configurable security policies
    - Multi-source data integration through provider framework patterns
    - Container-isolated Python execution with security analysis and EPICS integration
-   - Persistent memory storage with cross-session context preservation
    - Complete container management and service orchestration for scalable deployment
 
    **Prerequisites:** Solid understanding of Infrastructure Components and production deployment concepts
@@ -65,17 +63,6 @@ Core Production Components
       :shadow: md
 
       Pluggable code generation (Basic LLM, Claude Code, Mock), security analysis, and flexible execution environments.
-
-   .. grid-item-card:: 🧠 Memory Storage Service
-      :link: 04_memory-storage-service
-      :link-type: doc
-      :class-header: bg-success text-white
-      :class-body: text-center
-      :shadow: md
-
-      **Persistent User Memory**
-
-      File-based storage with framework integration and cross-session context preservation.
 
    .. grid-item-card:: 🚀 Container & Deployment
       :link: 05_container-and-deployment

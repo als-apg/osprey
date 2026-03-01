@@ -374,22 +374,12 @@ class ARIELSearchService:
         similarity_threshold = ap.get("similarity_threshold")
         temperature = ap.get("temperature")
 
-        prompt_template = None
-        try:
-            from osprey.prompts.loader import get_framework_prompts
-
-            builder = get_framework_prompts().get_ariel_rag_prompt_builder()
-            prompt_template = builder.get_prompt_template()  # type: ignore[attr-defined]
-        except (ImportError, ValueError, NotImplementedError, AttributeError):
-            pass  # Falls back to hardcoded default inside RAGPipeline
-
         pipeline = RAGPipeline(
             repository=self.repository,
             config=self.config,
             embedder_loader=self._get_embedder,
             max_context_chars=max_context_chars,
             max_chars_per_entry=max_chars_per_entry,
-            prompt_template=prompt_template,
         )
 
         start_date, end_date = request.time_range if request.time_range else (None, None)
@@ -427,20 +417,10 @@ class ARIELSearchService:
         """
         from osprey.services.ariel_search.agent import AgentExecutor
 
-        system_prompt = None
-        try:
-            from osprey.prompts.loader import get_framework_prompts
-
-            builder = get_framework_prompts().get_ariel_agent_prompt_builder()
-            system_prompt = builder.get_system_prompt()  # type: ignore[attr-defined]
-        except (ImportError, ValueError, NotImplementedError, AttributeError):
-            pass
-
         executor = AgentExecutor(
             repository=self.repository,
             config=self.config,
             embedder_loader=self._get_embedder,
-            system_prompt=system_prompt,
         )
 
         agent_result = await executor.execute(

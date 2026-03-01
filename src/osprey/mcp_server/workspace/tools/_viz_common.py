@@ -149,6 +149,8 @@ def collect_and_register_artifacts(
             if category:
                 art_entry.category = category
                 art_entry.source_agent = "data-visualizer"
+                # TODO: Replace with a public API method once BaseStore
+                # exposes one (currently only _save_index exists).
                 store._save_index()
 
             artifact_ids.append(art_entry.id)

@@ -396,7 +396,7 @@ class TestClaudeRegenCommand:
         project_dir = manager.create_project(
             project_name="regen-cli-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         result = cli_runner.invoke(regen, ["--project", str(project_dir)])
@@ -411,7 +411,7 @@ class TestClaudeRegenCommand:
         project_dir = manager.create_project(
             project_name="dry-run-cli",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         result = cli_runner.invoke(regen, ["--project", str(project_dir), "--dry-run"])
@@ -442,7 +442,7 @@ class TestClaudeChatCommand:
         project_dir = manager.create_project(
             project_name="chat-cli-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         result = cli_runner.invoke(chat_claude, ["--project", str(project_dir)])
@@ -462,7 +462,7 @@ class TestClaudeChatCommand:
         project_dir = manager.create_project(
             project_name="chat-resume-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         cli_runner.invoke(
@@ -483,7 +483,7 @@ class TestClaudeChatCommand:
         project_dir = manager.create_project(
             project_name="chat-print-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         cli_runner.invoke(

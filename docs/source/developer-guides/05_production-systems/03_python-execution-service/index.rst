@@ -173,8 +173,5 @@ See Also
 :doc:`../01_human-approval-workflows`
     Understanding the approval system integration
 
-:doc:`../04_memory-storage-service`
-    Integrate memory storage with Python execution
-
 :doc:`../../api_reference/03_production_systems/03_python-execution`
     Complete Python execution API reference

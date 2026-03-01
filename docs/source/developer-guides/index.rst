@@ -55,7 +55,7 @@ Developer Guides
 
          * :doc:`03_core-framework-systems/01_state-management-architecture` - Selective persistence strategy
          * :doc:`03_core-framework-systems/02_context-management-system` - Type-safe data exchange
-         * :doc:`05_production-systems/04_memory-storage-service` - Cross-session context preservation
+         * :doc:`05_production-systems/05_container-and-deployment` - Service orchestration and deployment
 
          **Error Handling & Recovery**
 
@@ -75,7 +75,6 @@ Developer Guides
 
          * :doc:`05_production-systems/05_container-and-deployment` - Service orchestration & health monitoring
          * :doc:`05_production-systems/02_data-source-integration` - Provider framework & parallel retrieval
-         * :doc:`05_production-systems/04_memory-storage-service` - File-based storage with framework integration
 
          **Processing Pipeline**
 
@@ -228,7 +227,6 @@ Guide Categories
    * :doc:`05_production-systems/01_human-approval-workflows` - LangGraph-native approval with rich context
    * :doc:`05_production-systems/02_data-source-integration` - Parallel retrieval and intelligent provider discovery
    * :doc:`05_production-systems/03_python-execution-service/index` - Pluggable code generation and secure execution
-   * :doc:`05_production-systems/04_memory-storage-service` - Persistent user memory with framework integration
    * :doc:`05_production-systems/05_container-and-deployment` - Service orchestration and template-based deployment
 
 .. toctree::

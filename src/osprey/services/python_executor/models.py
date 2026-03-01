@@ -7,7 +7,7 @@ import dataclasses
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, TypedDict
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
@@ -20,36 +20,6 @@ if TYPE_CHECKING:
     from .execution.control import ExecutionControlConfig, ExecutionMode
 
 logger = get_logger("python_services")
-
-
-# =============================================================================
-# CUSTOM REDUCERS FOR STATE MANAGEMENT
-# =============================================================================
-
-
-def preserve_once_set(existing: Any | None, new: Any | None) -> Any | None:
-    """Preserve field value once set - never allow it to be replaced or lost.
-
-    This reducer ensures that critical fields like 'request' are never lost during
-    state updates, including checkpoint resumption.
-
-    Args:
-        existing: Current value of the field (may be None)
-        new: New value being applied to the field (may be None)
-
-    Returns:
-        The existing value if it's set, otherwise the new value
-
-    Examples:
-        Once a request is set, it's preserved even if not in resume payload::
-
-            >>> preserve_once_set(request_obj, None)  # Returns request_obj
-            >>> preserve_once_set(None, request_obj)  # Returns request_obj
-            >>> preserve_once_set(request_obj, other_obj)  # Returns request_obj
-    """
-    if existing is not None:
-        return existing
-    return new
 
 
 # =============================================================================
@@ -301,8 +271,6 @@ class PythonExecutionContext:
     :type folder_url: str, optional
     :param attempts_folder: Subfolder containing individual execution attempts
     :type attempts_folder: Path, optional
-    :param context_file_path: Path to the serialized context file for the execution
-    :type context_file_path: Path, optional
     :param notebook_attempts: List of all notebook creation attempts for this execution
     :type notebook_attempts: List[NotebookAttempt]
 
@@ -319,7 +287,6 @@ class PythonExecutionContext:
     folder_path: Path | None = None
     folder_url: str | None = None
     attempts_folder: Path | None = None
-    context_file_path: Path | None = None
     notebook_attempts: list[NotebookAttempt] = field(default_factory=list)
 
     @property
@@ -1020,60 +987,6 @@ def get_container_endpoint_config_from_configurable(
             f"Failed to create container endpoint config: {str(e)}",
             technical_details={"execution_mode": execution_mode, "original_error": str(e)},
         ) from e
-
-
-# =============================================================================
-# STATE MANAGEMENT
-# =============================================================================
-
-
-class PythonExecutionState(TypedDict):
-    """State for Python executor service.
-
-    This state is used internally by the service and includes both the
-    original request and execution tracking fields.
-
-    CRITICAL: The 'request' field preserves the existing interface, allowing
-    service nodes to access all original request data via state.request.field_name
-
-    The 'request' field uses the preserve_once_set reducer to ensure it's never
-    lost during state updates or checkpoint resumption (e.g., approval workflows).
-
-    NOTE: capability_context_data is extracted to top level for ContextManager compatibility
-    """
-
-    # Original request (preserves interface) - NEVER lost once set
-    request: Annotated[PythonExecutionRequest, preserve_once_set]
-
-    # Capability context data (extracted from request for ContextManager compatibility)
-    capability_context_data: dict[str, dict[str, dict[str, Any]]] | None
-
-    # Execution tracking
-    generation_attempt: int
-    error_chain: list[ExecutionError]  # Structured errors with full context
-    current_stage: str  # "generation", "analysis", "approval", "execution", "complete"
-
-    # Approval state (improved pattern)
-    requires_approval: bool | None
-    approval_interrupt_data: dict[str, Any] | None  # Interrupt data with all approval details
-    approval_result: dict[str, Any] | None  # Response from interrupt
-    approved: bool | None  # Final approval status
-
-    # Runtime data
-    generated_code: str | None
-    analysis_result: Any | None
-    analysis_failed: bool | None
-    execution_failed: bool | None
-    execution_result: Any | None
-    execution_folder: Any | None
-
-    # Code generator metadata (generic - works for any generator)
-    code_generator_metadata: dict[str, Any] | None
-
-    # Control flags
-    is_successful: bool
-    is_failed: bool
-    failure_reason: str | None
 
 
 # =============================================================================

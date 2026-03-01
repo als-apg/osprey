@@ -37,7 +37,7 @@ class TestGetConfiguredProviderNames:
 
     def _make_manager(self):
         """Create a minimal RegistryManager for testing."""
-        config = RegistryConfig(capabilities=[], context_classes=[])
+        config = RegistryConfig()
         manager = RegistryManager.__new__(RegistryManager)
         manager.config = config
         return manager
@@ -118,7 +118,7 @@ class TestInitializeProvidersFiltering:
 
     def _make_manager_with_providers(self, providers):
         """Create a RegistryManager with given provider registrations."""
-        config = RegistryConfig(capabilities=[], providers=providers, context_classes=[])
+        config = RegistryConfig(providers=providers)
         manager = RegistryManager.__new__(RegistryManager)
         manager.config = config
         manager._registries = {"providers": {}}

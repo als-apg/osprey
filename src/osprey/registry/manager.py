@@ -13,17 +13,13 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any
 
-from osprey.base.errors import ConfigurationError, RegistryError
+from osprey.errors import ConfigurationError, RegistryError
 from osprey.utils.config import get_agent_dir, get_config_value
 from osprey.utils.logger import get_logger
 
 from .base import RegistryConfig, RegistryConfigProvider
-
-if TYPE_CHECKING:
-    from osprey.base import BaseCapability
-    from osprey.context import CapabilityContext
 
 logger = get_logger(name="registry", color="sky_blue2")
 
@@ -31,18 +27,17 @@ logger = get_logger(name="registry", color="sky_blue2")
 class RegistryManager:
     """Centralized registry for all Osprey Agentic Framework components.
 
-    This class provides the single point of access for capabilities, nodes, context classes,
-    and data sources throughout the framework. It replaces the fragmented registry system
-    with a unified approach that eliminates circular imports through lazy loading and
-    provides dependency-ordered initialization.
+    This class provides the single point of access for capabilities, context classes,
+    services, providers, and connectors throughout the framework. It replaces the
+    fragmented registry system with a unified approach that eliminates circular imports
+    through lazy loading and provides dependency-ordered initialization.
 
     The registry system follows a strict initialization order to handle dependencies:
     1. Context classes (required by capabilities)
-    2. Data sources (required by capabilities)
-    3. Core nodes (infrastructure components)
+    2. Providers (AI model backends)
+    3. Services (shared infrastructure)
     4. Capabilities (domain-specific functionality)
-    5. Framework prompt providers (application-specific prompts)
-    6. Workflow templates (predefined execution patterns)
+    5. Connectors (control system adapters)
 
     All components are loaded lazily using module path and class name metadata,
     preventing circular import issues while maintaining full introspection capabilities.
@@ -70,17 +65,9 @@ class RegistryManager:
         self._initialized = False
 
         self._registries = {
-            "capabilities": {},
-            "nodes": {},
-            "contexts": {},
-            "data_sources": {},
             "services": {},
-            "domain_analyzers": {},
-            "execution_policy_analyzers": {},
-            "framework_prompt_providers": {},
             "providers": {},
             "connectors": {},
-            "code_generators": {},
             "ariel_search_modules": {},
             "ariel_enhancement_modules": {},
             "ariel_pipelines": {},
@@ -137,15 +124,9 @@ class RegistryManager:
 
                 framework_config = self._load_registry_from_module("osprey.registry.registry")
                 merged = RegistryConfig(
-                    core_nodes=framework_config.core_nodes.copy(),
-                    capabilities=framework_config.capabilities.copy(),
-                    context_classes=framework_config.context_classes.copy(),
-                    data_sources=framework_config.data_sources.copy(),
                     services=framework_config.services.copy(),
-                    framework_prompt_providers=framework_config.framework_prompt_providers.copy(),
                     providers=framework_config.providers.copy(),
                     connectors=framework_config.connectors.copy(),
-                    code_generators=framework_config.code_generators.copy(),
                     ariel_search_modules=framework_config.ariel_search_modules.copy(),
                     ariel_enhancement_modules=framework_config.ariel_enhancement_modules.copy(),
                     ariel_pipelines=framework_config.ariel_pipelines.copy(),
@@ -399,31 +380,18 @@ class RegistryManager:
                 continue
 
             original_count = len(component_collection)
-            if component_type == "context_classes":
-                filtered_components = [
-                    comp for comp in component_collection if comp.context_type not in excluded_names
-                ]
-            else:
-                filtered_components = [
-                    comp for comp in component_collection if comp.name not in excluded_names
-                ]
+            filtered_components = [
+                comp for comp in component_collection if comp.name not in excluded_names
+            ]
             setattr(merged, component_type, filtered_components)
 
-            # Log exclusions that actually occurred
             excluded_count = original_count - len(filtered_components)
             if excluded_count > 0:
-                if component_type == "context_classes":
-                    actually_excluded = [
-                        name
-                        for name in excluded_names
-                        if name in {comp.context_type for comp in component_collection}
-                    ]
-                else:
-                    actually_excluded = [
-                        name
-                        for name in excluded_names
-                        if name in {comp.name for comp in component_collection}
-                    ]
+                actually_excluded = [
+                    name
+                    for name in excluded_names
+                    if name in {comp.name for comp in component_collection}
+                ]
                 if actually_excluded:
                     logger.info(
                         f"Application {app_name} excluded framework {component_type}: {actually_excluded}"
@@ -438,109 +406,9 @@ class RegistryManager:
         with the same name. This supports customization and extension patterns.
         Enhanced with robust attribute checking for missing components.
         """
-        context_overrides = []
-        existing_context_types = {cls.context_type for cls in merged.context_classes}
-
-        app_context_classes = getattr(app_config, "context_classes", [])
-        for app_context in app_context_classes:
-            if app_context.context_type in existing_context_types:
-                merged.context_classes = [
-                    cls
-                    for cls in merged.context_classes
-                    if cls.context_type != app_context.context_type
-                ]
-                context_overrides.append(app_context.context_type)
-            merged.context_classes.append(app_context)
-
-        if context_overrides:
-            logger.info(
-                f"Application {app_name} overrode framework context classes: {context_overrides}"
-            )
-
         framework_exclusions = getattr(app_config, "framework_exclusions", {})
         if framework_exclusions:
             self._apply_framework_exclusions(merged, framework_exclusions, app_name)
-
-        capability_overrides = []
-        existing_capability_names = {cap.name for cap in merged.capabilities}
-
-        app_capabilities = getattr(app_config, "capabilities", [])
-        for app_capability in app_capabilities:
-            if app_capability.name in existing_capability_names:
-                merged.capabilities = [
-                    cap for cap in merged.capabilities if cap.name != app_capability.name
-                ]
-                capability_overrides.append(app_capability.name)
-            merged.capabilities.append(app_capability)
-
-        if capability_overrides:
-            # Check for shadow warnings: non-explicit overrides of native capabilities
-            native_control_capabilities = {
-                "channel_finding",
-                "channel_read",
-                "channel_write",
-                "archiver_retrieval",
-            }
-            shadow_caps = []
-            explicit_caps = []
-            for app_capability in app_capabilities:
-                if app_capability.name in capability_overrides:
-                    is_explicit = getattr(app_capability, "_is_explicit_override", False)
-                    if is_explicit:
-                        explicit_caps.append(app_capability.name)
-                    elif app_capability.name in native_control_capabilities:
-                        shadow_caps.append(app_capability.name)
-
-            if shadow_caps:
-                logger.warning(
-                    f"Application '{app_name}' shadows native framework capabilities: "
-                    f"{shadow_caps}. These capabilities are now built into OSPREY. "
-                    f"Run 'osprey migrate check' to update your application, or use "
-                    f"override_capabilities=[] in your registry to explicitly override."
-                )
-
-            if explicit_caps:
-                logger.info(
-                    f"Application {app_name} explicitly overrode framework capabilities: "
-                    f"{explicit_caps}"
-                )
-
-            # Log remaining non-native overrides at INFO level
-            other_overrides = [
-                c for c in capability_overrides if c not in shadow_caps and c not in explicit_caps
-            ]
-            if other_overrides:
-                logger.info(
-                    f"Application {app_name} overrode framework capabilities: {other_overrides}"
-                )
-
-        framework_ds_names = {ds.name for ds in merged.data_sources}
-        ds_overrides = []
-
-        app_data_sources = getattr(app_config, "data_sources", [])
-        for app_ds in app_data_sources:
-            if app_ds.name in framework_ds_names:
-                merged.data_sources = [ds for ds in merged.data_sources if ds.name != app_ds.name]
-                ds_overrides.append(app_ds.name)
-            merged.data_sources.append(app_ds)
-
-        if ds_overrides:
-            logger.info(f"Application {app_name} overrode framework data sources: {ds_overrides}")
-
-        framework_node_names = {node.name for node in merged.core_nodes}
-        node_overrides = []
-
-        app_core_nodes = getattr(app_config, "core_nodes", [])
-        for app_node in app_core_nodes:
-            if app_node.name in framework_node_names:
-                merged.core_nodes = [
-                    node for node in merged.core_nodes if node.name != app_node.name
-                ]
-                node_overrides.append(app_node.name)
-            merged.core_nodes.append(app_node)
-
-        if node_overrides:
-            logger.info(f"Application {app_name} overrode framework nodes: {node_overrides}")
 
         framework_service_names = {service.name for service in merged.services}
         service_overrides = []
@@ -556,9 +424,6 @@ class RegistryManager:
 
         if service_overrides:
             logger.info(f"Application {app_name} overrode framework services: {service_overrides}")
-
-        app_prompt_providers = getattr(app_config, "framework_prompt_providers", [])
-        merged.framework_prompt_providers.extend(app_prompt_providers)
 
         framework_provider_keys = {(p.module_path, p.class_name) for p in merged.providers}
         provider_overrides = []
@@ -607,31 +472,6 @@ class RegistryManager:
         if connectors_added:
             logger.info(
                 f"Application {app_name} added {len(connectors_added)} new connector(s): {connectors_added}"
-            )
-
-        framework_generator_names = {gen.name for gen in merged.code_generators}
-        generator_overrides = []
-        generators_added = []
-
-        app_generators = getattr(app_config, "code_generators", [])
-        for app_generator in app_generators:
-            if app_generator.name in framework_generator_names:
-                merged.code_generators = [
-                    gen for gen in merged.code_generators if gen.name != app_generator.name
-                ]
-                generator_overrides.append(app_generator.name)
-                merged.code_generators.append(app_generator)
-            else:
-                generators_added.append(app_generator.name)
-                merged.code_generators.append(app_generator)
-
-        if generator_overrides:
-            logger.info(
-                f"Application {app_name} overrode framework code generators: {generator_overrides}"
-            )
-        if generators_added:
-            logger.info(
-                f"Application {app_name} added {len(generators_added)} new code generator(s): {generators_added}"
             )
 
         self._merge_named_registrations(
@@ -744,30 +584,16 @@ class RegistryManager:
     def _initialize_component_type(self, component_type: str) -> None:
         """Initialize components of a specific type.
 
-        :param component_type: Type of components to initialize (context_classes, data_sources, etc.)
+        :param component_type: Type of components to initialize (context_classes, capabilities, etc.)
         :type component_type: str
         :raises ValueError: If component_type is not recognized
         """
-        if component_type == "context_classes":
-            self._initialize_context_classes()
-        elif component_type == "data_sources":
-            self._initialize_data_sources()
-        elif component_type == "providers":
+        if component_type == "providers":
             self._initialize_providers()
         elif component_type == "services":
             self._initialize_services()
-        elif component_type == "capabilities":
-            self._initialize_capabilities()
-        elif component_type == "framework_prompt_providers":
-            self._initialize_framework_prompt_providers()
-        elif component_type == "domain_analyzers":
-            self._initialize_domain_analyzers()
-        elif component_type == "execution_policy_analyzers":
-            self._initialize_execution_policy_analyzers()
         elif component_type == "connectors":
             self._initialize_connectors()
-        elif component_type == "code_generators":
-            self._initialize_code_generators()
         elif component_type == "ariel_search_modules":
             self._initialize_ariel_search_modules()
         elif component_type == "ariel_enhancement_modules":
@@ -778,67 +604,6 @@ class RegistryManager:
             self._initialize_ariel_ingestion_adapters()
         else:
             raise ValueError(f"Unknown component type: {component_type}")
-
-    def _initialize_context_classes(self) -> None:
-        """Initialize context class registry with lazy loading.
-
-        Dynamically imports and registers all context classes defined in the configuration.
-        Context classes define the data structures used for inter-capability communication
-        and must be available before capability initialization.
-
-        :raises RegistryError: If any context class module cannot be imported
-        :raises AttributeError: If specified class name is not found in module
-        """
-        logger.debug("Initializing context classes...")
-        for reg in self.config.context_classes:
-            try:
-                module = __import__(reg.module_path, fromlist=[reg.class_name])
-                context_class = getattr(module, reg.class_name)
-                self._registries["contexts"][reg.context_type] = context_class
-                logger.debug(
-                    f"Registered context class: {reg.context_type} -> {context_class.__name__}"
-                )
-            except ImportError as e:
-                logger.error(
-                    f"Failed to import module for context class {reg.context_type}: {reg.module_path}"
-                )
-                raise RegistryError(
-                    f"Cannot import module {reg.module_path} for context class {reg.context_type}: {e}"
-                ) from e
-            except AttributeError as e:
-                logger.error(
-                    f"Context class {reg.class_name} not found in module {reg.module_path}"
-                )
-                raise RegistryError(
-                    f"Class {reg.class_name} not found in module {reg.module_path} for context {reg.context_type}: {e}"
-                ) from e
-
-        logger.info(f"Registered {len(self.config.context_classes)} context classes")
-
-    def _initialize_data_sources(self) -> None:
-        """Initialize data source provider registry with instantiation.
-
-        Dynamically imports and instantiates all data source providers defined in
-        the configuration. Data sources provide external data access and must be
-        available before capabilities that depend on them.
-
-        Failed data source initialization is logged as warning but does not fail
-        the entire registry initialization, allowing partial functionality.
-
-        :raises Exception: Individual data source failures are caught and logged
-        """
-        logger.debug("Initializing data sources...")
-        for reg in self.config.data_sources:
-            try:
-                module = __import__(reg.module_path, fromlist=[reg.class_name])
-                provider_class = getattr(module, reg.class_name)
-                provider_instance = provider_class()
-                self._registries["data_sources"][reg.name] = provider_instance
-                logger.debug(f"Registered data source: {reg.name}")
-            except Exception as e:
-                logger.warning(f"Failed to initialize data source {reg.name}: {e}")
-
-        logger.info(f"Registered {len(self._registries['data_sources'])} data sources")
 
     def _get_configured_provider_names(self) -> set[str] | None:
         """Extract provider names from config.yml models section.
@@ -855,7 +620,7 @@ class RegistryManager:
                     providers.add(role_config["provider"])
             return providers if providers else None
         except Exception:
-            return None  # Config not available (TUI init, framework-only mode)
+            return None  # Config not available (framework-only mode)
 
     def _initialize_providers(self) -> None:
         """Initialize AI model providers via the lightweight ProviderRegistry.
@@ -958,63 +723,6 @@ class RegistryManager:
 
         logger.info(
             f"Connector initialization complete: {len(self._registries['connectors'])} connectors loaded"
-        )
-
-    def _initialize_code_generators(self) -> None:
-        """Initialize code generators from registry configuration.
-
-        Loads code generator classes and registers them with the generator factory for runtime use.
-        This integrates the code generator system with the registry, providing unified management
-        of all framework components while maintaining the factory pattern for runtime generator creation.
-
-        Code generators with optional dependencies are handled gracefully - if dependencies are
-        missing, the generator is skipped with a warning but initialization continues.
-
-        :raises RegistryError: If code generator class cannot be imported (non-optional deps)
-        """
-        logger.info(f"Initializing {len(self.config.code_generators)} code generator(s)...")
-
-        for registration in self.config.code_generators:
-            try:
-                module = importlib.import_module(registration.module_path)
-                generator_class = getattr(module, registration.class_name)
-
-                self._registries["code_generators"][registration.name] = {
-                    "class": generator_class,
-                    "registration": registration,
-                }
-
-                logger.info(f"  ✓ Registered code generator: {registration.name}")
-                logger.debug(f"    - Description: {registration.description}")
-                logger.debug(f"    - Module: {registration.module_path}")
-                logger.debug(f"    - Class: {registration.class_name}")
-                if registration.optional_dependencies:
-                    logger.debug(
-                        f"    - Optional dependencies: {registration.optional_dependencies}"
-                    )
-
-            except ImportError as e:
-                if registration.optional_dependencies:
-                    logger.warning(
-                        f"  ⊘ Skipping code generator '{registration.name}' "
-                        f"(optional dependencies {registration.optional_dependencies} not installed): {e}"
-                    )
-                    logger.debug(
-                        f"    To use '{registration.name}', install: pip install {' '.join(registration.optional_dependencies)}"
-                    )
-                else:
-                    logger.error(f"  ✗ Failed to import code generator '{registration.name}': {e}")
-                    raise RegistryError(
-                        f"Code generator registration failed for {registration.name}"
-                    ) from e
-            except Exception as e:
-                logger.error(f"  ✗ Failed to register code generator '{registration.name}': {e}")
-                raise RegistryError(
-                    f"Code generator registration failed for {registration.name}"
-                ) from e
-
-        logger.info(
-            f"Code generator initialization complete: {len(self._registries['code_generators'])} generators loaded"
         )
 
     def _initialize_ariel_search_modules(self) -> None:
@@ -1189,62 +897,6 @@ class RegistryManager:
             f"{len(self._registries['ariel_ingestion_adapters'])} adapters loaded"
         )
 
-    def _initialize_execution_policy_analyzers(self) -> None:
-        """Initialize execution policy analyzer registry with instantiation.
-
-        Dynamically imports and instantiates all execution policy analyzer classes defined
-        in the configuration. These analyzers make execution mode and approval decisions
-        based on code analysis results.
-
-        Failed analyzer initialization is logged as warning but does not fail
-        the entire registry initialization, allowing fallback to default analyzer.
-
-        :raises Exception: Individual analyzer failures are caught and logged
-        """
-        logger.debug("Initializing execution policy analyzers...")
-        for reg in self.config.execution_policy_analyzers:
-            try:
-                module = __import__(reg.module_path, fromlist=[reg.class_name])
-                analyzer_class = getattr(module, reg.class_name)
-                self._registries["execution_policy_analyzers"][reg.name] = {
-                    "class": analyzer_class,
-                    "registration": reg,
-                }
-                logger.debug(f"Registered execution policy analyzer: {reg.name}")
-            except Exception as e:
-                logger.warning(f"Failed to initialize execution policy analyzer {reg.name}: {e}")
-
-        logger.info(
-            f"Registered {len(self._registries['execution_policy_analyzers'])} execution policy analyzers"
-        )
-
-    def _initialize_domain_analyzers(self) -> None:
-        """Initialize domain analyzer registry with instantiation.
-
-        Dynamically imports and instantiates all domain analyzer classes defined
-        in the configuration. These analyzers analyze code for domain-specific
-        patterns and operations.
-
-        Failed analyzer initialization is logged as warning but does not fail
-        the entire registry initialization, allowing fallback to default analyzer.
-
-        :raises Exception: Individual analyzer failures are caught and logged
-        """
-        logger.debug("Initializing domain analyzers...")
-        for reg in self.config.domain_analyzers:
-            try:
-                module = __import__(reg.module_path, fromlist=[reg.class_name])
-                analyzer_class = getattr(module, reg.class_name)
-                self._registries["domain_analyzers"][reg.name] = {
-                    "class": analyzer_class,
-                    "registration": reg,
-                }
-                logger.debug(f"Registered domain analyzer: {reg.name}")
-            except Exception as e:
-                logger.warning(f"Failed to initialize domain analyzer {reg.name}: {e}")
-
-        logger.info(f"Registered {len(self._registries['domain_analyzers'])} domain analyzers")
-
     def _initialize_services(self) -> None:
         """Initialize service registry.
 
@@ -1266,174 +918,6 @@ class RegistryManager:
                 logger.warning(f"Failed to initialize service {reg.name}: {e}")
 
         logger.info(f"Registered {len(self._registries['services'])} services")
-
-    def _initialize_capabilities(self) -> None:
-        """Initialize capability registry.
-
-        Dynamically imports and registers all domain-specific capabilities.
-
-        Failed capability initialization is logged as warning but does not fail
-        the entire registry, allowing partial system functionality.
-        """
-        logger.debug("Initializing capabilities...")
-        successful_count = 0
-        failed_caps = []
-
-        for reg in self.config.capabilities:
-            try:
-                module = __import__(reg.module_path, fromlist=[reg.class_name])
-                capability_class = getattr(module, reg.class_name)
-                capability_instance = capability_class()
-                self._registries["capabilities"][reg.name] = capability_instance
-
-                logger.debug(f"Registered capability: {reg.name}")
-                successful_count += 1
-
-            except Exception as e:
-                failed_caps.append(reg.name)
-                logger.warning(f"Failed to initialize capability {reg.name}: {e}")
-                import traceback
-
-                logger.debug(
-                    f"Capability {reg.name} initialization traceback: {traceback.format_exc()}"
-                )
-
-        if failed_caps:
-            logger.error(f"❌ Failed to initialize {len(failed_caps)} capabilities: {failed_caps}")
-        logger.info(
-            f"Registered {len(self._registries['capabilities'])} capabilities ({successful_count} successful, {len(failed_caps)} failed)"
-        )
-
-    def _initialize_framework_prompt_providers(self) -> None:
-        """Initialize framework prompt providers with explicit mapping.
-
-        Creates prompt providers using explicit builder class mapping. This provides
-        clear, maintainable prompt
-        customization for different applications while maintaining compatibility
-        with the default prompt system.
-
-        The first registered provider is automatically set as the default for
-        the framework prompt system.
-
-        :raises Exception: Individual provider failures are caught and logged
-        """
-        logger.debug("Initializing framework prompt providers...")
-        for reg in self.config.framework_prompt_providers:
-            try:
-                provider = self._create_explicit_provider(reg)
-
-                from osprey.prompts.loader import _prompt_loader
-
-                provider_key = reg.module_path
-                _prompt_loader._providers[provider_key] = provider
-
-                self._registries["framework_prompt_providers"][provider_key] = reg
-                logger.debug(
-                    f"Registered prompt provider from {reg.module_path} with {len(reg.prompt_builders)} custom builders"
-                )
-
-            except Exception as e:
-                logger.warning(f"Failed to initialize prompt provider from {reg.module_path}: {e}")
-
-        if self.config.framework_prompt_providers:
-            default_provider_key = self.config.framework_prompt_providers[-1].module_path
-
-            from osprey.prompts.loader import set_default_framework_prompt_provider
-
-            set_default_framework_prompt_provider(default_provider_key)
-            logger.info(f"Set default prompt provider: {default_provider_key}")
-
-        logger.info(
-            f"Registered {len(self._registries['framework_prompt_providers'])} framework prompt providers"
-        )
-
-    def _create_explicit_provider(self, reg):
-        """Create prompt provider by overriding defaults with application-specific builders.
-
-        Overrides framework default builders with application-specific builders.
-        Applications only declare what they customize; everything else uses
-        framework defaults as fallbacks.
-
-        :param reg: Framework prompt provider registration configuration
-        :type reg: FrameworkPromptProviderRegistration
-        :return: Configured prompt provider with application overrides
-        :rtype: framework.prompts.defaults.DefaultPromptProvider
-        :raises ImportError: If builder class modules cannot be imported
-        :raises AttributeError: If builder classes are not found in modules
-        """
-        from osprey.prompts.defaults import DefaultPromptProvider
-
-        provider = DefaultPromptProvider()
-
-        successful_overrides = []
-        failed_overrides = []
-
-        for prompt_type, class_name in reg.prompt_builders.items():
-            try:
-                module = __import__(reg.module_path, fromlist=[class_name])
-                builder_class = getattr(module, class_name)
-                builder_instance = builder_class()
-
-                attr_name = f"_{prompt_type}_builder"
-                setattr(provider, attr_name, builder_instance)
-
-                successful_overrides.append(prompt_type)
-                logger.debug(f"  -> Overrode {prompt_type} with {class_name}")
-
-            except Exception as e:
-                failed_overrides.append((prompt_type, class_name, str(e)))
-                logger.warning(f"Failed to load prompt builder {class_name}: {e}")
-
-        total_builders = len(reg.prompt_builders)
-        if successful_overrides:
-            logger.info(
-                f"Successfully loaded {len(successful_overrides)}/{total_builders} custom prompt builders from {reg.module_path}"
-            )
-        if failed_overrides:
-            logger.warning(
-                f"Failed to load {len(failed_overrides)} prompt builders from {reg.module_path} - using framework defaults"
-            )
-            for prompt_type, class_name, error in failed_overrides:
-                logger.debug(f"  -> {prompt_type}({class_name}): {error}")
-
-        self._validate_prompt_provider(provider, reg.module_path)
-
-        return provider
-
-    def _validate_prompt_provider(self, provider, module_path):
-        """Validate prompt provider implements required interface methods.
-
-        Ensures the provider implements all required methods for framework operation.
-        Missing methods are logged as errors but do not prevent provider registration,
-        allowing partial functionality with fallback to defaults.
-
-        :param provider: Prompt provider instance to validate
-        :type provider: framework.prompts.defaults.DefaultPromptProvider
-        :param module_path: Module path for error reporting
-        :type module_path: str
-        """
-        required_methods = [
-            "get_orchestrator_prompt_builder",
-            "get_task_extraction_prompt_builder",
-            "get_response_generation_prompt_builder",
-            "get_classification_prompt_builder",
-            "get_error_analysis_prompt_builder",
-            "get_clarification_prompt_builder",
-            "get_memory_extraction_prompt_builder",
-            "get_time_range_parsing_prompt_builder",
-        ]
-
-        missing_methods = []
-        for method_name in required_methods:
-            if not hasattr(provider, method_name) or not callable(getattr(provider, method_name)):
-                missing_methods.append(method_name)
-
-        if missing_methods:
-            logger.error(
-                f"Prompt provider from {module_path} is missing required methods: {missing_methods}"
-            )
-        else:
-            logger.debug(f"Prompt provider from {module_path} passed interface validation")
 
     def export_registry_to_json(self, output_dir: str = None) -> dict[str, Any]:
         """Export registry metadata for external tools and plan editors.
@@ -1461,14 +945,10 @@ class RegistryManager:
                 >>> capabilities = data['capabilities']
         """
         export_data = {
-            "capabilities": self._export_capabilities(),
-            "context_types": self._export_context_types(),
             "connectors": self._export_connectors(),
             "metadata": {
                 "exported_at": datetime.now().isoformat(),
                 "registry_version": "1.0",
-                "total_capabilities": len(self.config.capabilities),
-                "total_context_types": len(self.config.context_classes),
                 "total_connectors": len(self.config.connectors),
             },
         }
@@ -1477,56 +957,6 @@ class RegistryManager:
             self._save_export_data(export_data, output_dir)
 
         return export_data
-
-    def _export_capabilities(self) -> list[dict[str, Any]]:
-        """Export capability metadata for external consumption.
-
-        Transforms internal capability registrations into standardized format
-        suitable for execution plan editors and documentation tools. Exports
-        all registered capabilities without filtering.
-
-        :return: List of capability metadata dictionaries
-        :rtype: list[dict[str, Any]]
-        """
-        capabilities = []
-
-        for cap_reg in self.config.capabilities:
-            capability_data = {
-                "name": cap_reg.name,
-                "description": cap_reg.description,
-                "provides": cap_reg.provides,
-                "requires": cap_reg.requires,
-                "module_path": cap_reg.module_path,
-                "class_name": cap_reg.class_name,
-            }
-            capabilities.append(capability_data)
-
-        return capabilities
-
-    def _export_context_types(self) -> list[dict[str, Any]]:
-        """Export context type metadata for external consumption.
-
-        Transforms internal context class registrations into standardized format
-        suitable for execution plan editors and documentation tools. Exports
-        all registered context types without filtering.
-
-        :return: List of context type metadata dictionaries
-        :rtype: list[dict[str, Any]]
-        """
-        context_types = []
-
-        for ctx_reg in self.config.context_classes:
-            context_data = {
-                "context_type": ctx_reg.context_type,
-                "class_name": ctx_reg.class_name,
-                "module_path": ctx_reg.module_path,
-                "description": getattr(
-                    ctx_reg, "description", f"Context class {ctx_reg.class_name}"
-                ),
-            }
-            context_types.append(context_data)
-
-        return context_types
 
     def _export_connectors(self) -> list[dict[str, Any]]:
         """Export connector metadata for external consumption.
@@ -1572,98 +1002,14 @@ class RegistryManager:
             with open(export_file, "w", encoding="utf-8") as f:
                 json.dump(export_data, f, indent=2, ensure_ascii=False)
 
-            components = ["capabilities", "context_types"]
-            for component in components:
-                if component in export_data:
-                    component_file = Path(output_dir) / f"{component}.json"
-                    with open(component_file, "w", encoding="utf-8") as f:
-                        json.dump(export_data[component], f, indent=2, ensure_ascii=False)
-                    logger.debug(f"Saved {component} to: {component_file}")
-
             logger.info(f"Registry export saved to: {export_file}")
             logger.info(
-                f"Export contains: {export_data['metadata']['total_capabilities']} capabilities, "
-                f"{export_data['metadata']['total_context_types']} context types"
+                f"Export contains: {export_data['metadata']['total_connectors']} connectors"
             )
 
         except Exception as e:
             logger.error(f"Failed to save export data: {e}")
             raise
-
-    def get_capability(self, name: str) -> Optional["BaseCapability"]:
-        """Retrieve registered capability instance by name.
-
-        :param name: Unique capability name from registration
-        :type name: str
-        :return: Capability instance if registered, None otherwise
-        :rtype: framework.base.BaseCapability, optional
-        """
-        return self._registries["capabilities"].get(name)
-
-    def get_all_capabilities(self) -> list["BaseCapability"]:
-        """Retrieve all registered capability instances.
-
-        :return: List of all registered capability instances
-        :rtype: list[framework.base.BaseCapability]
-        """
-        return list(self._registries["capabilities"].values())
-
-    def get_all_nodes(self) -> dict[str, Any]:
-        """Retrieve all registered nodes as (name, callable) pairs.
-
-        :return: Dictionary mapping node names to their callable instances
-        :rtype: Dict[str, Any]
-        """
-        return dict(self._registries["nodes"].items())
-
-    def get_context_class(self, context_type: str) -> type["CapabilityContext"] | None:
-        """Retrieve context class by type identifier.
-
-        :param context_type: Context type identifier (e.g., 'PV_ADDRESSES')
-        :type context_type: str
-        :return: Context class if registered, None otherwise
-        :rtype: Type[framework.base.CapabilityContext], optional
-        """
-        return self._registries["contexts"].get(context_type)
-
-    def get_all_context_classes(self) -> dict[str, type["CapabilityContext"]]:
-        """Get dictionary of all registered context classes by context type.
-
-        This method provides access to all registered context classes indexed by their
-        context type identifiers. It enables introspection of the complete context
-        system and supports dynamic context handling patterns.
-
-        :return: Dictionary mapping context types to their corresponding context classes
-        :rtype: Dict[str, Type[CapabilityContext]]
-
-        Examples:
-            Access all context classes::
-
-                >>> registry = get_registry()
-                >>> context_classes = registry.get_all_context_classes()
-                >>> pv_class = context_classes.get("PV_ADDRESSES")
-                >>> if pv_class:
-                ...     instance = pv_class(pvs=["test:pv"])
-        """
-        return dict(self._registries["contexts"])
-
-    def get_data_source(self, name: str) -> Any | None:
-        """Retrieve data source provider instance by name.
-
-        :param name: Unique data source name from registration
-        :type name: str
-        :return: Data source provider instance if registered, None otherwise
-        :rtype: Any, optional
-        """
-        return self._registries["data_sources"].get(name)
-
-    def get_all_data_sources(self) -> list[Any]:
-        """Retrieve all registered data source provider instances.
-
-        :return: List of all registered data source provider instances
-        :rtype: list[Any]
-        """
-        return list(self._registries["data_sources"].values())
 
     def get_provider(self, name: str) -> type[Any] | None:
         """Retrieve registered provider class by name.
@@ -1834,72 +1180,6 @@ class RegistryManager:
         """
         return list(self._registries["services"].values())
 
-    def get_execution_policy_analyzers(self) -> list[Any]:
-        """Retrieve all registered execution policy analyzer instances.
-
-        Creates instances of execution policy analyzers with empty configurable.
-        The actual configurable will be provided when the analyzers are used.
-
-        :return: List of execution policy analyzer instances
-        :rtype: list[Any]
-        """
-        analyzers = []
-        for name, registry_entry in self._registries["execution_policy_analyzers"].items():
-            try:
-                analyzer_class = registry_entry["class"]
-                analyzer_instance = analyzer_class({})
-                analyzers.append(analyzer_instance)
-            except Exception as e:
-                logger.warning(f"Failed to instantiate execution policy analyzer {name}: {e}")
-        return analyzers
-
-    def get_domain_analyzers(self) -> list[Any]:
-        """Retrieve all registered domain analyzer instances.
-
-        Creates instances of domain analyzers with empty configurable.
-        The actual configurable will be provided when the analyzers are used.
-
-        :return: List of domain analyzer instances
-        :rtype: list[Any]
-        """
-        analyzers = []
-        for name, registry_entry in self._registries["domain_analyzers"].items():
-            try:
-                analyzer_class = registry_entry["class"]
-                analyzer_instance = analyzer_class({})
-                analyzers.append(analyzer_instance)
-            except Exception as e:
-                logger.warning(f"Failed to instantiate domain analyzer {name}: {e}")
-        return analyzers
-
-    @property
-    def context_types(self):
-        """Dynamic object providing context type constants as attributes.
-
-        Creates a dynamic object where each registered context type is accessible
-        as an attribute with its string value.
-
-        :return: Object with context types as attributes
-        :rtype: object
-
-        Examples:
-            Access context types::
-
-                >>> registry = get_registry()
-                >>> pv_type = registry.context_types.PV_ADDRESSES
-                >>> print(pv_type)  # "PV_ADDRESSES"
-        """
-        if not hasattr(self, "_context_types"):
-            self._context_types = type(
-                "ContextTypes",
-                (),
-                {
-                    ctx_reg.context_type: ctx_reg.context_type
-                    for ctx_reg in self.config.context_classes
-                },
-            )()
-        return self._context_types
-
     def _get_initialization_summary(self) -> str:
         """Generate user-friendly initialization summary.
 
@@ -1914,9 +1194,6 @@ class RegistryManager:
         summary_lines = [
             "Registry initialization complete!",
             "   Components loaded:",
-            f"      • {stats['capabilities']} capabilities: {', '.join(stats['capability_names'])}",
-            f"      • {stats['context_classes']} context types: {', '.join(stats['context_types'])}",
-            f"      • {stats['data_sources']} data sources: {', '.join(stats['data_source_names'])}",
             f"      • {stats['services']} services: {', '.join(stats['service_names'])}",
         ]
 
@@ -1938,15 +1215,7 @@ class RegistryManager:
         """
         return {
             "initialized": self._initialized,
-            "capabilities": len(self._registries["capabilities"]),
-            "nodes": len(self._registries["nodes"]),
-            "context_classes": len(self._registries["contexts"]),
-            "data_sources": len(self._registries["data_sources"]),
             "services": len(self._registries["services"]),
-            "capability_names": list(self._registries["capabilities"].keys()),
-            "node_names": list(self._registries["nodes"].keys()),
-            "context_types": list(self._registries["contexts"].keys()),
-            "data_source_names": list(self._registries["data_sources"].keys()),
             "service_names": list(self._registries["services"].keys()),
         }
 
@@ -2095,10 +1364,6 @@ def initialize_registry(
     """
     registry = get_registry(config_path=config_path)
     registry.initialize(silent=silent)
-
-    from osprey.approval.approval_manager import get_approval_manager
-
-    get_approval_manager()
 
     try:
         from osprey.services.python_executor.execution.limits_validator import LimitsValidator

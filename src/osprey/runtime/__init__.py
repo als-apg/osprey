@@ -2,7 +2,7 @@
 
 This module provides control-system-agnostic utilities for reading and writing
 to control systems. It's designed to be used in generated Python code and
-automatically configures itself from execution context.
+automatically configures itself from the global config.
 
 Usage in generated code:
     >>> from osprey.runtime import write_channel, read_channel
@@ -15,11 +15,7 @@ Usage in generated code:
     >>> print(f"Current: {value}")
 
 Configuration:
-    The runtime automatically uses the control system configuration that was
-    active when the code was generated (preserved in context.json).
-
-    This ensures notebooks are reproducible - re-running a notebook a week
-    later will use the same control system configuration it was created with.
+    The runtime uses the control system configuration from the global config.yml.
 
 Limits Validation:
     Write operations are validated at two levels:
@@ -42,7 +38,6 @@ if TYPE_CHECKING:
 logger = get_logger("runtime")
 
 __all__ = [
-    "configure_from_context",
     "write_channel",
     "read_channel",
     "write_channels",
@@ -51,71 +46,14 @@ __all__ = [
 
 # Module-level state
 _runtime_connector: Any | None = None
-_runtime_config: dict | None = None
 _connector_lock = asyncio.Lock()
 _limits_validator: "LimitsValidator | None" = (
     None  # Injected by execution wrapper for subprocess safety
 )
 
 
-def configure_from_context(context) -> None:
-    """Configure runtime environment from execution context.
-
-    Called automatically by execution wrapper after loading context.
-    Extracts control system config snapshot and prepares connector.
-
-    Fallback chain:
-    1. Try context snapshot config
-    2. If missing/invalid, fall back to global config with warning
-    3. If both fail, raise clear error
-
-    Args:
-        context: Context data instance from load_context()
-
-    Note:
-        This function is called automatically by the execution wrapper.
-        You don't need to call it manually in generated code.
-    """
-    global _runtime_config
-
-    # Try context snapshot first
-    if context and hasattr(context, "_data"):
-        try:
-            # Access the raw data dictionary
-            raw_data = context._data if hasattr(context, "_data") else {}
-            exec_config = raw_data.get("_execution_config")
-
-            if exec_config and "control_system" in exec_config:
-                _runtime_config = exec_config["control_system"]
-
-                # Validate required fields
-                if "type" not in _runtime_config:
-                    raise ValueError("Context config missing 'type' field")
-
-                logger.debug(f"Runtime configured from context snapshot: {_runtime_config['type']}")
-                return
-        except Exception as e:
-            logger.debug(f"Failed to load context config: {e}")
-            logger.debug("Falling back to global configuration")
-
-    # Fallback to global config
-    try:
-        from osprey.utils.config import get_config_value
-
-        _runtime_config = get_config_value("control_system", {})
-        if _runtime_config and "type" in _runtime_config:
-            logger.debug(f"Runtime configured from global config: {_runtime_config['type']}")
-        else:
-            raise RuntimeError("No control system configuration available")
-    except Exception as e:
-        raise RuntimeError(
-            "Failed to configure runtime: No valid config in context or global settings. "
-            f"Error: {e}"
-        ) from e
-
-
 async def _get_connector():
-    """Get or create connector using context config or global config.
+    """Get or create connector using global config.
 
     Internal function called by the runtime utilities.
     Creates the connector once and reuses it for all operations.
@@ -129,20 +67,8 @@ async def _get_connector():
         if _runtime_connector is None:
             from osprey.connectors.factory import ConnectorFactory
 
-            if _runtime_config:
-                # Use config snapshot from context (reproducible)
-                logger.debug(
-                    f"Creating connector from context config: {_runtime_config.get('type')}"
-                )
-                _runtime_connector = await ConnectorFactory.create_control_system_connector(
-                    config=_runtime_config
-                )
-            else:
-                # Use current global config
-                logger.debug("Creating connector from global config")
-                _runtime_connector = await ConnectorFactory.create_control_system_connector(
-                    config=None
-                )
+            logger.debug("Creating connector from global config")
+            _runtime_connector = await ConnectorFactory.create_control_system_connector(config=None)
 
     return _runtime_connector
 
@@ -218,7 +144,6 @@ def write_channel(channel_address: str, value: Any, **kwargs) -> None:
     """Write value to control system channel.
 
     Works with any configured control system (EPICS, Mock, etc.).
-    Uses the control system configuration from when the code was generated.
 
     Synchronous function - no 'await' needed. Works like EPICS caput().
 

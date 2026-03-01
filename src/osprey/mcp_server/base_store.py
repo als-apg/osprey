@@ -1,7 +1,6 @@
 """Base class for file-backed indexed stores.
 
-Provides the shared infrastructure used by :class:`ArtifactStore`,
-:class:`DataContext`, and :class:`MemoryStore`:
+Provides the shared infrastructure used by :class:`ArtifactStore`:
 
 - File-backed JSON index with mtime-based staleness detection
 - Directory management (``_ensure_dirs``)
@@ -40,7 +39,7 @@ class BaseStore(Generic[T]):
       - ``_entry_to_dict(entry: T) -> dict``: Serialize an entry to a dict.
 
     Optionally override:
-      - ``_parse_index_data(data)`` for custom migration logic (e.g. MemoryStore legacy format).
+      - ``_parse_index_data(data)`` for custom migration logic (e.g. legacy format migration).
       - ``_build_index_data()`` for custom index envelope fields.
       - ``_post_load_index()`` for post-load hooks (e.g. setting ``_next_id``).
     """
@@ -113,7 +112,7 @@ class BaseStore(Generic[T]):
     def _parse_index_data(self, data: Any) -> list[T]:
         """Parse loaded JSON into entries.
 
-        Override for custom migration logic (e.g. MemoryStore legacy format).
+        Override for custom migration logic (e.g. legacy format migration).
         Default: read from ``data["entries"]``.
         """
         return [self._entry_from_dict(d) for d in data.get("entries", [])]

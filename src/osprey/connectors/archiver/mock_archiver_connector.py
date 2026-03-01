@@ -4,7 +4,6 @@ Mock archiver connector for development and testing.
 Generates synthetic time-series data for any PV names.
 Ideal for R&D and development without archiver access.
 
-Related to Issue #18 - Control System Abstraction (Layer 2 - Mock Implementation)
 """
 
 from datetime import datetime, timedelta

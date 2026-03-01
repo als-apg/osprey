@@ -49,7 +49,7 @@ class TestProviderRegistry:
 
     @pytest.mark.unit
     def test_list_providers_contains_all_builtins(self):
-        """list_providers returns all 9 built-in names."""
+        """list_providers returns all 11 built-in names."""
         reg = ProviderRegistry()
         names = reg.list_providers()
         expected = {
@@ -58,13 +58,15 @@ class TestProviderRegistry:
             "google",
             "ollama",
             "cborg",
+            "amsc",
+            "als-apg",
             "stanford",
             "argo",
             "asksage",
             "vllm",
         }
         assert expected == set(names)
-        assert len(names) == 9
+        assert len(names) == 11
 
     @pytest.mark.unit
     def test_singleton_identity(self):

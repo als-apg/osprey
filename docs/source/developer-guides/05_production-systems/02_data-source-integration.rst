@@ -387,9 +387,6 @@ Test your data source integration:
 
 .. seealso::
 
-   :doc:`04_memory-storage-service`
-       Understand the user memory system
-
    :doc:`03_python-execution-service/index`
        Integrate with code execution
 

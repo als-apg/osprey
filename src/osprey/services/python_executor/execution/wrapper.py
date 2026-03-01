@@ -485,61 +485,16 @@ print(f"Container working directory: {{Path.cwd()}}")
         ).strip()
 
     def _get_context_loading(self) -> str:
-        """Get context loading code with error handling."""
-        return textwrap.dedent(
-            """
-            # Load execution context
-            try:
-                _ctx_path = globals().get('_execution_dir', Path.cwd()) / 'context.json'
-                print(f"Looking for context.json at: {{_ctx_path}}")
-                print(f"context.json exists: {{_ctx_path.exists()}}")
+        """Get context initialization code.
 
-                from osprey.context import load_context
-                context = load_context(str(_ctx_path))
-
-                if context:
-                    print("✅ Agent context loaded successfully!")
-                    print(f"Context available with {{len([k for k in dir(context) if not k.startswith('_')])}} context categories")
-                    available_types = [k for k in dir(context) if not k.startswith('_')]
-                    print(f"Available context types: {{available_types}}")
-
-                    # Configure runtime from context
-                    try:
-                        from osprey.runtime import configure_from_context
-                        configure_from_context(context)
-                    except ImportError:
-                        print("⚠️  osprey.runtime not available - control system operations disabled")
-                    except Exception as e:
-                        print(f"⚠️  Failed to configure runtime: {{e}}")
-                else:
-                    print("⚠️ No execution context available")
-                    context = None
-
-            except Exception as e:
-                print(f"❌ Context loading failed: {{e}}")
-                import traceback
-                traceback.print_exc()
-                execution_metadata["error_type"] = "INFRASTRUCTURE_ERROR"
-                execution_metadata["infrastructure_error"] = f"Context loading failed: {{str(e)}}"
-                context = None
-        """
-        ).strip()
-
-    def _get_cleanup_code(self) -> str:
-        """Get runtime cleanup code.
-
-        This should be called in the finally block of the execution wrapper
-        to ensure cleanup happens even if user code raises an exception.
+        Context loading via osprey.context was removed (module deleted).
+        We still set ``context = None`` so that any user code referencing
+        the variable doesn't raise a NameError.
         """
         return textwrap.dedent(
             """
-            # Cleanup runtime resources
-            try:
-                import asyncio
-                from osprey.runtime import cleanup_runtime
-                asyncio.run(cleanup_runtime())
-            except Exception as e:
-                print(f"⚠️  Cleanup warning: {e}")
+            # Context placeholder (osprey.context module removed)
+            context = None
         """
         ).strip()
 
@@ -662,15 +617,6 @@ print(f"Container working directory: {{Path.cwd()}}")
                 _exec_dir = globals().get('_execution_dir')
                 if _exec_dir:
                     os.chdir(_exec_dir)
-
-                # Cleanup runtime resources
-                try:
-                    import asyncio
-                    from osprey.runtime import cleanup_runtime
-                    # We're in a subprocess with no running event loop
-                    asyncio.run(cleanup_runtime())
-                except Exception as e:
-                    print(f"⚠️  Cleanup warning: {e}")
         """
         ).strip()
 

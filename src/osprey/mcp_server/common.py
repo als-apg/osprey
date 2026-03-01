@@ -209,13 +209,11 @@ def prime_config_builder() -> None:
 
 
 def initialize_workspace_singletons(workspace_root: Path) -> None:
-    """Initialize ArtifactStore and MemoryStore singletons for a workspace."""
+    """Initialize ArtifactStore singleton for a workspace."""
     from osprey.mcp_server.artifact_store import initialize_artifact_store
-    from osprey.mcp_server.memory_store import initialize_memory_store
 
     with startup_timer("workspace_singletons"):
         initialize_artifact_store(workspace_root=workspace_root)
-        initialize_memory_store(workspace_root=workspace_root)
 
 
 def gallery_url() -> str:

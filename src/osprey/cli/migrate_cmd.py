@@ -101,7 +101,7 @@ def _detect_project_settings(project_dir: Path) -> dict[str, Any]:
                     settings["template"] = "control_assistant"
                     settings["confidence"]["template"] = "high"
                 elif "capabilities" in config:
-                    settings["template"] = "minimal"
+                    settings["template"] = "control_assistant"
                     settings["confidence"]["template"] = "medium"
         except Exception as e:
             console.print(f"[dim]Warning: Could not parse config.yml: {e}[/dim]")
@@ -318,7 +318,7 @@ def _recreate_vanilla_with_version(
             # Build init command
             cmd = [str(osprey_bin), "init", project_name]
 
-            if init_args.get("template") and init_args["template"] != "minimal":
+            if init_args.get("template"):
                 cmd.extend(["--template", init_args["template"]])
 
             if init_args.get("registry_style") and init_args["registry_style"] != "extend":
@@ -374,7 +374,7 @@ def _recreate_vanilla_with_version(
             project_path = manager.create_project(
                 project_name=project_name,
                 output_dir=output_dir,
-                template_name=init_args.get("template", "minimal"),
+                template_name=init_args.get("template", "control_assistant"),
                 registry_style=init_args.get("registry_style", "extend"),
                 context=context if context else None,
             )

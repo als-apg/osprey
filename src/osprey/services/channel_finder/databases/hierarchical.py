@@ -39,65 +39,37 @@ class HierarchicalChannelDatabase(BaseDatabase):
 
     def load_database(self):
         """Load and parse the hierarchical database JSON."""
-        import warnings
-
         with open(self.db_path) as f:
             data = json.load(f)
 
         self._raw_data = data
         self.tree = data["tree"]
 
-        # Support new unified schema (preferred) or legacy three-field format (deprecated)
-        if "hierarchy" in data:
-            # NEW UNIFIED SCHEMA: Single "hierarchy" section
-            hierarchy_def = data["hierarchy"]
-
-            # Extract levels list and build derived structures
-            levels_list = hierarchy_def["levels"]
-            self.hierarchy_levels = [level["name"] for level in levels_list]
-            self.naming_pattern = hierarchy_def["naming_pattern"]
-
-            # Build hierarchy_config from levels list
-            self.hierarchy_config = {"levels": {}}
-            for level_def in levels_list:
-                self.hierarchy_config["levels"][level_def["name"]] = {
-                    "type": level_def["type"],
-                    "optional": level_def.get("optional", False),
-                }
-
-            # Validate naming_pattern references correct level names
-            self._validate_naming_pattern()
-
-        elif "hierarchy_definition" in data:
-            # LEGACY/INTERMEDIATE FORMAT: Backward compatibility for old schemas
-            self.hierarchy_levels = data["hierarchy_definition"]
-            self.naming_pattern = data["naming_pattern"]
-
-            # Load or infer hierarchy configuration
-            if "hierarchy_config" in data:
-                # Intermediate format (unpublished) - silent backward compatibility
-                self.hierarchy_config = data["hierarchy_config"]
-            else:
-                # TRULY LEGACY FORMAT: Missing hierarchy_config entirely
-                # This is the old container-based format with devices/fields/subfields
-                warnings.warn(
-                    "Legacy hierarchical database format detected (missing 'hierarchy_config' section). "
-                    "Automatic conversion applied, but explicit configuration is recommended. "
-                    "The new flexible hierarchy format was introduced in Osprey 0.9.4. "
-                    "Please update your database by:\n"
-                    "  1. Adding 'hierarchy_config' section with explicit level types\n"
-                    "  2. Migrating from nested containers (devices/fields/subfields) to DEVICE/FIELD/SUBFIELD with _expansion\n"
-                    "See data/channel_databases/hierarchical.json for the new format, "
-                    "or data/channel_databases/examples/hierarchical_legacy.json for the legacy format reference.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-                self.hierarchy_config = self._infer_legacy_config()
-        else:
+        if "hierarchy" not in data:
             raise ValueError(
-                "Invalid database format: must contain either 'hierarchy' (new unified schema) "
-                "or 'hierarchy_definition' (legacy format)"
+                "Invalid database format: must contain 'hierarchy' section with "
+                "'levels' list and 'naming_pattern'. See data/channel_databases/"
+                "hierarchical.json for the expected format."
             )
+
+        # Unified schema: single "hierarchy" section
+        hierarchy_def = data["hierarchy"]
+
+        # Extract levels list and build derived structures
+        levels_list = hierarchy_def["levels"]
+        self.hierarchy_levels = [level["name"] for level in levels_list]
+        self.naming_pattern = hierarchy_def["naming_pattern"]
+
+        # Build hierarchy_config from levels list
+        self.hierarchy_config = {"levels": {}}
+        for level_def in levels_list:
+            self.hierarchy_config["levels"][level_def["name"]] = {
+                "type": level_def["type"],
+                "optional": level_def.get("optional", False),
+            }
+
+        # Validate naming_pattern references correct level names
+        self._validate_naming_pattern()
 
         # Validate configuration
         self._validate_hierarchy_config()
@@ -107,32 +79,6 @@ class HierarchicalChannelDatabase(BaseDatabase):
 
         # Build flat channel map for validation and lookup
         self.channel_map = self._build_channel_map()
-
-    def _infer_legacy_config(self) -> dict:
-        """
-        Infer hierarchy configuration for legacy databases.
-
-        Assumes traditional accelerator pattern:
-        - First 2 levels: tree-based categories (system, family)
-        - Remaining levels: container-based instances (device, field, subfield)
-        """
-        config = {"levels": {}}
-
-        # Map legacy container keys
-        legacy_container_keys = {"device": "devices", "field": "fields", "subfield": "subfields"}
-
-        for i, level in enumerate(self.hierarchy_levels):
-            if i < 2:
-                # First two levels: tree-based categories
-                config["levels"][level] = {"type": "tree"}
-            else:
-                # Later levels: container-based (legacy style)
-                config["levels"][level] = {
-                    "type": "container",  # Legacy mode
-                    "container_key": legacy_container_keys.get(level, f"{level}s"),
-                }
-
-        return config
 
     def _validate_naming_pattern(self):
         """

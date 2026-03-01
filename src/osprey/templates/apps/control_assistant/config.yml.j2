@@ -268,8 +268,7 @@ archiver:
 
 channel_finder:
   # Active pipeline mode
-  # TODO: Remove middle_layer pipeline mode references
-  pipeline_mode: {{ default_pipeline }}  # "in_context", "hierarchical", or "middle_layer"
+  pipeline_mode: {{ default_pipeline }}  # "in_context" or "hierarchical"
 
   # Explicit channel address validation mode
   # Controls how explicit PV addresses in queries are validated against the channel finder database
@@ -335,7 +334,6 @@ channel_finder:
         dataset_path: data/benchmarks/datasets/hierarchical_benchmark.json
         # Hierarchical pipeline benchmark with multi-level channel structure (47 queries)
 {% endif %}
-# TODO: Remove middle_layer pipeline block
 {% if enable_middle_layer %}
     # Middle Layer Pipeline (React Agent with MML Database)
     # Best for: MATLAB Middle Layer (MML) style databases, functional hierarchy (System→Family→Field), device/sector filtering

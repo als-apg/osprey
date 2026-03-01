@@ -334,7 +334,6 @@ To view or customize: ``osprey eject capability memory``
 
 .. seealso::
 
-   - :doc:`/developer-guides/05_production-systems/04_memory-storage-service` --- storage backend and file format
    - :doc:`04_prompt-customization` --- memory extraction prompt builder
 
 

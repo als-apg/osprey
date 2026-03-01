@@ -16,22 +16,19 @@ import pytest
 
 from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher
 from osprey.mcp_server.artifact_store import ArtifactStore
-from osprey.mcp_server.memory_store import MemoryStore
 
 
 def _make_watcher(tmp_path):
     """Create a StoreIndexWatcher with real stores and a mock broadcaster."""
     artifact_store = ArtifactStore(workspace_root=tmp_path)
-    memory_store = MemoryStore(workspace_root=tmp_path)
     broadcaster = MagicMock()
 
     watcher = StoreIndexWatcher(
         workspace_root=tmp_path,
         broadcaster=broadcaster,
         artifact_store=artifact_store,
-        memory_store=memory_store,
     )
-    return watcher, broadcaster, artifact_store, memory_store
+    return watcher, broadcaster, artifact_store
 
 
 def _wait_for_broadcast(broadcaster, expected_calls=1, timeout=3.0):
@@ -50,7 +47,7 @@ class TestStoreWatcher:
 
     def test_detects_new_artifact_entry(self, tmp_path):
         """External write to artifacts.json triggers SSE broadcast."""
-        watcher, broadcaster, artifact_store, _ = _make_watcher(tmp_path)
+        watcher, broadcaster, artifact_store = _make_watcher(tmp_path)
         watcher.start()
         try:
             time.sleep(0.3)
@@ -88,7 +85,7 @@ class TestStoreWatcher:
             tool_source="test",
         )
 
-        watcher, broadcaster, artifact_store, _ = _make_watcher(tmp_path)
+        watcher, broadcaster, artifact_store = _make_watcher(tmp_path)
         watcher.start()
         try:
             time.sleep(0.3)
@@ -106,7 +103,7 @@ class TestStoreWatcher:
 
     def test_debounce(self, tmp_path):
         """Rapid writes within debounce window produce at most one event batch."""
-        watcher, broadcaster, _, _ = _make_watcher(tmp_path)
+        watcher, broadcaster, _ = _make_watcher(tmp_path)
         watcher.start()
         try:
             # Write the index file rapidly 3 times
@@ -132,7 +129,7 @@ class TestStoreWatcher:
 
     def test_ignores_non_index_files(self, tmp_path):
         """Writing to a non-index file in the workspace triggers no broadcast."""
-        watcher, broadcaster, _, _ = _make_watcher(tmp_path)
+        watcher, broadcaster, _ = _make_watcher(tmp_path)
         watcher.start()
         try:
             artifacts_dir = tmp_path / "artifacts"
@@ -146,7 +143,7 @@ class TestStoreWatcher:
 
     def test_handles_corrupt_index(self, tmp_path):
         """Invalid JSON in index file doesn't crash the watcher."""
-        watcher, broadcaster, _, _ = _make_watcher(tmp_path)
+        watcher, broadcaster, _ = _make_watcher(tmp_path)
         watcher.start()
         try:
             artifacts_dir = tmp_path / "artifacts"

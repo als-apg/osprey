@@ -24,7 +24,7 @@ class TestClaudeCodeIntegrationDefault:
         project_dir = manager.create_project(
             project_name="test-project",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         # All core files should exist
@@ -44,7 +44,7 @@ class TestClaudeCodeIntegrationDefault:
         project_dir = manager.create_project(
             project_name="always-claude-project",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         assert (project_dir / ".mcp.json").exists()
@@ -61,7 +61,7 @@ class TestClaudeCodeFileContents:
         return manager.create_project(
             project_name="content-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
     def test_mcp_json_is_valid_json(self, project_dir):
@@ -70,9 +70,8 @@ class TestClaudeCodeFileContents:
         data = json.loads(mcp_path.read_text())
 
         assert "mcpServers" in data
-        # Three OSPREY servers
+        # Core OSPREY servers
         assert "controls" in data["mcpServers"]
-        assert "python" in data["mcpServers"]
         assert "workspace" in data["mcpServers"]
 
         import sys
@@ -83,11 +82,6 @@ class TestClaudeCodeFileContents:
         assert cs["args"] == ["-m", "osprey.mcp_server.control_system"]
         expected_config = f"{project_dir}/config.yml"
         assert cs["env"]["OSPREY_CONFIG"] == expected_config
-
-        # Python executor server
-        pe = data["mcpServers"]["python"]
-        assert pe["args"] == ["-m", "osprey.mcp_server.python_executor"]
-        assert "${ANTHROPIC_API_KEY" in pe["env"]["ANTHROPIC_API_KEY"]
 
         # Workspace server
         ws = data["mcpServers"]["workspace"]
@@ -142,7 +136,6 @@ class TestClaudeCodeFileContents:
         assert "Task" not in deny
         assert "Task" not in data["permissions"]["ask"]
         # channel-finder only present when channel_finder_pipeline is defined
-        # (minimal template doesn't have it)
         assert "Task(logbook-search)" in data["permissions"]["allow"]
 
         # Stale channel_find entry removed from allow
@@ -227,9 +220,7 @@ class TestClaudeCodeFileContents:
 class TestClaudeCodeAcrossTemplates:
     """Test Claude Code integration works for all templates."""
 
-    @pytest.mark.parametrize(
-        "template_name", ["minimal", "hello_world_weather", "control_assistant"]
-    )
+    @pytest.mark.parametrize("template_name", ["control_assistant"])
     def test_works_for_all_templates(self, tmp_path, template_name):
         """Claude Code files are generated for all templates."""
         manager = TemplateManager()
@@ -254,7 +245,7 @@ class TestClaudeCodeGitignore:
         project_dir = manager.create_project(
             project_name="gitignore-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         gitignore = (project_dir / ".gitignore").read_text()
@@ -407,20 +398,6 @@ class TestChannelFinderAgent:
         assert "hierarchy_info" not in content
         assert "list_systems" not in content
 
-    def test_minimal_template_no_agent(self, tmp_path):
-        """Minimal template does NOT produce a non-empty agent file."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="minimal-agent-test",
-            output_dir=tmp_path,
-            template_name="minimal",
-        )
-
-        agent_path = project_dir / ".claude" / "agents" / "channel-finder.md"
-        if agent_path.exists():
-            # If file exists, it should be empty (Jinja2 guard renders nothing)
-            assert agent_path.read_text().strip() == ""
-
     def test_agent_has_submit_response_instructions(self, tmp_path):
         """Channel-finder agent prompt includes submit_response instructions."""
         manager = TemplateManager()
@@ -445,19 +422,6 @@ class TestChannelFinderAgent:
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         allow = data["permissions"]["allow"]
         assert "mcp__channel-finder" in allow
-
-    def test_minimal_no_channel_finder_in_allow(self, tmp_path):
-        """Minimal template does NOT include channel-finder in allow list."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="no-cf-allow-test",
-            output_dir=tmp_path,
-            template_name="minimal",
-        )
-
-        data = json.loads((project_dir / ".claude" / "settings.json").read_text())
-        allow = data["permissions"]["allow"]
-        assert "mcp__channel-finder" not in allow
 
     def test_channel_finder_in_mcp_json(self, tmp_path):
         """channel-finder MCP server IS in .mcp.json (project-level, not inline)."""
@@ -492,7 +456,7 @@ class TestLogbookSearchAgent:
         project_dir = manager.create_project(
             project_name="logbook-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
         agent_path = project_dir / ".claude" / "agents" / "logbook-search.md"
         assert agent_path.exists()
@@ -505,7 +469,7 @@ class TestLogbookSearchAgent:
         project_dir = manager.create_project(
             project_name="logbook-fm-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
         content = (project_dir / ".claude" / "agents" / "logbook-search.md").read_text()
         assert "name: logbook-search" in content
@@ -520,7 +484,7 @@ class TestLogbookSearchAgent:
         project_dir = manager.create_project(
             project_name="logbook-submit-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
         content = (project_dir / ".claude" / "agents" / "logbook-search.md").read_text()
         assert "submit_response" in content
@@ -532,7 +496,7 @@ class TestLogbookSearchAgent:
         project_dir = manager.create_project(
             project_name="logbook-perm-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         assert "Task(logbook-search)" in data["permissions"]["allow"]
@@ -546,7 +510,7 @@ class TestLogbookSearchAgent:
         project_dir = manager.create_project(
             project_name="logbook-claude-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
         content = (project_dir / "CLAUDE.md").read_text()
         assert "logbook-search" in content
@@ -562,7 +526,7 @@ class TestLogbookDeepResearchAgent:
         project_dir = manager.create_project(
             project_name="deep-research-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
         agent_path = project_dir / ".claude" / "agents" / "logbook-deep-research.md"
         assert agent_path.exists()
@@ -575,7 +539,7 @@ class TestLogbookDeepResearchAgent:
         project_dir = manager.create_project(
             project_name="deep-research-fm-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
         content = (project_dir / ".claude" / "agents" / "logbook-deep-research.md").read_text()
         assert "name: logbook-deep-research" in content
@@ -591,7 +555,7 @@ class TestLogbookDeepResearchAgent:
         project_dir = manager.create_project(
             project_name="deep-research-submit-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
         content = (project_dir / ".claude" / "agents" / "logbook-deep-research.md").read_text()
         assert "submit_response" in content
@@ -603,7 +567,7 @@ class TestLogbookDeepResearchAgent:
         project_dir = manager.create_project(
             project_name="deep-research-perm-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         assert "Task(logbook-deep-research)" in data["permissions"]["allow"]
@@ -614,7 +578,7 @@ class TestLogbookDeepResearchAgent:
         project_dir = manager.create_project(
             project_name="deep-research-claude-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
         content = (project_dir / "CLAUDE.md").read_text()
         assert "logbook-deep-research" in content
@@ -632,7 +596,7 @@ class TestWikiSearchAgent:
         project_dir = manager.create_project(
             project_name="wiki-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
             context={"confluence": {"url": "https://wiki.example.com"}},
         )
         agent_path = project_dir / ".claude" / "agents" / "wiki-search.md"
@@ -646,7 +610,7 @@ class TestWikiSearchAgent:
         project_dir = manager.create_project(
             project_name="wiki-fm-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
             context={"confluence": {"url": "https://wiki.example.com"}},
         )
         content = (project_dir / ".claude" / "agents" / "wiki-search.md").read_text()
@@ -662,7 +626,7 @@ class TestWikiSearchAgent:
         project_dir = manager.create_project(
             project_name="wiki-submit-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
             context={"confluence": {"url": "https://wiki.example.com"}},
         )
         content = (project_dir / ".claude" / "agents" / "wiki-search.md").read_text()
@@ -675,25 +639,12 @@ class TestWikiSearchAgent:
         project_dir = manager.create_project(
             project_name="wiki-perm-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
             context={"confluence": {"url": "https://wiki.example.com"}},
         )
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         assert "Task(wiki-search)" in data["permissions"]["allow"]
         assert "mcp__confluence" in data["permissions"]["allow"]
-
-    def test_no_agent_without_confluence(self, tmp_path):
-        """Minimal template without confluence does NOT produce wiki-search agent."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="no-wiki-test",
-            output_dir=tmp_path,
-            template_name="minimal",
-        )
-        agent_path = project_dir / ".claude" / "agents" / "wiki-search.md"
-        if agent_path.exists():
-            # If file exists, it should be empty (Jinja2 guard renders nothing)
-            assert agent_path.read_text().strip() == ""
 
 
 class TestGraphAnalystAgent:
@@ -705,7 +656,7 @@ class TestGraphAnalystAgent:
         project_dir = manager.create_project(
             project_name="graph-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
             context={"deplot": {"host": "127.0.0.1", "port": 8095}},
         )
         agent_path = project_dir / ".claude" / "agents" / "graph-analyst.md"
@@ -719,7 +670,7 @@ class TestGraphAnalystAgent:
         project_dir = manager.create_project(
             project_name="graph-fm-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
             context={"deplot": {"host": "127.0.0.1", "port": 8095}},
         )
         content = (project_dir / ".claude" / "agents" / "graph-analyst.md").read_text()
@@ -734,7 +685,7 @@ class TestGraphAnalystAgent:
         project_dir = manager.create_project(
             project_name="graph-submit-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
             context={"deplot": {"host": "127.0.0.1", "port": 8095}},
         )
         content = (project_dir / ".claude" / "agents" / "graph-analyst.md").read_text()
@@ -747,7 +698,7 @@ class TestGraphAnalystAgent:
         project_dir = manager.create_project(
             project_name="graph-perm-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
             context={"deplot": {"host": "127.0.0.1", "port": 8095}},
         )
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -757,52 +708,17 @@ class TestGraphAnalystAgent:
         assert "mcp__workspace__graph_compare" in allow
         assert "mcp__workspace__graph_save_reference" in allow
 
-    def test_no_agent_without_deplot(self, tmp_path):
-        """Minimal template without deplot does NOT produce graph-analyst agent."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="no-graph-test",
-            output_dir=tmp_path,
-            template_name="minimal",
-        )
-        agent_path = project_dir / ".claude" / "agents" / "graph-analyst.md"
-        if agent_path.exists():
-            assert agent_path.read_text().strip() == ""
-
-    def test_no_task_without_deplot(self, tmp_path):
-        """Without deplot, Task(graph-analyst) is NOT in settings.json allow list."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="no-graph-perm-test",
-            output_dir=tmp_path,
-            template_name="minimal",
-        )
-        data = json.loads((project_dir / ".claude" / "settings.json").read_text())
-        allow = data["permissions"]["allow"]
-        assert "Task(graph-analyst)" not in allow
-
     def test_claude_md_has_graph_analyst_section(self, tmp_path):
         """CLAUDE.md lists graph-analyst agent when deplot defined."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="graph-md-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
             context={"deplot": {"host": "127.0.0.1", "port": 8095}},
         )
         content = (project_dir / "CLAUDE.md").read_text()
         assert "graph-analyst" in content
-
-    def test_claude_md_no_graph_section_without_deplot(self, tmp_path):
-        """CLAUDE.md does NOT list graph-analyst without deplot."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="no-graph-md-test",
-            output_dir=tmp_path,
-            template_name="minimal",
-        )
-        content = (project_dir / "CLAUDE.md").read_text()
-        assert "graph-analyst" not in content
 
     def test_agent_disabled_via_disable_agents(self, tmp_path):
         """graph-analyst is suppressed when in disable_agents."""
@@ -810,7 +726,7 @@ class TestGraphAnalystAgent:
         project_dir = manager.create_project(
             project_name="graph-disabled-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
             context={
                 "deplot": {"host": "127.0.0.1", "port": 8095},
                 "disable_agents": ["graph-analyst"],
@@ -836,7 +752,7 @@ class TestNeverFabricateDataRule:
         project_dir = manager.create_project(
             project_name="fabrication-safety-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         content = (project_dir / ".claude" / "rules" / "safety.md").read_text()
@@ -850,7 +766,7 @@ class TestNeverFabricateDataRule:
         project_dir = manager.create_project(
             project_name="fabrication-claude-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -886,19 +802,6 @@ class TestChannelFinderAwareness:
         content = (project_dir / "CLAUDE.md").read_text()
         assert "do NOT have channel-finding tools" in content
 
-    def test_minimal_template_no_agent_awareness_block(self, tmp_path):
-        """Minimal template CLAUDE.md does NOT have the agent awareness block."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="minimal-no-agent-test",
-            output_dir=tmp_path,
-            template_name="minimal",
-        )
-
-        content = (project_dir / "CLAUDE.md").read_text()
-        assert "channel-finder" not in content
-        assert "do NOT have channel-finding tools" not in content
-
 
 class TestUserOwnedSkipBehavior:
     """Test user_owned skip behavior during project creation and regen."""
@@ -909,7 +812,7 @@ class TestUserOwnedSkipBehavior:
         project_dir = manager.create_project(
             project_name="test-skip-safety",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         # Customize safety.md and add to user_owned
@@ -935,7 +838,7 @@ class TestUserOwnedSkipBehavior:
         project_dir = manager.create_project(
             project_name="test-skip-md",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         custom_content = "# My Custom CLAUDE.md\nFacility-specific content."
@@ -959,7 +862,7 @@ class TestUserOwnedSkipBehavior:
         project_dir = manager.create_project(
             project_name="test-skip-mcp",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         custom_content = '{"mcpServers": {"custom": {}}}'
@@ -983,7 +886,7 @@ class TestUserOwnedSkipBehavior:
         project_dir = manager.create_project(
             project_name="test-no-owned",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         assert (project_dir / "CLAUDE.md").exists()
@@ -996,7 +899,7 @@ class TestUserOwnedSkipBehavior:
         project_dir = manager.create_project(
             project_name="no-project-md-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         assert not (project_dir / "CLAUDE-project.md").exists()
@@ -1007,7 +910,7 @@ class TestUserOwnedSkipBehavior:
         project_dir = manager.create_project(
             project_name="no-overrides-dir",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         assert not (project_dir / "overrides").exists()

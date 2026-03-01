@@ -160,7 +160,7 @@ class TestConnectorFactory:
         with patch("osprey.utils.config.get_config_value") as mock_config_value:
             # Return True for writes_enabled, None for others
             def config_side_effect(key, default=None):
-                if key == "execution_control.epics.writes_enabled":
+                if key == "control_system.writes_enabled":
                     return True
                 return default
 

@@ -981,6 +981,28 @@ async def restart_terminal(request: Request):
     return {"status": "ok", "message": "Terminal session terminated — reconnecting"}
 
 
+# ---- MCP Server Introspection ---- #
+
+
+@router.get("/api/mcp-servers")
+async def get_mcp_servers(request: Request):
+    """Return enriched MCP server metadata with tool lists."""
+    from osprey.mcp_server.introspect import get_mcp_servers_cached
+
+    project_dir = request.app.state.project_cwd
+    mcp_json_path = Path(project_dir) / ".mcp.json"
+
+    if not mcp_json_path.exists():
+        return []
+
+    try:
+        servers = await get_mcp_servers_cached(mcp_json_path, project_dir, timeout=10.0)
+        return servers
+    except Exception:
+        logger.warning("mcp-servers: introspection failed", exc_info=True)
+        return []
+
+
 # ---- Claude Setup Endpoints ---- #
 
 

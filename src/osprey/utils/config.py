@@ -65,7 +65,7 @@ def resolve_env_vars(data: Any) -> Any:
 
 class ConfigBuilder:
     """Loads a YAML config, resolves ``${VAR}`` env-var placeholders, and
-    pre-computes a ``configurable`` dict for LangGraph and standalone use.
+    pre-computes a ``configurable`` dict for framework and standalone use.
 
     Singleton access: use :func:`get_config_builder` or :func:`_get_config`.
     """
@@ -272,28 +272,12 @@ class ConfigBuilder:
         }
 
     def _get_writes_enabled_with_fallback(self) -> bool:
-        """Get control system writes_enabled with backward compatibility.
-
-        Tries new location first (control_system.writes_enabled), then falls back
-        to deprecated location (execution_control.epics.writes_enabled) without warnings.
+        """Get control system writes_enabled setting.
 
         Returns:
             bool: Whether control system writes are enabled
         """
-        # Try new location first (silent check - no warning if missing)
-        writes_enabled = self.get("control_system.writes_enabled", None)
-
-        if writes_enabled is not None:
-            return writes_enabled
-
-        # Fall back to old location (silent check - no warning)
-        writes_enabled_old = self.get("execution_control.epics.writes_enabled", None)
-
-        if writes_enabled_old is not None:
-            return writes_enabled_old
-
-        # Neither location set - default to False (safe default)
-        return False
+        return self.get("control_system.writes_enabled", False)
 
     def _get_python_executor_config(self) -> dict[str, Any]:
         """Get python executor configuration with sensible defaults.
@@ -334,7 +318,6 @@ class ConfigBuilder:
             "python_executor": self._get_python_executor_config(),
             "logging": self.get("logging", {}),
             "development": self.get("development", {}),
-            "epics_config": self.get("execution.epics", {}),
             "approval_config": self._get_approval_config(),
             "project_root": self.get("project_root"),
             "applications": self.get("applications", []),
@@ -361,29 +344,9 @@ class ConfigBuilder:
         """Build agent control defaults with explicit configuration control."""
 
         return {
-            # Planning control
-            "planning_mode_enabled": False,
             # Control system writes control (with backward compatibility)
             "epics_writes_enabled": self._get_writes_enabled_with_fallback(),
             "control_system_writes_enabled": self._get_writes_enabled_with_fallback(),
-            # Approval control
-            "approval_global_mode": self._require_config("approval.global_mode", "selective"),
-            "python_execution_approval_enabled": self._require_config(
-                "approval.capabilities.python_execution.enabled", True
-            ),
-            "python_execution_approval_mode": self._require_config(
-                "approval.capabilities.python_execution.mode", "all_code"
-            ),
-            "memory_approval_enabled": self._require_config(
-                "approval.capabilities.memory.enabled", True
-            ),
-            # Performance bypass configuration (configurable via YAML)
-            "task_extraction_bypass_enabled": self._require_config(
-                "execution_control.agent_control.task_extraction_bypass_enabled", False
-            ),
-            "capability_selection_bypass_enabled": self._require_config(
-                "execution_control.agent_control.capability_selection_bypass_enabled", False
-            ),
         }
 
     def _get_current_application(self) -> str | None:
@@ -474,7 +437,7 @@ def _get_configurable(
 ) -> dict[str, Any]:
     """Get configurable dict with automatic context detection.
 
-    This function supports both LangGraph execution contexts and standalone execution,
+    This function supports both framework execution contexts and standalone execution,
     with optional explicit configuration path support.
 
     Args:
@@ -514,7 +477,7 @@ def get_config_builder(
     Returns:
         ConfigBuilder instance with access to:
         - .raw_config: The raw YAML configuration dictionary
-        - .configurable: Pre-computed configuration for LangGraph
+        - .configurable: Pre-computed configuration for framework
         - .get(path, default): Dot-notation access to config values
 
     Examples:
@@ -561,7 +524,7 @@ def get_model_config(model_name: str, config_path: str | None = None) -> dict[st
     """
     Get model configuration with automatic context detection.
 
-    Works both inside and outside LangGraph contexts.
+    Works both inside and outside framework contexts.
     All models are configured at the top level in the 'models' section.
 
     Args:
@@ -727,7 +690,7 @@ def get_config_value(path: str, default: Any = None, config_path: str | None = N
     Get a specific configuration value by dot-separated path.
 
     This function provides context-aware access to configuration values,
-    working both inside and outside LangGraph execution contexts. Optionally,
+    working both inside and outside framework execution contexts. Optionally,
     an explicit configuration file path can be provided.
 
     Args:
@@ -783,7 +746,7 @@ def get_full_configuration(config_path: str | None = None) -> dict[str, Any]:
     Get the complete configuration dictionary.
 
     This function provides access to the entire configurable dictionary,
-    working both inside and outside LangGraph execution contexts. Optionally,
+    working both inside and outside framework execution contexts. Optionally,
     an explicit configuration file path can be provided.
 
     When an explicit config_path is provided, it is also set as the default

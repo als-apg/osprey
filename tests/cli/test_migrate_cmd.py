@@ -42,13 +42,13 @@ class TestManifestGeneration:
     def test_manifest_schema_version(self, tmp_path):
         """Test that manifest has correct schema version."""
         manager = TemplateManager()
-        project_dir = manager.create_project("test-app", tmp_path, "minimal")
+        project_dir = manager.create_project("test-app", tmp_path, "control_assistant")
 
         # Generate manifest
         manifest = manager.generate_manifest(
             project_dir=project_dir,
             project_name="test-app",
-            template_name="minimal",
+            template_name="control_assistant",
             registry_style="extend",
             context={"default_provider": "cborg"},
         )
@@ -58,12 +58,12 @@ class TestManifestGeneration:
     def test_manifest_creation_fields(self, tmp_path):
         """Test that manifest has all required creation fields."""
         manager = TemplateManager()
-        project_dir = manager.create_project("test-app", tmp_path, "minimal")
+        project_dir = manager.create_project("test-app", tmp_path, "control_assistant")
 
         manifest = manager.generate_manifest(
             project_dir=project_dir,
             project_name="test-app",
-            template_name="minimal",
+            template_name="control_assistant",
             registry_style="extend",
             context={},
         )
@@ -76,7 +76,7 @@ class TestManifestGeneration:
         assert "template" in creation
         assert "registry_style" in creation
 
-        assert creation["template"] == "minimal"
+        assert creation["template"] == "control_assistant"
         assert creation["registry_style"] == "extend"
 
     def test_manifest_init_args(self, tmp_path):
@@ -136,18 +136,19 @@ class TestManifestGeneration:
         assert "reproducible_command" in manifest
         cmd = manifest["reproducible_command"]
         assert "osprey init my-project" in cmd
+        # --template always included for reproducibility
         assert "--template control_assistant" in cmd
         assert "--provider openai" in cmd
 
     def test_manifest_file_checksums(self, tmp_path):
         """Test that manifest includes file checksums."""
         manager = TemplateManager()
-        project_dir = manager.create_project("test-app", tmp_path, "minimal")
+        project_dir = manager.create_project("test-app", tmp_path, "control_assistant")
 
         manifest = manager.generate_manifest(
             project_dir=project_dir,
             project_name="test-app",
-            template_name="minimal",
+            template_name="control_assistant",
             registry_style="extend",
             context={},
         )
@@ -166,7 +167,7 @@ class TestManifestGeneration:
     def test_manifest_excludes_env_files(self, tmp_path):
         """Test that manifest excludes .env files from checksums."""
         manager = TemplateManager()
-        project_dir = manager.create_project("test-app", tmp_path, "minimal")
+        project_dir = manager.create_project("test-app", tmp_path, "control_assistant")
 
         # Create a .env file
         (project_dir / ".env").write_text("SECRET=value")
@@ -174,7 +175,7 @@ class TestManifestGeneration:
         manifest = manager.generate_manifest(
             project_dir=project_dir,
             project_name="test-app",
-            template_name="minimal",
+            template_name="control_assistant",
             registry_style="extend",
             context={},
         )
@@ -185,12 +186,12 @@ class TestManifestGeneration:
     def test_manifest_written_to_file(self, tmp_path):
         """Test that manifest is written to JSON file."""
         manager = TemplateManager()
-        project_dir = manager.create_project("test-app", tmp_path, "minimal")
+        project_dir = manager.create_project("test-app", tmp_path, "control_assistant")
 
         manager.generate_manifest(
             project_dir=project_dir,
             project_name="test-app",
-            template_name="minimal",
+            template_name="control_assistant",
             registry_style="extend",
             context={},
         )

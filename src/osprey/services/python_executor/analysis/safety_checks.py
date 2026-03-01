@@ -1,6 +1,6 @@
-"""Standalone code safety checks — no framework or LangGraph dependencies.
+"""Standalone code safety checks — no framework dependencies.
 
-Usable by both the LangGraph StaticCodeAnalyzer node and the MCP execute tool.
+Usable by the MCP execute tool for pre-execution validation.
 """
 
 import ast
@@ -64,7 +64,7 @@ def check_imports(code: str) -> list[str]:
 def quick_safety_check(code: str) -> tuple[bool, list[str]]:
     """Run all safety checks. Returns (passed, issues).
 
-    This is the main public API for MCP tools and other non-LangGraph consumers.
+    This is the main public API for MCP tools.
     Combines syntax, security, and import checks.
     """
     all_issues = []

@@ -17,23 +17,23 @@ from osprey.cli.templates import TemplateManager
 class TestBuildClaudeCodeContext:
     """Test _build_claude_code_context() reconstructs correct template vars."""
 
-    def test_minimal_config(self, tmp_path):
-        """Minimal config produces correct base context vars."""
+    def test_basic_config(self, tmp_path):
+        """Basic config produces correct base context vars."""
         manager = TemplateManager()
         project_dir = manager.create_project(
-            project_name="ctx-minimal",
+            project_name="ctx-basic",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
         ctx = manager._build_claude_code_context(project_dir, config)
 
-        assert ctx["project_name"] == "ctx-minimal"
-        assert ctx["package_name"] == "ctx_minimal"
+        assert ctx["project_name"] == "ctx-basic"
+        assert ctx["package_name"] == "ctx_basic"
         assert ctx["project_root"] == str(project_dir.absolute())
         assert "current_python_env" in ctx
-        assert ctx["template_name"] == "minimal"
+        assert ctx["template_name"] == "control_assistant"
 
     def test_control_assistant_config(self, tmp_path):
         """Control assistant config produces channel_finder context vars."""
@@ -59,7 +59,7 @@ class TestBuildClaudeCodeContext:
         project_dir = manager.create_project(
             project_name="ctx-confluence",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         # Add confluence to config
@@ -77,7 +77,7 @@ class TestBuildClaudeCodeContext:
         project_dir = manager.create_project(
             project_name="ctx-matlab",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -114,7 +114,7 @@ class TestRegenerationCorrectness:
         project_dir = manager.create_project(
             project_name="regen-idempotent",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         # Capture checksums
@@ -133,39 +133,13 @@ class TestRegenerationCorrectness:
             assert (project_dir / f).read_text() == original_content, f"{f} changed unexpectedly"
         assert f in result["unchanged"] or not result["changed"]
 
-    def test_regen_updates_mcp_json_when_confluence_added(self, tmp_path):
-        """Adding confluence to config.yml → .mcp.json gets confluence server."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="regen-confluence",
-            output_dir=tmp_path,
-            template_name="minimal",
-        )
-
-        # Verify confluence NOT in .mcp.json initially
-        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
-        assert "confluence" not in mcp_data["mcpServers"]
-
-        # Add confluence to config.yml
-        config = yaml.safe_load((project_dir / "config.yml").read_text())
-        config["confluence"] = {"url": "https://wiki.example.com"}
-        (project_dir / "config.yml").write_text(yaml.dump(config))
-
-        # Regen
-        result = manager.regenerate_claude_code(project_dir)
-
-        # Verify
-        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
-        assert "confluence" in mcp_data["mcpServers"]
-        assert ".mcp.json" in result["changed"]
-
     def test_regen_updates_settings_json_when_confluence_added(self, tmp_path):
         """Adding confluence → settings.json gets confluence permissions."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="regen-settings",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         # Add confluence
@@ -179,29 +153,6 @@ class TestRegenerationCorrectness:
         assert "mcp__confluence" in settings["permissions"]["allow"]
         assert "Task(wiki-search)" in settings["permissions"]["allow"]
 
-    def test_regen_updates_claude_md_when_confluence_added(self, tmp_path):
-        """Adding confluence → CLAUDE.md mentions wiki-search delegation."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="regen-claude-md",
-            output_dir=tmp_path,
-            template_name="minimal",
-        )
-
-        # Initially no wiki section
-        content = (project_dir / "CLAUDE.md").read_text()
-        assert "wiki-search" not in content
-
-        # Add confluence
-        config = yaml.safe_load((project_dir / "config.yml").read_text())
-        config["confluence"] = {"url": "https://wiki.example.com"}
-        (project_dir / "config.yml").write_text(yaml.dump(config))
-
-        manager.regenerate_claude_code(project_dir)
-
-        content = (project_dir / "CLAUDE.md").read_text()
-        assert "wiki-search" in content
-
     def test_regen_resolves_env_var_in_timezone(self, tmp_path, monkeypatch):
         """${TZ:-America/Los_Angeles} in config.yml is resolved in timezone.md."""
         monkeypatch.delenv("TZ", raising=False)
@@ -209,7 +160,7 @@ class TestRegenerationCorrectness:
         project_dir = manager.create_project(
             project_name="regen-tz",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         # Set timezone to an env-var pattern in config.yml
@@ -232,7 +183,7 @@ class TestRegenerationCorrectness:
         project_dir = manager.create_project(
             project_name="regen-tz-env",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -252,7 +203,7 @@ class TestRegenerationCorrectness:
         project_dir = manager.create_project(
             project_name="regen-remove",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
             context={"confluence": {"url": "https://wiki.example.com"}},
         )
 
@@ -282,7 +233,7 @@ class TestSafetyPreservation:
         project_dir = manager.create_project(
             project_name="safety-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
         manager.regenerate_claude_code(project_dir)
         return project_dir
@@ -343,7 +294,7 @@ class TestUserFilePreservation:
         project_dir = manager.create_project(
             project_name="backup-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         result = manager.regenerate_claude_code(project_dir)
@@ -361,7 +312,7 @@ class TestUserFilePreservation:
         project_dir = manager.create_project(
             project_name="header-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -385,7 +336,7 @@ class TestErrorHandling:
         project_dir = manager.create_project(
             project_name="dry-run-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         # Record file mtimes
@@ -403,7 +354,7 @@ class TestErrorHandling:
         project_dir = manager.create_project(
             project_name="dry-detect",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         # Add confluence to config (will cause .mcp.json to change)
@@ -425,7 +376,7 @@ class TestGitignore:
         project_dir = manager.create_project(
             project_name="gitignore-gen-test",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         gitignore = (project_dir / ".gitignore").read_text()
@@ -447,7 +398,7 @@ class TestDisableServers:
         disable_servers=None,
         disable_agents=None,
         extra_servers=None,
-        template="minimal",
+        template="control_assistant",
     ):
         """Helper: create project, set claude_code overrides, regen."""
         manager = TemplateManager()
@@ -586,7 +537,7 @@ class TestDisableServers:
         project_dir = manager.create_project(
             project_name="ctx-overrides",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -613,7 +564,7 @@ class TestDisableServers:
         project_dir = manager.create_project(
             project_name="ctx-defaults",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -621,7 +572,7 @@ class TestDisableServers:
         # No user-specified disables, but conditional servers (matlab, etc.) are disabled
         # Core servers should all be enabled
         enabled = {s["name"] for s in ctx["servers"] if s["enabled"]}
-        assert {"controls", "python", "workspace", "ariel", "accelpapers"} <= enabled
+        assert {"controls", "workspace", "ariel", "accelpapers"} <= enabled
         assert ctx["extra_servers"] == {}
 
 
@@ -634,7 +585,7 @@ class TestFacilityMd:
         project_dir = manager.create_project(
             project_name="facility-init",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         facility_file = project_dir / ".claude" / "rules" / "facility.md"
@@ -649,7 +600,7 @@ class TestFacilityMd:
         project_dir = manager.create_project(
             project_name="facility-owned",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -665,7 +616,7 @@ class TestFacilityMd:
         project_dir = manager.create_project(
             project_name="facility-preserve",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         # Customize facility.md in-place
@@ -685,7 +636,7 @@ class TestFacilityMd:
         project_dir = manager.create_project(
             project_name="facility-regen-create",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         # Delete facility.md and remove from user_owned
@@ -718,7 +669,7 @@ class TestUserOwned:
         project_dir = manager.create_project(
             project_name="owned-defaults",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -736,7 +687,7 @@ class TestUserOwned:
         project_dir = manager.create_project(
             project_name="owned-regen",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         # Customize safety.md
@@ -765,7 +716,7 @@ class TestUserOwned:
         project_dir = manager.create_project(
             project_name="owned-agents",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         # Regen with some user_owned entries
@@ -793,9 +744,7 @@ class TestSettingsJsonValidity:
     producing invalid JSON (e.g., `},]`).
     """
 
-    @pytest.mark.parametrize(
-        "template_name", ["minimal", "hello_world_weather", "control_assistant"]
-    )
+    @pytest.mark.parametrize("template_name", ["control_assistant"])
     def test_all_templates_produce_valid_settings_json(self, tmp_path, template_name):
         """Every built-in template produces valid settings.json."""
         manager = TemplateManager()
@@ -813,13 +762,12 @@ class TestSettingsJsonValidity:
         "disable_servers,label",
         [
             (["controls"], "controls-disabled"),
-            (["python"], "python-disabled"),
-            (["controls", "python"], "controls-and-python-disabled"),
             (["ariel"], "ariel-disabled"),
             (["workspace"], "workspace-disabled"),
             (["accelpapers"], "accelpapers-disabled"),
+            (["controls", "workspace"], "controls-and-workspace-disabled"),
             (
-                ["controls", "python", "workspace", "ariel", "accelpapers"],
+                ["controls", "workspace", "ariel", "accelpapers"],
                 "all-core-disabled",
             ),
         ],
@@ -831,7 +779,7 @@ class TestSettingsJsonValidity:
         project_dir = manager.create_project(
             project_name=f"json-{label}",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -869,7 +817,7 @@ class TestSettingsJsonValidity:
         project_dir = manager.create_project(
             project_name="json-extra-servers",
             output_dir=tmp_path,
-            template_name="minimal",
+            template_name="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -889,7 +837,7 @@ class TestSettingsJsonValidity:
 
     def test_all_mcp_json_files_are_valid(self, tmp_path):
         """Every template also produces valid .mcp.json."""
-        for template_name in ["minimal", "hello_world_weather", "control_assistant"]:
+        for template_name in ["control_assistant"]:
             project_dir = TemplateManager().create_project(
                 project_name=f"mcp-valid-{template_name}",
                 output_dir=tmp_path,

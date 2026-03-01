@@ -127,7 +127,7 @@ def cborg_project(tmp_path):
     project_dir = manager.create_project(
         project_name="isolation-test",
         output_dir=tmp_path,
-        template_name="minimal",
+        template_name="control_assistant",
         context={"default_provider": "cborg"},
     )
     return project_dir

@@ -6,7 +6,6 @@ Provides colored logging for Osprey and application components with:
 - Rich terminal output with component-specific colors
 - Graceful fallbacks when configuration is unavailable
 - Simple, clear interface
-- Typed event emission for structured streaming (OspreyEvent types)
 
 Usage:
     # Module-level
@@ -32,7 +31,6 @@ from typing import Any
 from rich.console import Console
 from rich.logging import RichHandler
 
-from osprey.events import ErrorEvent, EventEmitter, StatusEvent
 from osprey.utils.config import get_config_value
 
 
@@ -41,13 +39,13 @@ class ComponentLogger:
     Rich-formatted logger for Osprey and application components with color coding and message hierarchy.
 
     Message Types:
-    - status: High-level status updates (logs + streams automatically)
+    - status: High-level status updates
     - key_info: Important operational information
     - info: Normal operational messages
     - debug: Detailed tracing information
     - warning: Warning messages
-    - error: Error messages (logs + streams automatically)
-    - success: Success messages (logs + streams by default)
+    - error: Error messages
+    - success: Success messages
     - timing: Timing information
     - approval: Approval messages
     - resume: Resume messages
@@ -67,258 +65,70 @@ class ComponentLogger:
             base_logger: Underlying Python logger
             component_name: Name of the component (e.g., 'data_analysis', 'router', 'mongo')
             color: Rich color name for this component
-            state: Optional AgentState for streaming context
+            state: Optional state for context (unused, kept for API compat)
         """
         self.base_logger = base_logger
         self.component_name = component_name
         self.color = color
         self._state = state
 
-        # Lazy initialization - only when first needed
-        self._step_info = None
-
-        # Typed event emitter for the new event streaming system
-        self._event_emitter = EventEmitter(component_name)
-
-    def _extract_step_info(self, state):
-        """Extract step context for streaming metadata."""
-        return {
-            "step": None,
-            "total_steps": None,
-            "phase": self.component_name.replace("_", " ").title(),
-        }
-
-    def _emit_stream_event(self, message: str, *args, event_type: str = "status", **kwargs):
-        """Emit streaming event as typed OspreyEvent.
-
-        Uses the EventEmitter to emit typed StatusEvent or ErrorEvent instances.
-        The emitter handles event streaming and fallback handlers automatically.
-
-        Supports stdlib-style format args: ``logger.info("msg %s", val)``
-        """
-        # Apply %-style formatting if positional args are provided (stdlib compat)
-        if args:
-            try:
-                message = message % args
-            except (TypeError, ValueError):
-                pass
-
-        # Extract step info for the event (lazy init if needed)
-        if self._step_info is None:
-            self._step_info = self._extract_step_info(self._state)
-
-        step_info = self._step_info or {}
-
-        try:
-            # Create typed event based on event_type
-            if event_type == "error" or kwargs.get("error"):
-                event = ErrorEvent(
-                    component=self.component_name,
-                    error_type=kwargs.get("error_type", "ExecutionError"),
-                    error_message=message,
-                    recoverable=kwargs.get("recoverable", False),
-                    stack_trace=kwargs.get("stack_trace"),
-                )
-            else:
-                _valid_levels = frozenset(
-                    {
-                        "status",
-                        "info",
-                        "debug",
-                        "warning",
-                        "success",
-                        "key_info",
-                        "timing",
-                        "approval",
-                        "resume",
-                    }
-                )
-                level = event_type if event_type in _valid_levels else "info"
-
-                event = StatusEvent(
-                    component=self.component_name,
-                    message=message,
-                    level=level,
-                    phase=step_info.get("phase"),
-                    step=step_info.get("step"),
-                    total_steps=step_info.get("total_steps"),
-                )
-
-            # Emit via the typed event system
-            self._event_emitter.emit(event)
-
-        except Exception:
-            # Don't crash logging just because streaming failed
-            # Avoid recursive debug() call that could cause infinite loop
-            pass
+    def _log(self, level: int, message: str, *args, **kwargs) -> None:
+        """Core logging method that delegates to the stdlib logger."""
+        # Strip event-system kwargs that callers may still pass
+        kwargs.pop("error", None)
+        kwargs.pop("error_type", None)
+        kwargs.pop("recoverable", None)
+        kwargs.pop("stack_trace", None)
+        kwargs.pop("warning", None)
+        self.base_logger.log(level, message, *args, **kwargs)
 
     def status(self, message: str, *args, **kwargs) -> None:
-        """Status update - emits StatusEvent.
-
-        User-facing output. Transport is automatic:
-        - During execution: event streaming
-        - Outside execution: fallback transport via TypedEventHandler
-
-        Args:
-            message: Status message
-            *args: Optional %-style format args (stdlib compat)
-            **kwargs: Additional metadata for streaming event
-
-        Example:
-            logger.status("Creating execution plan...")
-            logger.status("Processing batch 2/5", batch=2, total=5)
-        """
-        self._emit_stream_event(message, *args, event_type="status", **kwargs)
+        """Status update — high-level progress messages."""
+        self._log(logging.INFO, message, *args, **kwargs)
 
     def key_info(self, message: str, *args, **kwargs) -> None:
-        """Important operational information - emits StatusEvent with info level.
-
-        User-facing output. Transport is automatic.
-
-        Args:
-            message: Info message
-            *args: Optional %-style format args (stdlib compat)
-            **kwargs: Additional metadata for streaming event
-        """
-        self._emit_stream_event(message, *args, event_type="key_info", **kwargs)
+        """Important operational information."""
+        self._log(logging.INFO, message, *args, **kwargs)
 
     def info(self, message: str, *args, **kwargs) -> None:
-        """Info message - emits StatusEvent with info level.
-
-        User-facing output. Transport is automatic.
-
-        Args:
-            message: Info message
-            *args: Optional %-style format args (stdlib compat)
-            **kwargs: Additional metadata for streaming event
-
-        Example:
-            logger.info("Active capabilities: [...]")
-            logger.info("Step completed")
-        """
-        self._emit_stream_event(message, *args, event_type="info", **kwargs)
+        """Normal operational messages."""
+        self._log(logging.INFO, message, *args, **kwargs)
 
     def debug(self, message: str, *args, **kwargs) -> None:
-        """Debug message - emits StatusEvent with debug level.
-
-        User-facing output (filtered by client if not needed).
-        Transport is automatic.
-
-        Args:
-            message: Debug message
-            *args: Optional %-style format args (stdlib compat)
-            **kwargs: Additional metadata for streaming event
-        """
-        self._emit_stream_event(message, *args, event_type="debug", **kwargs)
+        """Debug-level messages."""
+        self._log(logging.DEBUG, message, *args, **kwargs)
 
     def warning(self, message: str, *args, **kwargs) -> None:
-        """Warning message - emits StatusEvent with warning level.
-
-        User-facing output. Transport is automatic.
-
-        Args:
-            message: Warning message
-            *args: Optional %-style format args (stdlib compat)
-            **kwargs: Additional metadata for streaming event
-        """
-        self._emit_stream_event(message, *args, event_type="warning", warning=True, **kwargs)
+        """Warning messages."""
+        self._log(logging.WARNING, message, *args, **kwargs)
 
     def error(self, message: str, *args, exc_info: bool = False, **kwargs) -> None:
-        """Error message - emits ErrorEvent.
-
-        User-facing output. Transport is automatic.
-
-        Args:
-            message: Error message
-            *args: Optional %-style format args (stdlib compat)
-            exc_info: Whether to include exception traceback in ErrorEvent
-            **kwargs: Additional error metadata for streaming event
-        """
-        # Include stack trace in ErrorEvent if exc_info=True
-        if exc_info and "stack_trace" not in kwargs:
-            import traceback
-
-            kwargs["stack_trace"] = traceback.format_exc()
-
-        self._emit_stream_event(message, *args, event_type="error", error=True, **kwargs)
+        """Error messages."""
+        self._log(logging.ERROR, message, *args, exc_info=exc_info, **kwargs)
 
     def success(self, message: str, *args, **kwargs) -> None:
-        """Success message - emits StatusEvent with success level.
-
-        User-facing output. Transport is automatic.
-
-        Args:
-            message: Success message
-            *args: Optional %-style format args (stdlib compat)
-            **kwargs: Additional metadata for streaming event
-        """
-        self._emit_stream_event(message, *args, event_type="success", **kwargs)
+        """Success messages."""
+        self._log(logging.INFO, message, *args, **kwargs)
 
     def timing(self, message: str, *args, **kwargs) -> None:
-        """Timing information - emits StatusEvent with timing level.
-
-        User-facing output. Transport is automatic.
-
-        Args:
-            message: Timing message
-            *args: Optional %-style format args (stdlib compat)
-            **kwargs: Additional metadata for streaming event
-        """
-        self._emit_stream_event(message, *args, event_type="timing", **kwargs)
+        """Timing information."""
+        self._log(logging.INFO, message, *args, **kwargs)
 
     def approval(self, message: str, *args, **kwargs) -> None:
-        """Approval message - emits StatusEvent with approval level.
-
-        User-facing output. Transport is automatic.
-
-        Args:
-            message: Approval message
-            *args: Optional %-style format args (stdlib compat)
-            **kwargs: Additional metadata for streaming event
-        """
-        self._emit_stream_event(message, *args, event_type="approval", **kwargs)
+        """Approval messages."""
+        self._log(logging.INFO, message, *args, **kwargs)
 
     def resume(self, message: str, *args, **kwargs) -> None:
-        """Resume message - emits StatusEvent with resume level.
-
-        User-facing output. Transport is automatic.
-
-        Args:
-            message: Resume message
-            *args: Optional %-style format args (stdlib compat)
-            **kwargs: Additional metadata for streaming event
-        """
-        self._emit_stream_event(message, *args, event_type="resume", **kwargs)
+        """Resume messages."""
+        self._log(logging.INFO, message, *args, **kwargs)
 
     def critical(self, message: str, *args, **kwargs) -> None:
-        """Critical error - emits ErrorEvent.
-
-        User-facing output. Transport is automatic.
-
-        Args:
-            message: Critical error message
-            *args: Optional %-style format args (stdlib compat)
-            **kwargs: Additional error metadata for streaming event
-        """
-        self._emit_stream_event(
-            message, *args, event_type="error", error=True, error_type="CriticalError", **kwargs
-        )
+        """Critical error messages."""
+        self._log(logging.CRITICAL, message, *args, **kwargs)
 
     def exception(self, message: str, *args, **kwargs) -> None:
-        """Exception with traceback - emits ErrorEvent with stack trace.
-
-        User-facing output. Transport is automatic.
-
-        Args:
-            message: Exception message
-            *args: Optional %-style format args (stdlib compat)
-            **kwargs: Additional error metadata for streaming event
-        """
-        import traceback
-
-        if "stack_trace" not in kwargs:
-            kwargs["stack_trace"] = traceback.format_exc()
-        self._emit_stream_event(message, *args, event_type="error", error=True, **kwargs)
+        """Exception with traceback."""
+        self._log(logging.ERROR, message, *args, exc_info=True, **kwargs)
 
     # Delegate stdlib Logger interface so callers can treat ComponentLogger as a Logger.
     @property
@@ -397,11 +207,11 @@ def get_logger(
     color: str = None,
 ) -> ComponentLogger:
     """
-    Get a unified logger that handles both CLI logging and event streaming.
+    Get a unified logger for CLI logging.
 
-    Primary API (recommended - use via BaseCapability.get_logger()):
+    Primary API (recommended):
         component_name: Component name (e.g., 'orchestrator', 'data_analysis')
-        state: Optional AgentState for streaming context and step tracking
+        state: Optional state for context
         level: Logging level
 
     Explicit API (for custom loggers or module-level usage):
@@ -410,24 +220,12 @@ def get_logger(
         level: Logging level
 
     Returns:
-        ComponentLogger instance that logs to CLI and optionally streams
+        ComponentLogger instance
 
     Examples:
-        # Recommended: Use via BaseCapability
-        class MyCapability(BaseCapability):
-            async def execute(self):
-                logger = self.get_logger()  # Auto-streams!
-                logger.status("Working...")
-
-        # Module-level (no streaming)
+        # Module-level
         logger = get_logger("orchestrator")
         logger.info("Planning started")
-
-        # With streaming (when you have state)
-        logger = get_logger("orchestrator", state=state)
-        logger.status("Creating execution plan...")  # Logs + streams
-        logger.info("Active capabilities: [...]")   # Logs only
-        logger.error("Failed!")                      # Logs + streams
 
         # Custom logger
         logger = get_logger(name="test_logger", color="blue")
@@ -462,7 +260,7 @@ def get_logger(
 
         if os.getenv("DEBUG_LOGGING"):
             print(
-                f"⚠️  WARNING: Failed to load color config for {component_name}: {e}. Using white as fallback."
+                f"WARNING: Failed to load color config for {component_name}: {e}. Using white as fallback."
             )
 
     return ComponentLogger(base_logger, component_name, color, state=state)

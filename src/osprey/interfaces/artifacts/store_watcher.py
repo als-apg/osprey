@@ -1,8 +1,7 @@
 """File-system watcher for cross-process store index changes.
 
-Watches the two store index files (artifacts.json, memories.json) for
-modifications by external processes and broadcasts SSE events for any
-added or deleted entries.
+Watches the store index file (artifacts.json) for modifications by external
+processes and broadcasts SSE events for any added or deleted entries.
 
 Same-process saves already update the store's ``_entries`` in memory, so
 the diff naturally produces nothing — no duplicate events.
@@ -32,7 +31,7 @@ class _IndexFileHandler(FileSystemEventHandler):
         """
         Args:
             index_configs: Map from index filename to config dict with keys:
-                - ``store``: The store instance (DataContext, MemoryStore, etc.)
+                - ``store``: The store instance (e.g. ArtifactStore)
                 - ``id_attr``: Attribute name for the entry ID (e.g. ``"id"``)
                 - ``event_type``: SSE event type for new entries (e.g. ``"context"``)
                 - ``delete_type``: SSE event type for deleted entries
@@ -123,7 +122,6 @@ class StoreIndexWatcher:
         workspace_root: Path,
         broadcaster: Any,
         artifact_store: Any,
-        memory_store: Any,
     ) -> None:
         self._workspace_root = workspace_root
         self._broadcaster = broadcaster
@@ -136,18 +134,11 @@ class StoreIndexWatcher:
                 "event_type": "artifact",
                 "delete_type": "artifact_deleted",
             },
-            "memories.json": {
-                "store": memory_store,
-                "id_attr": "id",
-                "event_type": "memory",
-                "delete_type": "memory_deleted",
-            },
         }
 
         # Directories to watch — each index file lives in a different dir
         self._watch_dirs: dict[str, Path] = {
             "artifacts.json": workspace_root / "artifacts",
-            "memories.json": workspace_root / "memory",
         }
 
     def start(self) -> None:

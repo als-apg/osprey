@@ -1,8 +1,7 @@
 """OSPREY Artifact Gallery — FastAPI Application.
 
 A unified gallery for interactive artifacts (plots, tables, HTML, markdown)
-produced by Claude during analysis sessions.  Memory is served via API for
-the Settings drawer Memory tab.
+produced by Claude during analysis sessions.
 """
 
 from __future__ import annotations
@@ -14,7 +13,6 @@ import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -211,12 +209,6 @@ class PinRequest(BaseModel):
     pinned: bool = True
 
 
-class MemoryUpdateRequest(BaseModel):
-    content: str | None = None
-    tags: list[str] | None = None
-    importance: str | None = None
-
-
 class _SSEBroadcaster:
     """Manages per-client asyncio.Queue instances for SSE push."""
 
@@ -339,39 +331,26 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         register_artifact_listener,
         unregister_artifact_listener,
     )
-    from osprey.mcp_server.memory_store import (
-        MemoryEntry,
-        MemoryStore,
-        register_memory_listener,
-        unregister_memory_listener,
-    )
 
     store = ArtifactStore(workspace_root=workspace_root)
-    memory_store = MemoryStore(workspace_root=workspace_root)
     broadcaster = _SSEBroadcaster()
 
     index_watcher = StoreIndexWatcher(
         workspace_root=workspace_root,
         broadcaster=broadcaster,
         artifact_store=store,
-        memory_store=memory_store,
     )
 
     def _on_artifact_saved(entry: ArtifactEntry) -> None:
         broadcaster.broadcast({"type": "artifact", **entry.to_dict()})
 
-    def _on_memory_saved(entry: MemoryEntry) -> None:
-        broadcaster.broadcast({"type": "memory", **entry.to_dict()})
-
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         register_artifact_listener(_on_artifact_saved)
-        register_memory_listener(_on_memory_saved)
         index_watcher.start()
         yield
         index_watcher.stop()
         unregister_artifact_listener(_on_artifact_saved)
-        unregister_memory_listener(_on_memory_saved)
 
     app = FastAPI(
         title="OSPREY Artifact Gallery",
@@ -389,7 +368,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     app.state.artifact_store = store
     app.state.focused_artifact_id = None  # None = show latest
-    app.state.memory_store = memory_store
 
     focus_file = workspace_root / "focus_state.txt"
 
@@ -682,60 +660,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             "jupyter_url": jupyter_url,
             "artifact_id": artifact_id,
         }
-
-    # --- Memory routes (consumed by Settings drawer Memory tab) ---
-
-    @app.get("/api/memory")
-    async def list_memories(
-        type: str | None = None,
-        tag: str | None = None,
-        importance: str | None = None,
-        search: str | None = None,
-    ):
-        tags = [tag] if tag else None
-        entries = memory_store.list_entries(
-            memory_type=type,
-            tags=tags,
-            importance=importance,
-            search=search,
-        )
-        return {
-            "count": len(entries),
-            "entries": [e.to_dict() for e in entries],
-        }
-
-    @app.get("/api/memory/{memory_id}")
-    async def get_memory(memory_id: int):
-        entry = memory_store.get_entry(memory_id)
-        if not entry:
-            raise HTTPException(status_code=404, detail=f"Memory {memory_id} not found")
-        return entry.to_dict()
-
-    @app.patch("/api/memory/{memory_id}")
-    async def update_memory(memory_id: int, req: MemoryUpdateRequest):
-        fields: dict[str, Any] = {}
-        if req.content is not None:
-            fields["content"] = req.content
-        if req.tags is not None:
-            fields["tags"] = req.tags
-        if req.importance is not None:
-            fields["importance"] = req.importance
-
-        if not fields:
-            raise HTTPException(status_code=400, detail="No fields to update")
-
-        entry = memory_store.update_entry(memory_id, **fields)
-        if not entry:
-            raise HTTPException(status_code=404, detail=f"Memory {memory_id} not found")
-        return entry.to_dict()
-
-    @app.delete("/api/memory/{memory_id}")
-    async def delete_memory(memory_id: int):
-        deleted = memory_store.delete_entry(memory_id)
-        if not deleted:
-            raise HTTPException(status_code=404, detail=f"Memory {memory_id} not found")
-        broadcaster.broadcast({"type": "memory_deleted", "id": memory_id})
-        return {"status": "ok", "memory_id": memory_id}
 
     # Logbook entry composer
     from osprey.interfaces.artifacts.logbook import logbook_router

@@ -494,19 +494,19 @@ from osprey.registry import RegistryManager  # Moved to __init__.py
 
 ```python
 # BEFORE
-@capability_node
-class MyCapability(BaseCapability):
-    pass
+@server.tool()
+async def read_channel(name: str) -> float:
+    return await connector.read(name)
 
-# AFTER - New decorator parameter!
-@capability_node(auto_register=True)  # New parameter added
-class MyCapability(BaseCapability):
-    pass
+# AFTER - New parameter!
+@server.tool()
+async def read_channel(name: str, timeout: float = 5.0) -> float:
+    return await connector.read(name, timeout=timeout)
 ```
 
 **Action**:
-- Update all examples showing decorator usage
-- Document new parameter in decorator documentation
+- Update all examples showing tool usage
+- Document new parameter in tool documentation
 - Add to CHANGELOG
 - Check if existing code breaks or needs migration
 
@@ -514,12 +514,12 @@ class MyCapability(BaseCapability):
 
 ```python
 # BEFORE
-class MyCapability(BaseCapability):
-    name = "my_capability"
+class MockConnector(BaseConnector):
+    name = "mock"
 
 # AFTER - New required attribute!
-class MyCapability(BaseCapability):
-    name = "my_capability"
+class MockConnector(BaseConnector):
+    name = "mock"
     version = "1.0.0"  # Now required
 ```
 
@@ -809,17 +809,17 @@ grep -r "register_provider(" src/ docs/
 
 **Base Class Changes → All Subclasses**
 ```python
-# If you change BaseCapability interface
-# → All capability implementations must be checked
-# → All capability documentation must be reviewed
+# If you change BaseConnector or BaseProvider interface
+# → All connector/provider implementations must be checked
+# → All connector/provider documentation must be reviewed
 ```
 
-**State Model Changes → Everything**
+**Configuration Schema Changes → MCP Servers**
 ```python
-# If AgentState structure changes
-# → Every capability that accesses state is affected
-# → Every example showing state is affected
-# → State management docs need comprehensive updates
+# If config.yml schema changes
+# → Every MCP server reading config is affected
+# → Every example showing config is affected
+# → Configuration docs need comprehensive updates
 ```
 
 **Registry Changes → Discovery Patterns**
@@ -892,16 +892,16 @@ If `pyproject.toml` dependencies change:
 
 ### **Warning Sign 5: State Structure Changes**
 
-If AgentState or related models change:
-- **CRITICAL**: This affects almost everything
+If MCP tool schemas or response formats change:
+- **CRITICAL**: This affects Claude Code integration
 - Review ALL tutorials and examples
-- Update state management documentation completely
-- Check every capability that accesses state
-- Verify serialization/deserialization still works
+- Update MCP server documentation completely
+- Check every tool that returns structured data
+- Verify Claude Code can still parse responses
 
 ### **Warning Sign 6: Base Class Modifications**
 
-If BaseCapability, BaseProvider, or other base classes change:
+If BaseConnector, BaseProvider, or other base classes change:
 - Check ALL implementations
 - Update developer guides for creating new implementations
 - Verify backward compatibility
