@@ -6,8 +6,8 @@
 ## Summary
 
 - Total items: 27
-- Completed: 9
-- Remaining: 18
+- Completed: 10
+- Remaining: 17
 - P0: 2 | P1: 10 | P2: 9 | P3: 6
 
 ## Backlog
@@ -175,7 +175,7 @@
 
 ---
 
-### [P1] RF-010: Split registry/manager.py (1398 lines) + fix layering (pending)
+### [P1] RF-010: Split registry/manager.py (1398 lines) + fix layering (completed 2026-03-01)
 
 **Severity**: high | **Categories**: structure, dependency
 **Files**: `src/osprey/registry/manager.py`
@@ -189,7 +189,7 @@
 2. Use lazy registration pattern: higher layers register their factories with the registry at import time
 3. Or reclassify registry as a higher-level orchestration layer above services
 
-**Status**: pending
+**Status**: completed (2026-03-01) — Split into `registry/loader.py` (495 lines, loading/merging/discovery), `registry/initializers.py` (417 lines, per-type initialization + INITIALIZER_DISPATCH dict), `registry/export.py` (80 lines, JSON serialization). `manager.py` reduced from 1398 → 505 lines as facade with RegistryManager class (accessors, singleton functions). Layering violations (connectors L4, models L5 imports) isolated in `initializers.py` with LAYERING NOTE comments. Updated `test_provider_filtering.py` patch targets (9 patches → new module paths). All 3628 tests pass.
 
 ---
 
