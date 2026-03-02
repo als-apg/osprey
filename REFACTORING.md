@@ -6,8 +6,8 @@
 ## Summary
 
 - Total items: 34
-- Completed: 1
-- Remaining: 33
+- Completed: 2
+- Remaining: 32
 - High priority (P0): 3 | P1: 9 | P2: 12 | P3: 10
 
 ---
@@ -33,7 +33,7 @@
 
 ---
 
-### [P0] RF-002: channel_finder/database_api.py — 994-line handler with 14 cross-layer MCP imports (pending)
+### [P0] RF-002: channel_finder/database_api.py — 994-line handler with 14 cross-layer MCP imports (completed)
 
 **Severity**: high | **Category**: structure, dependency
 **Files**: `src/osprey/interfaces/channel_finder/database_api.py`
@@ -46,8 +46,9 @@
 2. Have the interface layer call the service facade
 3. This also enables testing the web API without spinning up MCP servers
 
-**Status**: pending
-**Notes**:
+**Status**: completed
+**Completed date**: 2026-03-02
+**Notes**: Decoupled by storing database instances on `app.state.databases` during lifespan init. Replaced all 13 MCP imports with `_get_database(request)` lookups. Removed `_parse_tool_result` (JSON deserialize→re-serialize eliminated). Tests now patch `_get_database` instead of MCP module paths. File reduced from 995 to ~930 lines. All 3664 tests pass.
 
 ---
 
