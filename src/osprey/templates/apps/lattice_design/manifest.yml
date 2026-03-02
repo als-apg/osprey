@@ -26,6 +26,7 @@ artifacts:
     - fit-tune
     - fit-chromaticity
     - compare-optics
+    - lattice-evaluation
     - resonance-diagram
     - analyze-working-point
     - dynamic-aperture

@@ -1,0 +1,170 @@
+{% if template_name == "lattice_design" %}
+---
+name: lattice-evaluation
+description: >
+  Comprehensive lattice health check — loads, computes optics, analyzes working
+  point safety, and triages into fix workflows (tune adjustment, chromaticity
+  correction) with verification via dynamic aperture and frequency map.
+summary: Pre-flight lattice health evaluation with triage and verification
+---
+
+# Lattice Evaluation
+
+Orchestrates a full lattice health check across four phases: baseline optics,
+working point safety, conditional fixes, and verification. Use this when an
+operator asks "is this lattice healthy?" or wants a comprehensive pre-flight
+diagnostic.
+
+This skill does not define new computations — it sequences existing skills and
+uses the `analyze-working-point` reference implementation for resonance analysis.
+
+## Phase 1 — Baseline (always runs)
+
+1. **Load lattice** — invoke `/load-lattice`. Print summary:
+   - Energy, element count, circumference
+   - Lattice source file
+
+2. **Compute optics** — invoke `/compute-optics`. Capture:
+   - Tunes: nu_x, nu_y
+   - Chromaticities: xi_x, xi_y
+   - Beta extrema: max/min beta_x, max/min beta_y
+
+3. **Sanity check** — verify optics are physically reasonable:
+   - Any NaN in Twiss parameters? → **CRITICAL FAILURE**, stop evaluation
+   - Any negative beta function? → **CRITICAL FAILURE**, stop evaluation
+   - Ring unstable (tunes imaginary)? → **CRITICAL FAILURE**, stop evaluation
+   - If any critical failure, report clearly and do not proceed
+
+   Print: "Baseline: OK" or "Baseline: CRITICAL — [reason]"
+
+## Phase 2 — Working Point Safety (always runs if Phase 1 passes)
+
+4. **Resonance proximity analysis** — invoke `/analyze-working-point`.
+   This produces:
+   - Danger table ranked by proximity
+   - Physics-based resonance classification (CRITICAL / DANGEROUS / WARNING / LOW)
+   - Annotated resonance diagram
+
+5. **Textbook context** — the `/analyze-working-point` skill already delegates
+   to the `textbook-expert` agent for physics context. Ensure this context is
+   presented to the operator before the quantitative results.
+
+6. **Summarize danger level** — based on the closest resonance:
+   - Nearest CRITICAL resonance d < 0.01 → **RED**: "Tunes dangerously close to
+     [resonance]. Adjustment strongly recommended."
+   - Nearest DANGEROUS resonance d < 0.02 → **YELLOW**: "Working point near
+     sextupole-driven resonance. Monitor or adjust."
+   - All resonances d > 0.03 → **GREEN**: "Working point is in a safe region."
+
+## Phase 3 — Triage & Fix (conditional)
+
+Based on Phase 2 findings, offer targeted fixes. **Always ask the operator
+before making changes** — present the recommendation, then wait for approval.
+
+### 3a. Tune near CRITICAL resonance (d < 0.01)
+
+7. **Suggest safer tunes**:
+   - Identify the nearest critical resonance line
+   - Propose tunes that move the working point away (increase distance to at
+     least 0.03 from the critical resonance)
+   - Print: "Suggested tunes: nu_x = {new_nux:.4f}, nu_y = {new_nuy:.4f}"
+   - Explain why these target tunes are safer
+
+8. **If operator approves** — invoke `/fit-tune` with the suggested target tunes.
+   Then re-invoke `/analyze-working-point` and show a before/after comparison:
+   - Before tunes, after tunes
+   - Before danger table vs. after danger table
+   - Overlay both working points on the resonance diagram
+
+### 3b. Chromaticity uncorrected (large negative values)
+
+9. **Detect uncorrected chromaticity**:
+   - Natural chromaticity is typically large and negative (e.g., xi < -5)
+   - If chromaticities are large negative, sextupoles may not be set
+   - Print: "Chromaticity appears uncorrected (xi_x = {xi_x:.2f},
+     xi_y = {xi_y:.2f}). Sextupole correction recommended."
+
+10. **If operator approves** — invoke `/fit-chromaticity`.
+    - Note to operator: "Sextupoles drive 3rd-order resonances. The working
+      point analysis already accounts for sextupole-driven resonances in its
+      classification."
+
+### 3c. No fixes needed
+
+11. If all checks pass with GREEN status and chromaticity is reasonable:
+    - Print: "Lattice passes all health checks. No corrections needed."
+    - Skip to Phase 4 summary (no verification tracking needed)
+
+## Phase 4 — Verification (runs if any changes were made)
+
+If tunes or chromaticity were adjusted in Phase 3:
+
+12. **Dynamic aperture** — invoke `/dynamic-aperture`.
+    - Report DA area in mm²
+    - Note if DA is unusually small (< 1 mm² is concerning)
+
+13. **Frequency map analysis** — invoke `/frequency-map`.
+    - Look for tune diffusion hot spots
+    - Confirm the working point region is stable
+
+14. **Final summary** — present a structured report:
+
+    ```
+    === Lattice Health Report ===
+
+    Lattice:       [filename]
+    Energy:        [E] GeV
+    Circumference: [C] m
+
+    Phase 1 — Baseline
+      Tunes:          nu_x = ..., nu_y = ...
+      Chromaticities: xi_x = ..., xi_y = ...
+      Beta extrema:   beta_x_max = ... m, beta_y_max = ... m
+      Status:         OK
+
+    Phase 2 — Working Point
+      Nearest critical: [resonance] at d = ...
+      Nearest dangerous: [resonance] at d = ...
+      Status:           GREEN / YELLOW / RED
+
+    Phase 3 — Corrections Applied
+      Tune adjustment:       [before] → [after] (or "not needed")
+      Chromaticity correction: [before] → [after] (or "not needed")
+
+    Phase 4 — Verification
+      Dynamic aperture:  [area] mm²
+      Frequency map:     [clean / concerning regions noted]
+
+    Overall: HEALTHY / NEEDS ATTENTION / CRITICAL
+    ===
+    ```
+
+## Decision Tree Summary
+
+```
+Load & Compute Optics
+  |
+  +-- Optics broken (NaN, unstable) --> STOP, report critical failure
+  |
+  +-- Optics OK --> Working Point Analysis
+  |     |
+  |     +-- CRITICAL resonance d < 0.01
+  |     |     --> Suggest tune adjustment --> /fit-tune --> re-analyze --> verify
+  |     |
+  |     +-- DANGEROUS resonance d < 0.02
+  |     |     --> Warn, offer tune adjustment
+  |     |
+  |     +-- All clear (d > 0.03)
+  |           --> Report healthy
+  |
+  +-- Chromaticity Check
+  |     +-- Large negative --> offer /fit-chromaticity
+  |     +-- Reasonable --> OK
+  |
+  +-- Verification (if changes made)
+  |     +-- /dynamic-aperture
+  |     +-- /frequency-map
+  |
+  +-- Final Summary
+```
+{% endif %}
