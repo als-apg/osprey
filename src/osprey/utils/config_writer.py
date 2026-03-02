@@ -1,21 +1,203 @@
-"""Config auto-update helper for configuration management.
+"""Comment-preserving YAML configuration writer.
 
-This module is the single source of truth for all configuration file modifications.
-Provides utilities for updating config.yml programmatically:
-- Comment-preserving YAML updates via ruamel.yaml
-- EPICS gateway configuration for production deployment
-- Control system type switching
+Unified module for all comment-preserving YAML mutations. Uses ruamel.yaml
+(round-trip mode) to read, modify, and write YAML files without stripping
+comments, formatting, or ordering.
 
-For read-only config access, use utils/config.py (ConfigBuilder, get_config_value).
+This module consolidates the former ``yaml_config.py`` and ``config_updater.py``
+into a single source of truth for config file modifications.
+
+For read-only config access, use ``utils/config.py`` (ConfigBuilder, get_config_value).
+
+Typical usage:
+    from osprey.utils.config_writer import config_add_to_list, config_update_fields
+
+    # Add entry to a YAML list
+    config_add_to_list(Path("config.yml"), ["prompts", "user_owned"], "rules/facility")
+
+    # Apply structured key-value updates
+    config_update_fields(Path("config.yml"), {
+        "control_system.writes_enabled": True,
+        "approval.global_mode": "selective",
+    })
 """
 
+from __future__ import annotations
+
+import logging
 from pathlib import Path
 from typing import Any
 
-import yaml
+from ruamel.yaml import YAML, CommentedMap
+
+logger = logging.getLogger(__name__)
+
+# Round-trip mode ("rt") preserves comments, key order, and quoting style.
+_yaml = YAML(typ="rt")
+_yaml.preserve_quotes = True
+_yaml.width = 4096  # prevent aggressive line-wrapping
+
 
 # =============================================================================
-# COMMENT-PRESERVING YAML UTILITIES
+# Core I/O
+# =============================================================================
+
+
+def _load(path: Path) -> Any:
+    """Load a YAML file with comment preservation."""
+    with open(path, encoding="utf-8") as f:
+        data = _yaml.load(f)
+    return data if data is not None else CommentedMap()
+
+
+def _save(path: Path, data: Any) -> None:
+    """Write data back to a YAML file, preserving comments."""
+    with open(path, "w", encoding="utf-8") as f:
+        _yaml.dump(data, f)
+
+
+# =============================================================================
+# List Operations
+# =============================================================================
+
+
+def config_add_to_list(
+    config_path: Path,
+    key_path: list[str],
+    value: str,
+) -> bool:
+    """Append *value* to a YAML list at *key_path*, creating parents if needed.
+
+    Args:
+        config_path: Path to the YAML file.
+        key_path: List of nested keys, e.g. ``["prompts", "user_owned"]``.
+        value: The scalar value to append.
+
+    Returns:
+        True if the value was added, False if it was already present.
+    """
+    data = _load(config_path)
+
+    node = data
+    for key in key_path[:-1]:
+        if key not in node:
+            node[key] = {}
+        node = node[key]
+
+    leaf = key_path[-1]
+    if leaf not in node:
+        node[leaf] = []
+
+    lst = node[leaf]
+    if value in lst:
+        return False
+
+    lst.append(value)
+    _save(config_path, data)
+    logger.debug("config_add_to_list: %s += %s in %s", ".".join(key_path), value, config_path)
+    return True
+
+
+def config_remove_from_list(
+    config_path: Path,
+    key_path: list[str],
+    value: str,
+    *,
+    prune_empty: bool = True,
+) -> bool:
+    """Remove *value* from a YAML list at *key_path*.
+
+    Args:
+        config_path: Path to the YAML file.
+        key_path: List of nested keys.
+        value: The scalar value to remove.
+        prune_empty: If True, delete empty parent keys after removal.
+
+    Returns:
+        True if the value was removed, False if it was not present.
+    """
+    data = _load(config_path)
+
+    parents: list[tuple[Any, str]] = []
+    node = data
+    for key in key_path[:-1]:
+        if key not in node:
+            return False
+        parents.append((node, key))
+        node = node[key]
+
+    leaf = key_path[-1]
+    if leaf not in node:
+        return False
+
+    lst = node[leaf]
+    if value not in lst:
+        return False
+
+    lst.remove(value)
+
+    if prune_empty:
+        if not lst:
+            del node[leaf]
+        for parent_node, parent_key in reversed(parents):
+            child = parent_node[parent_key]
+            if isinstance(child, dict) and not child:
+                del parent_node[parent_key]
+
+    _save(config_path, data)
+    logger.info(
+        "config_remove_from_list: %s -= %s in %s", ".".join(key_path), value, config_path
+    )
+    return True
+
+
+# =============================================================================
+# Field Updates
+# =============================================================================
+
+
+def config_update_fields(
+    config_path: Path,
+    updates: dict[str, Any],
+) -> None:
+    """Apply structured field updates to a YAML config, preserving comments.
+
+    Keys use dot-notation to address nested values.
+    Array values in *updates* are written as YAML sequences.
+
+    Args:
+        config_path: Path to the YAML file.
+        updates: Mapping of ``"dot.separated.key"`` → new value.
+    """
+    data = _load(config_path)
+
+    for dotted_key, value in updates.items():
+        parts = dotted_key.split(".")
+        node = data
+        for part in parts[:-1]:
+            if part not in node:
+                node[part] = {}
+            node = node[part]
+        node[parts[-1]] = value
+
+    _save(config_path, data)
+    logger.info("config_update_fields: updated %d field(s) in %s", len(updates), config_path)
+
+
+def config_read(config_path: Path) -> dict:
+    """Load a YAML config as a plain dict (no ruamel wrapper types).
+
+    Useful when you need a JSON-serializable dict for API responses.
+    """
+    import copy
+    import json
+
+    data = _load(config_path)
+    return json.loads(json.dumps(copy.deepcopy(data), default=str))
+
+
+# =============================================================================
+# Comment-Preserving YAML File Update
 # =============================================================================
 
 
@@ -27,8 +209,8 @@ def update_yaml_file(
 ) -> Path | None:
     """Update a YAML file while preserving comments and formatting.
 
-    Uses ruamel.yaml to maintain comments, blank lines, and original formatting
-    when modifying YAML configuration files.
+    Uses the shared ruamel.yaml handler to maintain comments, blank lines,
+    and original formatting when modifying YAML configuration files.
 
     Args:
         file_path: Path to the YAML file to update
@@ -54,23 +236,8 @@ def update_yaml_file(
         ...         "connector": {"epics": {"gateways": {"read_only": {"port": 5064}}}}
         ...     }
         ... })
-
-        >>> # With section comment
-        >>> update_yaml_file(Path("config.yml"), {"simulation": {...}},
-        ...     section_comments={"simulation": "Simulation Configuration"})
     """
-    from ruamel.yaml import YAML, CommentedMap
-
-    yaml_handler = YAML()
-    yaml_handler.preserve_quotes = True
-    yaml_handler.width = 4096  # Prevent line wrapping
-
-    # Read existing content
-    with open(file_path, encoding="utf-8") as f:
-        data = yaml_handler.load(f)
-
-    if data is None:
-        data = CommentedMap()
+    data = _load(file_path)
 
     # Create backup before modifying
     backup_path = None
@@ -92,17 +259,11 @@ def update_yaml_file(
     if section_comments:
         for key, comment in section_comments.items():
             if key in new_keys and key in data:
-                # Add boxed section header to match existing config style:
-                # # ============================================================
-                # # SECTION NAME
-                # # ============================================================
                 separator = "=" * 60
                 comment_text = f"\n{separator}\n{comment}\n{separator}"
                 data.yaml_set_comment_before_after_key(key, before=comment_text)
 
-    # Write back with preserved formatting
-    with open(file_path, "w", encoding="utf-8") as f:
-        yaml_handler.dump(data, f)
+    _save(file_path, data)
 
     return backup_path
 
@@ -116,13 +277,10 @@ def _apply_nested_updates(data: dict, updates: dict) -> None:
     """
     for key, value in updates.items():
         if "." in key:
-            # Dot notation path (e.g., "control_system.type")
             _set_nested_value(data, key, value)
         elif isinstance(value, dict) and key in data and isinstance(data[key], dict):
-            # Recursively merge nested dictionaries
             _apply_nested_updates(data[key], value)
         else:
-            # Direct assignment
             data[key] = value
 
 
@@ -137,18 +295,16 @@ def _set_nested_value(data: dict, path: str, value: Any) -> None:
     keys = path.split(".")
     current = data
 
-    # Navigate/create intermediate dictionaries
     for key in keys[:-1]:
         if key not in current or not isinstance(current[key], dict):
             current[key] = {}
         current = current[key]
 
-    # Set the final value
     current[keys[-1]] = value
 
 
 # =============================================================================
-# CONFIG FILE DISCOVERY
+# Config File Discovery
 # =============================================================================
 
 
@@ -162,9 +318,9 @@ def find_config_file() -> Path | None:
     return config_path if config_path.exists() else None
 
 
-# ============================================================================
+# =============================================================================
 # Control System Type Configuration
-# ============================================================================
+# =============================================================================
 
 
 def get_control_system_type(config_path: Path, key: str = "control_system.type") -> str | None:
@@ -178,12 +334,10 @@ def get_control_system_type(config_path: Path, key: str = "control_system.type")
         Type string or None if not found
     """
     try:
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
+        data = _load(config_path)
 
-        # Navigate nested keys
         keys = key.split(".")
-        value = config
+        value = data
         for k in keys:
             value = value.get(k)
             if value is None:
@@ -215,19 +369,15 @@ def set_control_system_type(
     Returns:
         Tuple of (updated_content, preview) where updated_content is the new file content
     """
-    # Build updates dict
     updates: dict[str, Any] = {"control_system.type": control_type}
 
     if archiver_type:
         updates["archiver.type"] = archiver_type
 
-    # Apply updates using comment-preserving YAML
     update_yaml_file(config_path, updates, create_backup=create_backup)
 
-    # Read back the updated content
     updated_content = config_path.read_text()
 
-    # Create preview
     preview_lines = [
         "[bold]Control System Configuration[/bold]\n",
         f"control_system.type: {control_type}",
@@ -243,9 +393,9 @@ def set_control_system_type(
     return updated_content, preview
 
 
-# ============================================================================
+# =============================================================================
 # EPICS Gateway Configuration
-# ============================================================================
+# =============================================================================
 
 
 def set_epics_gateway_config(
@@ -259,8 +409,6 @@ def set_epics_gateway_config(
     Updates the control_system.connector.epics.gateways section with
     facility-specific or custom gateway settings.
 
-    Uses comment-preserving YAML update via update_yaml_file().
-
     Args:
         config_path: Path to config.yml
         facility: 'aps', 'als', or 'custom'
@@ -269,9 +417,6 @@ def set_epics_gateway_config(
 
     Returns:
         Tuple of (updated_content, preview) where updated_content is the new file content
-
-    Example:
-        >>> new_content, preview = set_epics_gateway_config(config_path, 'aps')
     """
     from osprey.templates.data import get_facility_config
 
@@ -287,17 +432,14 @@ def set_epics_gateway_config(
         gateway_config = preset["gateways"]
         facility_name = preset["name"]
 
-    # Apply updates using comment-preserving YAML
     update_yaml_file(
         config_path,
         {"control_system.connector.epics.gateways": gateway_config},
         create_backup=create_backup,
     )
 
-    # Read back the updated content
     updated_content = config_path.read_text()
 
-    # Build preview string
     gateway_yaml = _format_gateway_yaml(gateway_config)
     preview = f"""
 [bold]EPICS Gateway Configuration - {facility_name}[/bold]
@@ -344,11 +486,10 @@ def get_epics_gateway_config(config_path: Path) -> dict | None:
         Dict with gateway configuration or None if not found
     """
     try:
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
+        data = _load(config_path)
 
         gateways = (
-            config.get("control_system", {}).get("connector", {}).get("epics", {}).get("gateways")
+            data.get("control_system", {}).get("connector", {}).get("epics", {}).get("gateways")
         )
         return gateways
     except Exception:
@@ -374,11 +515,9 @@ def get_facility_from_gateway_config(config_path: Path) -> str | None:
     if not current_gateways:
         return None
 
-    # Check if current config matches any preset
     for _facility_id, preset in FACILITY_PRESETS.items():
         preset_gateways = preset["gateways"]
 
-        # Compare read_only gateway
         if "read_only" in current_gateways and "read_only" in preset_gateways:
             current_read = current_gateways["read_only"]
             preset_read = preset_gateways["read_only"]
@@ -389,7 +528,6 @@ def get_facility_from_gateway_config(config_path: Path) -> str | None:
             ):
                 return preset["name"]
 
-    # Check if it looks like a custom configuration (not default ALS)
     if "read_only" in current_gateways:
         read_addr = current_gateways["read_only"].get("address", "")
         if read_addr and read_addr != "cagw-alsdmz.als.lbl.gov":
@@ -398,9 +536,9 @@ def get_facility_from_gateway_config(config_path: Path) -> str | None:
     return None
 
 
-# ============================================================================
+# =============================================================================
 # Model Configuration
-# ============================================================================
+# =============================================================================
 
 
 def get_all_model_configs(config_path: Path) -> dict | None:
@@ -413,10 +551,8 @@ def get_all_model_configs(config_path: Path) -> dict | None:
         Dict with all model configurations or None if not found
     """
     try:
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
-
-        return config.get("models", {})
+        data = _load(config_path)
+        return data.get("models", {})
     except Exception:
         pass  # Config read/parse failed; return default below
 
@@ -434,8 +570,6 @@ def update_all_models(
     This updates ALL model entries in the models section to use the same
     provider and model_id, while preserving any custom max_tokens settings.
 
-    Uses comment-preserving YAML update via update_yaml_file().
-
     Args:
         config_path: Path to config.yml
         provider: Provider name (e.g., 'openai', 'anthropic', 'cborg', 'amsc')
@@ -444,15 +578,11 @@ def update_all_models(
 
     Returns:
         Tuple of (updated_content, preview) where updated_content is the new file content
-
-    Example:
-        >>> new_content, preview = update_all_models(config_path, 'openai', 'gpt-4')
     """
     # Get current models to build updates and preview
     try:
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
-        current_models = config.get("models", {})
+        data = _load(config_path)
+        current_models = data.get("models", {})
     except Exception:
         current_models = {}
 
@@ -478,7 +608,6 @@ def update_all_models(
         f"\nUpdated [bold]{model_count}[/bold] model configuration(s):",
     ]
 
-    # List the models that were updated
     for model_name in sorted(current_models.keys()):
         current = current_models[model_name]
         current_provider = current.get("provider", "unknown")

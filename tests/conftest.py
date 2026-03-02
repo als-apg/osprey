@@ -25,7 +25,7 @@ def reset_state_between_tests():
     import os as _os
 
     from osprey.registry import reset_registry
-    from osprey.utils import config as config_module
+    from osprey.utils.workspace import reset_config_cache
 
     # Clear config-related env vars that may leak between tests.
     # The web terminal lifespan sets OSPREY_CONFIG directly via os.environ,
@@ -34,17 +34,7 @@ def reset_state_between_tests():
     _os.environ.pop("CONFIG_FILE", None)
 
     reset_registry()
-    config_module._default_config = None
-    config_module._default_configurable = None
-    config_module._config_cache.clear()
-
-    # Reset MCP server config cache (separate from utils.config)
-    try:
-        from osprey.utils.workspace import reset_config_cache
-
-        reset_config_cache()
-    except ImportError:
-        pass
+    reset_config_cache()
 
     yield
 
@@ -52,16 +42,7 @@ def reset_state_between_tests():
     _os.environ.pop("OSPREY_CONFIG", None)
     _os.environ.pop("CONFIG_FILE", None)
     reset_registry()
-    config_module._default_config = None
-    config_module._default_configurable = None
-    config_module._config_cache.clear()
-
-    try:
-        from osprey.utils.workspace import reset_config_cache
-
-        reset_config_cache()
-    except ImportError:
-        pass
+    reset_config_cache()
 
 
 # ===================================================================

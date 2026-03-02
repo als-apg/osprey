@@ -307,7 +307,7 @@ def unclaim(name, project):
 
 def _update_config_add_user_owned(project_dir: Path, name: str):
     """Add a name to prompts.user_owned list in config.yml, preserving comments."""
-    from osprey.utils.yaml_config import config_add_to_list
+    from osprey.utils.config_writer import config_add_to_list
 
     config_path = project_dir / "config.yml"
     added = config_add_to_list(config_path, ["prompts", "user_owned"], name)
@@ -319,7 +319,7 @@ def _update_config_add_user_owned(project_dir: Path, name: str):
 
 def _update_config_remove_user_owned(project_dir: Path, name: str):
     """Remove a name from prompts.user_owned list in config.yml."""
-    from osprey.utils.yaml_config import config_remove_from_list
+    from osprey.utils.config_writer import config_remove_from_list
 
     config_path = project_dir / "config.yml"
     config_remove_from_list(config_path, ["prompts", "user_owned"], name)
