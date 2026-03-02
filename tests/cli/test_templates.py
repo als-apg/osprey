@@ -640,14 +640,7 @@ class TestLatticeSkillIsolation:
     """Test that lattice-specific skills/rules only appear for lattice_design."""
 
     LATTICE_SKILLS = [
-        "load-lattice",
-        "compute-optics",
-        "fit-tune",
-        "fit-chromaticity",
-        "compare-optics",
-        "resonance-diagram",
-        "dynamic-aperture",
-        "frequency-map",
+        "lattice-evaluation",
     ]
 
     def test_control_assistant_has_no_lattice_skills(self, tmp_path):
@@ -738,11 +731,7 @@ class TestTemplateManifest:
 
         assert manifest is not None
         artifacts = manifest["artifacts"]
-        assert "load-lattice" in artifacts["skills"]
-        assert "compute-optics" in artifacts["skills"]
-        assert "fit-tune" in artifacts["skills"]
-        assert "fit-chromaticity" in artifacts["skills"]
-        assert "compare-optics" in artifacts["skills"]
+        assert "lattice-evaluation" in artifacts["skills"]
         assert "lattice-physics" in artifacts["rules"]
         # Should NOT have control-system-specific entries
         assert "limits" not in artifacts["hooks"]
@@ -797,7 +786,7 @@ class TestTemplateManifest:
         assert not (project_dir / ".claude" / "rules" / "code-generation.md").exists()
 
     def test_lattice_init_has_lattice_artifacts(self, tmp_path):
-        """Lattice project must have lattice-physics rule and all 5 lattice skills."""
+        """Lattice project must have lattice-physics rule and lattice-evaluation skill."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="lat-artifacts-test",
@@ -810,20 +799,22 @@ class TestTemplateManifest:
         assert rule.exists()
         assert len(rule.read_text(encoding="utf-8").strip()) > 0
 
-        # All 8 lattice skills
-        for skill_name in [
-            "load-lattice",
-            "compute-optics",
-            "fit-tune",
-            "fit-chromaticity",
-            "compare-optics",
-            "resonance-diagram",
-            "dynamic-aperture",
-            "frequency-map",
+        # Consolidated lattice-evaluation skill
+        skill_file = project_dir / ".claude" / "skills" / "lattice-evaluation" / "SKILL.md"
+        assert skill_file.exists(), "Missing lattice-evaluation skill"
+        assert len(skill_file.read_text(encoding="utf-8").strip()) > 0
+
+        # 4 reference scripts
+        refs_dir = project_dir / ".claude" / "skills" / "lattice-evaluation" / "references"
+        for ref_name in [
+            "analyze_working_point.py",
+            "resonance_diagram.py",
+            "dynamic_aperture.py",
+            "frequency_map.py",
         ]:
-            skill_file = project_dir / ".claude" / "skills" / skill_name / "SKILL.md"
-            assert skill_file.exists(), f"Missing lattice skill: {skill_name}"
-            assert len(skill_file.read_text(encoding="utf-8").strip()) > 0
+            ref_file = refs_dir / ref_name
+            assert ref_file.exists(), f"Missing reference script: {ref_name}"
+            assert len(ref_file.read_text(encoding="utf-8").strip()) > 0
 
     def test_lattice_init_agents(self, tmp_path):
         """Lattice project must have expected agents."""
