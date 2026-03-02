@@ -9,7 +9,6 @@ artifacts:
     - error-guidance
     - memory-guard
     - notebook-update
-    - auto-execute
   rules:
     - safety
     - error-handling

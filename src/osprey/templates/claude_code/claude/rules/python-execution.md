@@ -1,12 +1,10 @@
-# Auto-Execute Scripts
+# Python Execution
 
-Write `.py` files to `osprey-workspace/scripts/` using the Write tool.
-A PostToolUse hook automatically executes them via the Python executor
-in readonly mode. Results (stdout, errors, artifacts) are returned
-immediately — no second tool call needed.
+Use the `execute` MCP tool (on the `python` server) to run Python code.
 
-- The Write tool displays code as a clean diff — easier to review than inline MCP parameters
-- Scripts containing control system write operations are automatically skipped
-  (use the `execute` tool directly for write-mode code)
+- Default `execution_mode: "readonly"` — blocks control system write patterns
+- Set `execution_mode: "readwrite"` only when code needs to write to hardware
 - `save_artifact()` is available in the execution environment for registering
   plots and data in the artifact gallery
+- All packages in the deployment environment are available (numpy, pandas,
+  scipy, at, matplotlib, plotly, etc.)

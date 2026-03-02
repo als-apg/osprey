@@ -220,12 +220,6 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             output_path=".claude/hooks/osprey_memory_guard.py",
             description="Write tool gate for Claude memory files",
         ),
-        PromptArtifact(
-            canonical_name="hooks/auto-execute",
-            template_path="claude/hooks/osprey_auto_execute.py",
-            output_path=".claude/hooks/osprey_auto_execute.py",
-            description="Auto-execute scripts written to osprey-workspace/scripts/",
-        ),
         # ── Skills ──────────────────────────────────────────────────
         PromptArtifact(
             canonical_name="skills/session-report",

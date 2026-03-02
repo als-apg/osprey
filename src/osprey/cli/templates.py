@@ -1249,7 +1249,6 @@ proper framework operation, especially when using containerized services.
         ".claude/hooks/osprey_cf_feedback_capture.py",
         ".claude/hooks/osprey_hook_log.py",
         ".claude/hooks/osprey_memory_guard.py",
-        ".claude/hooks/osprey_auto_execute.py",
         ".claude/rules/python-execution.md",
         ".claude/rules/data-visualization.md",
         ".claude/rules/control-system-safety.md",
