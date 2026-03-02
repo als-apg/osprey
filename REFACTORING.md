@@ -6,8 +6,8 @@
 ## Summary
 
 - Total items: 27
-- Completed: 4
-- Remaining: 23
+- Completed: 8
+- Remaining: 19
 - P0: 2 | P1: 10 | P2: 9 | P3: 6
 
 ## Backlog
@@ -136,7 +136,7 @@
 
 ---
 
-### [P1] RF-008: Split cli/interactive_menu.py (2591 lines) (pending)
+### [P1] RF-008: Split cli/interactive_menu.py (2591 lines) (completed 2026-03-01)
 
 **Severity**: high | **Categories**: structure, dependency
 **Files**: `src/osprey/cli/interactive_menu.py`
@@ -151,7 +151,7 @@
 3. Extract `cli/menu_display.py` — banner, ASCII art, menu rendering helpers
 4. Keep `interactive_menu.py` as the thin orchestrator that imports from these
 
-**Status**: pending
+**Status**: completed (2026-03-01) — Split into `cli/menu_display.py` (302 lines, 5 display functions), `cli/init_wizard.py` (778 lines, 10 init flow functions), `cli/project_actions.py` (826 lines, 11 action handlers). `interactive_menu.py` reduced from 2591 → 785 lines as thin orchestrator with re-exports. All 3636 tests pass. No backward-compat breaks — all existing import paths preserved via re-exports.
 
 ---
 
