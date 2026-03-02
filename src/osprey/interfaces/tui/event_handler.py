@@ -430,7 +430,14 @@ class TUIEventHandler:
             python_block.set_partial_output(status_text)
 
         # Create new collapsible code message
-        await self.display.start_code_generation_message(attempt=attempt)
+        # Read streaming config to determine if code should start collapsed
+        from osprey.utils.config import get_streaming_mode
+
+        codegen_mode = get_streaming_mode("tui", "python_code_generator")
+        start_collapsed = codegen_mode == "hide"
+        await self.display.start_code_generation_message(
+            attempt=attempt, start_collapsed=start_collapsed
+        )
 
     async def _handle_code_generated(self, code: str, attempt: int, success: bool) -> None:
         """Handle code generation completion - finalize widget.

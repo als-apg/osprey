@@ -337,6 +337,44 @@ cli:
   # banner: |
   #   Your custom ASCII art here
 
+  # Streaming display configuration
+  # Controls how LLM streaming output is displayed per node
+  # Options: show | disabled  (CLI has no collapse, so "hide" maps to "disabled")
+  # streaming:
+  #   respond: show                   # Final response (show | disabled)
+  #   python_code_generator: disabled # Code generation (show | disabled)
+
+# ============================================================
+# TUI CONFIGURATION
+# ============================================================
+# Customize the terminal UI (Textual) appearance and behavior
+
+tui:
+  # Streaming display configuration
+  # Controls how LLM streaming output is displayed per node
+  # Options: show | hide | disabled
+  #   show     - expanded during streaming, auto-collapses after completion
+  #   hide     - collapsed from the start, user can expand to watch live
+  #   disabled - not displayed at all
+  streaming:
+    respond: show                   # Final response (show | disabled; hide not allowed)
+    python_code_generator: hide     # Code generation collapsed by default
+
+# ============================================================
+# OPEN WEBUI CONFIGURATION
+# ============================================================
+# Customize the Open WebUI pipeline behavior
+
+openwebui:
+  # Streaming display configuration
+  # Controls how LLM streaming output is displayed per node
+  # Options: show | hide | disabled
+  #   show     - tokens stream live, code block visible
+  #   hide     - collapsed <details> block, user can expand to watch live
+  #   disabled - not displayed at all
+  streaming:
+    respond: show                   # Final response (show | disabled; hide not allowed)
+    python_code_generator: hide     # Code generation collapsed by default
 
 # Note: Theme system logging uses the existing 'base' logger color
 # No additional logging configuration needed

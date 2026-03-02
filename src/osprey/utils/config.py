@@ -856,6 +856,43 @@ def get_interface_context() -> str:
     return configurable.get("interface_context", "unknown")
 
 
+def get_streaming_mode(interface: str, node: str) -> str:
+    """Resolve streaming display mode for a given interface and node.
+
+    Determines how streaming output (LLM tokens) should be displayed in a
+    given UI for a specific graph node. The resolution order is:
+
+    1. ``{interface}.streaming.{node}`` — node-specific override
+    2. ``{interface}.streaming.default`` — interface-level default
+    3. Hardcoded defaults: ``respond`` → ``"show"``, everything else → ``"hide"``
+
+    Args:
+        interface: Interface identifier (``"cli"``, ``"tui"``, ``"openwebui"``)
+        node: Node name (``"respond"``, ``"python_code_generator"``, etc.)
+
+    Returns:
+        One of ``"show"``, ``"hide"``, or ``"disabled"``
+    """
+    # 1. Node-specific config
+    mode = get_config_value(f"{interface}.streaming.{node}")
+    if mode is None:
+        # 2. Interface default
+        mode = get_config_value(f"{interface}.streaming.default")
+    if mode is None:
+        # 3. Hardcoded defaults
+        mode = "show" if node == "respond" else "hide"
+
+    # Validate: respond node can't be "hide" (user must see the response)
+    if node == "respond" and mode == "hide":
+        mode = "show"
+
+    # CLI has no collapse mechanism — treat hide as disabled
+    if interface == "cli" and mode == "hide":
+        mode = "disabled"
+
+    return mode
+
+
 def get_current_application() -> str | None:
     """Get current application with automatic context detection."""
     configurable = _get_configurable()

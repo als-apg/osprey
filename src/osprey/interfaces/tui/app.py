@@ -806,6 +806,12 @@ class OspreyTUI(App):
             # Start event consumer before streaming
             consumer_task = asyncio.create_task(self._consume_events(user_input, chat_display))
 
+            # Streaming display mode configuration
+            from osprey.utils.config import get_streaming_mode
+
+            respond_streaming = get_streaming_mode("tui", "respond")
+            codegen_streaming = get_streaming_mode("tui", "python_code_generator")
+
             # Track if we've streamed LLM response tokens (to avoid duplicate display)
             streamed_response = False
             streamed_code = False  # Track code generation streaming
@@ -872,6 +878,9 @@ class OspreyTUI(App):
 
                             # Route based on source node
                             if node_name == "python_code_generator":
+                                if codegen_streaming == "disabled":
+                                    continue  # Skip code gen tokens entirely
+
                                 # CODE GENERATION STREAMING - Route to chat flow
                                 # Widget creation is now handled by CodeGenerationStartEvent
                                 # This section only appends tokens to the current widget
@@ -885,7 +894,10 @@ class OspreyTUI(App):
                                     python_block = chat_display.get_python_execution_block()
                                     if python_block:
                                         python_block.set_partial_output("Generating code...")
-                                    await chat_display.start_code_generation_message(attempt=1)
+                                    start_collapsed = codegen_streaming == "hide"
+                                    await chat_display.start_code_generation_message(
+                                        attempt=1, start_collapsed=start_collapsed
+                                    )
                                     streamed_code = True
                                     _previous_code_attempt = 1
 
@@ -894,6 +906,9 @@ class OspreyTUI(App):
                                     message_chunk.content
                                 )
                             else:
+                                if respond_streaming == "disabled":
+                                    continue  # Skip — full response shown from state
+
                                 # Response streaming (respond node or unknown source)
                                 # Start streaming message widget if not already started
                                 if not streamed_response:
