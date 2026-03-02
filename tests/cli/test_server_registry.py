@@ -40,7 +40,7 @@ class TestResolveServers:
         # Core servers always on
         assert {"controls", "workspace", "ariel", "accelpapers"} <= enabled
         # Conditional servers off (conditions not in ctx)
-        assert {"matlab", "channel-finder", "confluence"} <= disabled
+        assert {"matlab", "channel-finder", "confluence", "direct-channel-finder"} <= disabled
 
     def test_resolve_disable_framework_server(self):
         """New format: servers: {accelpapers: {enabled: false}}."""
@@ -145,6 +145,14 @@ class TestResolveServers:
         assert conf["command"] == "uvx"
         assert conf["args"] == ["--python=3.12", "mcp-atlassian"]
 
+    def test_direct_channel_finder_resolution(self):
+        """direct_channel_finder in ctx → direct-channel-finder server enabled."""
+        ctx = _base_ctx(direct_channel_finder=True)
+        servers = resolve_servers({}, ctx)
+        dcf = [s for s in servers if s["name"] == "direct-channel-finder"][0]
+        assert dcf["enabled"] is True
+        assert dcf["args"] == ["-m", "osprey.mcp_server.direct_channel_finder"]
+
     def test_channel_finder_pipeline_resolution(self):
         """channel-finder server resolves {channel_finder_pipeline} in module."""
         ctx = _base_ctx(channel_finder_pipeline="hierarchical")
@@ -171,7 +179,13 @@ class TestResolveAgents:
         disabled = {a["name"] for a in agents if not a["enabled"]}
 
         assert {"logbook-search", "logbook-deep-research", "literature-search"} <= enabled
-        assert {"wiki-search", "matlab-search", "graph-analyst", "channel-finder"} <= disabled
+        assert {
+            "wiki-search",
+            "matlab-search",
+            "graph-analyst",
+            "channel-finder",
+            "direct-channel-finder",
+        } <= disabled
         assert "data-visualizer" in enabled
 
     def test_disable_framework_agent(self):

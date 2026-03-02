@@ -214,21 +214,6 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         ],
         hooks_post=[_post_error("mcp__accelpapers__.*")],
     ),
-    "textbooks": ServerDefinition(
-        name="textbooks",
-        module="osprey.mcp_server.textbooks",
-        args_extra=["serve"],
-        env={
-            "TEXTBOOKS_ROOT": "${TEXTBOOKS_ROOT:-}",
-        },
-        permissions_allow=[
-            "textbook_lookup",
-            "textbook_read_section",
-            "textbook_search",
-            "textbook_overview",
-        ],
-        hooks_post=[_post_error("mcp__textbooks__.*")],
-    ),
     "matlab": ServerDefinition(
         name="matlab",
         module="osprey.mcp_server.matlab",
@@ -262,6 +247,16 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
                 hooks=[_ERROR_GUIDANCE, _CF_FEEDBACK],
             ),
         ],
+    ),
+    "direct-channel-finder": ServerDefinition(
+        name="direct-channel-finder",
+        module="osprey.mcp_server.direct_channel_finder",
+        env={
+            "OSPREY_CONFIG": "{project_root}/config.yml",
+        },
+        condition="direct_channel_finder",
+        fixed_allow=["mcp__direct-channel-finder"],
+        hooks_post=[_post_error("mcp__direct-channel-finder__.*")],
     ),
     "confluence": ServerDefinition(
         name="confluence",
@@ -339,9 +334,17 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
             "You do NOT have visualization tools."
         ),
     ),
+    "direct-channel-finder": AgentDefinition(
+        name="direct-channel-finder",
+        condition="direct_channel_finder",
+        server_dependency="direct-channel-finder",
+        description=(
+            "Searches live PV databases. "
+            "Use ONLY when explicitly asked to find PVs via direct query."
+        ),
+    ),
     "textbook-expert": AgentDefinition(
         name="textbook-expert",
-        server_dependency="textbooks",
         description="Looks up concepts, equations, and derivations in accelerator physics textbooks.",
     ),
 }

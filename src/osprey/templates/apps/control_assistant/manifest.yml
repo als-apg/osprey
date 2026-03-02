@@ -25,6 +25,7 @@ artifacts:
     - session-report
   agents:
     - channel-finder
+    - direct-channel-finder
     - data-visualizer
     - graph-analyst
     - literature-search

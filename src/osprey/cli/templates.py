@@ -500,6 +500,22 @@ class TemplateManager:
                     )
             ctx.setdefault("channel_finder_hierarchy", None)
 
+            # Direct channel finder (separate from pipeline-based channel finder)
+            direct_cf = cf_config.get("direct") if cf_config else None
+            if direct_cf:
+                ctx["direct_channel_finder"] = True
+                try:
+                    from osprey.services.channel_finder.utils.naming_summary import (
+                        generate_naming_summary,
+                    )
+
+                    ctx["naming_patterns_summary"] = generate_naming_summary(rendered_config)
+                except Exception:
+                    logging.getLogger("osprey.cli.templates").warning(
+                        "Could not generate naming summary during project creation",
+                        exc_info=True,
+                    )
+
         # Ensure defaults exist even without rendered config
         ctx.setdefault("disable_servers", [])
         ctx.setdefault("disable_agents", [])
@@ -1154,6 +1170,23 @@ proper framework operation, especially when using containerized services.
 
         ctx.setdefault("channel_finder_hierarchy", None)
 
+        # Direct channel finder (separate from pipeline-based channel finder)
+        if channel_finder and template_name == "control_assistant":
+            direct_cf = channel_finder.get("direct")
+            if direct_cf:
+                ctx["direct_channel_finder"] = True
+                try:
+                    from osprey.services.channel_finder.utils.naming_summary import (
+                        generate_naming_summary,
+                    )
+
+                    ctx["naming_patterns_summary"] = generate_naming_summary(config)
+                except Exception:
+                    logging.getLogger("osprey.cli.templates").warning(
+                        "Could not generate naming summary for direct channel finder",
+                        exc_info=True,
+                    )
+
         # Pass through optional config sections
         if "confluence" in config:
             ctx["confluence"] = config["confluence"]
@@ -1177,6 +1210,13 @@ proper framework operation, especially when using containerized services.
         ctx["extra_servers"] = claude_code_config.get("extra_servers", {})
         # User-owned files: regen skips these, users edit in-place
         ctx["user_owned"] = config.get("prompts", {}).get("user_owned", [])
+
+        # Textbooks root — resolve from osprey package location (dev install)
+        import osprey
+
+        _osprey_root = Path(osprey.__file__).parents[2]  # src/osprey/__init__.py → repo root
+        _textbooks_dir = _osprey_root / "data" / "textbooks"
+        ctx["textbooks_root"] = str(_textbooks_dir) if _textbooks_dir.is_dir() else None
 
         # Model provider resolution for Claude Code
         from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver

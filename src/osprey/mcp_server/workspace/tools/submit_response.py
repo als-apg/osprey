@@ -23,6 +23,7 @@ _AGENT_CATEGORY_MAP: dict[str, str] = {
     "wiki-search": "wiki_research",
     "matlab-search": "mml_research",
     "graph-analyst": "graph_analysis",
+    "direct-channel-finder": "channel_finder",
 }
 
 
