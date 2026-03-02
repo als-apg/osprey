@@ -6,8 +6,9 @@ Demonstrates:
 - Grouping elements by family and listing quadrupole K values
 """
 
-import at
 from collections import Counter
+
+import at
 
 # --- Load the lattice ---
 ring = at.load_m("machine_data/als.m")
