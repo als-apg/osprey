@@ -18,7 +18,7 @@ artifacts:
     - workflows
     - timezone
     - lattice-physics
-    - analysis-scripts
+    - python-execution
     - data-visualization
   skills:
     - diagnose

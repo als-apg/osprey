@@ -36,6 +36,9 @@ async def create_interactive_plot(
     """Execute Plotly code and save results as interactive HTML artifacts.
 
     Runs Python code with auto-imported data libraries (numpy, pandas, scipy).
+    Additional packages are importable, including at (Accelerator Toolbox).
+    EPICS and network access are blocked.
+
     You MUST call ``save_artifact(fig, "title")`` on your Plotly figure to
     produce output — figures are not auto-captured.
 

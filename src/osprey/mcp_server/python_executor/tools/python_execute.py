@@ -25,6 +25,8 @@ async def execute(
     """Execute Python code with process isolation, limits enforcement, and timeout.
 
     Code runs in a container or local subprocess (configured via config.yml).
+    All packages installed in the deployment environment are available
+    (e.g. numpy, pandas, scipy, at, matplotlib, plotly).
 
     Safety layers applied before execution:
       1. ``quick_safety_check()`` — blocks exec/eval/__import__/subprocess

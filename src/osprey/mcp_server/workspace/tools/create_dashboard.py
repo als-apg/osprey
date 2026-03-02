@@ -49,7 +49,8 @@ async def create_dashboard(
     output — layouts are not auto-detected or auto-saved.
 
     The code has access to Bokeh imports (figure, layouts, models, palettes)
-    plus numpy and pandas.
+    plus numpy and pandas. Additional packages are importable, including at
+    (Accelerator Toolbox). EPICS and network access are blocked.
 
     Args:
         code: Python code using Bokeh to create figures/layouts.

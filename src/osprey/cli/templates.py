@@ -1250,7 +1250,7 @@ proper framework operation, especially when using containerized services.
         ".claude/hooks/osprey_hook_log.py",
         ".claude/hooks/osprey_memory_guard.py",
         ".claude/hooks/osprey_auto_execute.py",
-        ".claude/rules/analysis-scripts.md",
+        ".claude/rules/python-execution.md",
         ".claude/rules/data-visualization.md",
         ".claude/rules/control-system-safety.md",
         ".claude/skills/diagnose/SKILL.md",
@@ -1511,7 +1511,7 @@ proper framework operation, especially when using containerized services.
         never overwrites user customizations.  Uses ruamel.yaml round-trip
         mode to preserve comments and formatting.
         """
-        from osprey.utils.yaml_config import config_add_to_list
+        from osprey.utils.config_writer import config_add_to_list
 
         config_path = project_dir / "config.yml"
         if not config_path.exists():

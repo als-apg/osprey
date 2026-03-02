@@ -16,16 +16,6 @@ and verification (dynamic aperture, frequency map).
 For quick single-step work, the AT API is documented in the
 lattice-physics rule.
 
-## Tool Tips
-
-- **Analysis scripts**: Write Python scripts to `osprey-workspace/scripts/` using the
-  Write tool. Use descriptive filenames (e.g., `compute_optics.py`, `fit_tunes.py`).
-  Scripts are automatically executed and results are returned to you — no second tool
-  call needed. The Write tool displays code as a clean diff view.
-- **Interactive plots**: Use `create_interactive_plot` (workspace tool) for Plotly
-  artifacts — it supports `at`, numpy, pandas, scipy, plotly.
-  Call `save_artifact(fig, "title")` to produce output.
-
 ## Lattice File
 
 The demo lattice is the ALS storage ring (1.9 GeV, 12 superperiods):
@@ -66,18 +56,6 @@ do not attempt their work with your own tools.
 
 Use **logbook-search** for simple lookups, **logbook-deep-research** for exhaustive analysis.
 {%- endif %}
-
-## Tool Tips
-
-- `archiver_read`: Parse natural language time references —
-  "last hour", "yesterday", "since Monday" — into start_time/end_time.
-- `execute`: Lives on the `python` server. Default to `execution_mode: "readonly"`;
-  use `"write"` only when the code needs to write to the control system.
-{% set ariel_enabled = servers | selectattr("name", "equalto", "ariel") | selectattr("enabled") | list | length > 0 %}
-{%- if ariel_enabled -%}
-- `entry_create`: Creates logbook entries directly. Pass `artifact_ids` to attach
-  artifacts — HTML artifacts are auto-converted to PNG.
-{% endif -%}
 
 ## Context Management
 
