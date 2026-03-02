@@ -1,1 +1,0 @@
-"""Textbooks MCP tools."""
