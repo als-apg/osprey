@@ -27,6 +27,7 @@ artifacts:
     - fit-chromaticity
     - compare-optics
     - resonance-diagram
+    - analyze-working-point
     - dynamic-aperture
     - frequency-map
   agents:
