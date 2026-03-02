@@ -40,6 +40,10 @@ print(f"  Achieved chrom Y: {final_chrom[1]:.4f}")
 print("\nSextupole Strength Changes")
 print("-" * 50)
 print(f"  {'Family':<8} {'Initial H':>14} {'Final H':>14} {'Delta H':>14}")
-print(f"  {'SFF':<8} {initial_sff_h:>14.4f} {final_sff_h:>14.4f} {final_sff_h - initial_sff_h:>14.4f}")
-print(f"  {'SDD':<8} {initial_sdd_h:>14.4f} {final_sdd_h:>14.4f} {final_sdd_h - initial_sdd_h:>14.4f}")
+print(
+    f"  {'SFF':<8} {initial_sff_h:>14.4f} {final_sff_h:>14.4f} {final_sff_h - initial_sff_h:>14.4f}"
+)
+print(
+    f"  {'SDD':<8} {initial_sdd_h:>14.4f} {final_sdd_h:>14.4f} {final_sdd_h - initial_sdd_h:>14.4f}"
+)
 print("\nDone.")
