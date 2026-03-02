@@ -148,10 +148,10 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             description="Task planning, agent delegation, and parallel execution",
         ),
         PromptArtifact(
-            canonical_name="rules/analysis-scripts",
-            template_path="claude/rules/analysis-scripts.md",
-            output_path=".claude/rules/analysis-scripts.md",
-            description="Analysis scripts auto-execution workflow",
+            canonical_name="rules/python-execution",
+            template_path="claude/rules/python-execution.md",
+            output_path=".claude/rules/python-execution.md",
+            description="Python auto-execution workflow",
         ),
         PromptArtifact(
             canonical_name="rules/data-visualization",

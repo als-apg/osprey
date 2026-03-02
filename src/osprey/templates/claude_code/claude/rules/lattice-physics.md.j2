@@ -39,6 +39,7 @@
 - `elem.Length`, `elem.BendingAngle`, `elem.PassMethod`
 
 ## Visualization
-Save plots to `osprey-workspace/artifacts/` (HTML) or `osprey-workspace/plots/` (PNG).
-Use Plotly for interactive HTML artifacts, matplotlib for static plots.
+Use `save_artifact(fig, "title")` to register plots in the artifact gallery.
+Works in both `execute` and sandbox tools (`create_interactive_plot`, etc.) —
+all support `at` imports.
 {% endif %}

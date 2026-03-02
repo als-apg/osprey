@@ -19,7 +19,7 @@ artifacts:
     - facility
     - workflows
     - timezone
-    - analysis-scripts
+    - python-execution
     - data-visualization
     - control-system-safety
   skills:

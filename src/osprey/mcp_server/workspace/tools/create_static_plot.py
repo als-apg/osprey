@@ -55,7 +55,10 @@ async def create_static_plot(
     """Execute matplotlib/seaborn plotting code and save results as PNG artifacts.
 
     Runs Python plotting code with auto-imported libraries (numpy, pandas,
-    matplotlib, scipy) and default styling. You MUST call
+    matplotlib, scipy) and default styling. Additional packages are importable,
+    including at (Accelerator Toolbox). EPICS and network access are blocked.
+
+    You MUST call
     ``save_artifact(fig, "title")`` in your code to produce output — figures
     are not auto-captured.
 
