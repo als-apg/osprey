@@ -18,7 +18,10 @@ physics workflows. An AI agent uses AT via the Python executor to:
 - **Fit Chromaticity** — correct chromaticity with sextupole families
 - **Interactive Plots** — Plotly optics plots saved to the artifact gallery
 
-The demo lattice is the ALS storage ring (1.9 GeV, 12 superperiods).
+Two demo lattices are included:
+
+- **ALS** — the existing ALS storage ring (1.9 GeV, 12 superperiods)
+- **ALS-U AR** — the ALS-U accumulator ring (2.0 GeV, 12 sectors)
 
 ## Quick Start
 
@@ -48,7 +51,8 @@ Try these in the chat interface:
 {{ project_name }}/
 ├── config.yml              # Project configuration
 ├── machine_data/
-│   └── als.m               # ALS lattice file (PyAT format)
+│   ├── als.m               # ALS lattice file (PyAT format)
+│   └── alsu_ar.m           # ALS-U accumulator ring lattice (AT format)
 ├── osprey-workspace/
 │   ├── artifacts/           # Interactive HTML plots
 │   └── plots/               # Static PNG plots
