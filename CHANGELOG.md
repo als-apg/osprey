@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Hooks**: Deterministic project dir resolution via `hook_input["cwd"]` (replaces inconsistent env var fallback chains)
 
 ### Changed
+- **Textbooks**: Replace textbooks MCP server with native file access for faster lookups
 - **Init**: Config now uses tier names (haiku/sonnet/opus) instead of provider-specific model IDs; default tier changed to haiku
 - **Services**: Services now resolve tier names to provider-specific model IDs via `resolve_model_id`
 - **AccelPapers**: Migrated search backend from SQLite FTS5 to Typesense for hybrid BM25 + vector search

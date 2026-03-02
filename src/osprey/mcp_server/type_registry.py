@@ -62,6 +62,7 @@ CATEGORIES: dict[str, TypeDef] = {
     "literature_research": TypeDef("literature_research", "Literature Research", "#ec4899"),
     "wiki_research": TypeDef("wiki_research", "Wiki Research", "#fbbf24"),
     "mml_research": TypeDef("mml_research", "MML Research", "#ff6b35"),
+    "textbook_research": TypeDef("textbook_research", "Textbook Research", "#8b5cf6"),
     "notebook": TypeDef("notebook", "Notebook", "#d946ef"),
     "user_artifact": TypeDef("user_artifact", "User Artifact", "#94a3b8"),
 }

@@ -1,0 +1,813 @@
+{
+  "book": "FundamentalsofParticleAcceleratorPhysics",
+  "terms": [
+    {
+      "term": "Accelerating gradient",
+      "refs": [
+        47,
+        48,
+        50
+      ]
+    },
+    {
+      "term": "Accelerating voltage",
+      "refs": [
+        51
+      ]
+    },
+    {
+      "term": "Adiabatic damping",
+      "refs": [
+        60
+      ]
+    },
+    {
+      "term": "Alvarez's structure",
+      "refs": [
+        29
+      ]
+    },
+    {
+      "term": "Amplification factor",
+      "refs": [
+        140
+      ]
+    },
+    {
+      "term": "Angular collimation of light",
+      "refs": [
+        17
+      ]
+    },
+    {
+      "term": "Attenuation factor",
+      "refs": [
+        48
+      ]
+    },
+    {
+      "term": "Beam-beam tune shift",
+      "refs": [
+        256
+      ]
+    },
+    {
+      "term": "Beam brightness",
+      "refs": [
+        114
+      ]
+    },
+    {
+      "term": "Beam distribution, equilibrium",
+      "refs": [
+        179
+      ]
+    },
+    {
+      "term": "Beam matrix",
+      "refs": [
+        108,
+        112
+      ]
+    },
+    {
+      "term": "Beam steering",
+      "refs": [
+        137,
+        138
+      ]
+    },
+    {
+      "term": "Betatron",
+      "refs": [
+        33
+      ]
+    },
+    {
+      "term": "Betatron oscillations",
+      "refs": [
+        34,
+        90,
+        92,
+        103
+      ]
+    },
+    {
+      "term": "Betatron tune",
+      "refs": [
+        94,
+        101,
+        103,
+        147,
+        176,
+        194,
+        201
+      ]
+    },
+    {
+      "term": "Brilliance",
+      "refs": [
+        206,
+        248
+      ]
+    },
+    {
+      "term": "Bunching factor",
+      "refs": [
+        243
+      ]
+    },
+    {
+      "term": "Bunch length compression",
+      "refs": [
+        67,
+        74,
+        134
+      ]
+    },
+    {
+      "term": "Bunch length (equilibrium)",
+      "refs": [
+        169,
+        183
+      ]
+    },
+    {
+      "term": "Chromaticity",
+      "refs": [
+        146
+      ]
+    },
+    {
+      "term": "Cockcroft-Walton's accelerator",
+      "refs": [
+        26
+      ]
+    },
+    {
+      "term": "Coherence of radiation",
+      "refs": [
+        210,
+        213,
+        215,
+        229,
+        230
+      ]
+    },
+    {
+      "term": "Coherent emission",
+      "refs": [
+        217
+      ]
+    },
+    {
+      "term": "Coherent photon flux",
+      "refs": [
+        210
+      ]
+    },
+    {
+      "term": "Coherent synchrotron radiation",
+      "refs": [
+        190,
+        199
+      ]
+    },
+    {
+      "term": "Collective effects",
+      "refs": [
+        194
+      ]
+    },
+    {
+      "term": "Collider",
+      "refs": [
+        14,
+        56,
+        251
+      ]
+    },
+    {
+      "term": "Compton edge",
+      "refs": [
+        233
+      ]
+    },
+    {
+      "term": "Cooperation length",
+      "refs": [
+        245
+      ]
+    },
+    {
+      "term": "Coulomb field",
+      "refs": [
+        22
+      ]
+    },
+    {
+      "term": "Coupling",
+      "refs": [
+        133,
+        208
+      ]
+    },
+    {
+      "term": "Courant-Snyder invariant",
+      "refs": [
+        97,
+        99
+      ]
+    },
+    {
+      "term": "Courant-Snyder parameters",
+      "refs": [
+        97
+      ]
+    },
+    {
+      "term": "Covariant vectors",
+      "refs": [
+        7
+      ]
+    },
+    {
+      "term": "Crossing angle",
+      "refs": [
+        254
+      ]
+    },
+    {
+      "term": "Cyclotron, Lawrence's cyclotron",
+      "refs": [
+        29
+      ]
+    },
+    {
+      "term": "Cyclotron, split-sector (also isochronous)",
+      "refs": [
+        31
+      ]
+    },
+    {
+      "term": "Cyclotron, synchro-cyclotron",
+      "refs": [
+        31
+      ]
+    },
+    {
+      "term": "Cyclotron, synchronization",
+      "refs": [
+        32
+      ]
+    },
+    {
+      "term": "Damping time",
+      "refs": [
+        168,
+        171,
+        172
+      ]
+    },
+    {
+      "term": "Damping time, proton ring",
+      "refs": [
+        176
+      ]
+    },
+    {
+      "term": "Damping wiggler",
+      "refs": [
+        175
+      ]
+    },
+    {
+      "term": "De Broglie's wavelength",
+      "refs": [
+        15
+      ]
+    },
+    {
+      "term": "Deflection of charged particles",
+      "refs": [
+        22
+      ]
+    },
+    {
+      "term": "Degeneracy parameter",
+      "refs": [
+        216
+      ]
+    },
+    {
+      "term": "Diffraction limit",
+      "refs": [
+        205,
+        208
+      ]
+    },
+    {
+      "term": "Dipole magnet",
+      "refs": [
+        225
+      ]
+    },
+    {
+      "term": "Dispersion function",
+      "refs": [
+        64,
+        84,
+        87,
+        101
+      ]
+    },
+    {
+      "term": "Disruption parameter",
+      "refs": [
+        257
+      ]
+    },
+    {
+      "term": "Doppler effect",
+      "refs": [
+        16,
+        222,
+        232
+      ]
+    },
+    {
+      "term": "Einstein's equation",
+      "refs": [
+        10
+      ]
+    },
+    {
+      "term": "Electronic capture",
+      "refs": [
+        62
+      ]
+    },
+    {
+      "term": "Electrostatic accelerator",
+      "refs": [
+        26
+      ]
+    },
+    {
+      "term": "Emittance",
+      "refs": [
+        105,
+        113,
+        115,
+        116,
+        129,
+        131,
+        132
+      ]
+    },
+    {
+      "term": "Pinch effect",
+      "refs": [
+        258
+      ]
+    },
+    {
+      "term": "Plasma-based accelerators",
+      "refs": [
+        58
+      ]
+    },
+    {
+      "term": "Plasma frequency",
+      "refs": [
+        244
+      ]
+    },
+    {
+      "term": "Poincare'-Cartan invariants",
+      "refs": [
+        131
+      ]
+    },
+    {
+      "term": "Ponderomotive phase",
+      "refs": [
+        237
+      ]
+    },
+    {
+      "term": "Potential well",
+      "refs": [
+        71
+      ]
+    },
+    {
+      "term": "Power, angular distribution",
+      "refs": [
+        157
+      ]
+    },
+    {
+      "term": "Power, dissipated",
+      "refs": [
+        46
+      ]
+    },
+    {
+      "term": "Power, loss",
+      "refs": [
+        202
+      ]
+    },
+    {
+      "term": "Power, radiated",
+      "refs": [
+        151
+      ]
+    },
+    {
+      "term": "Principal trajectories",
+      "refs": [
+        84,
+        87
+      ]
+    },
+    {
+      "term": "Quadrupole gradient",
+      "refs": [
+        83
+      ]
+    },
+    {
+      "term": "Quadrupole magnet",
+      "refs": [
+        81
+      ]
+    },
+    {
+      "term": "Quality factor",
+      "refs": [
+        46
+      ]
+    },
+    {
+      "term": "Quantum excitation",
+      "refs": [
+        165
+      ]
+    },
+    {
+      "term": "Radiation damping",
+      "refs": [
+        165
+      ]
+    },
+    {
+      "term": "Radiation integrals",
+      "refs": [
+        175
+      ]
+    },
+    {
+      "term": "Radiofrequency acceptance",
+      "refs": [
+        72
+      ]
+    },
+    {
+      "term": "Radiofrequency bucket",
+      "refs": [
+        72,
+        183
+      ]
+    },
+    {
+      "term": "Radiofrequency gun",
+      "refs": [
+        62
+      ]
+    },
+    {
+      "term": "Radiofrequency structure (also RF cavity)",
+      "refs": [
+        37
+      ]
+    },
+    {
+      "term": "Rayleigh length",
+      "refs": [
+        247
+      ]
+    },
+    {
+      "term": "Relativistic regime",
+      "refs": [
+        11
+      ]
+    },
+    {
+      "term": "Resonance condition",
+      "refs": [
+        236
+      ]
+    },
+    {
+      "term": "Resonances",
+      "refs": [
+        141
+      ]
+    },
+    {
+      "term": "Rest energy",
+      "refs": [
+        9,
+        13
+      ]
+    },
+    {
+      "term": "Retarded time",
+      "refs": [
+        152
+      ]
+    },
+    {
+      "term": "Robinson's stability criterion",
+      "refs": [
+        203
+      ]
+    },
+    {
+      "term": "Robinson's theorem",
+      "refs": [
+        173
+      ]
+    },
+    {
+      "term": "Robinson's wiggler (also gradient wiggler)",
+      "refs": [
+        175
+      ]
+    },
+    {
+      "term": "Schwinger's formula",
+      "refs": [
+        154
+      ]
+    },
+    {
+      "term": "Separatrix",
+      "refs": [
+        74
+      ]
+    },
+    {
+      "term": "Sextupole magnet",
+      "refs": [
+        147
+      ]
+    },
+    {
+      "term": "Shunt impedance",
+      "refs": [
+        46
+      ]
+    },
+    {
+      "term": "Slip factor",
+      "refs": [
+        65
+      ]
+    },
+    {
+      "term": "Space charge force",
+      "refs": [
+        66,
+        153,
+        198
+      ]
+    },
+    {
+      "term": "Space-time distance",
+      "refs": [
+        7
+      ]
+    },
+    {
+      "term": "Stability, strong focusing",
+      "refs": [
+        92
+      ]
+    },
+    {
+      "term": "Stability, weak focusing",
+      "refs": [
+        35
+      ]
+    },
+    {
+      "term": "Standing wave",
+      "refs": [
+        43
+      ]
+    },
+    {
+      "term": "Storage ring",
+      "refs": [
+        56
+      ]
+    },
+    {
+      "term": "Symplecticity",
+      "refs": [
+        88
+      ]
+    },
+    {
+      "term": "Synchro-betatron excitation",
+      "refs": [
+        189
+      ]
+    },
+    {
+      "term": "Synchronous particle",
+      "refs": [
+        43
+      ]
+    },
+    {
+      "term": "Synchronous phase",
+      "refs": [
+        43,
+        59,
+        65
+      ]
+    },
+    {
+      "term": "Synchrotron frequency",
+      "refs": [
+        60,
+        70
+      ]
+    },
+    {
+      "term": "Synchrotron light source",
+      "refs": [
+        55,
+        205
+      ]
+    },
+    {
+      "term": "Synchrotron radiation",
+      "refs": [
+        18,
+        156
+      ]
+    },
+    {
+      "term": "Synchrotron tune",
+      "refs": [
+        71,
+        94,
+        194,
+        201
+      ]
+    },
+    {
+      "term": "Theorem of e.m. acceleration",
+      "refs": [
+        38
+      ]
+    },
+    {
+      "term": "Thomson back-scattering",
+      "refs": [
+        232
+      ]
+    },
+    {
+      "term": "Transfer matrix",
+      "refs": [
+        86,
+        102,
+        110,
+        130
+      ]
+    },
+    {
+      "term": "Transition energy",
+      "refs": [
+        65
+      ]
+    },
+    {
+      "term": "Transit time factor",
+      "refs": [
+        44
+      ]
+    },
+    {
+      "term": "Transverse acceptance",
+      "refs": [
+        143,
+        181
+      ]
+    },
+    {
+      "term": "Travelling wave",
+      "refs": [
+        42
+      ]
+    },
+    {
+      "term": "Travelling wave constant gradient",
+      "refs": [
+        49
+      ]
+    },
+    {
+      "term": "Travelling wave constant impedance",
+      "refs": [
+        47
+      ]
+    },
+    {
+      "term": "Twiss functions",
+      "refs": [
+        97
+      ]
+    },
+    {
+      "term": "Undulator",
+      "refs": [
+        219
+      ]
+    },
+    {
+      "term": "Undulator parameter",
+      "refs": [
+        221
+      ]
+    },
+    {
+      "term": "Undulator radiation",
+      "refs": [
+        220,
+        223
+      ]
+    },
+    {
+      "term": "Vacuum chamber",
+      "refs": [
+        56
+      ]
+    },
+    {
+      "term": "Van de Graaff's accelerator",
+      "refs": [
+        27
+      ]
+    },
+    {
+      "term": "Wakefield",
+      "refs": [
+        194
+      ]
+    },
+    {
+      "term": "Wakefield, long-range",
+      "refs": [
+        201
+      ]
+    },
+    {
+      "term": "Wakefield, resistive wall",
+      "refs": [
+        199
+      ]
+    },
+    {
+      "term": "Wakefield, short-range",
+      "refs": [
+        200
+      ]
+    },
+    {
+      "term": "Wideroe's drift tube linac",
+      "refs": [
+        28
+      ]
+    },
+    {
+      "term": "Wiggler magnet",
+      "refs": [
+        225
+      ]
+    },
+    {
+      "term": "Wronskian",
+      "refs": [
+        85
+      ]
+    }
+  ]
+}
