@@ -185,7 +185,7 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool, ex
             deploy_restart(config_path, detached=detached, expose_network=expose)
 
         elif action == "status":
-            show_status(config_path)
+            show_status(config_path, console=console, styles=Styles)
 
         elif action == "build":
             # Just prepare compose files without starting services

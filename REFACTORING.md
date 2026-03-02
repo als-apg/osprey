@@ -6,8 +6,8 @@
 ## Summary
 
 - Total items: 27
-- Completed: 8
-- Remaining: 19
+- Completed: 9
+- Remaining: 18
 - P0: 2 | P1: 10 | P2: 9 | P3: 6
 
 ## Backlog
@@ -155,23 +155,23 @@
 
 ---
 
-### [P1] RF-009: Split deployment/container_manager.py (1442 lines) (pending)
+### [P1] RF-009: Split deployment/container_manager.py (1443 lines) (completed 2026-03-01)
 
 **Severity**: high | **Categories**: structure, dependency
 **Files**: `src/osprey/deployment/container_manager.py`
 **Impact radius**: ~5 files
 **Confirmed by**: Structure, Dependency agents
 
-**Problem**: At 1442 lines, `container_manager.py` handles all container orchestration: Docker/Podman interaction, compose file generation, health checking, and lifecycle management. It also contains a layering violation — importing `Styles` and `console` from `osprey.cli.styles` (deployment should not depend on CLI presentation).
+**Problem**: At 1443 lines, `container_manager.py` handles all container orchestration: Docker/Podman interaction, compose file generation, health checking, and lifecycle management. It also contains a layering violation — importing `Styles` and `console` from `osprey.cli.styles` (deployment should not depend on CLI presentation).
 
 **Approach**:
 1. Extract `deployment/compose_generator.py` (compose file creation)
 2. Extract `deployment/container_lifecycle.py` (start/stop/restart)
-3. Extract `deployment/health_checker.py` (health monitoring)
-4. Keep `container_manager.py` as the public orchestrator
-5. Replace `cli.styles` import with standard logging or a passed callback
+3. Extract `deployment/status_display.py` (status display with layering fix)
+4. Keep `container_manager.py` as thin re-export facade
+5. Fix layering violation via dependency injection (console/styles as optional kwargs)
 
-**Status**: pending
+**Status**: completed (2026-03-01) — Split into `compose_generator.py` (~975 lines, 12 functions for template rendering and build dir setup), `container_lifecycle.py` (~150 lines, 4 lifecycle functions), `status_display.py` (~240 lines, show_status with injectable console/styles). `container_manager.py` reduced from 1443 → ~35 line re-export facade. Fixed `show_status` layering violation by accepting `console` and `styles` as optional kwargs with `_DefaultStyles` fallback. `deploy_cmd.py` updated to pass themed objects. All 3628 tests pass.
 
 ---
 
