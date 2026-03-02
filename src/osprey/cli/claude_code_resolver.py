@@ -63,6 +63,7 @@ AGENT_DEFAULT_TIERS: dict[str, str] = {
     "wiki-search": "sonnet",
     "matlab-search": "sonnet",
     "graph-analyst": "sonnet",
+    "direct-channel-finder": "sonnet",
 }
 
 from osprey.utils.config import VALID_TIERS

@@ -110,6 +110,12 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             output_path=".claude/agents/wiki-search.md",
             description="Wiki search sub-agent",
         ),
+        PromptArtifact(
+            canonical_name="agents/direct-channel-finder",
+            template_path="claude/agents/direct-channel-finder.md.j2",
+            output_path=".claude/agents/direct-channel-finder.md",
+            description="Direct channel finder sub-agent",
+        ),
         # ── Rules ────────────────────────────────────────────────────
         PromptArtifact(
             canonical_name="rules/safety",
