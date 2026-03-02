@@ -67,7 +67,12 @@ export function initTerminal(containerId) {
 
   window.addEventListener('resize', () => doFit());
 
-  const resizeObserver = new ResizeObserver(() => {
+  let lastObsW = 0, lastObsH = 0;
+  const resizeObserver = new ResizeObserver((entries) => {
+    const { width, height } = entries[0].contentRect;
+    if (Math.abs(width - lastObsW) < 2 && Math.abs(height - lastObsH) < 2) return;
+    lastObsW = width;
+    lastObsH = height;
     requestAnimationFrame(() => doFit());
   });
   resizeObserver.observe(container.parentElement);
