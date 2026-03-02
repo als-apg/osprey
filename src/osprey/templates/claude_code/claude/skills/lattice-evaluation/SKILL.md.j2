@@ -2,144 +2,270 @@
 ---
 name: lattice-evaluation
 description: >
-  Comprehensive lattice health check — loads, computes optics, analyzes working
-  point safety, and triages into fix workflows (tune adjustment, chromaticity
-  correction) with verification via dynamic aperture and frequency map.
-summary: Pre-flight lattice health evaluation with triage and verification
+  Load a lattice, compute optics, evaluate working point safety, fit tunes
+  and chromaticities, and verify with dynamic aperture and frequency map.
+  The single entry point for all lattice physics evaluation tasks.
+summary: >
+  Comprehensive lattice health evaluation — load, optics, tunes,
+  chromaticity, working point, dynamic aperture, frequency map
 ---
 
 # Lattice Evaluation
 
-Orchestrates a full lattice health check across four phases: baseline optics,
-working point safety, conditional fixes, and verification. Use this when an
-operator asks "is this lattice healthy?" or wants a comprehensive pre-flight
-diagnostic.
-
-This skill does not define new computations — it sequences existing skills and
-uses the `analyze-working-point` reference implementation for resonance analysis.
+Single entry point for lattice physics work. Orchestrates a full health check
+across four phases: baseline optics, working point safety, conditional fixes,
+and verification. Use this for any request involving loading a lattice,
+computing optics, checking tunes, fitting chromaticity, analyzing the working
+point, or running dynamic aperture / frequency map studies.
 
 ## Phase 1 — Baseline (always runs)
 
-1. **Load lattice** — invoke `/load-lattice`. Print summary:
-   - Energy, element count, circumference
-   - Lattice source file
+### 1a. Load lattice
 
-2. **Compute optics** — invoke `/compute-optics`. Capture:
-   - Tunes: nu_x, nu_y
-   - Chromaticities: xi_x, xi_y
-   - Beta extrema: max/min beta_x, max/min beta_y
+Load the lattice file and print its summary:
 
-3. **Sanity check** — verify optics are physically reasonable:
-   - Any NaN in Twiss parameters? → **CRITICAL FAILURE**, stop evaluation
-   - Any negative beta function? → **CRITICAL FAILURE**, stop evaluation
-   - Ring unstable (tunes imaginary)? → **CRITICAL FAILURE**, stop evaluation
-   - If any critical failure, report clearly and do not proceed
+```python
+import at
+ring = at.load_m('machine_data/als.m')
 
-   Print: "Baseline: OK" or "Baseline: CRITICAL — [reason]"
+print(f"Energy:        {ring.energy / 1e9:.3f} GeV")
+print(f"Elements:      {len(ring)}")
+print(f"Circumference: {ring.get_s_pos(len(ring))[0]:.3f} m")
+```
+
+Count elements by family:
+
+```python
+from collections import Counter
+families = Counter(e.FamName for e in ring)
+```
+
+List quadrupole and sextupole families with their strengths (K values).
+
+### 1b. Compute optics
+
+Compute Twiss parameters at every element:
+
+```python
+ld0, rd, ld = at.get_optics(ring, refpts=range(len(ring) + 1), get_chrom=True)
+s = ring.get_s_pos(range(len(ring) + 1))
+```
+
+Report key figures:
+- Tunes: `at.get_tune(ring)` → fractional [nu_x, nu_y]
+- Chromaticities: `rd.chromaticity` → [xi_x, xi_y]
+- Max/min beta_x and beta_y from `ld.beta`
+
+Generate an interactive Plotly optics plot:
+
+```python
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                    subplot_titles=("Beta Functions", "Dispersion"))
+fig.add_trace(go.Scatter(x=s, y=ld.beta[:, 0], name="beta_x"), row=1, col=1)
+fig.add_trace(go.Scatter(x=s, y=ld.beta[:, 1], name="beta_y"), row=1, col=1)
+fig.add_trace(go.Scatter(x=s, y=ld.dispersion[:, 0], name="eta_x"), row=2, col=1)
+fig.update_xaxes(title_text="s [m]", row=2, col=1)
+fig.update_yaxes(title_text="beta [m]", row=1, col=1)
+fig.update_yaxes(title_text="dispersion [m]", row=2, col=1)
+fig.update_layout(title="Linear Optics", height=700)
+```
+
+Save: `save_artifact(fig, "Linear Optics", "Beta functions and dispersion")`
+
+### 1c. Sanity check
+
+Verify optics are physically reasonable:
+- Any NaN in Twiss parameters? → **CRITICAL FAILURE**, stop evaluation
+- Any negative beta function? → **CRITICAL FAILURE**, stop evaluation
+- Ring unstable (tunes imaginary)? → **CRITICAL FAILURE**, stop evaluation
+
+Print: "Baseline: OK" or "Baseline: CRITICAL — [reason]"
 
 ## Phase 2 — Working Point Safety (always runs if Phase 1 passes)
 
-4. **Resonance proximity analysis** — invoke `/analyze-working-point`.
-   This produces:
-   - Danger table ranked by proximity
-   - Physics-based resonance classification (CRITICAL / DANGEROUS / WARNING / LOW)
-   - Annotated resonance diagram
+### 2a. Resonance proximity analysis
 
-5. **Textbook context** — the `/analyze-working-point` skill already delegates
-   to the `textbook-expert` agent for physics context. Ensure this context is
-   presented to the operator before the quantitative results.
+> **Reference implementation**: Read `references/analyze_working_point.py`
+> for a complete working script. Use it as a starting point and adapt.
 
-6. **Summarize danger level** — based on the closest resonance:
-   - Nearest CRITICAL resonance d < 0.01 → **RED**: "Tunes dangerously close to
-     [resonance]. Adjustment strongly recommended."
-   - Nearest DANGEROUS resonance d < 0.02 → **YELLOW**: "Working point near
-     sextupole-driven resonance. Monitor or adjust."
-   - All resonances d > 0.03 → **GREEN**: "Working point is in a safe region."
+1. Get the working point:
+   ```python
+   tunes = at.get_tune(ring)
+   nux, nuy = tunes[0], tunes[1]
+   ```
+
+2. Delegate to the **textbook-expert** agent for educational context about
+   betatron resonances for a ring with these tunes. Present this context
+   to the operator before the quantitative results.
+
+3. Compute proximity to nearby resonances `m·nu_x + n·nu_y = p` for
+   orders 1–5:
+   - Normalized distance: `d = |m·nu_x + n·nu_y - p| / sqrt(m² + n²)`
+   - Keep only resonances with `d < 0.05`
+
+4. Classify each resonance:
+
+   | Category  | Resonance Type | Physics |
+   |-----------|---------------|---------|
+   | CRITICAL  | Integer/half-integer (order 1-2): `nu = p`, `2·nu = p` | Orbit/focusing undefined |
+   | CRITICAL  | Sum resonance: `nu_x + nu_y = p` | Unstable coupling — beam lost |
+   | WARNING   | Difference resonance: `nu_x - nu_y = p` | Stable coupling, emittance exchange |
+   | DANGEROUS | 3rd order (sextupole-driven): `3·nu = p`, `nu_x + 2·nu_y = p` | Driven by chromatic sextupoles |
+   | LOW       | 4th+ order | Weak driving terms, radiation-damped |
+
+5. Print ranked danger table (top 10) and build annotated Plotly figure
+   with resonance lines, highlighted closest resonances, and working
+   point star marker.
+
+### 2b. Summarize danger level
+
+Based on the closest resonance:
+- Nearest CRITICAL `d < 0.01` → **RED**: "Tunes dangerously close to [resonance]."
+- Nearest DANGEROUS `d < 0.02` → **YELLOW**: "Working point near sextupole-driven resonance."
+- All resonances `d > 0.03` → **GREEN**: "Working point is in a safe region."
 
 ## Phase 3 — Triage & Fix (conditional)
 
 Based on Phase 2 findings, offer targeted fixes. **Always ask the operator
-before making changes** — present the recommendation, then wait for approval.
+before making changes.**
 
 ### 3a. Tune near CRITICAL resonance (d < 0.01)
 
-7. **Suggest safer tunes**:
-   - Identify the nearest critical resonance line
-   - Propose tunes that move the working point away (increase distance to at
-     least 0.03 from the critical resonance)
-   - Print: "Suggested tunes: nu_x = {new_nux:.4f}, nu_y = {new_nuy:.4f}"
-   - Explain why these target tunes are safer
+Suggest safer tunes, then fit:
 
-8. **If operator approves** — invoke `/fit-tune` with the suggested target tunes.
-   Then re-invoke `/analyze-working-point` and show a before/after comparison:
-   - Before tunes, after tunes
-   - Before danger table vs. after danger table
-   - Overlay both working points on the resonance diagram
+```python
+# Record before
+tunes_before = at.get_tune(ring)
+qf_before = [e.K for e in ring if e.FamName == 'QF'][0]
+qd_before = [e.K for e in ring if e.FamName == 'QD'][0]
+
+# Fit to target tunes
+at.fit_tune(ring, 'QF', 'QD', [nux_target, nuy_target])
+
+# Report after
+tunes_after = at.get_tune(ring)
+qf_after = [e.K for e in ring if e.FamName == 'QF'][0]
+qd_after = [e.K for e in ring if e.FamName == 'QD'][0]
+```
+
+Print a comparison table (nu_x, nu_y, K(QF), K(QD) — before/after/delta).
+
+After fitting, re-run the working point analysis and show a before/after
+comparison with both working points overlaid on the resonance diagram.
 
 ### 3b. Chromaticity uncorrected (large negative values)
 
-9. **Detect uncorrected chromaticity**:
-   - Natural chromaticity is typically large and negative (e.g., xi < -5)
-   - If chromaticities are large negative, sextupoles may not be set
-   - Print: "Chromaticity appears uncorrected (xi_x = {xi_x:.2f},
-     xi_y = {xi_y:.2f}). Sextupole correction recommended."
+Natural chromaticity is typically large and negative. If xi < -5,
+sextupoles may not be set:
 
-10. **If operator approves** — invoke `/fit-chromaticity`.
-    - Note to operator: "Sextupoles drive 3rd-order resonances. The working
-      point analysis already accounts for sextupole-driven resonances in its
-      classification."
+```python
+# Record before
+chrom_before = at.get_chrom(ring)
+sff_before = [e.H for e in ring if e.FamName == 'SFF'][0]
+sdd_before = [e.H for e in ring if e.FamName == 'SDD'][0]
+
+# Fit chromaticity (default target: [1.0, 1.0])
+at.fit_chrom(ring, 'SFF', 'SDD', [xi_x_target, xi_y_target])
+
+# Report after
+chrom_after = at.get_chrom(ring)
+sff_after = [e.H for e in ring if e.FamName == 'SFF'][0]
+sdd_after = [e.H for e in ring if e.FamName == 'SDD'][0]
+```
+
+Print comparison table (xi_x, xi_y, H(SFF), H(SDD) — before/after/delta).
+
+Note: sextupoles drive 3rd-order resonances; the working point analysis
+already accounts for this in its classification.
 
 ### 3c. No fixes needed
 
-11. If all checks pass with GREEN status and chromaticity is reasonable:
-    - Print: "Lattice passes all health checks. No corrections needed."
-    - Skip to Phase 4 summary (no verification tracking needed)
+If all checks pass GREEN and chromaticity is reasonable:
+"Lattice passes all health checks. No corrections needed." → skip to Phase 4.
 
 ## Phase 4 — Verification (runs if any changes were made)
 
-If tunes or chromaticity were adjusted in Phase 3:
+### 4a. Dynamic aperture
 
-12. **Dynamic aperture** — invoke `/dynamic-aperture`.
-    - Report DA area in mm²
-    - Note if DA is unusually small (< 1 mm² is concerning)
+> **Reference implementation**: Read `references/dynamic_aperture.py`
 
-13. **Frequency map analysis** — invoke `/frequency-map`.
-    - Look for tune diffusion hot spots
-    - Confirm the working point region is stable
+Track particles at multiple angles, binary-search the stability boundary:
 
-14. **Final summary** — present a structured report:
+```python
+nturns = 512
+n_angles = 19  # 0 to 90 degrees
+```
 
-    ```
-    === Lattice Health Report ===
+For each angle, binary-search amplitude where particle loss occurs.
+Plot the DA boundary in (x, y) physical space. Report DA area in mm².
 
-    Lattice:       [filename]
-    Energy:        [E] GeV
-    Circumference: [C] m
+### 4b. Frequency map analysis
 
-    Phase 1 — Baseline
-      Tunes:          nu_x = ..., nu_y = ...
-      Chromaticities: xi_x = ..., xi_y = ...
-      Beta extrema:   beta_x_max = ... m, beta_y_max = ... m
-      Status:         OK
+> **Reference implementation**: Read `references/frequency_map.py`
 
-    Phase 2 — Working Point
-      Nearest critical: [resonance] at d = ...
-      Nearest dangerous: [resonance] at d = ...
-      Status:           GREEN / YELLOW / RED
+Track a grid of initial conditions for 2×N turns, compute tune diffusion:
 
-    Phase 3 — Corrections Applied
-      Tune adjustment:       [before] → [after] (or "not needed")
-      Chromaticity correction: [before] → [after] (or "not needed")
+```python
+n_half = 256
+nx, ny = 15, 15
+```
 
-    Phase 4 — Verification
-      Dynamic aperture:  [area] mm²
-      Frequency map:     [clean / concerning regions noted]
+For each grid point, extract tunes from each half via FFT, compute
+`diffusion = log10(sqrt(dnux² + dnuy²))`. Plot in tune space colored
+by diffusion (blue = stable, yellow = chaotic) with resonance line overlay.
 
-    Overall: HEALTHY / NEEDS ATTENTION / CRITICAL
-    ===
-    ```
+### 4c. Final summary
 
-## Decision Tree Summary
+```
+=== Lattice Health Report ===
+
+Lattice:       [filename]
+Energy:        [E] GeV
+Circumference: [C] m
+
+Phase 1 — Baseline
+  Tunes:          nu_x = ..., nu_y = ...
+  Chromaticities: xi_x = ..., xi_y = ...
+  Beta extrema:   beta_x_max = ... m, beta_y_max = ... m
+  Status:         OK
+
+Phase 2 — Working Point
+  Nearest critical: [resonance] at d = ...
+  Nearest dangerous: [resonance] at d = ...
+  Status:           GREEN / YELLOW / RED
+
+Phase 3 — Corrections Applied
+  Tune adjustment:       [before] → [after] (or "not needed")
+  Chromaticity correction: [before] → [after] (or "not needed")
+
+Phase 4 — Verification
+  Dynamic aperture:  [area] mm²
+  Frequency map:     [clean / concerning regions noted]
+
+Overall: HEALTHY / NEEDS ATTENTION / CRITICAL
+===
+```
+
+## Optics Comparison (use after any modification)
+
+When comparing optics before/after a change, deep-copy the ring first:
+
+```python
+import copy
+baseline = copy.deepcopy(ring)
+ld0_base, rd_base, ld_base = at.get_optics(
+    baseline, refpts=range(len(baseline) + 1), get_chrom=True
+)
+```
+
+After applying a modification, compute modified optics and create an overlay
+plot with dashed lines for baseline and solid for modified. Print a comparison
+table of tunes, chromaticities, and beta extrema.
+
+## Decision Tree
 
 ```
 Load & Compute Optics
@@ -149,7 +275,7 @@ Load & Compute Optics
   +-- Optics OK --> Working Point Analysis
   |     |
   |     +-- CRITICAL resonance d < 0.01
-  |     |     --> Suggest tune adjustment --> /fit-tune --> re-analyze --> verify
+  |     |     --> Suggest tune adjustment --> fit_tune --> re-analyze --> verify
   |     |
   |     +-- DANGEROUS resonance d < 0.02
   |     |     --> Warn, offer tune adjustment
@@ -158,12 +284,12 @@ Load & Compute Optics
   |           --> Report healthy
   |
   +-- Chromaticity Check
-  |     +-- Large negative --> offer /fit-chromaticity
+  |     +-- Large negative --> offer fit_chrom
   |     +-- Reasonable --> OK
   |
   +-- Verification (if changes made)
-  |     +-- /dynamic-aperture
-  |     +-- /frequency-map
+  |     +-- Dynamic aperture
+  |     +-- Frequency map
   |
   +-- Final Summary
 ```

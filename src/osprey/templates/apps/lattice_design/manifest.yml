@@ -21,16 +21,7 @@ artifacts:
     - diagnose
     - setup-mode
     - session-report
-    - load-lattice
-    - compute-optics
-    - fit-tune
-    - fit-chromaticity
-    - compare-optics
     - lattice-evaluation
-    - resonance-diagram
-    - analyze-working-point
-    - dynamic-aperture
-    - frequency-map
   agents:
     - data-visualizer
     - literature-search
