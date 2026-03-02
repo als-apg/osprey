@@ -193,7 +193,7 @@
 
 ---
 
-### [P1] RF-011: Add BaseStore.update_entry_metadata() public API (pending)
+### [P1] RF-011: Add BaseStore.update_entry_metadata() public API (completed)
 
 **Severity**: medium | **Categories**: cohesion
 **Files**: `src/osprey/mcp_server/base_store.py`, `src/osprey/mcp_server/workspace/tools/_viz_common.py`, `src/osprey/mcp_server/workspace/tools/submit_response.py`, `src/osprey/mcp_server/workspace/tools/create_document.py`
@@ -206,7 +206,7 @@
 2. Update the 3 callers to use the new public method
 3. Remove the TODO comments
 
-**Status**: pending
+**Status**: completed (2026-03-01) — Added `update_entry_metadata()` to BaseStore with `_with_index_lock()` for cross-process safety and `hasattr` guard for typo prevention. Updated 3 callers. Also fixed a pre-existing bug in `create_document.py` where `pdf_entry` metadata was silently lost when `save_file()` for the `.tex` source reloaded the index. 4 new tests added.
 
 ---
 

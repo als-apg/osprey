@@ -167,3 +167,23 @@ class BaseStore(Generic[T]):
                 fn(entry)
             except Exception:
                 logger.debug("%s listener failed", self._store_name, exc_info=True)
+
+    def update_entry_metadata(self, entry_id: str, **kwargs: Any) -> T | None:
+        """Set metadata attributes on an entry and persist the index.
+
+        Usage::
+
+            store.update_entry_metadata(entry.id, category="document", source_agent="data-visualizer")
+        """
+        with self._with_index_lock():
+            for e in self._entries:
+                if e.id == entry_id:
+                    for key, value in kwargs.items():
+                        if not hasattr(e, key):
+                            raise AttributeError(
+                                f"{type(e).__name__} has no attribute {key!r}"
+                            )
+                        setattr(e, key, value)
+                    self._save_index()
+                    return e
+        return None

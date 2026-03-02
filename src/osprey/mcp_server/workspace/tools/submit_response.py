@@ -130,17 +130,17 @@ async def submit_response(
             },
         )
         # Set unified fields on the entry
-        artifact.category = category
-        artifact.source_agent = agent
-        artifact.summary = {
-            "title": title,
-            "content_length": len(content),
-            "cited_entries": len(cited),
-            "source_agent": agent,
-        }
-        # TODO: Replace with a public API method once BaseStore
-        # exposes one (currently only _save_index exists).
-        store._save_index()
+        artifact = store.update_entry_metadata(
+            artifact.id,
+            category=category,
+            source_agent=agent,
+            summary={
+                "title": title,
+                "content_length": len(content),
+                "cited_entries": len(cited),
+                "source_agent": agent,
+            },
+        )
 
         response = artifact.to_tool_response()
         response["gallery_url"] = gallery_url()
