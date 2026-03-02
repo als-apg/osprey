@@ -1437,8 +1437,9 @@ export function initPromptsGallery() {
     },
   });
 
+  const safetyGalleryContainer = document.getElementById('safety-gallery-section') || safetyPanel;
   const safetyGallery = new ArtifactGallery({
-    container: safetyPanel,
+    container: safetyGalleryContainer,
     categoryFilter: (a) => SAFETY_CATEGORIES.has(a.category),
   });
 
