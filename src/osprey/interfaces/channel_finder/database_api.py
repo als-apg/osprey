@@ -1,8 +1,8 @@
 """Channel Finder Database REST API.
 
-Exposes MCP tool inner functions via REST endpoints, adapting for each pipeline
-type (hierarchical, middle_layer, in_context). All MCP tool functions return
-JSON strings; this layer parses them into structured responses.
+Exposes database operations via REST endpoints, adapting for each pipeline
+type (hierarchical, middle_layer, in_context). Calls database instances
+directly via app.state, avoiding MCP server dependencies.
 """
 
 from __future__ import annotations
@@ -27,24 +27,6 @@ def _pipeline_type(request: Request) -> str:
     """Get the active pipeline type from app state."""
     return getattr(request.app.state, "pipeline_type", "in_context")
 
-
-def _parse_tool_result(result_json: str) -> dict:
-    """Parse a JSON string from an MCP tool into a dict.
-
-    Raises:
-        HTTPException: If the result contains an error envelope.
-    """
-    data = json.loads(result_json)
-    if isinstance(data, dict) and data.get("error"):
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error_type": data.get("error_type", "unknown"),
-                "error_message": data.get("error_message", "Unknown error"),
-                "suggestions": data.get("suggestions", []),
-            },
-        )
-    return data
 
 
 # ---------------------------------------------------------------------------
@@ -163,36 +145,23 @@ async def get_info(request: Request):
         info["db_path"] = None
 
     try:
+        db = _get_database(request)
         if pt == "hierarchical":
-            from osprey.mcp_server.channel_finder_hierarchical.registry import (
-                get_cf_hier_registry,
-            )
-
-            registry = get_cf_hier_registry()
-            db = registry.database
             info["metadata"] = {
                 "hierarchy_levels": db.hierarchy_levels,
                 "hierarchy_config": db.hierarchy_config,
                 "naming_pattern": db.naming_pattern,
-                "facility_name": registry.facility_name,
+                "facility_name": _get_facility_name(request),
             }
-
         elif pt == "middle_layer":
-            from osprey.mcp_server.channel_finder_middle_layer.tools.list_systems import (
-                list_systems,
-            )
-
-            result = list_systems.fn()
-            parsed = json.loads(result)
-            info["metadata"] = {"system_count": parsed.get("total", 0)}
-
+            systems = db.list_systems()
+            info["metadata"] = {"system_count": len(systems)}
         else:  # in_context
-            from osprey.mcp_server.channel_finder_in_context.tools.statistics import (
-                statistics,
-            )
-
-            result = statistics.fn()
-            info["metadata"] = json.loads(result)
+            stats = db.get_statistics()
+            chunks = db.chunk_database(50)
+            stats["total_chunks_at_50"] = len(chunks)
+            stats["facility_name"] = _get_facility_name(request)
+            info["metadata"] = stats
 
     except Exception as exc:
         logger.exception("Failed to get pipeline info")
@@ -230,29 +199,15 @@ async def get_statistics(request: Request):
     pt = _pipeline_type(request)
 
     try:
-        if pt == "hierarchical":
-            from osprey.mcp_server.channel_finder_hierarchical.registry import (
-                get_cf_hier_registry,
-            )
-
-            db = get_cf_hier_registry().database
+        db = _get_database(request)
+        if pt == "in_context":
+            stats = db.get_statistics()
+            chunks = db.chunk_database(50)
+            stats["total_chunks_at_50"] = len(chunks)
+            stats["facility_name"] = _get_facility_name(request)
+            return stats
+        else:
             return db.get_statistics()
-
-        elif pt == "middle_layer":
-            from osprey.mcp_server.channel_finder_middle_layer.tools.statistics import (
-                statistics,
-            )
-
-            result = statistics.fn()
-
-        else:  # in_context
-            from osprey.mcp_server.channel_finder_in_context.tools.statistics import (
-                statistics,
-            )
-
-            result = statistics.fn()
-
-        return _parse_tool_result(result)
 
     except HTTPException:
         raise
@@ -267,12 +222,20 @@ async def validate_channels(request: Request, body: ValidateRequest):
     pt = _pipeline_type(request)
 
     try:
-        if pt == "hierarchical":
-            from osprey.mcp_server.channel_finder_hierarchical.registry import (
-                get_cf_hier_registry,
-            )
-
-            db = get_cf_hier_registry().database
+        db = _get_database(request)
+        if pt == "in_context":
+            validation_results = db.validate_channels(body.channels)
+            valid = db.get_valid_channels(validation_results)
+            invalid = db.get_invalid_channels(validation_results)
+            return {
+                "total": len(body.channels),
+                "valid_count": len(valid),
+                "invalid_count": len(invalid),
+                "valid_channels": valid,
+                "invalid_channels": invalid,
+                "results": validation_results,
+            }
+        else:  # hierarchical or middle_layer
             results = []
             valid_count = 0
             for ch in body.channels:
@@ -284,32 +247,6 @@ async def validate_channels(request: Request, body: ValidateRequest):
                 "valid_count": valid_count,
                 "invalid_count": len(body.channels) - valid_count,
                 "total": len(body.channels),
-            }
-
-        elif pt == "middle_layer":
-            from osprey.mcp_server.channel_finder_middle_layer.tools.validate import (
-                validate,
-            )
-
-            result = validate.fn(channels=body.channels)
-            return _parse_tool_result(result)
-
-        else:  # in_context
-            from osprey.mcp_server.channel_finder_in_context.registry import (
-                get_cf_ic_registry,
-            )
-
-            db = get_cf_ic_registry().database
-            validation_results = db.validate_channels(body.channels)
-            valid = db.get_valid_channels(validation_results)
-            invalid = db.get_invalid_channels(validation_results)
-            return {
-                "total": len(body.channels),
-                "valid_count": len(valid),
-                "invalid_count": len(invalid),
-                "valid_channels": valid,
-                "invalid_channels": invalid,
-                "results": validation_results,
             }
 
     except HTTPException:
@@ -337,13 +274,10 @@ async def explore_options(request: Request, level: str, selections: str | None =
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
     try:
-        from osprey.mcp_server.channel_finder_hierarchical.tools.get_options import (
-            get_options,
-        )
-
+        db = _get_database(request)
         parsed_selections = json.loads(selections) if selections else None
-        result = get_options.fn(level=level, selections=parsed_selections)
-        return _parse_tool_result(result)
+        options = db.get_options_at_level(level, parsed_selections or {})
+        return {"level": level, "options": options, "total": len(options)}
 
     except HTTPException:
         raise
@@ -366,13 +300,19 @@ async def explore_build(request: Request, selections: str):
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
     try:
-        from osprey.mcp_server.channel_finder_hierarchical.tools.build_channels import (
-            build_channels,
-        )
-
+        db = _get_database(request)
         parsed_selections = json.loads(selections)
-        result = build_channels.fn(selections=parsed_selections)
-        return _parse_tool_result(result)
+        channels = db.build_channels_from_selections(parsed_selections)
+        valid = [ch for ch in channels if db.validate_channel(ch)]
+        invalid = [ch for ch in channels if not db.validate_channel(ch)]
+        return {
+            "channels": channels,
+            "total": len(channels),
+            "valid": valid,
+            "invalid": invalid,
+            "valid_count": len(valid),
+            "invalid_count": len(invalid),
+        }
 
     except HTTPException:
         raise
@@ -390,17 +330,12 @@ async def explore_hierarchy_info(request: Request):
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
     try:
-        from osprey.mcp_server.channel_finder_hierarchical.registry import (
-            get_cf_hier_registry,
-        )
-
-        registry = get_cf_hier_registry()
-        db = registry.database
+        db = _get_database(request)
         return {
             "hierarchy_levels": db.hierarchy_levels,
             "hierarchy_config": db.hierarchy_config,
             "naming_pattern": db.naming_pattern,
-            "facility_name": registry.facility_name,
+            "facility_name": _get_facility_name(request),
         }
 
     except HTTPException:
@@ -422,12 +357,9 @@ async def explore_systems(request: Request):
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
     try:
-        from osprey.mcp_server.channel_finder_middle_layer.tools.list_systems import (
-            list_systems,
-        )
-
-        result = list_systems.fn()
-        return _parse_tool_result(result)
+        db = _get_database(request)
+        systems = db.list_systems()
+        return {"systems": systems, "total": len(systems)}
 
     except HTTPException:
         raise
@@ -448,12 +380,9 @@ async def explore_families(request: Request, system: str):
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
     try:
-        from osprey.mcp_server.channel_finder_middle_layer.tools.list_families import (
-            list_families,
-        )
-
-        result = list_families.fn(system=system)
-        return _parse_tool_result(result)
+        db = _get_database(request)
+        families = db.list_families(system)
+        return {"families": families, "total": len(families)}
 
     except HTTPException:
         raise
@@ -481,12 +410,9 @@ async def explore_fields(
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
     try:
-        from osprey.mcp_server.channel_finder_middle_layer.tools.inspect_fields import (
-            inspect_fields,
-        )
-
-        result = inspect_fields.fn(system=system, family=family, field=field)
-        return _parse_tool_result(result)
+        db = _get_database(request)
+        fields = db.inspect_fields(system, family, field)
+        return {"fields": fields}
 
     except HTTPException:
         raise
@@ -520,21 +446,13 @@ async def explore_channels(
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
     try:
-        from osprey.mcp_server.channel_finder_middle_layer.tools.list_channels import (
-            list_channels,
-        )
-
+        db = _get_database(request)
         parsed_sectors = json.loads(sectors) if sectors else None
         parsed_devices = json.loads(devices) if devices else None
-        result = list_channels.fn(
-            system=system,
-            family=family,
-            field=field,
-            subfield=subfield,
-            sectors=parsed_sectors,
-            devices=parsed_devices,
+        channels = db.list_channel_names(
+            system, family, field, subfield, parsed_sectors, parsed_devices
         )
-        return _parse_tool_result(result)
+        return {"channels": channels, "total": len(channels)}
 
     except HTTPException:
         raise
@@ -583,12 +501,26 @@ async def get_channels(
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
     try:
-        from osprey.mcp_server.channel_finder_in_context.tools.get_channels import (
-            get_channels as _get_channels,
-        )
-
-        result = _get_channels.fn(chunk_idx=chunk_idx, chunk_size=chunk_size)
-        return _parse_tool_result(result)
+        db = _get_database(request)
+        if chunk_idx is not None:
+            chunks = db.chunk_database(chunk_size)
+            if chunk_idx < 0 or chunk_idx >= len(chunks):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"chunk_idx {chunk_idx} out of range (0-{len(chunks) - 1})",
+                )
+            chunk = chunks[chunk_idx]
+            formatted = db.format_chunk_for_prompt(chunk)
+            return {
+                "chunk_idx": chunk_idx,
+                "total_chunks": len(chunks),
+                "chunk_size": len(chunk),
+                "channels": chunk,
+                "formatted": formatted,
+            }
+        else:
+            channels = db.get_all_channels()
+            return {"channels": channels, "total": len(channels)}
 
     except HTTPException:
         raise
@@ -602,50 +534,28 @@ async def get_channels(
 # ---------------------------------------------------------------------------
 
 
-def _get_db_path(request: Request) -> str:
-    """Get the database file path for the active pipeline type."""
-    pt = _pipeline_type(request)
-    if pt == "hierarchical":
-        from osprey.mcp_server.channel_finder_hierarchical.registry import (
-            get_cf_hier_registry,
-        )
-
-        return get_cf_hier_registry().database.db_path
-    elif pt == "middle_layer":
-        from osprey.mcp_server.channel_finder_middle_layer.registry import (
-            get_cf_ml_registry,
-        )
-
-        return get_cf_ml_registry().database.db_path
-    else:
-        from osprey.mcp_server.channel_finder_in_context.registry import (
-            get_cf_ic_registry,
-        )
-
-        return get_cf_ic_registry().database.db_path
-
-
 def _get_database(request: Request):
     """Get the database instance for the active pipeline type."""
     pt = _pipeline_type(request)
-    if pt == "hierarchical":
-        from osprey.mcp_server.channel_finder_hierarchical.registry import (
-            get_cf_hier_registry,
+    databases = getattr(request.app.state, "databases", {})
+    db = databases.get(pt)
+    if db is None:
+        raise HTTPException(
+            status_code=503, detail=f"Database not available for pipeline '{pt}'"
         )
+    return db
 
-        return get_cf_hier_registry().database
-    elif pt == "middle_layer":
-        from osprey.mcp_server.channel_finder_middle_layer.registry import (
-            get_cf_ml_registry,
-        )
 
-        return get_cf_ml_registry().database
-    else:
-        from osprey.mcp_server.channel_finder_in_context.registry import (
-            get_cf_ic_registry,
-        )
+def _get_db_path(request: Request) -> str:
+    """Get the database file path for the active pipeline type."""
+    return _get_database(request).db_path
 
-        return get_cf_ic_registry().database
+
+def _get_facility_name(request: Request) -> str:
+    """Get the facility name for the active pipeline type."""
+    pt = _pipeline_type(request)
+    facility_names = getattr(request.app.state, "facility_names", {})
+    return facility_names.get(pt, "")
 
 
 # ---------------------------------------------------------------------------

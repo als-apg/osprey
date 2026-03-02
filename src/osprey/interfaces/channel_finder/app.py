@@ -47,13 +47,17 @@ def _create_lifespan(project_cwd: str | None = None):
 
         # Initialize all available pipeline registries so the UI can switch
         available: list[str] = []
+        databases: dict[str, object] = {}
+        facility_names: dict[str, str] = {}
 
         try:
             from osprey.mcp_server.channel_finder_hierarchical.registry import (
                 initialize_cf_hier_registry,
             )
 
-            initialize_cf_hier_registry()
+            registry = initialize_cf_hier_registry()
+            databases["hierarchical"] = registry.database
+            facility_names["hierarchical"] = registry.facility_name
             available.append("hierarchical")
             logger.info("Initialized hierarchical pipeline registry")
         except Exception:
@@ -64,7 +68,9 @@ def _create_lifespan(project_cwd: str | None = None):
                 initialize_cf_ml_registry,
             )
 
-            initialize_cf_ml_registry()
+            registry = initialize_cf_ml_registry()
+            databases["middle_layer"] = registry.database
+            facility_names["middle_layer"] = registry.facility_name
             available.append("middle_layer")
             logger.info("Initialized middle_layer pipeline registry")
         except Exception:
@@ -75,13 +81,17 @@ def _create_lifespan(project_cwd: str | None = None):
                 initialize_cf_ic_registry,
             )
 
-            initialize_cf_ic_registry()
+            registry = initialize_cf_ic_registry()
+            databases["in_context"] = registry.database
+            facility_names["in_context"] = registry.facility_name
             available.append("in_context")
             logger.info("Initialized in_context pipeline registry")
         except Exception:
             logger.debug("In-context pipeline not available", exc_info=True)
 
         app.state.available_pipelines = available
+        app.state.databases = databases
+        app.state.facility_names = facility_names
 
         # Initialize feedback store if hierarchical pipeline has feedback enabled
         app.state.feedback_store = None
