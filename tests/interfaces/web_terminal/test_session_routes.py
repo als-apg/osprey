@@ -34,7 +34,7 @@ class TestListSessionsEndpoint:
     def test_returns_empty_list(self, client):
         """GET /api/sessions returns empty list when no sessions exist."""
         with patch(
-            "osprey.interfaces.web_terminal.routes.SessionDiscovery.list_sessions",
+            "osprey.interfaces.web_terminal.routes.session.SessionDiscovery.list_sessions",
             return_value=[],
         ):
             resp = client.get("/api/sessions")
@@ -60,7 +60,7 @@ class TestListSessionsEndpoint:
         ]
 
         with patch(
-            "osprey.interfaces.web_terminal.routes.SessionDiscovery.list_sessions",
+            "osprey.interfaces.web_terminal.routes.session.SessionDiscovery.list_sessions",
             return_value=mock_sessions,
         ):
             resp = client.get("/api/sessions")
