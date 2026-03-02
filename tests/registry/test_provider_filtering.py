@@ -6,13 +6,14 @@ avoiding costly module-level network calls on air-gapped machines.
 Tests cover:
 - ProviderRegistration.name field (default and explicit)
 - _get_configured_provider_names() helper (various config scenarios)
-- _initialize_providers() config-driven filtering behavior
+- initialize_providers() config-driven filtering behavior
 """
 
 from unittest.mock import MagicMock, patch
 
 from osprey.models.providers.base import BaseProvider
 from osprey.registry.base import ProviderRegistration, RegistryConfig
+from osprey.registry.initializers import _get_configured_provider_names
 from osprey.registry.manager import RegistryManager
 
 
@@ -35,86 +36,72 @@ class TestProviderRegistrationName:
 class TestGetConfiguredProviderNames:
     """Test _get_configured_provider_names() helper."""
 
-    def _make_manager(self):
-        """Create a minimal RegistryManager for testing."""
-        config = RegistryConfig()
-        manager = RegistryManager.__new__(RegistryManager)
-        manager.config = config
-        return manager
-
     def test_extracts_provider_names_from_config(self):
         """Extracts provider names from model configs."""
-        manager = self._make_manager()
         mock_config = {
             "primary": {"provider": "anthropic", "model": "claude-sonnet-4-5-20250929"},
             "secondary": {"provider": "openai", "model": "gpt-4o"},
         }
         with patch(
-            "osprey.registry.manager.get_config_value", return_value=mock_config
+            "osprey.registry.initializers.get_config_value", return_value=mock_config
         ) as mock_gcv:
-            result = manager._get_configured_provider_names()
+            result = _get_configured_provider_names()
             mock_gcv.assert_called_once_with("models", None)
         assert result == {"anthropic", "openai"}
 
     def test_returns_none_when_exception(self):
         """Returns None when config is unavailable (exception path)."""
-        manager = self._make_manager()
         with patch(
-            "osprey.registry.manager.get_config_value",
+            "osprey.registry.initializers.get_config_value",
             side_effect=Exception("no config"),
         ):
-            result = manager._get_configured_provider_names()
+            result = _get_configured_provider_names()
         assert result is None
 
     def test_returns_none_when_models_empty_dict(self):
         """Returns None when models config is empty dict."""
-        manager = self._make_manager()
-        with patch("osprey.registry.manager.get_config_value", return_value={}):
-            result = manager._get_configured_provider_names()
+        with patch("osprey.registry.initializers.get_config_value", return_value={}):
+            result = _get_configured_provider_names()
         assert result is None
 
     def test_returns_none_when_models_is_none(self):
         """Returns None when models config is None."""
-        manager = self._make_manager()
-        with patch("osprey.registry.manager.get_config_value", return_value=None):
-            result = manager._get_configured_provider_names()
+        with patch("osprey.registry.initializers.get_config_value", return_value=None):
+            result = _get_configured_provider_names()
         assert result is None
 
     def test_returns_none_when_no_provider_keys(self):
         """Returns None when role configs have no provider keys."""
-        manager = self._make_manager()
         mock_config = {
             "primary": {"model": "claude-sonnet-4-5-20250929"},  # no "provider" key
         }
-        with patch("osprey.registry.manager.get_config_value", return_value=mock_config):
-            result = manager._get_configured_provider_names()
+        with patch("osprey.registry.initializers.get_config_value", return_value=mock_config):
+            result = _get_configured_provider_names()
         assert result is None
 
     def test_handles_non_dict_role_configs(self):
         """Handles non-dict role configs gracefully (e.g., string values)."""
-        manager = self._make_manager()
         mock_config = {
             "primary": "anthropic/claude-sonnet-4-5-20250929",  # string, not dict
             "secondary": {"provider": "openai", "model": "gpt-4o"},
         }
-        with patch("osprey.registry.manager.get_config_value", return_value=mock_config):
-            result = manager._get_configured_provider_names()
+        with patch("osprey.registry.initializers.get_config_value", return_value=mock_config):
+            result = _get_configured_provider_names()
         assert result == {"openai"}
 
     def test_deduplicates_providers(self):
         """Same provider used for multiple roles is only returned once."""
-        manager = self._make_manager()
         mock_config = {
             "primary": {"provider": "anthropic", "model": "claude-sonnet-4-5-20250929"},
             "secondary": {"provider": "anthropic", "model": "claude-haiku-4-5-20251001"},
         }
-        with patch("osprey.registry.manager.get_config_value", return_value=mock_config):
-            result = manager._get_configured_provider_names()
+        with patch("osprey.registry.initializers.get_config_value", return_value=mock_config):
+            result = _get_configured_provider_names()
         assert result == {"anthropic"}
 
 
 class TestInitializeProvidersFiltering:
-    """Test _initialize_providers() config-driven filtering."""
+    """Test initialize_providers() config-driven filtering."""
 
     def _make_manager_with_providers(self, providers):
         """Create a RegistryManager with given provider registrations."""
@@ -153,14 +140,16 @@ class TestInitializeProvidersFiltering:
         mock_module.AnthropicProviderAdapter = anthropic_class
 
         with (
-            patch.object(
-                manager,
-                "_get_configured_provider_names",
+            patch(
+                "osprey.registry.initializers._get_configured_provider_names",
                 return_value={"anthropic"},
             ),
-            patch("osprey.registry.manager.importlib.import_module", return_value=mock_module),
+            patch(
+                "osprey.registry.initializers.importlib.import_module",
+                return_value=mock_module,
+            ),
         ):
-            manager._initialize_providers()
+            manager._initialize_component_type("providers")
 
         # Only anthropic should have been imported, argo skipped
         assert "anthropic" in manager._registries["providers"]
@@ -194,14 +183,16 @@ class TestInitializeProvidersFiltering:
             return m
 
         with (
-            patch.object(
-                manager,
-                "_get_configured_provider_names",
+            patch(
+                "osprey.registry.initializers._get_configured_provider_names",
                 return_value=None,
             ),
-            patch("osprey.registry.manager.importlib.import_module", side_effect=mock_import),
+            patch(
+                "osprey.registry.initializers.importlib.import_module",
+                side_effect=mock_import,
+            ),
         ):
-            manager._initialize_providers()
+            manager._initialize_component_type("providers")
 
         assert "anthropic" in manager._registries["providers"]
         assert "openai" in manager._registries["providers"]
@@ -209,7 +200,7 @@ class TestInitializeProvidersFiltering:
     def test_custom_providers_registered_via_provider_registry(self):
         """Custom providers from config.providers are registered into ProviderRegistry.
 
-        The new _initialize_providers() registers custom providers into the
+        The new initialize_providers() registers custom providers into the
         lightweight ProviderRegistry before calling load_providers(), ensuring
         they participate in config-driven filtering.
         """
