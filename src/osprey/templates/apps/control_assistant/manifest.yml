@@ -11,14 +11,17 @@ artifacts:
     - memory-guard
     - notebook-update
     - cf-feedback-capture
+    - auto-execute
   rules:
     - safety
     - error-handling
     - artifacts
     - facility
     - workflows
-    - code-generation
     - timezone
+    - analysis-scripts
+    - data-visualization
+    - control-system-safety
   skills:
     - diagnose
     - setup-mode

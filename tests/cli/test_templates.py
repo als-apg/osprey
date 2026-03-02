@@ -736,7 +736,7 @@ class TestTemplateManifest:
         # Should NOT have control-system-specific entries
         assert "limits" not in artifacts["hooks"]
         assert "cf-feedback-capture" not in artifacts["hooks"]
-        assert "code-generation" not in artifacts.get("rules", [])
+        assert "control-system-safety" not in artifacts.get("rules", [])
 
     def test_load_manifest_nonexistent_template(self):
         """Returns None for unknown template."""
@@ -783,7 +783,7 @@ class TestTemplateManifest:
         # These should NOT exist
         assert not (project_dir / ".claude" / "hooks" / "osprey_limits.py").exists()
         assert not (project_dir / ".claude" / "hooks" / "osprey_cf_feedback_capture.py").exists()
-        assert not (project_dir / ".claude" / "rules" / "code-generation.md").exists()
+        assert not (project_dir / ".claude" / "rules" / "control-system-safety.md").exists()
 
     def test_lattice_init_has_lattice_artifacts(self, tmp_path):
         """Lattice project must have lattice-physics rule and lattice-evaluation skill."""

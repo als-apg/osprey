@@ -9,6 +9,7 @@ artifacts:
     - error-guidance
     - memory-guard
     - notebook-update
+    - auto-execute
   rules:
     - safety
     - error-handling
@@ -17,6 +18,8 @@ artifacts:
     - workflows
     - timezone
     - lattice-physics
+    - analysis-scripts
+    - data-visualization
   skills:
     - diagnose
     - setup-mode

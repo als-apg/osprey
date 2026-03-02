@@ -148,10 +148,22 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             description="Task planning, agent delegation, and parallel execution",
         ),
         PromptArtifact(
-            canonical_name="rules/code-generation",
-            template_path="claude/rules/code-generation.md.j2",
-            output_path=".claude/rules/code-generation.md",
-            description="Code generation safety rules (control_assistant only)",
+            canonical_name="rules/analysis-scripts",
+            template_path="claude/rules/analysis-scripts.md",
+            output_path=".claude/rules/analysis-scripts.md",
+            description="Analysis scripts auto-execution workflow",
+        ),
+        PromptArtifact(
+            canonical_name="rules/data-visualization",
+            template_path="claude/rules/data-visualization.md",
+            output_path=".claude/rules/data-visualization.md",
+            description="Matplotlib and plot artifact conventions",
+        ),
+        PromptArtifact(
+            canonical_name="rules/control-system-safety",
+            template_path="claude/rules/control-system-safety.md",
+            output_path=".claude/rules/control-system-safety.md",
+            description="EPICS channel access safety rules",
         ),
         PromptArtifact(
             canonical_name="rules/timezone",
@@ -207,6 +219,12 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             template_path="claude/hooks/osprey_memory_guard.py",
             output_path=".claude/hooks/osprey_memory_guard.py",
             description="Write tool gate for Claude memory files",
+        ),
+        PromptArtifact(
+            canonical_name="hooks/auto-execute",
+            template_path="claude/hooks/osprey_auto_execute.py",
+            output_path=".claude/hooks/osprey_auto_execute.py",
+            description="Auto-execute scripts written to osprey-workspace/scripts/",
         ),
         # ── Skills ──────────────────────────────────────────────────
         PromptArtifact(

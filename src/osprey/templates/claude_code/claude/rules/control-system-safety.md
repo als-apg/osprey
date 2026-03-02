@@ -1,7 +1,4 @@
-{% if template_name == "control_assistant" %}
-# Code Generation — Control System Safety
-
-## EPICS Channel Access
+# Control System Safety — EPICS Channel Access
 
 When writing Python code that interacts with the control system, you MUST use
 the `osprey.runtime` API. Direct use of EPICS libraries is **prohibited** because
@@ -11,7 +8,6 @@ it bypasses safety layers (limits checking, write verification, approval).
 
 ```python
 from osprey.runtime import read_channel, write_channel
-
 value = read_channel("SR:BPM01:XPosition")
 write_channel("SR:PS01:Current", 150.0)
 ```
@@ -23,7 +19,6 @@ write_channel("SR:PS01:Current", 150.0)
 import epics
 epics.caget("SR:BPM01:XPosition")   # Bypasses audit logging
 epics.caput("SR:PS01:Current", 150)  # Bypasses limits + approval
-
 from epics import PV
 pv = PV("SR:PS01:Current")
 pv.put(150)  # Bypasses all safety layers
@@ -39,18 +34,8 @@ The `osprey.runtime` API enforces:
 
 Direct EPICS calls skip all of these protections.
 
-## Data Visualization
+## Write Operations
 
-When generating matplotlib plots, save figures to the osprey-workspace:
-
-```python
-import matplotlib.pyplot as plt
-
-fig, ax = plt.subplots()
-ax.plot(timestamps, values)
-ax.set_xlabel("Time")
-ax.set_ylabel("Value")
-fig.savefig("osprey-workspace/artifacts/plot.png", dpi=150, bbox_inches="tight")
-plt.close(fig)
-```
-{% endif %}
+For scripts that write to the control system, use the `execute` MCP tool directly
+with `execution_mode: "write"`. Do not place control system write operations in
+`osprey-workspace/scripts/` — the auto-execute hook runs in readonly mode only.
