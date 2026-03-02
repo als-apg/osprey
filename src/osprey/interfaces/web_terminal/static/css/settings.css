@@ -422,4 +422,167 @@
   color: var(--color-error);
 }
 
+/* ---- Hook Debug Toggle Bar ---- */
+
+.hook-debug-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.hook-debug-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.hook-debug-toast {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-accent-light);
+  margin-left: 12px;
+  animation: hookToastFade 2.5s ease-out forwards;
+}
+
+.hook-debug-toast.error {
+  color: var(--color-error);
+}
+
+@keyframes hookToastFade {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ---- Hook Debug Log Viewer ---- */
+
+.hook-debug-log {
+  border-top: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.hook-debug-log-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  user-select: none;
+  background: var(--bg-secondary);
+  transition: background var(--transition-fast);
+}
+
+.hook-debug-log-header:hover {
+  background: var(--amber-tint-04);
+}
+
+.hook-debug-log-chevron {
+  font-size: 8px;
+  color: var(--text-muted);
+  transition: transform var(--transition-fast);
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.hook-debug-log.expanded .hook-debug-log-chevron {
+  transform: rotate(90deg);
+}
+
+.hook-debug-log-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  flex: 1;
+}
+
+.hook-debug-refresh-btn {
+  font-size: 14px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0 4px;
+  transition: color var(--transition-fast);
+}
+
+.hook-debug-refresh-btn:hover {
+  color: var(--color-accent-light);
+}
+
+.hook-debug-log-body {
+  display: none;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--bg-terminal);
+}
+
+.hook-debug-log.expanded .hook-debug-log-body {
+  display: block;
+}
+
+.hook-debug-log-empty {
+  padding: 20px 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.hook-debug-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.hook-debug-log-table th {
+  text-align: left;
+  padding: 4px 8px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-secondary);
+  position: sticky;
+  top: 0;
+}
+
+.hook-debug-log-table td {
+  padding: 3px 8px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--neutral-tint-06);
+  white-space: nowrap;
+}
+
+.hook-debug-log-table td.log-ts {
+  color: var(--text-muted);
+}
+
+.hook-debug-log-table td.log-detail {
+  white-space: normal;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hook-debug-log-table td.status-ok {
+  color: var(--color-success);
+}
+
+.hook-debug-log-table td.status-blocked {
+  color: var(--color-error);
+}
+
 /* Memory Tab styles moved to prompts.css (memory gallery section) */

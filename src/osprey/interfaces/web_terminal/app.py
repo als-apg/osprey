@@ -307,17 +307,9 @@ def _create_lifespan(
         # Standalone services — always launched (not panel-tied)
         _launch_deplot_server(app)
 
-        # Hook debug env — propagated to PTY/SDK sessions like OTEL
+        # Hook env placeholder — hooks read config.yml directly for
+        # hot-reloadable settings (no env var propagation needed).
         app.state.hooks_env = {}
-        try:
-            from osprey.utils.workspace import load_osprey_config
-
-            hooks_config = load_osprey_config().get("hooks", {})
-            if hooks_config.get("debug"):
-                app.state.hooks_env["OSPREY_HOOK_DEBUG"] = "1"
-                logger.info("Hook debugging enabled (OSPREY_HOOK_DEBUG=1)")
-        except Exception:
-            logger.warning("Failed to read hooks config", exc_info=True)
 
         yield
 

@@ -27,6 +27,7 @@ _AGENT_CONFIG_SECTIONS = [
     "artifact_server",
     "workspace",
     "screen_capture",
+    "hooks",
 ]
 
 
@@ -124,6 +125,56 @@ async def patch_config(body: ConfigPatch, request: Request):
 
     logger.info("Config patched (%d fields) at %s", len(body.updates), config_path)
     return {"status": "ok", "requires_restart": True, "fields_updated": len(body.updates)}
+
+
+# ---- Hook Debug Endpoints ---- #
+
+
+@router.get("/api/hooks/debug-status")
+async def get_hook_debug_status(request: Request):
+    """Return current hooks.debug state from config.yml."""
+    config_path: Path | None = request.app.state.config_path
+    if not config_path or not config_path.exists():
+        return {"enabled": False}
+
+    try:
+        full_config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        enabled = bool(full_config.get("hooks", {}).get("debug", False))
+        return {"enabled": enabled}
+    except Exception:
+        return {"enabled": False}
+
+
+@router.get("/api/hooks/debug-log")
+async def get_hook_debug_log(request: Request, limit: int = 50):
+    """Return recent hook debug log entries from hook_debug.jsonl."""
+    import json
+
+    project_cwd = getattr(request.app.state, "project_cwd", None)
+    if not project_cwd:
+        return {"entries": []}
+
+    log_path = Path(project_cwd) / ".claude" / "hooks" / "hook_debug.jsonl"
+    if not log_path.exists():
+        return {"entries": []}
+
+    try:
+        lines = log_path.read_text(encoding="utf-8").strip().splitlines()
+        # Take the last N entries (most recent)
+        recent = lines[-limit:] if len(lines) > limit else lines
+        entries = []
+        for line in reversed(recent):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return {"entries": entries}
+    except Exception:
+        logger.warning("Failed to read hook debug log", exc_info=True)
+        return {"entries": []}
 
 
 # ---- Claude Setup Endpoints ---- #

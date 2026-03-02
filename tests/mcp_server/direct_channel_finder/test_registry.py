@@ -9,6 +9,9 @@ from osprey.mcp_server.direct_channel_finder.registry import (
     initialize_dcf_registry,
     reset_dcf_registry,
 )
+from osprey.services.channel_finder.backends.als_channel_finder import (
+    ALSChannelFinderBackend,
+)
 from osprey.services.channel_finder.backends.mock import MockPVInfoBackend
 
 
@@ -70,6 +73,43 @@ class TestDirectChannelFinderRegistry:
         try:
             registry = initialize_dcf_registry()
             assert registry.facility_name == "ALS"
+        finally:
+            del os.environ["OSPREY_CONFIG"]
+
+    def test_initialize_with_als_backend(self, tmp_path):
+        config = {
+            "channel_finder": {
+                "direct": {
+                    "backend": "als_channel_finder",
+                    "backend_url": "https://localhost:9999/ChannelFinder",
+                }
+            }
+        }
+        config_path = tmp_path / "config.yml"
+        config_path.write_text(yaml.dump(config))
+
+        import os
+
+        os.environ["OSPREY_CONFIG"] = str(config_path)
+        try:
+            registry = initialize_dcf_registry()
+            assert isinstance(registry.backend, ALSChannelFinderBackend)
+        finally:
+            del os.environ["OSPREY_CONFIG"]
+
+    def test_als_backend_default_url(self, tmp_path):
+        config = {"channel_finder": {"direct": {"backend": "als_channel_finder"}}}
+        config_path = tmp_path / "config.yml"
+        config_path.write_text(yaml.dump(config))
+
+        import os
+
+        os.environ["OSPREY_CONFIG"] = str(config_path)
+        try:
+            registry = initialize_dcf_registry()
+            backend = registry.backend
+            assert isinstance(backend, ALSChannelFinderBackend)
+            assert "localhost:8443" in backend._base_url
         finally:
             del os.environ["OSPREY_CONFIG"]
 

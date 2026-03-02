@@ -64,6 +64,17 @@ class DirectChannelFinderRegistry:
                 "DirectChannelFinderRegistry: using MockPVInfoBackend (%d PVs)",
                 self._backend.total_pv_count,
             )
+        elif backend_type == "als_channel_finder":
+            from osprey.services.channel_finder.backends.als_channel_finder import (
+                ALSChannelFinderBackend,
+            )
+
+            backend_url = direct_config.get("backend_url", "https://localhost:8443/ChannelFinder")
+            self._backend = ALSChannelFinderBackend(backend_url)
+            logger.info(
+                "DirectChannelFinderRegistry: using ALSChannelFinderBackend at %s",
+                backend_url,
+            )
         else:
             logger.warning(
                 "Unknown backend type %r — only 'mock' is currently supported. "
