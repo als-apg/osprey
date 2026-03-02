@@ -1,0 +1,96 @@
+{% if template_name == "lattice_design" %}
+---
+name: analyze-working-point
+description: >
+  Quantitative working point danger analysis with physics-based resonance
+  classification and textbook context. Complements /resonance-diagram with
+  proximity metrics, ranked danger tables, and annotated diagrams.
+summary: Analyzes working point proximity to resonances with physics context
+---
+
+# Working Point Analysis
+
+Quantitative danger analysis of the lattice working point — classifies nearby
+resonances by physics type (not just order), ranks them by proximity, and
+delegates to the **textbook-expert** agent for educational context.
+
+> **Reference implementation**: Read `references/analyze_working_point.py` for a
+> complete working script. Use it as a starting point and adapt as needed.
+
+## Steps
+
+1. **Load lattice and get working point**:
+   ```python
+   import numpy as np
+   import at
+   ring = at.load_m('machine_data/als.m')
+   tunes = at.get_tune(ring)
+   nux, nuy = tunes[0], tunes[1]
+   ```
+   Print: "Working point: nu_x = {nux:.4f}, nu_y = {nuy:.4f}"
+
+2. **Delegate to textbook-expert** — before computing, use the `textbook-expert`
+   sub-agent to provide educational context. Send a prompt like:
+
+   > "Explain the physics of betatron resonances for a storage ring with
+   > working point nu_x ≈ {nux:.2f}, nu_y ≈ {nuy:.2f}. Cover:
+   > (1) integer and half-integer resonances — why they are fatal,
+   > (2) coupling resonances — sum vs difference and their effects,
+   > (3) third-order sextupole-driven resonances — relevance given chromatic
+   > sextupoles are used for chromaticity correction,
+   > (4) practical strategies for choosing a safe working point."
+
+   Present the textbook context to the user before the quantitative results.
+
+3. **Compute proximity to nearby resonances**:
+   For every resonance condition `m·nu_x + n·nu_y = p` with orders 1–5:
+   - Normalized distance: `d = |m·nu_x + n·nu_y - p| / sqrt(m² + n²)`
+   - Keep only resonances with `d < 0.05`
+   - Deduplicate: `(m, n, p)` and `(-m, -n, -p)` are the same resonance
+
+4. **Classify each resonance** using physics-based categories:
+
+   | Category  | Resonance Type | Physics |
+   |-----------|---------------|---------|
+   | CRITICAL  | Integer/half-integer (order 1): `nu_x = p`, `2·nu_x = p` | Orbit/focusing undefined, beta-beat diverges |
+   | CRITICAL  | Sum resonance (order 2): `nu_x + nu_y = p` | Unstable coupling — beam lost |
+   | WARNING   | Difference resonance (order 2): `nu_x - nu_y = p` | Stable coupling, emittance exchange — not fatal |
+   | DANGEROUS | 3rd order (sextupole-driven): `3·nu_x = p`, `nu_x + 2·nu_y = p`, etc. | Driven by chromatic sextupoles |
+   | LOW       | 4th order (octupole-driven) | Amplitude-dependent tune spread, radiation-damped |
+   | LOW       | 5th order | Very weak driving terms |
+
+   Within each category, rank by distance (closer = more concerning).
+
+5. **Print ranked danger table** (top 10):
+   ```
+   Rank  Resonance           Type                          Category   Distance
+   ────  ──────────────────  ────────────────────────────  ─────────  ────────
+    1    2·νx = 29           Half-integer                  CRITICAL   0.0012
+    2    νx + νy = 26        Sum coupling                  CRITICAL   0.0089
+    ...
+   ```
+
+6. **Build annotated Plotly figure**:
+   - Background: all resonance lines (semi-transparent, thin)
+   - Highlighted: top 5 closest resonances (full-opacity color, 2× width)
+   - Annotation arrows pointing from labels to the closest point on each
+     highlighted resonance line
+   - Working point: black star marker
+   - Save: `save_artifact(fig, "Working Point Analysis", "...")`
+
+7. **Present results**: textbook context (from step 2) + danger table + annotated
+   diagram, with a brief summary of the most concerning resonances.
+
+## Before/After Comparison
+
+When the user has changed tunes (e.g., via `/fit-tune`), re-run the analysis:
+
+1. Store the initial analysis results (working point, danger table)
+2. After tune change, re-compute with the modified ring
+3. Overlay both working points on the diagram:
+   - **Before**: black star marker
+   - **After**: gold star marker with black edge
+4. Print a side-by-side danger table with a delta column:
+   - Closer → red text or "⚠ closer"
+   - Further → green text or "✓ further"
+{% endif %}

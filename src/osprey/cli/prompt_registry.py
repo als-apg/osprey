@@ -277,6 +277,18 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             description="Reference implementation for resonance diagram",
         ),
         PromptArtifact(
+            canonical_name="skills/analyze-working-point",
+            template_path="claude/skills/analyze-working-point/SKILL.md.j2",
+            output_path=".claude/skills/analyze-working-point/SKILL.md",
+            description="Working point proximity analysis (lattice_design only)",
+        ),
+        PromptArtifact(
+            canonical_name="skills/analyze-working-point/reference",
+            template_path="claude/skills/analyze-working-point/references/analyze_working_point.py",
+            output_path=".claude/skills/analyze-working-point/references/analyze_working_point.py",
+            description="Reference implementation for working point analysis",
+        ),
+        PromptArtifact(
             canonical_name="skills/dynamic-aperture",
             template_path="claude/skills/dynamic-aperture/SKILL.md.j2",
             output_path=".claude/skills/dynamic-aperture/SKILL.md",
