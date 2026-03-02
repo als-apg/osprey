@@ -37,5 +37,5 @@ Direct EPICS calls skip all of these protections.
 ## Write Operations
 
 For scripts that write to the control system, use the `execute` MCP tool directly
-with `execution_mode: "write"`. Do not place control system write operations in
-`osprey-workspace/scripts/` — the auto-execute hook runs in readonly mode only.
+with `execution_mode: "write"` —
+the `execute` tool defaults to readonly mode, which blocks write operations.
