@@ -3,7 +3,7 @@
 import pytest
 import yaml
 
-from osprey.utils.config_updater import (
+from osprey.utils.config_writer import (
     get_all_model_configs,
     update_all_models,
     update_yaml_file,

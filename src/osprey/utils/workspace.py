@@ -10,9 +10,6 @@ from pathlib import Path
 
 logger = logging.getLogger("osprey.utils.workspace")
 
-_config_cache: dict | None = None
-_config_cache_path: Path | None = None
-
 
 def resolve_config_path() -> Path:
     """Resolve the path to config.yml.
@@ -27,7 +24,7 @@ def resolve_config_path() -> Path:
 
 
 def load_osprey_config() -> dict:
-    """Load OSPREY configuration from config.yml (cached after first call).
+    """Load OSPREY configuration (delegates to ConfigBuilder singleton).
 
     Delegates to the framework's ``ConfigBuilder`` so that ``${VAR:-default}``
     environment-variable placeholders are resolved consistently.
@@ -39,28 +36,23 @@ def load_osprey_config() -> dict:
     Returns:
         Parsed YAML dict (with env vars resolved), or empty dict if the file is missing.
     """
-    global _config_cache, _config_cache_path
-
-    if _config_cache is not None:
-        return _config_cache
-
     config_path = resolve_config_path()
-    _config_cache_path = config_path
     try:
         from osprey.utils.config import get_config_builder
 
         builder = get_config_builder(config_path=str(config_path), set_as_default=True)
-        _config_cache = builder.raw_config  # env vars resolved
+        return builder.raw_config
     except (FileNotFoundError, Exception):
-        _config_cache = {}
-    return _config_cache
+        return {}
 
 
 def reset_config_cache() -> None:
-    """Clear the cached config — used between tests."""
-    global _config_cache, _config_cache_path
-    _config_cache = None
-    _config_cache_path = None
+    """Clear all config caches — used between tests."""
+    from osprey.utils import config as config_module
+
+    config_module._default_config = None
+    config_module._default_configurable = None
+    config_module._config_cache.clear()
 
 
 def resolve_workspace_root() -> Path:

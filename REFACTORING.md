@@ -6,8 +6,8 @@
 ## Summary
 
 - Total items: 34
-- Completed: 2
-- Remaining: 32
+- Completed: 3 (RF-001, RF-002, RF-008) | Partial: 1 (RF-003)
+- Remaining: 30
 - High priority (P0): 3 | P1: 9 | P2: 12 | P3: 10
 
 ---
@@ -52,7 +52,7 @@
 
 ---
 
-### [P0] RF-003: utils/config.py cluster — 787-line god-module + 3 competing config systems (pending)
+### [P0] RF-003: utils/config.py cluster — 787-line god-module + 3 competing config systems (partial)
 
 **Severity**: high | **Category**: structure, dependency, cohesion
 **Files**: `src/osprey/utils/config.py`, `src/osprey/utils/config_updater.py`, `src/osprey/utils/yaml_config.py`, `src/osprey/utils/workspace.py`
@@ -69,8 +69,9 @@
 3. Standardize MCP server registries to use `ConfigBuilder` instead of custom loaders
 4. Unify the `workspace.py` config cache with `ConfigBuilder`
 
-**Status**: pending
-**Notes**:
+**Status**: partial
+**Completed date**: 2026-03-02
+**Notes**: Steps 2 and 4 completed. Merged `config_updater.py` + `yaml_config.py` into `config_writer.py` (single ruamel handler, no pyyaml dependency). Removed `workspace.py`'s redundant `_config_cache` — `reset_config_cache()` now clears `config.py`'s caches directly. Simplified `tests/conftest.py` to use single `reset_config_cache()` call. Steps 1 (split config.py) and 3 (MCP registry standardization) deferred — config.py is cohesive enough that splitting has high risk for low gain.
 
 ---
 
@@ -143,7 +144,7 @@
 
 ---
 
-### [P1] RF-008: Duplicate YAML mutation systems (pending)
+### [P1] RF-008: Duplicate YAML mutation systems (completed)
 
 **Severity**: high | **Category**: naming, cohesion
 **Files**: `src/osprey/utils/config_updater.py`, `src/osprey/utils/yaml_config.py`
@@ -153,8 +154,9 @@
 
 **Approach**: Consolidate into a single `config_writer.py`. Move domain-specific functions from `config_updater.py` to CLI-level code. Delete `config_updater.py`.
 
-**Status**: pending
-**Notes**: Overlaps with RF-003. Execute RF-003 first.
+**Status**: completed
+**Completed date**: 2026-03-02
+**Notes**: Completed as part of RF-003. Both files merged into `config_writer.py` with single ruamel handler, all pyyaml reads replaced with ruamel `_load()`.
 
 ---
 

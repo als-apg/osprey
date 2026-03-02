@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.utils.yaml_config import (
+from osprey.utils.config_writer import (
     config_add_to_list,
     config_read,
     config_remove_from_list,

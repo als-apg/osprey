@@ -102,7 +102,7 @@ async def patch_config(body: ConfigPatch, request: Request):
     Uses ruamel.yaml round-trip mode so comments, ordering, and formatting
     in the YAML file are retained.
     """
-    from osprey.utils.yaml_config import config_update_fields
+    from osprey.utils.config_writer import config_update_fields
 
     config_path: Path | None = request.app.state.config_path
     if not config_path or not config_path.exists():

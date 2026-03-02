@@ -487,7 +487,7 @@ def handle_config_action(project_path: Path | None = None) -> None:
 
 def handle_set_control_system(project_path: Path | None = None) -> None:
     """Handle interactive control system type configuration."""
-    from osprey.utils.config_updater import (
+    from osprey.utils.config_writer import (
         find_config_file,
         get_control_system_type,
         set_control_system_type,
@@ -590,7 +590,7 @@ def _check_simulation_ioc_running(host: str = "localhost", port: int = 5064) -> 
 
 def handle_set_epics_gateway(project_path: Path | None = None) -> None:
     """Handle interactive EPICS gateway configuration."""
-    from osprey.utils.config_updater import (
+    from osprey.utils.config_writer import (
         find_config_file,
         get_control_system_type,
         get_facility_from_gateway_config,
@@ -746,7 +746,7 @@ def handle_set_models(project_path: Path | None = None) -> None:
         select_model,
         select_provider,
     )
-    from osprey.utils.config_updater import (
+    from osprey.utils.config_writer import (
         find_config_file,
         get_all_model_configs,
         update_all_models,

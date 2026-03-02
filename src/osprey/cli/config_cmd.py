@@ -313,7 +313,7 @@ def set_control_system(system_type: str, project: str):
       osprey config set-control-system tango
     """
     try:
-        from osprey.utils.config_updater import set_control_system_type
+        from osprey.utils.config_writer import set_control_system_type
 
         from .project_utils import resolve_config_path
 
@@ -387,7 +387,7 @@ def set_epics_gateway(facility: str, address: str, port: int, project: str):
           --address gateway.example.com --port 5064
     """
     try:
-        from osprey.utils.config_updater import set_epics_gateway_config
+        from osprey.utils.config_writer import set_epics_gateway_config
 
         from .project_utils import resolve_config_path
 
@@ -480,7 +480,7 @@ def set_models(provider: str, model: str, project: str):
       osprey config set-models --provider cborg --model anthropic/claude-haiku
     """
     try:
-        from osprey.utils.config_updater import update_all_models
+        from osprey.utils.config_writer import update_all_models
 
         from .interactive_menu import get_provider_metadata
         from .project_utils import resolve_config_path
