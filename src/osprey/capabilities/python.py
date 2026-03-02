@@ -176,6 +176,12 @@ class PythonResultsContext(CapabilityContext):
         The summary includes structured data rather than pre-formatted strings
         to enable robust LLM processing and flexible presentation formatting.
 
+        Truncation behavior is controlled by config.yml context_summary settings:
+        - context_summary.python.include_full_code: Include full code without truncation
+        - context_summary.python.include_full_output: Include full stdout/stderr
+        - context_summary.python.include_full_results: Include full results dict
+        - context_summary.disable_all_truncation: Global override for all truncation
+
         :param key_name: Optional context key name for reference
         :type key_name: Optional[str]
         :return: Dictionary containing execution summary with results
@@ -185,6 +191,22 @@ class PythonResultsContext(CapabilityContext):
            Includes both execution metadata and computed results to provide
            complete context for response generation and analysis.
         """
+        # Get truncation configuration
+        try:
+            from osprey.utils.config import get_context_summary_config
+
+            truncation_config = get_context_summary_config()
+            python_config = truncation_config.get("python", {})
+            disable_all = truncation_config.get("disable_all_truncation", False)
+            include_full_code = disable_all or python_config.get("include_full_code", False)
+            include_full_output = disable_all or python_config.get("include_full_output", False)
+            include_full_results = disable_all or python_config.get("include_full_results", False)
+        except Exception:
+            # Graceful fallback if config not available (e.g., during tests)
+            include_full_code = False
+            include_full_output = False
+            include_full_results = False
+
         summary = {
             "type": "Python Results",
             "code_lines": len(self.code.split("\n")) if self.code else 0,
@@ -194,22 +216,32 @@ class PythonResultsContext(CapabilityContext):
             "status": "Failed" if self.error else "Success",
         }
 
-        # Include summarized execution data to prevent context overflow
+        # Include execution data with optional truncation based on config
         if self.results:
-            summary["results"] = recursively_summarize_data(self.results)
+            if include_full_results:
+                summary["results"] = self.results
+            else:
+                summary["results"] = recursively_summarize_data(self.results)
+
         if self.output:
-            # Truncate large output logs
-            if len(self.output) > 1000:
+            if include_full_output:
+                summary["output"] = self.output
+            elif len(self.output) > 1000:
+                # Truncate large output logs
                 summary["output"] = (
                     f"{self.output[:500]}... (truncated from {len(self.output)} chars)"
                 )
             else:
                 summary["output"] = self.output
+
         if self.error:
             summary["error"] = self.error  # Errors are usually short
+
         if self.code:
-            # Truncate large code blocks
-            if len(self.code) > 2000:
+            if include_full_code:
+                summary["code"] = self.code
+            elif len(self.code) > 2000:
+                # Truncate large code blocks
                 lines = self.code.split("\n")
                 if len(lines) > 50:
                     summary["code"] = (

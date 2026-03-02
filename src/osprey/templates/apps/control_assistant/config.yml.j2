@@ -521,6 +521,34 @@ python_executor:
   execution_timeout_seconds: 600
 
 # ============================================================
+# CONTEXT SUMMARY CONFIGURATION
+# ============================================================
+# Controls how capability context data is summarized for response generation.
+# By default, large code blocks and outputs are truncated to prevent context
+# overflow in the LLM. Enable full context when code understanding is crucial.
+
+context_summary:
+  # Truncation settings for Python execution results
+  python:
+    # When true, includes full code in context summaries (no truncation)
+    # Use when the LLM needs complete code to understand results
+    include_full_code: false
+    # When true, includes full stdout/stderr output (no truncation)
+    include_full_output: false
+    # When true, includes full results dict without recursive summarization
+    include_full_results: false
+
+  # Truncation settings for logbook search results
+  logbook:
+    # When true, includes full entry text (no truncation)
+    include_full_entries: false
+
+  # Global override - disables ALL truncation (use with caution)
+  # This can cause context overflow with large data
+  disable_all_truncation: false
+
+
+# ============================================================
 # APPLICATION METADATA
 # ============================================================
 

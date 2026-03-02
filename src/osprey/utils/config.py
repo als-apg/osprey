@@ -1023,6 +1023,65 @@ def get_classification_config() -> dict[str, Any]:
     return {"max_concurrent_classifications": max_concurrent}
 
 
+def get_context_summary_config() -> dict[str, Any]:
+    """
+    Get context summary configuration for controlling truncation behavior.
+
+    This configuration controls how capability context data is summarized
+    before being passed to the response generation LLM. By default, large
+    code blocks, outputs, and results are truncated to prevent context
+    overflow. These settings allow opt-in to include full content when
+    the LLM needs complete context for accurate responses.
+
+    Returns:
+        Dictionary with context summary configuration:
+        - python.include_full_code: Include full code (no truncation)
+        - python.include_full_output: Include full stdout/stderr
+        - python.include_full_results: Include full results dict
+        - logbook.include_full_entries: Include full logbook entry text
+        - disable_all_truncation: Global override to disable all truncation
+
+    Examples:
+        >>> config = get_context_summary_config()
+        >>> if config.get("python", {}).get("include_full_code", False):
+        ...     # Include full code in summary
+        ...     summary["code"] = self.code
+        >>> if config.get("disable_all_truncation", False):
+        ...     # Skip all truncation logic
+        ...     pass
+
+    Note:
+        Enabling full content can cause context overflow with large data.
+        Use these settings judiciously for specific use cases where complete
+        context is essential for response quality.
+    """
+    config = _get_config()
+
+    # Get context_summary section with defaults
+    context_summary = config.get("context_summary", {})
+
+    # Return structured config with defaults
+    return {
+        "python": {
+            "include_full_code": context_summary.get("python", {}).get(
+                "include_full_code", False
+            ),
+            "include_full_output": context_summary.get("python", {}).get(
+                "include_full_output", False
+            ),
+            "include_full_results": context_summary.get("python", {}).get(
+                "include_full_results", False
+            ),
+        },
+        "logbook": {
+            "include_full_entries": context_summary.get("logbook", {}).get(
+                "include_full_entries", False
+            ),
+        },
+        "disable_all_truncation": context_summary.get("disable_all_truncation", False),
+    }
+
+
 def get_full_configuration(config_path: str | None = None) -> dict[str, Any]:
     """
     Get the complete configuration dictionary.

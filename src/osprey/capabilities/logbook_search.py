@@ -82,8 +82,26 @@ class LogbookSearchResultsContext(CapabilityContext):
         Returns both metadata and actual search results/answers to enable
         the RespondCapability to generate meaningful user responses.
         Follows the pattern established by PythonResultContext.
+
+        Truncation behavior is controlled by config.yml context_summary settings:
+        - context_summary.logbook.include_full_entries: Include full entry text
+        - context_summary.disable_all_truncation: Global override for all truncation
         """
         from osprey.context.context_manager import recursively_summarize_data
+
+        # Get truncation configuration
+        try:
+            from osprey.utils.config import get_context_summary_config
+
+            truncation_config = get_context_summary_config()
+            logbook_config = truncation_config.get("logbook", {})
+            disable_all = truncation_config.get("disable_all_truncation", False)
+            include_full_entries = disable_all or logbook_config.get(
+                "include_full_entries", False
+            )
+        except Exception:
+            # Graceful fallback if config not available (e.g., during tests)
+            include_full_entries = False
 
         summary: dict[str, Any] = {
             "type": "Logbook Search Results",
@@ -98,11 +116,11 @@ class LogbookSearchResultsContext(CapabilityContext):
             summary["answer"] = self.answer
             summary["sources"] = list(self.sources)
 
-        # Include summarized entries for additional context
-        # Use recursively_summarize_data to prevent context overflow
+        # Include entries with optional truncation based on config
         if self.entries:
-            summary["entries"] = recursively_summarize_data(
-                [
+            if include_full_entries:
+                # Include full entries without truncation
+                summary["entries"] = [
                     {
                         "entry_id": e.get("entry_id", ""),
                         "timestamp": (
@@ -111,16 +129,33 @@ class LogbookSearchResultsContext(CapabilityContext):
                             else str(e.get("timestamp", ""))
                         ),
                         "author": e.get("author", ""),
-                        "summary": e.get("summary", ""),  # LLM-generated summary
-                        "raw_text": (
-                            e.get("raw_text", "")[:200] + "..."
-                            if len(e.get("raw_text", "")) > 200
-                            else e.get("raw_text", "")
-                        ),
+                        "summary": e.get("summary", ""),
+                        "raw_text": e.get("raw_text", ""),  # Full text, no truncation
                     }
                     for e in self.entries
                 ]
-            )
+            else:
+                # Use recursively_summarize_data to prevent context overflow
+                summary["entries"] = recursively_summarize_data(
+                    [
+                        {
+                            "entry_id": e.get("entry_id", ""),
+                            "timestamp": (
+                                e["timestamp"].isoformat()
+                                if hasattr(e.get("timestamp"), "isoformat")
+                                else str(e.get("timestamp", ""))
+                            ),
+                            "author": e.get("author", ""),
+                            "summary": e.get("summary", ""),  # LLM-generated summary
+                            "raw_text": (
+                                e.get("raw_text", "")[:200] + "..."
+                                if len(e.get("raw_text", "")) > 200
+                                else e.get("raw_text", "")
+                            ),
+                        }
+                        for e in self.entries
+                    ]
+                )
 
         return summary
 

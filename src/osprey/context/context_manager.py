@@ -96,7 +96,9 @@ class DictNamespace:
         return f"DictNamespace({self._data!r})"
 
 
-def recursively_summarize_data(data, max_depth: int = 3, current_depth: int = 0):
+def recursively_summarize_data(
+    data, max_depth: int = 3, current_depth: int = 0, skip_truncation: bool = False
+):
     """
     Recursively summarize data structures to prevent massive context overflow.
 
@@ -107,10 +109,17 @@ def recursively_summarize_data(data, max_depth: int = 3, current_depth: int = 0)
         data: The data structure to summarize
         max_depth: Maximum recursion depth to prevent infinite loops
         current_depth: Current recursion depth
+        skip_truncation: If True, returns data as-is without any truncation.
+            Useful when full context is needed for LLM response quality.
+            Can be controlled via config.yml context_summary settings.
 
     Returns:
-        Summarized version of the data structure
+        Summarized version of the data structure, or original data if skip_truncation=True
     """
+    # If skip_truncation is enabled, return data as-is (deep copy for safety)
+    if skip_truncation:
+        return data
+
     # Configuration constants - clearly visible "knobs" for tuning behavior
     LARGE_LIST_THRESHOLD = 10  # Lists larger than this will be truncated
     LARGE_DICT_THRESHOLD = 10  # Dicts larger than this will be truncated
@@ -128,13 +137,16 @@ def recursively_summarize_data(data, max_depth: int = 3, current_depth: int = 0)
         if len(data) > LARGE_LIST_THRESHOLD:
             # For large lists, show count and first few items
             sample_items = [
-                recursively_summarize_data(item, max_depth, current_depth + 1)
+                recursively_summarize_data(item, max_depth, current_depth + 1, skip_truncation)
                 for item in data[:LIST_SAMPLE_SIZE]
             ]
             return f"List with {len(data):,} items: {sample_items}... (truncated)"
         else:
             # For small lists, recursively summarize each item
-            return [recursively_summarize_data(item, max_depth, current_depth + 1) for item in data]
+            return [
+                recursively_summarize_data(item, max_depth, current_depth + 1, skip_truncation)
+                for item in data
+            ]
 
     # Handle dictionaries
     elif isinstance(data, dict):
@@ -142,13 +154,14 @@ def recursively_summarize_data(data, max_depth: int = 3, current_depth: int = 0)
             # For large dicts, show count and first few keys
             keys = list(data.keys())[:DICT_SAMPLE_SIZE]
             sample_data = {
-                k: recursively_summarize_data(data[k], max_depth, current_depth + 1) for k in keys
+                k: recursively_summarize_data(data[k], max_depth, current_depth + 1, skip_truncation)
+                for k in keys
             }
             return f"Dict with {len(data)} keys: {sample_data}... (showing first {DICT_SAMPLE_SIZE} keys only)"
         else:
             # For small dicts, recursively summarize each value
             return {
-                k: recursively_summarize_data(v, max_depth, current_depth + 1)
+                k: recursively_summarize_data(v, max_depth, current_depth + 1, skip_truncation)
                 for k, v in data.items()
             }
 
