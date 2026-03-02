@@ -251,6 +251,53 @@ class TestDeleteEntry:
         assert store.get_entry(e1.id) is not None
 
 
+class TestUpdateEntryMetadata:
+    """Tests for BaseStore.update_entry_metadata()."""
+
+    def test_update_single_field(self, tmp_path):
+        from osprey.mcp_server.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        entry = store.save_object("# Hello", title="Test")
+
+        result = store.update_entry_metadata(entry.id, category="document")
+        assert result is not None
+        assert result.category == "document"
+
+        # Verify persisted to disk
+        store2 = ArtifactStore(workspace_root=tmp_path)
+        reloaded = store2.get_entry(entry.id)
+        assert reloaded.category == "document"
+
+    def test_update_multiple_fields(self, tmp_path):
+        from osprey.mcp_server.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        entry = store.save_object("# Hello", title="Test")
+
+        result = store.update_entry_metadata(
+            entry.id, category="document", source_agent="data-visualizer"
+        )
+        assert result.category == "document"
+        assert result.source_agent == "data-visualizer"
+
+    def test_invalid_entry_id_returns_none(self, tmp_path):
+        from osprey.mcp_server.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        result = store.update_entry_metadata("nonexistent", category="x")
+        assert result is None
+
+    def test_invalid_attribute_raises(self, tmp_path):
+        from osprey.mcp_server.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        entry = store.save_object("# Hello", title="Test")
+
+        with pytest.raises(AttributeError, match="no attribute 'bogus_field'"):
+            store.update_entry_metadata(entry.id, bogus_field="oops")
+
+
 class TestCrossProcessSafety:
     """Tests for cross-process file-locking in ArtifactStore."""
 

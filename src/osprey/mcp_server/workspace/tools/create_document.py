@@ -163,8 +163,9 @@ async def create_document(
             tool_source="create_document",
             metadata={"figures_included": len(resolved_files)},
         )
-        pdf_entry.category = "document"
-        pdf_entry.source_agent = "data-visualizer"
+        store.update_entry_metadata(
+            pdf_entry.id, category="document", source_agent="data-visualizer"
+        )
         output_artifact_ids.append(pdf_entry.id)
 
         # Save .tex source
@@ -177,13 +178,10 @@ async def create_document(
             mime_type="application/x-tex",
             tool_source="create_document",
         )
-        tex_entry.category = "document"
-        tex_entry.source_agent = "data-visualizer"
+        store.update_entry_metadata(
+            tex_entry.id, category="document", source_agent="data-visualizer"
+        )
         output_artifact_ids.append(tex_entry.id)
-
-        # TODO: Replace with a public API method once BaseStore
-        # exposes one (currently only _save_index exists).
-        store._save_index()
 
     response: dict = {
         "status": "success",
