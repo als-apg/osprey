@@ -18,13 +18,13 @@ lattice-physics rule.
 
 ## Tool Tips
 
-- `execute`: Lives on the `python` server. Always use `execution_mode: "readonly"`.
-  AT code does not interact with the control system.
-- For interactive Plotly plots, use `create_interactive_plot` (workspace tool) —
-  it supports `at`, numpy, pandas, scipy, plotly. Call `save_artifact(fig, "title")` to produce output.
-- For static matplotlib plots, use `execute` with `execution_mode: "readonly"`.
-- Prefer `create_interactive_plot` over `execute` when the goal is a Plotly artifact —
-  it handles artifact registration automatically.
+- **Analysis scripts**: Write Python scripts to `osprey-workspace/scripts/` using the
+  Write tool. Use descriptive filenames (e.g., `compute_optics.py`, `fit_tunes.py`).
+  Scripts are automatically executed and results are returned to you — no second tool
+  call needed. The Write tool displays code as a clean diff view.
+- **Interactive plots**: Use `create_interactive_plot` (workspace tool) for Plotly
+  artifacts — it supports `at`, numpy, pandas, scipy, plotly.
+  Call `save_artifact(fig, "title")` to produce output.
 
 ## Lattice File
 
