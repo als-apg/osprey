@@ -265,6 +265,12 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             description="Compare optics before/after changes (lattice_design only)",
         ),
         PromptArtifact(
+            canonical_name="skills/lattice-evaluation",
+            template_path="claude/skills/lattice-evaluation/SKILL.md.j2",
+            output_path=".claude/skills/lattice-evaluation/SKILL.md",
+            description="Comprehensive lattice health evaluation (lattice_design only)",
+        ),
+        PromptArtifact(
             canonical_name="skills/resonance-diagram",
             template_path="claude/skills/resonance-diagram/SKILL.md.j2",
             output_path=".claude/skills/resonance-diagram/SKILL.md",
