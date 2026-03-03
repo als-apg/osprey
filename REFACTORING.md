@@ -180,7 +180,7 @@
 
 ---
 
-### [P1] RF-010: services/channel_finder/tools/ imports from cli.styles — layering violation (pending)
+### [P1] RF-010: services/channel_finder/tools/ imports from cli.styles — layering violation (completed)
 
 **Severity**: high | **Category**: dependency
 **Files**: `src/osprey/services/channel_finder/tools/preview_database.py`, `src/osprey/services/channel_finder/tools/validate_database.py`
@@ -188,10 +188,10 @@
 
 **Problem**: Two service-layer files (L4) import `console` and `get_active_theme` from `osprey.cli.styles` (L1). Service code should not depend on CLI presentation concerns.
 
-**Approach**: Move shared console/theme utilities to `osprey.utils.output` or inject an output abstraction into these tools.
+**Approach**: Console injection — removed CLI imports, added `console: Console | None = None` parameter to entry-point and rendering functions, defaulting to a plain `Console()`. CLI callers pass their themed console.
 
-**Status**: pending
-**Notes**:
+**Status**: completed
+**Completed date**: 2026-03-03
 
 ---
 
