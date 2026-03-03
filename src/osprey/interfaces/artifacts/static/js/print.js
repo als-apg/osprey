@@ -8,18 +8,16 @@
  * the print output is clean (no gallery chrome) and WYSIWYG:
  *
  *   - iframe-based (plot_html, table_html, dashboard_html, html,
- *     notebook, text, json): opens the source URL in a new window,
- *     injects print-cleanup styles, calls window.print().
+ *     notebook, markdown, text, json): opens a rendered URL in a new
+ *     window, injects print-cleanup styles, calls window.print().
+ *     Markdown and notebook use server-side rendered endpoints.
  *
  *   - image / plot_png: wraps the image in minimal HTML with a title
- *     header, opens via Blob URL in a print window.
+ *     header, opens via about:blank window for printing.
  *
- *   - markdown (rendered in DOM with KaTeX): clones the rendered
- *     .osprey-md-rendered node into a Blob-based print window that
- *     includes the KaTeX and highlight.js stylesheets.
- *
- *   - timeseries (Plotly.js in DOM): captures the chart via
- *     Plotly.toImage() as PNG, embeds in a print window.
+ *   - timeseries (Plotly.js in DOM): opens an about:blank window
+ *     synchronously (to avoid popup blocking), captures chart via
+ *     Plotly.toImage() as PNG, then populates the window and prints.
  */
 (function () {
   "use strict";
@@ -81,36 +79,52 @@
   }
 
   /**
-   * Opens a new window from an HTML string using a Blob URL.
-   * Waits for load, then triggers the browser print dialog.
+   * Opens a new window from an HTML string and triggers the print dialog.
+   *
+   * Uses about:blank instead of Blob URLs because Blob URLs get their own
+   * origin, which (a) breaks relative image URLs embedded in the HTML and
+   * (b) gets blocked by browsers when opened from an iframed page.
+   * about:blank windows inherit the opener's origin, avoiding both issues.
    */
   function openBlobAndPrint(html) {
-    const blob = new Blob([html], { type: "text/html" });
-    const blobUrl = URL.createObjectURL(blob);
-    const w = window.open(blobUrl, "_blank", "width=900,height=700");
+    const w = window.open("about:blank", "_blank", "width=900,height=700");
     if (!w) {
-      URL.revokeObjectURL(blobUrl);
       alert(MSG_POPUP_BLOCKED);
       return;
     }
 
-    function onReady() {
-      URL.revokeObjectURL(blobUrl);
-      w.focus();
-      w.print();
+    const parsed = new DOMParser().parseFromString(html, "text/html");
+
+    // Initialize the about:blank document with a minimal shell.
+    // Safe: writing a hardcoded empty document to our own about:blank window.
+    w.document.open();  // eslint-disable-line no-restricted-syntax
+    w.document.write("<!DOCTYPE html><html><head></head><body></body></html>");  // static content only
+    w.document.close();
+
+    // Transfer parsed content into the live document via DOM adoption
+    while (parsed.head.childNodes.length) {
+      w.document.head.appendChild(w.document.adoptNode(parsed.head.childNodes[0]));
+    }
+    while (parsed.body.childNodes.length) {
+      w.document.body.appendChild(w.document.adoptNode(parsed.body.childNodes[0]));
     }
 
-    w.addEventListener("load", onReady);
-    // Guard against the load event having already fired
-    if (w.document.readyState === "complete") onReady();
+    // Wait for images/stylesheets to load before printing
+    w.addEventListener("load", function () { w.focus(); w.print(); });
+    if (w.document.readyState === "complete") { w.focus(); w.print(); }
   }
 
   // ---- Per-type print strategies ----
 
   function printIframe(a) {
-    const url = a.artifact_type === "notebook"
-      ? "/api/notebooks/" + a.id + "/rendered"
-      : fileUrl(a);
+    let url;
+    if (a.artifact_type === "notebook") {
+      url = "/api/notebooks/" + a.id + "/rendered";
+    } else if (a.artifact_type === "markdown") {
+      url = "/api/markdown/" + a.id + "/rendered";
+    } else {
+      url = fileUrl(a);
+    }
 
     const w = window.open(url, "_blank", "width=900,height=700");
     if (!w) {
@@ -148,60 +162,6 @@
     openBlobAndPrint(html);
   }
 
-  function printMarkdown(a) {
-    const mdEl = document.getElementById("md-viewport");
-    const rendered = mdEl && mdEl.querySelector(".osprey-md-rendered");
-
-    if (!rendered) {
-      fetch(fileUrl(a))
-        .then(function (r) { return r.text(); })
-        .then(function (text) {
-          openBlobAndPrint(
-            "<!DOCTYPE html><html><head><meta charset='UTF-8'>" +
-            "<title>" + esc(a.title) + "</title>" +
-            "<style>" + PRINT_STYLES +
-            " pre { white-space: pre-wrap; font-family: monospace; }</style></head><body>" +
-            headerHtml(a) +
-            '<div class="print-body"><pre>' + esc(text) + "</pre></div></body></html>"
-          );
-        })
-        .catch(function (err) {
-          console.error("[print.js] Failed to fetch markdown:", err);
-          alert("Could not load markdown source for printing.");
-        });
-      return;
-    }
-
-    // Clone rendered HTML (includes KaTeX output as DOM elements)
-    const contentHtml = rendered.outerHTML;
-
-    // Find KaTeX and highlight.js stylesheets from the host page
-    let extraLinks = "";
-    document.querySelectorAll('link[rel="stylesheet"]').forEach(function (link) {
-      if (link.href && (link.href.indexOf("katex") !== -1 || link.id === "hljs-theme")) {
-        extraLinks += '<link rel="stylesheet" href="' + esc(link.href) + '">';
-      }
-    });
-
-    const html = "<!DOCTYPE html><html><head><meta charset='UTF-8'>" +
-      "<title>" + esc(a.title) + "</title>" +
-      extraLinks +
-      "<style>" + PRINT_STYLES +
-      ".osprey-md-rendered { font-family: system-ui, sans-serif; font-size: 14px; " +
-      "  line-height: 1.7; color: #111; }\n" +
-      ".osprey-md-rendered h1,.osprey-md-rendered h2,.osprey-md-rendered h3 { margin-top: 1.2em; }\n" +
-      ".osprey-md-rendered pre,.osprey-md-rendered code { background: #f5f5f5; border-radius: 3px; " +
-      "  padding: 2px 4px; font-size: 12px; }\n" +
-      ".osprey-md-rendered pre { padding: 12px; overflow-x: auto; }\n" +
-      ".osprey-md-rendered table { border-collapse: collapse; width: 100%; }\n" +
-      ".osprey-md-rendered th,.osprey-md-rendered td { border: 1px solid #ddd; padding: 6px 10px; }\n" +
-      "</style></head><body>" +
-      headerHtml(a) +
-      '<div class="print-body">' + contentHtml + "</div></body></html>";
-
-    openBlobAndPrint(html);
-  }
-
   function printTimeseries(a) {
     const chartEl = document.querySelector("#ts-viewport [data-ts-chart] .js-plotly-plot");
 
@@ -210,18 +170,53 @@
       return;
     }
 
+    // Open the window synchronously during the click handler so it isn't
+    // blocked as a popup.  Plotly.toImage() is async — by the time its
+    // .then() runs we've left the user-gesture context.
+    const w = window.open("about:blank", "_blank", "width=900,height=700");
+    if (!w) {
+      alert(MSG_POPUP_BLOCKED);
+      return;
+    }
+
+    // Show loading message while capturing
+    // Safe: writing static HTML to our own about:blank window.
+    w.document.open();  // eslint-disable-line no-restricted-syntax
+    w.document.write(  // static content only
+      "<!DOCTYPE html><html><head><style>body{display:flex;align-items:center;" +
+      "justify-content:center;height:100vh;font-family:system-ui;color:#666;}" +
+      "</style></head><body><p>Capturing chart\u2026</p></body></html>"
+    );
+    w.document.close();
+
     Plotly.toImage(chartEl, { format: "png", width: 1200, height: 600 })
       .then(function (dataUrl) {
-        const html = "<!DOCTYPE html><html><head><meta charset='UTF-8'>" +
+        var html = "<!DOCTYPE html><html><head><meta charset='UTF-8'>" +
           "<title>" + esc(a.title) + "</title>" +
           "<style>" + PRINT_STYLES + "</style></head><body>" +
           headerHtml(a) +
           '<div class="print-body"><img src="' + dataUrl +
           '" alt="' + esc(a.title) + ' chart"></div></body></html>';
-        openBlobAndPrint(html);
+
+        var parsed = new DOMParser().parseFromString(html, "text/html");
+
+        // Replace the loading content with the chart
+        // Safe: writing a hardcoded empty document to our own window.
+        w.document.open();  // eslint-disable-line no-restricted-syntax
+        w.document.write("<!DOCTYPE html><html><head></head><body></body></html>");  // static content only
+        w.document.close();
+        while (parsed.head.childNodes.length) {
+          w.document.head.appendChild(w.document.adoptNode(parsed.head.childNodes[0]));
+        }
+        while (parsed.body.childNodes.length) {
+          w.document.body.appendChild(w.document.adoptNode(parsed.body.childNodes[0]));
+        }
+        w.focus();
+        w.print();
       })
       .catch(function (err) {
         console.error("[print.js] Plotly.toImage failed:", err);
+        try { w.close(); } catch (_) {}
         alert("Could not capture chart for printing.");
       });
   }
@@ -247,12 +242,12 @@
       case "json":
         printIframe(a);
         break;
+      case "markdown":
+        printIframe(a);
+        break;
       case "plot_png":
       case "image":
         printImage(a);
-        break;
-      case "markdown":
-        printMarkdown(a);
         break;
       default:
         printIframe(a);

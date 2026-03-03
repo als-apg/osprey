@@ -188,6 +188,133 @@ _RESPONSIVE_SNIPPETS = {
     "dashboard_html": _RESPONSIVE_TABLE_HTML,  # Bokeh handles its own JS sizing
 }
 
+# Standalone HTML page for server-side rendered markdown.
+# Embeds raw markdown as JSON inside a non-executable <script> tag, then
+# renders client-side using the same marked + hljs + KaTeX pipeline as gallery.js.
+_MARKDOWN_PAGE_TEMPLATE = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title}</title>
+<link rel="stylesheet"
+  href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-light.min.css">
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<link rel="stylesheet"
+  href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<style>
+body {{
+  margin: 0; padding: 24px 32px;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #fff; color: #111;
+}}
+.osprey-md-rendered {{
+  font-size: 14px; line-height: 1.7; max-width: 860px; margin: 0 auto;
+}}
+.osprey-md-rendered h1,.osprey-md-rendered h2,.osprey-md-rendered h3 {{
+  margin-top: 1.2em;
+}}
+.osprey-md-rendered pre,.osprey-md-rendered code {{
+  background: #f5f5f5; border-radius: 3px; padding: 2px 4px; font-size: 12px;
+}}
+.osprey-md-rendered pre {{ padding: 12px; overflow-x: auto; }}
+.osprey-md-rendered pre code {{ padding: 0; background: transparent; }}
+.osprey-md-rendered table {{ border-collapse: collapse; width: 100%; }}
+.osprey-md-rendered th,.osprey-md-rendered td {{
+  border: 1px solid #ddd; padding: 6px 10px;
+}}
+.osprey-md-rendered blockquote {{
+  border-left: 3px solid #ddd; margin: 1em 0; padding: 0.5em 1em; color: #555;
+}}
+.osprey-md-rendered img {{ max-width: 100%; height: auto; }}
+@media print {{
+  body {{ padding: 12px; }}
+}}
+</style>
+</head>
+<body>
+<script type="application/json" id="md-source">{md_json}</script>
+<div class="osprey-md-rendered" id="md-rendered"></div>
+<script>
+// Renders markdown from the embedded JSON source using marked + hljs + KaTeX.
+// Content originates from trusted local artifact files; marked.parse() and
+// katex.renderToString() both produce sanitized HTML output.
+(function() {{
+  var esc = function(s) {{
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')
+            .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }};
+  var renderer = {{
+    code: function(args) {{
+      var src = args.text || '';
+      var lang = args.lang || '';
+      var highlighted = esc(src);
+      if (typeof hljs !== 'undefined' && src) {{
+        try {{
+          if (lang && hljs.getLanguage(lang)) {{
+            highlighted = hljs.highlight(src, {{ language: lang }}).value;
+          }} else {{
+            highlighted = hljs.highlightAuto(src).value;
+          }}
+        }} catch(e) {{}}
+      }}
+      return '<pre><code class="hljs' + (lang ? ' language-' + lang : '') +
+             '">' + highlighted + '</code></pre>';
+    }}
+  }};
+  marked.use({{ gfm: true, breaks: false, renderer: renderer }});
+
+  function renderMath(text) {{
+    if (typeof katex === 'undefined') return marked.parse(text);
+    var placeholders = [], idx = 0;
+    function ph(html) {{
+      var key = '\\x00MATH' + (idx++) + '\\x00';
+      placeholders.push({{ key: key, html: html }});
+      return key;
+    }}
+    function rk(expr, dm) {{
+      try {{
+        return katex.renderToString(expr.trim(), {{
+          displayMode: dm, throwOnError: false, strict: false
+        }});
+      }} catch(e) {{
+        return '<span class="katex-error">' + esc(expr) + '</span>';
+      }}
+    }}
+    text = text.replace(/\\$\\$([\\s\\S]+?)\\$\\$/g, function(_, e) {{ return ph(rk(e, true)); }});
+    text = text.replace(/(?<!\\$)(?<!\\d)\\$(?!\\$)(.+?)(?<!\\$)\\$(?!\\d)/g,
+      function(_, e) {{ return ph(rk(e, false)); }});
+    var html;
+    try {{ html = marked.parse(text); }}
+    catch(e) {{ html = '<p>' + esc(text) + '</p>'; }}
+    for (var i = 0; i < placeholders.length; i++) {{
+      html = html.replace(placeholders[i].key, placeholders[i].html);
+    }}
+    return html;
+  }}
+
+  var src = JSON.parse(document.getElementById('md-source').textContent);
+  // Safe: marked.parse() and katex.renderToString() produce sanitized HTML
+  // from trusted local artifact content (not user input from the web).
+  document.getElementById('md-rendered').innerHTML = renderMath(src);  // trusted content
+}})();
+</script>
+</body>
+</html>"""
+
+
+def _build_markdown_page(md_source: str, title: str) -> str:
+    """Build a standalone HTML page that renders markdown client-side."""
+    # Escape for safe embedding inside <script type="application/json">
+    md_json = json.dumps(md_source).replace("</", r"<\/")
+    return _MARKDOWN_PAGE_TEMPLATE.format(
+        title=title.replace("&", "&amp;").replace("<", "&lt;"),
+        md_json=md_json,
+    )
+
 
 def _inject_html_snippet(html_bytes: bytes, snippet: str) -> bytes:
     """Inject an HTML snippet (CSS/JS) into HTML content, before </head>."""
@@ -565,6 +692,23 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=500, detail=f"Notebook rendering failed: {exc}"
             ) from exc
+
+    @app.get("/api/markdown/{artifact_id}/rendered")
+    async def render_markdown(artifact_id: str):
+        """Render a markdown artifact to a standalone HTML page."""
+        entry = store.get_entry(artifact_id)
+        if not entry:
+            raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
+        if entry.artifact_type != "markdown":
+            raise HTTPException(status_code=400, detail="Artifact is not a markdown file")
+
+        filepath = store.get_file_path(artifact_id)
+        if not filepath or not filepath.exists():
+            raise HTTPException(status_code=404, detail="Markdown file not found on disk")
+
+        md_source = filepath.read_text(encoding="utf-8", errors="replace")
+        html = _build_markdown_page(md_source, entry.title or entry.filename or "Markdown")
+        return HTMLResponse(content=html)
 
     @app.get("/api/notebooks/{artifact_id}/interactive")
     async def interactive_notebook(artifact_id: str):
