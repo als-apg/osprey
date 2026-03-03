@@ -51,6 +51,7 @@ const SETTINGS_FIELDS = {
       { key: 'nturns', label: 'Turns', unit: '', type: 'int', min: 64, max: 8192, step: 64 },
       { key: 'n_angles', label: 'Angles', unit: '', type: 'int', min: 5, max: 72, step: 1 },
       { key: 'amp_max_mm', label: 'Max amp', unit: 'mm', type: 'float', min: 1, max: 100, step: 1 },
+      { key: 'n_bisect', label: 'Bisect steps', unit: '', type: 'int', min: 5, max: 30, step: 1 },
     ],
   },
   lma: {
@@ -60,6 +61,7 @@ const SETTINGS_FIELDS = {
       { key: 'n_refpts', label: 'Ref pts', unit: '', type: 'int', min: 10, max: 500, step: 10 },
       { key: 'dp_max_pct', label: 'dp max', unit: '%', type: 'float', min: 0.5, max: 20, step: 0.5 },
       { key: 'n_sectors', label: 'Sectors', unit: '', type: 'int_or_null', min: 1, max: 100, step: 1 },
+      { key: 'n_bisect', label: 'Bisect steps', unit: '', type: 'int', min: 5, max: 30, step: 1 },
     ],
   },
   chromaticity: {

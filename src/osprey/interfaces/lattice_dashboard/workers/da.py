@@ -57,13 +57,13 @@ def compute_da(
     nturns: int = 512,
     n_angles: int = 19,
     amp_max: float = 0.030,
+    n_bisect: int = 15,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
     """Compute DA boundary and return (da_x_full, da_y_full, da_amplitudes, area_mm2)."""
     angles_deg = np.linspace(0, 90, n_angles)
     angles_rad = np.radians(angles_deg)
 
     amp_min = 0.0001
-    n_bisect = 15
 
     da_amplitudes = np.zeros(n_angles)
     da_x = np.zeros(n_angles)
@@ -164,8 +164,11 @@ def main() -> None:
     nturns = settings["nturns"]
     n_angles = settings["n_angles"]
     amp_max = settings["amp_max_mm"] / 1000.0
+    n_bisect = settings["n_bisect"]
 
-    da_x, da_y, _, area_mm2 = compute_da(ring, nturns=nturns, n_angles=n_angles, amp_max=amp_max)
+    da_x, da_y, _, area_mm2 = compute_da(
+        ring, nturns=nturns, n_angles=n_angles, amp_max=amp_max, n_bisect=n_bisect,
+    )
 
     raw: dict = {
         "da_x": da_x.tolist(),
@@ -178,7 +181,8 @@ def main() -> None:
     baseline_ring = load_baseline_ring(state_path, state)
     if baseline_ring is not None:
         bda_x, bda_y, _, barea = compute_da(
-            baseline_ring, nturns=nturns, n_angles=n_angles, amp_max=amp_max
+            baseline_ring, nturns=nturns, n_angles=n_angles, amp_max=amp_max,
+            n_bisect=n_bisect,
         )
         raw["baseline"] = {
             "da_x": bda_x.tolist(),
