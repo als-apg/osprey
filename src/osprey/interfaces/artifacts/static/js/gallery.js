@@ -713,6 +713,13 @@
           <span class="preview-meta-label">Source</span>
           <span class="preview-meta-value">${escapeHtml(a.tool_source)}</span>
         </span>` : ""}
+        <span class="preview-meta-item preview-meta-path" id="preview-copy-path" title="Click to copy path">
+          <span class="preview-meta-label">Path</span>
+          <span class="preview-meta-value preview-meta-path-value">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            osprey-workspace/artifacts/${escapeHtml(a.filename)}
+          </span>
+        </span>
       </div>
       <div class="preview-viewport">
         ${viewportHtml}
@@ -735,6 +742,18 @@
         })
         .catch((err) => console.error("Delete failed:", err));
     });
+
+    // Copy path to clipboard
+    const copyPathBtn = document.getElementById("preview-copy-path");
+    if (copyPathBtn) {
+      copyPathBtn.addEventListener("click", () => {
+        const path = `osprey-workspace/artifacts/${a.filename}`;
+        navigator.clipboard.writeText(path).then(() => {
+          copyPathBtn.classList.add("copied");
+          setTimeout(() => copyPathBtn.classList.remove("copied"), 1500);
+        });
+      });
+    }
 
     // Fullscreen buttons
     const enterBtn = document.getElementById("fullscreen-enter");
@@ -906,6 +925,65 @@
     marked.use({ gfm: true, breaks: false, renderer });
   }
 
+  /**
+   * Render LaTeX math in markdown text using KaTeX.
+   *
+   * Strategy: extract $$...$$ (display) and $...$ (inline) blocks BEFORE
+   * marked.js parses the text (to prevent marked from mangling LaTeX
+   * special characters like _ and ^).  Replace with placeholders, run
+   * marked.parse(), then swap KaTeX-rendered HTML back in.
+   */
+  function renderMathInMarkdown(text) {
+    if (typeof katex === "undefined") return marked.parse(text);
+
+    const placeholders = [];
+    let idx = 0;
+
+    function placeholder(html) {
+      const key = `\x00MATH${idx++}\x00`;
+      placeholders.push({ key, html });
+      return key;
+    }
+
+    function renderKatex(expr, displayMode) {
+      try {
+        return katex.renderToString(expr.trim(), {
+          displayMode,
+          throwOnError: false,
+          strict: false,
+        });
+      } catch {
+        const cls = displayMode ? "katex-error-display" : "katex-error-inline";
+        return `<span class="${cls}">${escapeHtml(expr)}</span>`;
+      }
+    }
+
+    // Pass 1: display math $$...$$ (must come before inline $...$)
+    text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr) =>
+      placeholder(renderKatex(expr, true))
+    );
+
+    // Pass 2: inline math $...$ (not preceded/followed by digit to avoid $5)
+    text = text.replace(/(?<!\$)(?<!\d)\$(?!\$)(.+?)(?<!\$)\$(?!\d)/g, (_, expr) =>
+      placeholder(renderKatex(expr, false))
+    );
+
+    // Run marked on the placeholder-injected text
+    let html;
+    try {
+      html = marked.parse(text);
+    } catch {
+      html = `<p>${escapeHtml(text)}</p>`;
+    }
+
+    // Swap placeholders back in (safe: KaTeX output is sanitized by the library)
+    for (const { key, html: mathHtml } of placeholders) {
+      html = html.replace(key, mathHtml);
+    }
+
+    return html;
+  }
+
   async function renderMarkdownView(container, artifact) {
     container.innerHTML = '<div style="padding:16px;color:var(--text-muted)">Loading...</div>';
     try {
@@ -919,11 +997,9 @@
       const mdDiv = document.createElement("div");
       mdDiv.className = "osprey-md-rendered";
       if (typeof marked !== "undefined") {
-        try {
-          mdDiv.innerHTML = marked.parse(text);
-        } catch {
-          mdDiv.textContent = text;
-        }
+        // Uses innerHTML with marked.parse() + katex.renderToString() output,
+        // both of which produce sanitized HTML from trusted local artifact files.
+        mdDiv.innerHTML = renderMathInMarkdown(text);
       } else {
         mdDiv.textContent = text;
       }

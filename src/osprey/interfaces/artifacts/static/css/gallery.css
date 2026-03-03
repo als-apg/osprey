@@ -1402,6 +1402,26 @@ body.resizing iframe {
   color: var(--text-secondary);
 }
 
+.preview-meta-path {
+  cursor: pointer;
+  margin-left: auto;
+  transition: opacity 0.15s;
+}
+.preview-meta-path:hover {
+  opacity: 0.8;
+}
+.preview-meta-path-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.preview-meta-path.copied .preview-meta-path-value::after {
+  content: "Copied!";
+  color: var(--color-success, #22c55e);
+  margin-left: 4px;
+  font-weight: 600;
+}
+
 /* Preview viewport */
 .preview-viewport {
   flex: 1;
@@ -2826,3 +2846,31 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 .osprey-md-rendered strong { color: var(--text-primary); font-weight: 600; }
 .osprey-md-rendered em { color: var(--text-secondary); font-style: italic; }
 .osprey-md-rendered img { max-width: 100%; border-radius: var(--radius-md); margin: 0.5em 0; }
+
+/* KaTeX math rendering */
+.osprey-md-rendered .katex-display {
+  margin: 1em 0;
+  padding: 8px 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.osprey-md-rendered .katex { color: var(--text-primary); font-size: 1.1em; }
+.osprey-md-rendered .katex-error-display {
+  display: block;
+  margin: 0.8em 0;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-left: 3px solid var(--color-amber, #f59e0b);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-amber-light, #e8c9a0);
+  white-space: pre-wrap;
+}
+.osprey-md-rendered .katex-error-inline {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-amber-light, #e8c9a0);
+  background: var(--bg-elevated);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
