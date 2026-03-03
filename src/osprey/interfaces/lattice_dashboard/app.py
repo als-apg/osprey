@@ -34,10 +34,10 @@ from osprey.interfaces.lattice_dashboard.workers.chromaticity import (
     build_figure as build_chromaticity,
 )
 from osprey.interfaces.lattice_dashboard.workers.da import build_figure as build_da
-from osprey.interfaces.lattice_dashboard.workers.fma import build_figure as build_fma
 from osprey.interfaces.lattice_dashboard.workers.footprint import (
     build_figure as build_footprint,
 )
+from osprey.interfaces.lattice_dashboard.workers.lma import build_figure as build_lma
 from osprey.interfaces.lattice_dashboard.workers.optics import build_figure as build_optics
 from osprey.interfaces.lattice_dashboard.workers.resonance import (
     build_figure as build_resonance,
@@ -90,11 +90,16 @@ def _build_footprint(raw: dict) -> go.Figure:
     if raw.get("baseline"):
         b = raw["baseline"]
         baseline = (np.array(b["nux"]), np.array(b["nuy"]), np.array(b["amps"]))
+    design_tune = tuple(raw["design_tune"]) if raw.get("design_tune") else None
+    baseline_tune = tuple(raw["baseline_tune"]) if raw.get("baseline_tune") else None
     return build_footprint(
         np.array(raw["nux"]),
         np.array(raw["nuy"]),
         np.array(raw["amps"]),
-        baseline,
+        np.array(raw.get("diffusion", [])),
+        design_tune=design_tune,
+        baseline_tune=baseline_tune,
+        baseline=baseline,
     )
 
 
@@ -121,19 +126,17 @@ def _build_da_figure(raw: dict) -> go.Figure:
     )
 
 
-def _build_fma_figure(raw: dict) -> go.Figure:
-    baseline_tune = None
-    if raw.get("baseline_tune"):
-        baseline_tune = tuple(raw["baseline_tune"])
-    design_tune = None
-    if raw.get("design_tune"):
-        design_tune = tuple(raw["design_tune"])
-    return build_fma(
-        np.array(raw["nux_map"]),
-        np.array(raw["nuy_map"]),
-        np.array(raw["diffusion"]),
-        design_tune=design_tune,
-        baseline_tune=baseline_tune,
+def _build_lma_figure(raw: dict) -> go.Figure:
+    baseline = None
+    if raw.get("baseline"):
+        b = raw["baseline"]
+        baseline = (np.array(b["s_pos"]), np.array(b["dp_plus"]), np.array(b["dp_minus"]))
+    return build_lma(
+        np.array(raw["s_pos"]),
+        np.array(raw["dp_plus"]),
+        np.array(raw["dp_minus"]),
+        raw.get("lattice_elements", []),
+        baseline=baseline,
     )
 
 
@@ -143,7 +146,7 @@ FIGURE_BUILDERS: dict[str, Any] = {
     "footprint": _build_footprint,
     "resonance": _build_resonance,
     "da": _build_da_figure,
-    "fma": _build_fma_figure,
+    "lma": _build_lma_figure,
 }
 
 

@@ -49,7 +49,7 @@ class ComputeManager:
         return launched
 
     def refresh_verification(self) -> list[str]:
-        """Launch DA + FMA verification workers."""
+        """Launch DA + LMA verification workers."""
         launched = []
         for name in VERIFICATION_FIGURES:
             self._launch_worker(name)
