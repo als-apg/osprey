@@ -14,12 +14,12 @@ import json
 
 import pytest
 
+from osprey.mcp_server.workspace.tools.submit_response import submit_response
 from osprey.stores.artifact_store import (
     get_artifact_store,
     initialize_artifact_store,
     reset_artifact_store,
 )
-from osprey.mcp_server.workspace.tools.submit_response import submit_response
 
 # Extract the raw async function from the FastMCP FunctionTool wrapper
 _fn = submit_response.fn if hasattr(submit_response, "fn") else submit_response

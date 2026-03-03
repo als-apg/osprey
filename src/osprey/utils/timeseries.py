@@ -7,9 +7,7 @@ used by both the Artifact Gallery interface and MCP server tools.
 import math
 
 
-def lttb_downsample(
-    index: list, data: list[list], max_points: int
-) -> tuple[list, list[list]]:
+def lttb_downsample(index: list, data: list[list], max_points: int) -> tuple[list, list[list]]:
     """Largest-Triangle-Three-Buckets downsampling.
 
     Operates on split-orient DataFrame arrays.  Uses the first data column as
@@ -53,8 +51,7 @@ def lttb_downsample(
         best = b_start
         for j in range(b_start, b_end):
             area = abs(
-                (x[a_idx] - avg_x) * (y[j] - y[a_idx])
-                - (x[a_idx] - x[j]) * (avg_y - y[a_idx])
+                (x[a_idx] - avg_x) * (y[j] - y[a_idx]) - (x[a_idx] - x[j]) * (avg_y - y[a_idx])
             )
             if area > max_area:
                 max_area = area

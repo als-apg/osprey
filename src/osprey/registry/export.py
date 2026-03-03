@@ -71,9 +71,7 @@ def _save_export_data(export_data: dict[str, Any], output_dir: str) -> None:
             json.dump(export_data, f, indent=2, ensure_ascii=False)
 
         logger.info(f"Registry export saved to: {export_file}")
-        logger.info(
-            f"Export contains: {export_data['metadata']['total_connectors']} connectors"
-        )
+        logger.info(f"Export contains: {export_data['metadata']['total_connectors']} connectors")
 
     except Exception as e:
         logger.error(f"Failed to save export data: {e}")

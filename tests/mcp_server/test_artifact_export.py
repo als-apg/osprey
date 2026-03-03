@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 import pytest
 
-from osprey.stores.artifact_store import ArtifactStore
 from osprey.mcp_server.export.converter import PlaywrightNotInstalledError
+from osprey.stores.artifact_store import ArtifactStore
 from tests.mcp_server.conftest import get_tool_fn
 
 

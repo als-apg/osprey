@@ -5,10 +5,10 @@ from unittest.mock import PropertyMock, patch
 
 import pytest
 
-from osprey.services.channel_finder.feedback.store import FeedbackStore
 from osprey.mcp_server.channel_finder_hierarchical.registry import (
     initialize_cf_hier_registry,
 )
+from osprey.services.channel_finder.feedback.store import FeedbackStore
 from tests.mcp_server.channel_finder_hierarchical.conftest import get_tool_fn
 
 

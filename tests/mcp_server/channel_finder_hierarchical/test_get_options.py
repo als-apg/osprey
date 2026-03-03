@@ -27,8 +27,7 @@ def test_get_options_happy_path(tmp_path, monkeypatch):
         {"name": "BR", "description": "Booster Ring"},
     ]
     with patch(
-        "osprey.mcp_server.channel_finder_hierarchical.registry."
-        "ChannelFinderHierRegistry.database",
+        "osprey.mcp_server.channel_finder_hierarchical.registry.ChannelFinderHierRegistry.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -55,8 +54,7 @@ def test_get_options_with_selections(tmp_path, monkeypatch):
         {"name": "BPM", "description": "Beam Position Monitor"},
     ]
     with patch(
-        "osprey.mcp_server.channel_finder_hierarchical.registry."
-        "ChannelFinderHierRegistry.database",
+        "osprey.mcp_server.channel_finder_hierarchical.registry.ChannelFinderHierRegistry.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -79,8 +77,7 @@ def test_get_options_value_error(tmp_path, monkeypatch):
     mock_db = MagicMock()
     mock_db.get_options_at_level.side_effect = ValueError("Unknown level: 'bogus'")
     with patch(
-        "osprey.mcp_server.channel_finder_hierarchical.registry."
-        "ChannelFinderHierRegistry.database",
+        "osprey.mcp_server.channel_finder_hierarchical.registry.ChannelFinderHierRegistry.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -101,8 +98,7 @@ def test_get_options_internal_error(tmp_path, monkeypatch):
     """Unexpected exception returns internal_error."""
     _setup(tmp_path, monkeypatch)
     with patch(
-        "osprey.mcp_server.channel_finder_hierarchical.registry."
-        "ChannelFinderHierRegistry.database",
+        "osprey.mcp_server.channel_finder_hierarchical.registry.ChannelFinderHierRegistry.database",
         new_callable=PropertyMock,
         side_effect=RuntimeError("db exploded"),
     ):

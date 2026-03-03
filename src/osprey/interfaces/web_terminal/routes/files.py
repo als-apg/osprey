@@ -101,9 +101,7 @@ async def file_content(filepath: str, request: Request):
     try:
         content = resolved.read_text(encoding="utf-8")
     except UnicodeDecodeError:
-        raise HTTPException(
-            status_code=415, detail="Binary file — preview not supported"
-        ) from None
+        raise HTTPException(status_code=415, detail="Binary file — preview not supported") from None
 
     return {
         "path": filepath,

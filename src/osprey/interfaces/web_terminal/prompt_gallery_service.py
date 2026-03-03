@@ -93,9 +93,7 @@ class PromptGalleryService:
                 registry_names.add(art.canonical_name)
                 is_owned = art.canonical_name in self._user_owned
                 category = (
-                    art.canonical_name.split("/")[0]
-                    if "/" in art.canonical_name
-                    else "config"
+                    art.canonical_name.split("/")[0] if "/" in art.canonical_name else "config"
                 )
                 fm = self._read_front_matter_from_disk(rel_path, art)
                 summary = fm.get("summary") or art.description

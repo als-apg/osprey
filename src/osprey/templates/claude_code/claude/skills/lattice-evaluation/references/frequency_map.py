@@ -19,10 +19,10 @@ print("Frequency Map Analysis")
 print("=" * 50)
 
 # --- Parameters ---
-n_half = 256       # turns per half => 512 total
-nx, ny = 15, 15    # grid size
-x_max = 0.015      # 15 mm
-y_max = 0.008      # 8 mm
+n_half = 256  # turns per half => 512 total
+nx, ny = 15, 15  # grid size
+x_max = 0.015  # 15 mm
+y_max = 0.008  # 8 mm
 
 # Grid of initial conditions (avoid zero — use small offset)
 x_vals = np.linspace(0.0005, x_max, nx)
@@ -81,8 +81,8 @@ for iy, y0 in enumerate(y_vals):
         nuy1 = get_tune_fft(y_tbt[:n_half])
 
         # Second half tunes
-        nux2 = get_tune_fft(x_tbt[n_half:2 * n_half])
-        nuy2 = get_tune_fft(y_tbt[n_half:2 * n_half])
+        nux2 = get_tune_fft(x_tbt[n_half : 2 * n_half])
+        nuy2 = get_tune_fft(y_tbt[n_half : 2 * n_half])
 
         # Store average tune
         nux_map[iy, ix] = 0.5 * (nux1 + nux2)
@@ -132,7 +132,7 @@ nuy_range = (np.nanmin(nuy_map) - 0.005, np.nanmax(nuy_map) + 0.005)
 for order in range(1, 5):
     for m in range(-order, order + 1):
         n = order - abs(m)
-        for n_sign in ([n, -n] if n != 0 else [0]):
+        for n_sign in [n, -n] if n != 0 else [0]:
             if m == 0 and n_sign == 0:
                 continue
             for p in range(-100, 101):

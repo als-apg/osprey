@@ -29,8 +29,7 @@ def test_build_channels_happy_path(tmp_path, monkeypatch):
     ]
     mock_db.validate_channel.return_value = True
     with patch(
-        "osprey.mcp_server.channel_finder_hierarchical.registry."
-        "ChannelFinderHierRegistry.database",
+        "osprey.mcp_server.channel_finder_hierarchical.registry.ChannelFinderHierRegistry.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -64,8 +63,7 @@ def test_build_channels_with_invalid_channels(tmp_path, monkeypatch):
     ]
     mock_db.validate_channel.side_effect = lambda ch: ch != "SR:BPM:99:X"
     with patch(
-        "osprey.mcp_server.channel_finder_hierarchical.registry."
-        "ChannelFinderHierRegistry.database",
+        "osprey.mcp_server.channel_finder_hierarchical.registry.ChannelFinderHierRegistry.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -92,8 +90,7 @@ def test_build_channels_value_error(tmp_path, monkeypatch):
         "Missing required level: 'system'"
     )
     with patch(
-        "osprey.mcp_server.channel_finder_hierarchical.registry."
-        "ChannelFinderHierRegistry.database",
+        "osprey.mcp_server.channel_finder_hierarchical.registry.ChannelFinderHierRegistry.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -114,8 +111,7 @@ def test_build_channels_internal_error(tmp_path, monkeypatch):
     """Unexpected exception returns internal_error."""
     _setup(tmp_path, monkeypatch)
     with patch(
-        "osprey.mcp_server.channel_finder_hierarchical.registry."
-        "ChannelFinderHierRegistry.database",
+        "osprey.mcp_server.channel_finder_hierarchical.registry.ChannelFinderHierRegistry.database",
         new_callable=PropertyMock,
         side_effect=RuntimeError("db crashed"),
     ):

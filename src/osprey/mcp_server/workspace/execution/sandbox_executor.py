@@ -611,9 +611,7 @@ async def execute_sandbox_code(
 
     workspace_root = resolve_workspace_root()
     project_root = workspace_root.parent
-    wrapped_code = _create_sandbox_wrapper(
-        code, execution_folder, workspace_root, project_root
-    )
+    wrapped_code = _create_sandbox_wrapper(code, execution_folder, workspace_root, project_root)
 
     # 3. Write script and spawn subprocess
     script_path = execution_folder / "wrapped_script.py"

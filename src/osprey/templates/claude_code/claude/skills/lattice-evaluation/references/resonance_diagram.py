@@ -38,7 +38,7 @@ fig = go.Figure()
 for order in range(1, 6):
     for m in range(-order, order + 1):
         n = order - abs(m)
-        for n_sign in ([n, -n] if n != 0 else [0]):
+        for n_sign in [n, -n] if n != 0 else [0]:
             if m == 0 and n_sign == 0:
                 continue
             # Find integer p values that put the line in the visible region
@@ -84,8 +84,7 @@ for order in range(1, 6):
                             legendgroup=f"order{order}",
                             showlegend=False,
                             hovertemplate=(
-                                f"{m}·ν<sub>x</sub> + {n_sign}·ν<sub>y</sub> = {p}"
-                                "<extra></extra>"
+                                f"{m}·ν<sub>x</sub> + {n_sign}·ν<sub>y</sub> = {p}<extra></extra>"
                             ),
                         )
                     )

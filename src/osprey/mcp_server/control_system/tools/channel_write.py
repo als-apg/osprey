@@ -7,9 +7,9 @@ Tool docstring is the static prompt visible to Claude Code.
 import json
 import logging
 
-from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.control_system.error_handling import ToolError, connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
+from osprey.mcp_server.errors import make_error
 
 logger = logging.getLogger("osprey.mcp_server.tools.channel_write")
 

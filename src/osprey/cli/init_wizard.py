@@ -13,7 +13,6 @@ from typing import Any
 
 from osprey.cli.styles import (
     Messages,
-    Styles,
     console,
     get_questionary_style,
 )
@@ -182,7 +181,6 @@ def configure_api_key(
     Returns:
         True if API key configured successfully, False otherwise
     """
-    from osprey.cli.interactive_menu import get_provider_metadata
 
     console.print(f"\n{Messages.header('API Key Configuration')}\n")
 
