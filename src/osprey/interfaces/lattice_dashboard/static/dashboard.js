@@ -456,10 +456,10 @@ function renderPlotly(name, figData) {
   // Apply dark theme overrides
   const layout = { ...figData.layout, ...DARK_LAYOUT };
 
-  // Preserve subplot axes if present
+  // Merge dark axis colors into ALL axes (not just secondary ones)
   if (figData.layout) {
     for (const key of Object.keys(figData.layout)) {
-      if ((key.startsWith('xaxis') || key.startsWith('yaxis')) && key.length > 5) {
+      if (key.startsWith('xaxis') || key.startsWith('yaxis')) {
         layout[key] = {
           ...figData.layout[key],
           gridcolor: '#252a36',
@@ -520,6 +520,7 @@ function setupDragAndDrop() {
     header.addEventListener('dragstart', (e) => {
       draggedCell = cell;
       cell.classList.add('dragging');
+      document.body.classList.add('drag-active');
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', cell.id);
     });
@@ -551,12 +552,13 @@ function setupDragAndDrop() {
         // Plotly needs resize after DOM reparenting
         const plotA = draggedCell.querySelector('.figure-plot');
         const plotB = cell.querySelector('.figure-plot');
-        if (plotA) Plotly.Plots.resize(plotA);
-        if (plotB) Plotly.Plots.resize(plotB);
+        if (plotA) Plotly.relayout(plotA, {autosize: true});
+        if (plotB) Plotly.relayout(plotB, {autosize: true});
       }
     });
 
     header.addEventListener('dragend', () => {
+      document.body.classList.remove('drag-active');
       if (draggedCell) {
         draggedCell.classList.remove('dragging');
         draggedCell = null;
