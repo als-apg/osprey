@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, create_model
 
-from osprey.utils.config import get_provider_config
+from osprey.models.config import get_provider_config
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:

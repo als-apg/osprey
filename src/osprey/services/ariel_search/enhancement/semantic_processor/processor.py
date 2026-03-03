@@ -88,7 +88,7 @@ class SemanticProcessorModule(BaseEnhancementModule):
         model = config.get("model", {})
         provider = config.get("provider")
         if provider and model.get("model_id"):
-            from osprey.utils.config import resolve_model_id
+            from osprey.models.tiers import resolve_model_id
 
             model = {**model, "model_id": resolve_model_id(provider, model["model_id"])}
         self._model_config = model

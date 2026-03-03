@@ -74,7 +74,7 @@ class TextEmbeddingModule(BaseEnhancementModule):
 
         # May fail in test environments without config.yml
         try:
-            from osprey.utils.config import get_provider_config
+            from osprey.models.config import get_provider_config
 
             self._resolved_provider_config = get_provider_config(self._provider_name)
         except FileNotFoundError:

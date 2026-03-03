@@ -66,7 +66,7 @@ AGENT_DEFAULT_TIERS: dict[str, str] = {
     "direct-channel-finder": "sonnet",
 }
 
-from osprey.utils.config import VALID_TIERS
+from osprey.models.tiers import VALID_TIERS
 
 # Env vars that settings.json controls — scrubbed from shell before execvp
 # so the per-project env block is authoritative.

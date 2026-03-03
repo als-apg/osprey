@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from osprey.utils.config import resolve_model_id
+from osprey.models.tiers import resolve_model_id
 
 
 class TestResolveModelId:
@@ -32,7 +32,7 @@ class TestResolveModelId:
             },
         }
         with patch(
-            "osprey.utils.config.get_provider_config",
+            "osprey.models.config.get_provider_config",
             side_effect=lambda name, config_path=None: configs.get(name, {}),
         ):
             yield
@@ -58,7 +58,7 @@ class TestResolveModelId:
     def test_tier_not_in_provider_models_returns_unchanged(self):
         """Provider exists but has no models mapping for the tier."""
         with patch(
-            "osprey.utils.config.get_provider_config",
+            "osprey.models.config.get_provider_config",
             return_value={"models": {}},
         ):
             assert resolve_model_id("cborg", "haiku") == "haiku"
