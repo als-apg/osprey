@@ -59,6 +59,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Load initial state
   fetchState();
 
+  // Re-fetch state when page becomes visible again (e.g. tab switch, navigation)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') fetchState();
+  });
+
   // Connect SSE
   connectSSE();
 });
@@ -163,7 +168,14 @@ function handleSSEEvent(data) {
   switch (data.type) {
     case 'state_updated':
       if (data.summary) updateSummaryStats(data.summary);
-      if (data.families) updateSliders(data.families);
+      if (data.families) {
+        updateSliders(data.families);
+        // Enable action buttons once a lattice is loaded
+        const hasLattice = Object.keys(data.families).length > 0;
+        document.getElementById('btn-refresh').disabled = !hasLattice;
+        document.getElementById('btn-verify').disabled = !hasLattice;
+        document.getElementById('btn-baseline').disabled = !hasLattice;
+      }
       break;
 
     case 'figure_status':
