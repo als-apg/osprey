@@ -12,7 +12,7 @@ const FAST_FIGURES = ['optics', 'resonance', 'chromaticity', 'footprint'];
 const VERIFICATION_FIGURES = ['da', 'fma'];
 const ALL_FIGURES = [...FAST_FIGURES, ...VERIFICATION_FIGURES];
 
-// Plotly layout overrides for dark theme
+// Plotly layout overrides per theme
 const DARK_LAYOUT = {
   paper_bgcolor: 'rgba(0,0,0,0)',
   plot_bgcolor: 'rgba(22,26,36,0.95)',
@@ -21,6 +21,19 @@ const DARK_LAYOUT = {
   xaxis: { gridcolor: '#252a36', zerolinecolor: '#3a4050' },
   yaxis: { gridcolor: '#252a36', zerolinecolor: '#3a4050' },
 };
+
+const LIGHT_LAYOUT = {
+  paper_bgcolor: 'rgba(0,0,0,0)',
+  plot_bgcolor: 'rgba(255,255,255,0.95)',
+  font: { color: '#1a1d24', family: 'JetBrains Mono, monospace', size: 10 },
+  margin: { l: 45, r: 15, t: 30, b: 35 },
+  xaxis: { gridcolor: '#e0e3e8', zerolinecolor: '#c8ccd4' },
+  yaxis: { gridcolor: '#e0e3e8', zerolinecolor: '#c8ccd4' },
+};
+
+function getThemeLayout() {
+  return document.body.classList.contains('theme-light') ? LIGHT_LAYOUT : DARK_LAYOUT;
+}
 
 const PLOTLY_CONFIG = {
   responsive: true,
@@ -52,7 +65,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-verify').addEventListener('click', runVerification);
   document.getElementById('btn-baseline').addEventListener('click', setBaseline);
 
-  // Draggable panel rearrangement
+  // Layout toggle (guarded — btn may not exist in cached HTML)
+  const layoutBtn = document.getElementById('btn-layout');
+  if (layoutBtn) {
+    layoutBtn.addEventListener('click', toggleLayout);
+    initLayout();
+  }
   restorePanelOrder();
   setupDragAndDrop();
 
@@ -465,17 +483,19 @@ function renderPlotly(name, figData) {
   if (errorEl) errorEl.remove();
   hideSpinner(name);
 
-  // Apply dark theme overrides
-  const layout = { ...figData.layout, ...DARK_LAYOUT };
+  // Apply theme-aware layout overrides
+  const themeLayout = getThemeLayout();
+  const layout = { ...figData.layout, ...themeLayout };
+  const defaultFontColor = themeLayout.font.color;
 
-  // Merge dark axis colors into ALL axes (not just secondary ones)
+  // Merge axis colors into ALL axes (not just secondary ones)
   if (figData.layout) {
     for (const key of Object.keys(figData.layout)) {
       if (key.startsWith('xaxis') || key.startsWith('yaxis')) {
         layout[key] = {
           ...figData.layout[key],
-          gridcolor: '#252a36',
-          zerolinecolor: '#3a4050',
+          gridcolor: themeLayout.xaxis.gridcolor,
+          zerolinecolor: themeLayout.xaxis.zerolinecolor,
         };
       }
     }
@@ -483,7 +503,7 @@ function renderPlotly(name, figData) {
     if (figData.layout.annotations) {
       layout.annotations = figData.layout.annotations.map(a => ({
         ...a,
-        font: { ...(a.font || {}), color: (a.font && a.font.color) || '#d8dce6' },
+        font: { ...(a.font || {}), color: (a.font && a.font.color) || defaultFontColor },
       }));
     }
     if (figData.layout.title) {
@@ -510,6 +530,21 @@ function handleThemeMessages() {
       } else {
         document.body.classList.remove('theme-light');
       }
+      // Re-render Plotly figures with new theme colors
+      const themeLayout = getThemeLayout();
+      ALL_FIGURES.forEach(name => {
+        const plotEl = document.getElementById(`plot-${name}`);
+        if (plotEl && plotEl.data) {
+          const axisUpdates = {};
+          for (const key of Object.keys(plotEl.layout || {})) {
+            if (key.startsWith('xaxis') || key.startsWith('yaxis')) {
+              axisUpdates[key + '.gridcolor'] = themeLayout.xaxis.gridcolor;
+              axisUpdates[key + '.zerolinecolor'] = themeLayout.xaxis.zerolinecolor;
+            }
+          }
+          Plotly.relayout(plotEl, { ...themeLayout, ...axisUpdates });
+        }
+      });
     }
   });
 }
@@ -517,6 +552,49 @@ function handleThemeMessages() {
 // ── Drag-and-Drop Panel Rearrangement ────────────────
 
 const PANEL_ORDER_KEY = 'lattice-panel-order';
+const LAYOUT_KEY = 'lattice-layout-mode';
+
+function initLayout() {
+  const mode = localStorage.getItem(LAYOUT_KEY) || 'stacked';
+  applyLayout(mode);
+}
+
+function toggleLayout() {
+  const figArea = document.getElementById('figure-area');
+  const isStacked = figArea.classList.contains('layout-stacked');
+  applyLayout(isStacked ? 'grid' : 'stacked');
+}
+
+function applyLayout(mode) {
+  const figArea = document.getElementById('figure-area');
+  if (!figArea) return;
+  const btn = document.getElementById('btn-layout');
+
+  if (mode === 'stacked') {
+    figArea.classList.add('layout-stacked');
+    if (btn) {
+      btn.querySelector('.layout-label').textContent = 'Grid';
+      btn.querySelector('.icon-grid').style.display = '';
+      btn.querySelector('.icon-stack').style.display = 'none';
+    }
+  } else {
+    figArea.classList.remove('layout-stacked');
+    if (btn) {
+      btn.querySelector('.layout-label').textContent = 'Stack';
+      btn.querySelector('.icon-grid').style.display = 'none';
+      btn.querySelector('.icon-stack').style.display = '';
+    }
+  }
+
+  localStorage.setItem(LAYOUT_KEY, mode);
+
+  ALL_FIGURES.forEach(name => {
+    const plotEl = document.getElementById(`plot-${name}`);
+    if (plotEl && plotEl.data) {
+      Plotly.relayout(plotEl, { autosize: true });
+    }
+  });
+}
 
 function setupDragAndDrop() {
   const cells = document.querySelectorAll('.figure-cell');

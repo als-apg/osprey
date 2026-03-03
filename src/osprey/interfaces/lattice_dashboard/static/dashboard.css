@@ -545,6 +545,36 @@ body.drag-active .figure-plot {
   background: var(--border-active);
 }
 
+/* ── Stacked Layout ──────────────────────────────────── */
+
+#figure-area.layout-stacked {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+#figure-area.layout-stacked .figure-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: none;
+}
+
+#figure-area.layout-stacked .figure-grid .figure-cell {
+  min-height: 420px;
+}
+
+#figure-area.layout-stacked .verification-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: auto;
+  flex-shrink: unset;
+}
+
+#figure-area.layout-stacked .verification-row .figure-cell {
+  min-height: 420px;
+}
+
 /* ── Light theme support ───────────────────────────────── */
 
 body.theme-light {
