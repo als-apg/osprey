@@ -713,12 +713,9 @@
           <span class="preview-meta-label">Source</span>
           <span class="preview-meta-value">${escapeHtml(a.tool_source)}</span>
         </span>` : ""}
-        <span class="preview-meta-item preview-meta-path" id="preview-copy-path" title="Click to copy path">
-          <span class="preview-meta-label">Path</span>
-          <span class="preview-meta-value preview-meta-path-value">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-            osprey-workspace/artifacts/${escapeHtml(a.filename)}
-          </span>
+        <span class="preview-meta-path" id="preview-copy-path" title="Click to copy path">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          <span class="preview-path-text">osprey-workspace/artifacts/${escapeHtml(a.filename)}</span>
         </span>
       </div>
       <div class="preview-viewport">

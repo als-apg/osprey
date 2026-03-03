@@ -1377,6 +1377,7 @@ body.resizing iframe {
 .preview-meta-strip {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-4);
   padding: var(--space-2) var(--space-4);
   background: var(--bg-sidebar);
@@ -1403,22 +1404,23 @@ body.resizing iframe {
 }
 
 .preview-meta-path {
-  cursor: pointer;
-  margin-left: auto;
-  transition: opacity 0.15s;
-}
-.preview-meta-path:hover {
-  opacity: 0.8;
-}
-.preview-meta-path-value {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  flex-basis: 100%;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s;
 }
-.preview-meta-path.copied .preview-meta-path-value::after {
-  content: "Copied!";
+.preview-meta-path:hover {
+  color: var(--text-secondary);
+}
+.preview-meta-path.copied .preview-path-text::after {
+  content: " — Copied!";
   color: var(--color-success, #22c55e);
-  margin-left: 4px;
   font-weight: 600;
 }
 
