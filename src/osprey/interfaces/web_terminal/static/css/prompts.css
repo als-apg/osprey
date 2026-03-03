@@ -1922,3 +1922,520 @@
 .config-mcp-config-body {
   border-top: 1px solid var(--border-default);
 }
+
+
+/* ============================================================
+   Settings.json Interactive Editor
+   ============================================================ */
+
+.config-editor {
+  gap: 12px;
+}
+
+/* ---- Model Field ---- */
+
+.config-edit-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.config-edit-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  min-width: 60px;
+}
+
+.config-edit-input {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  padding: 6px 10px;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.config-edit-input:focus {
+  border-color: var(--color-accent);
+}
+
+.config-edit-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* ---- Note ---- */
+
+.config-edit-note {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 8px 12px 4px;
+}
+
+/* ---- Permission List ---- */
+
+.config-edit-perm-list {
+  max-height: 400px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.config-edit-perm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--neutral-tint-03);
+  transition: background var(--transition-fast), opacity 200ms ease;
+}
+
+.config-edit-perm-row:hover {
+  background: var(--neutral-tint-06);
+}
+
+.config-edit-perm-row.config-edit-removing {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+.config-edit-perm-row.config-edit-flash {
+  animation: perm-flash 600ms ease;
+}
+
+@keyframes perm-flash {
+  0%, 100% { background: transparent; }
+  50% { background: var(--amber-tint-15); }
+}
+
+/* ---- Permission Row Icon ---- */
+
+.config-edit-perm-icon {
+  font-size: 12px;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  filter: grayscale(0.5);
+}
+
+/* ---- Permission Row Label ---- */
+
+.config-edit-perm-label {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* ---- Level Select (tri-state) ---- */
+
+.config-edit-level-select {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 3px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border-default);
+  cursor: pointer;
+  outline: none;
+  flex-shrink: 0;
+  width: 64px;
+  text-align: center;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: background var(--transition-fast), color var(--transition-fast),
+              border-color var(--transition-fast);
+}
+
+.config-edit-level-allow {
+  color: var(--color-success);
+  background: var(--success-tint-08);
+  border-color: rgba(34, 197, 94, 0.2);
+}
+
+.config-edit-level-ask {
+  color: var(--color-warning);
+  background: var(--amber-tint-08);
+  border-color: rgba(212, 165, 116, 0.2);
+}
+
+.config-edit-level-deny {
+  color: var(--color-error);
+  background: var(--error-tint-08);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+/* ---- Remove Button ---- */
+
+.config-edit-remove-btn {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity var(--transition-fast), color var(--transition-fast),
+              background var(--transition-fast);
+}
+
+.config-edit-perm-row:hover .config-edit-remove-btn {
+  opacity: 1;
+}
+
+.config-edit-remove-btn:hover {
+  color: var(--color-error);
+  background: var(--error-tint-10);
+}
+
+/* ---- Add Row ---- */
+
+.config-edit-add-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-default);
+  background: var(--accent-tint-04);
+}
+
+.config-edit-add-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.config-edit-add-btn {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-accent);
+  background: var(--accent-tint-10);
+  border: 1px solid var(--border-accent);
+  border-radius: 3px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.config-edit-add-btn:hover {
+  background: var(--accent-tint-20);
+  color: var(--color-accent-light);
+}
+
+
+/* ============================================================
+   Interactive Drag-and-Drop Permission Entries
+   ============================================================ */
+
+/* Draggable entry inside a column drop zone */
+.config-perm-entry-interactive {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  cursor: grab;
+  border-radius: 3px;
+  transition: background var(--transition-fast), opacity 200ms ease,
+              transform 200ms ease;
+  user-select: none;
+}
+
+.config-perm-entry-interactive:hover {
+  background: var(--neutral-tint-06);
+}
+
+.config-perm-entry-interactive .config-perm-entry-icon {
+  font-size: 11px;
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+  filter: grayscale(0.5);
+}
+
+.config-perm-entry-interactive .config-perm-entry-label {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* Delete button — hidden until hover */
+.config-perm-entry-delete {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 1px 3px;
+  border-radius: 2px;
+  opacity: 0;
+  flex-shrink: 0;
+  transition: opacity var(--transition-fast), color var(--transition-fast),
+              background var(--transition-fast);
+}
+
+.config-perm-entry-interactive:hover .config-perm-entry-delete {
+  opacity: 1;
+}
+
+.config-perm-entry-delete:hover {
+  color: var(--color-error);
+  background: var(--error-tint-10);
+}
+
+/* Drag in progress */
+.config-perm-dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+/* Fade-out on removal */
+.config-perm-removing {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+/* Duplicate-flash */
+.config-perm-entry-interactive.config-perm-flash {
+  animation: perm-col-flash 600ms ease;
+}
+
+@keyframes perm-col-flash {
+  0%, 100% { background: transparent; }
+  50% { background: var(--amber-tint-15); }
+}
+
+/* Drop zone highlight when dragging over */
+.config-perm-drag-over {
+  outline: 1px dashed var(--color-accent);
+  outline-offset: -1px;
+  background: var(--accent-tint-04);
+}
+
+/* Drop target hint (always visible on the column during any drag) */
+.config-perm-drop-target {
+  background: var(--accent-tint-02, rgba(96, 165, 250, 0.02));
+}
+
+/* "+" add button at bottom of each column */
+.config-perm-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 4px 0;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px dashed var(--border-default);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color var(--transition-fast), border-color var(--transition-fast),
+              background var(--transition-fast);
+}
+
+.config-perm-add-btn:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: var(--accent-tint-04);
+}
+
+/* Inline add form (replaces + button when active) */
+.config-perm-add-form {
+  display: flex;
+  gap: 4px;
+  padding: 4px 6px;
+  margin-top: 4px;
+}
+
+.config-perm-add-form input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  padding: 4px 6px;
+  outline: none;
+}
+
+.config-perm-add-form input:focus {
+  border-color: var(--color-accent);
+}
+
+.config-perm-add-form button {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.config-perm-add-form .config-perm-add-confirm {
+  color: var(--color-accent);
+  background: var(--accent-tint-10);
+}
+
+.config-perm-add-form .config-perm-add-confirm:hover {
+  background: var(--accent-tint-20);
+}
+
+.config-perm-add-form .config-perm-add-cancel {
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.config-perm-add-form .config-perm-add-cancel:hover {
+  color: var(--text-secondary);
+}
+
+/* Interactive columns — slightly more padding for drag targets */
+.config-permissions-columns.config-perm-interactive .config-perm-col {
+  padding-bottom: 6px;
+  min-height: 80px;
+  display: flex;
+  flex-direction: column;
+}
+
+.config-perm-col-body {
+  flex: 1;
+  overflow-y: auto;
+}
+
+
+/* ============================================================
+   Ownership Warning Modal
+   ============================================================ */
+
+.config-ownership-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: var(--overlay-black-70);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.config-ownership-overlay.visible {
+  opacity: 1;
+}
+
+.config-ownership-dialog {
+  background: var(--bg-secondary);
+  border: 1px solid var(--amber-tint-25);
+  border-radius: 6px;
+  padding: 28px 32px 24px;
+  max-width: 440px;
+  width: 90%;
+  box-shadow: 0 0 40px rgba(212, 165, 116, 0.12), var(--shadow-dialog);
+  transform: scale(0.95);
+  transition: transform 200ms ease;
+}
+
+.config-ownership-overlay.visible .config-ownership-dialog {
+  transform: scale(1);
+}
+
+.config-ownership-icon {
+  font-size: 32px;
+  text-align: center;
+  margin-bottom: 12px;
+  filter: saturate(1.2);
+}
+
+.config-ownership-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-amber);
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.config-ownership-body {
+  font-family: var(--font-display);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.config-ownership-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.config-ownership-cancel {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  padding: 8px 20px;
+  cursor: pointer;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.config-ownership-cancel:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.config-ownership-confirm {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--bg-primary);
+  background: var(--color-amber);
+  border: none;
+  border-radius: 4px;
+  padding: 8px 20px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.config-ownership-confirm:hover {
+  background: var(--color-amber-hover);
+}

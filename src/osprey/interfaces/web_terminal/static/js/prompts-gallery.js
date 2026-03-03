@@ -21,7 +21,7 @@
 import { fetchJSON } from './api.js';
 import { registerUnsavedGuard } from './drawer.js';
 import { tokenize, computeWordDiff, groupChangeBlocks, renderWordsIntoLine } from './diff-utils.js';
-import { renderSettingsJson, renderMcpJson } from './config-renderers.js';
+import { renderSettingsJsonEditor, renderMcpJson } from './config-renderers.js';
 
 // ---- Constants ---- //
 
@@ -820,7 +820,7 @@ class ArtifactGallery {
           return;
         }
 
-        if (this.detailMode === 'edit' && this.editDirty) {
+        if (this.editDirty) {
           if (!confirm('You have unsaved changes. Discard them?')) return;
           this.editDirty = false;
         }
@@ -837,7 +837,10 @@ class ArtifactGallery {
     const right = document.createElement('div');
     right.className = 'prompts-modes-right';
 
-    if (this.detailMode === 'edit') {
+    const isSettingsPreview = this.detailMode === 'preview'
+      && this.selectedArtifact?.name === 'settings-json';
+
+    if (this.detailMode === 'edit' || (isSettingsPreview && this.editDirty)) {
       const discardBtn = document.createElement('button');
       discardBtn.className = 'prompts-discard-btn';
       discardBtn.textContent = 'Discard';
@@ -886,10 +889,15 @@ class ArtifactGallery {
     const wrapper = document.createElement('div');
     wrapper.className = 'prompts-preview-content';
 
-    // Structured renderers for config JSON files
+    // settings-json: use interactive editor directly in preview mode
     if (artifactName === 'settings-json' && language === 'json') {
-      const structured = renderSettingsJson(content);
+      const structured = renderSettingsJsonEditor(content, (isDirty) => {
+        this.editDirty = isDirty;
+        this.renderDetailModes();
+      });
       if (structured) {
+        // Attach _settingsEditor API on detailContentEl for saveOverride()
+        this.detailContentEl._settingsEditor = structured._settingsEditor;
         wrapper.appendChild(structured);
         wrapper.appendChild(renderSourceToggle(content, 'json'));
         this.detailContentEl.appendChild(wrapper);
@@ -1045,8 +1053,27 @@ class ArtifactGallery {
   async renderEdit() {
     const data = await fetchJSON(`/api/prompts/${encodeURIComponent(this.selectedArtifact.name)}`);
     const content = data.content || '';
+    const artifactName = this.selectedArtifact.name || '';
+    const language = data.language || this.selectedArtifact.language || 'text';
 
-    this.detailContentEl.innerHTML = '';
+    // Clear content area and stale editor reference
+    while (this.detailContentEl.firstChild) {
+      this.detailContentEl.removeChild(this.detailContentEl.firstChild);
+    }
+    this.detailContentEl._settingsEditor = null;
+
+    // Structured editor for settings.json
+    if (artifactName === 'settings-json' && language === 'json') {
+      const editor = renderSettingsJsonEditor(content, (isDirty) => {
+        this.editDirty = isDirty;
+        this.renderDetailModes();
+      });
+      if (editor) {
+        this.detailContentEl.appendChild(editor);
+        this.detailContentEl._settingsEditor = editor._settingsEditor;
+        return;
+      }
+    }
 
     const { frontMatter, body } = parseFrontMatter(content);
     if (frontMatter && frontMatter.model) {
@@ -1247,7 +1274,9 @@ class ArtifactGallery {
 
   discardEdits() {
     this.editDirty = false;
-    this.detailMode = 'preview';
+    if (this.detailMode !== 'preview') {
+      this.detailMode = 'preview';
+    }
     this.renderDetailModes();
     this.renderDetailContent();
   }
@@ -1262,7 +1291,10 @@ class ArtifactGallery {
 
     let content;
 
-    if (container._frontMatterFields && container._bodyTextarea) {
+    if (container._settingsEditor) {
+      // Settings.json structured editor
+      content = container._settingsEditor.getData();
+    } else if (container._frontMatterFields && container._bodyTextarea) {
       const fields = container._frontMatterFields;
       let yaml = '---\n';
       for (const [key, input] of Object.entries(fields)) {
@@ -1281,6 +1313,25 @@ class ArtifactGallery {
       const textarea = container.querySelector('.prompts-edit-textarea');
       if (!textarea) return;
       content = textarea.value;
+    }
+
+    // Ownership warning + scaffold for framework-owned settings.json
+    if (this.selectedArtifact.name === 'settings-json'
+        && this.selectedArtifact.status === 'framework') {
+      const confirmed = await this._showOwnershipWarning();
+      if (!confirmed) return;
+
+      // Scaffold (claim) the file before writing the override
+      const scaffoldResp = await fetch(
+        `/api/prompts/${encodeURIComponent(this.selectedArtifact.name)}/scaffold`,
+        { method: 'POST' }
+      );
+      if (!scaffoldResp.ok) {
+        const detail = await scaffoldResp.json().catch(() => ({}));
+        this.errorEl.style.display = 'flex';
+        this.errorEl.textContent = `Scaffold failed: ${detail.detail || `HTTP ${scaffoldResp.status}`}`;
+        return;
+      }
     }
 
     try {
@@ -1304,6 +1355,68 @@ class ArtifactGallery {
       this.errorEl.style.display = 'flex';
       this.errorEl.textContent = `Save failed: ${e.message}`;
     }
+  }
+
+  /**
+   * Show a modal warning that saving settings.json means taking ownership.
+   * Returns a promise that resolves to true (proceed) or false (cancel).
+   */
+  _showOwnershipWarning() {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'config-ownership-overlay';
+
+      const dialog = document.createElement('div');
+      dialog.className = 'config-ownership-dialog';
+
+      const iconEl = document.createElement('div');
+      iconEl.className = 'config-ownership-icon';
+      iconEl.textContent = '\u26A0';
+      dialog.appendChild(iconEl);
+
+      const title = document.createElement('div');
+      title.className = 'config-ownership-title';
+      title.textContent = 'Taking Ownership';
+      dialog.appendChild(title);
+
+      const body = document.createElement('div');
+      body.className = 'config-ownership-body';
+      body.textContent =
+        'You are about to take ownership of settings.json. ' +
+        'OSPREY will no longer auto-manage this file during regeneration ' +
+        '(osprey claude regen). Future framework updates to permissions, ' +
+        'hooks, and model configuration will not be applied automatically. ' +
+        'You can release ownership later to restore framework management.';
+      dialog.appendChild(body);
+
+      const actions = document.createElement('div');
+      actions.className = 'config-ownership-actions';
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'config-ownership-cancel';
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.addEventListener('click', () => {
+        overlay.remove();
+        resolve(false);
+      });
+      actions.appendChild(cancelBtn);
+
+      const confirmBtn = document.createElement('button');
+      confirmBtn.className = 'config-ownership-confirm';
+      confirmBtn.textContent = 'I Understand, Save';
+      confirmBtn.addEventListener('click', () => {
+        overlay.remove();
+        resolve(true);
+      });
+      actions.appendChild(confirmBtn);
+
+      dialog.appendChild(actions);
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+
+      // Animate in
+      requestAnimationFrame(() => overlay.classList.add('visible'));
+    });
   }
 
   // ---- Unoverride Flow ---- //
