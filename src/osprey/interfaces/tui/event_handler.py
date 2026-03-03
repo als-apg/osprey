@@ -413,6 +413,13 @@ class TUIEventHandler:
             attempt: The attempt number (1-based)
             is_retry: Whether this is a retry attempt
         """
+        # Check streaming config — skip widget creation if disabled
+        from osprey.utils.config import get_streaming_mode
+
+        codegen_mode = get_streaming_mode("tui", "python_code_generator")
+        if codegen_mode == "disabled":
+            return
+
         # Finalize previous code generation widget if it exists
         if self.display._code_gen_message:
             full_code = await self.display.finalize_code_generation_message()
@@ -430,10 +437,6 @@ class TUIEventHandler:
             python_block.set_partial_output(status_text)
 
         # Create new collapsible code message
-        # Read streaming config to determine if code should start collapsed
-        from osprey.utils.config import get_streaming_mode
-
-        codegen_mode = get_streaming_mode("tui", "python_code_generator")
         start_collapsed = codegen_mode == "hide"
         await self.display.start_code_generation_message(
             attempt=attempt, start_collapsed=start_collapsed
