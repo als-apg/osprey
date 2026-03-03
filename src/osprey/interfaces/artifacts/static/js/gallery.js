@@ -173,6 +173,16 @@
     return `/files/${a.id}/${encodeURIComponent(a.filename)}`;
   }
 
+  /** URL for "Open in new tab" — uses rendered endpoints for types that
+   *  browsers can't display natively (markdown, notebook). */
+  function openUrl(a) {
+    switch (a.artifact_type) {
+      case "markdown": return `/api/markdown/${a.id}/rendered`;
+      case "notebook": return `/api/notebooks/${a.id}/rendered`;
+      default:         return fileUrl(a);
+    }
+  }
+
   function isNewThisSession(a) {
     return a.timestamp && a.timestamp >= _sessionStart;
   }
@@ -683,7 +693,7 @@
           <button class="btn-action-icon fullscreen-enter-btn" id="fullscreen-enter" title="Maximize (F)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3M21 8V5a2 2 0 00-2-2h-3M16 21h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
           </button>
-          <a href="${url}" target="_blank" class="btn-action-icon" title="Open in new tab">
+          <a href="${openUrl(a)}" target="_blank" class="btn-action-icon" title="Open in new tab">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
           </a>
           <button class="btn-action-icon btn-action-danger" id="preview-delete" title="Delete artifact">
