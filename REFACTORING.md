@@ -227,7 +227,7 @@
 
 ---
 
-### [P2] RF-013: hierarchical.py — 2086-line god-module (pending)
+### [P2] RF-013: hierarchical.py — 2086-line god-module (skipped)
 
 **Severity**: high | **Category**: structure
 **Files**: `src/osprey/services/channel_finder/databases/hierarchical.py`
@@ -237,12 +237,12 @@
 
 **Approach**: Extract tree navigation, channel expansion, validation, and serialization into helper modules. Keep the main class as a facade.
 
-**Status**: pending
-**Notes**:
+**Status**: skipped
+**Notes**: Well-organized internally; sub-package split would add navigation overhead without solving a real problem.
 
 ---
 
-### [P2] RF-014: cli/migrate_cmd.py — 1161-line god-module (pending)
+### [P2] RF-014: cli/migrate_cmd.py — 1161-line god-module (done)
 
 **Severity**: high | **Category**: structure
 **Files**: `src/osprey/cli/migrate_cmd.py`
@@ -252,8 +252,9 @@
 
 **Approach**: Extract migration engine into `services/migration/` with separate files for version detection, diff computation, conflict resolution. CLI command becomes a thin wrapper.
 
-**Status**: pending
-**Notes**:
+**Status**: done
+**Completed date**: 2026-03-03
+**Notes**: Extracted 9 functions to `services/migration/engine.py`. `_recreate_vanilla_with_version` kept in CLI (TemplateManager dependency). New `migrate_claude_code_config` function extracted from inline code in `migrate_config` command.
 
 ---
 
