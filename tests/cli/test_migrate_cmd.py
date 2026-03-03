@@ -10,13 +10,13 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.init_cmd import init
-from osprey.cli.migrate_cmd import (
+from osprey.cli.migrate_cmd import migrate
+from osprey.services.migration import (
     FileCategory,
-    _calculate_file_hash,
-    _classify_file,
-    _detect_project_settings,
-    _load_manifest,
-    migrate,
+    calculate_file_hash,
+    classify_file,
+    detect_project_settings,
+    load_manifest,
 )
 from osprey.cli.templates.manager import TemplateManager
 from osprey.cli.templates.manifest import MANIFEST_FILENAME, MANIFEST_SCHEMA_VERSION
@@ -208,44 +208,44 @@ class TestFileClassification:
 
     def test_classify_data_directory(self):
         """Test that data directories are classified as DATA."""
-        result = _classify_file("data/channels.json", "abc", "def", "ghi")
+        result = classify_file("data/channels.json", "abc", "def", "ghi")
         assert result == FileCategory.DATA
 
-        result = _classify_file("_agent_data/scripts/test.py", "abc", "def", "ghi")
+        result = classify_file("_agent_data/scripts/test.py", "abc", "def", "ghi")
         assert result == FileCategory.DATA
 
     def test_classify_new_file(self):
         """Test that new template files are classified as NEW."""
-        result = _classify_file("new_feature.py", None, None, "abc123")
+        result = classify_file("new_feature.py", None, None, "abc123")
         assert result == FileCategory.NEW
 
     def test_classify_removed_file(self):
         """Test that removed template files are classified as REMOVED."""
-        result = _classify_file("old_feature.py", None, "abc123", None)
+        result = classify_file("old_feature.py", None, "abc123", None)
         assert result == FileCategory.REMOVED
 
     def test_classify_auto_copy(self):
         """Test auto-copy classification (template changed, facility didn't)."""
         # facility == old_vanilla, but old_vanilla != new_vanilla
-        result = _classify_file("config.py", "abc", "abc", "def")
+        result = classify_file("config.py", "abc", "abc", "def")
         assert result == FileCategory.AUTO_COPY
 
     def test_classify_preserve(self):
         """Test preserve classification (facility changed, template didn't)."""
         # facility != old_vanilla, but old_vanilla == new_vanilla
-        result = _classify_file("config.py", "custom", "original", "original")
+        result = classify_file("config.py", "custom", "original", "original")
         assert result == FileCategory.PRESERVE
 
     def test_classify_merge(self):
         """Test merge classification (both changed)."""
         # facility != old_vanilla AND old_vanilla != new_vanilla
-        result = _classify_file("config.py", "custom", "original", "new")
+        result = classify_file("config.py", "custom", "original", "new")
         assert result == FileCategory.MERGE
 
     def test_classify_unchanged(self):
         """Test unchanged files are preserved."""
         # All hashes equal - preserve (no action needed)
-        result = _classify_file("config.py", "same", "same", "same")
+        result = classify_file("config.py", "same", "same", "same")
         assert result == FileCategory.PRESERVE
 
 
@@ -267,7 +267,7 @@ channel_finder:
 """
         (project_dir / "config.yml").write_text(config_content)
 
-        settings = _detect_project_settings(project_dir)
+        settings = detect_project_settings(project_dir)
 
         assert settings["provider"] == "openai"
         assert settings["model"] == "gpt-4"
@@ -287,7 +287,7 @@ def get_registry():
 """
         (src_dir / "registry.py").write_text(registry_content)
 
-        settings = _detect_project_settings(project_dir)
+        settings = detect_project_settings(project_dir)
 
         assert settings["registry_style"] == "extend"
         assert settings["package_name"] == "test_project"
@@ -299,7 +299,7 @@ def get_registry():
 
         (project_dir / "claude_generator_config.yml").write_text("enabled: true")
 
-        settings = _detect_project_settings(project_dir)
+        settings = detect_project_settings(project_dir)
 
         assert settings["code_generator"] == "claude_code"
 
@@ -318,14 +318,14 @@ class TestManifestLoading:
         with open(manifest_path, "w") as f:
             json.dump(manifest_data, f)
 
-        result = _load_manifest(tmp_path)
+        result = load_manifest(tmp_path)
 
         assert result is not None
         assert result["schema_version"] == "1.0.0"
 
     def test_load_missing_manifest(self, tmp_path):
         """Test loading when manifest doesn't exist."""
-        result = _load_manifest(tmp_path)
+        result = load_manifest(tmp_path)
         assert result is None
 
     def test_load_invalid_json(self, tmp_path):
@@ -333,7 +333,7 @@ class TestManifestLoading:
         manifest_path = tmp_path / MANIFEST_FILENAME
         manifest_path.write_text("not valid json {{{")
 
-        result = _load_manifest(tmp_path)
+        result = load_manifest(tmp_path)
         assert result is None
 
 
@@ -345,7 +345,7 @@ class TestFileHashing:
         test_file = tmp_path / "test.txt"
         test_file.write_text("hello world")
 
-        result = _calculate_file_hash(test_file)
+        result = calculate_file_hash(test_file)
 
         assert result is not None
         assert len(result) == 64  # SHA256 hex length
@@ -358,7 +358,7 @@ class TestFileHashing:
         file1.write_text("identical content")
         file2.write_text("identical content")
 
-        assert _calculate_file_hash(file1) == _calculate_file_hash(file2)
+        assert calculate_file_hash(file1) == calculate_file_hash(file2)
 
     def test_hash_different_content(self, tmp_path):
         """Test that different content produces different hash."""
@@ -368,11 +368,11 @@ class TestFileHashing:
         file1.write_text("content A")
         file2.write_text("content B")
 
-        assert _calculate_file_hash(file1) != _calculate_file_hash(file2)
+        assert calculate_file_hash(file1) != calculate_file_hash(file2)
 
     def test_hash_missing_file(self, tmp_path):
         """Test hashing a missing file returns None."""
-        result = _calculate_file_hash(tmp_path / "nonexistent.txt")
+        result = calculate_file_hash(tmp_path / "nonexistent.txt")
         assert result is None
 
 
