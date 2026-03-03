@@ -196,9 +196,13 @@ html, body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: width 0.2s ease;
 }
 
 .sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 10px 12px 8px;
   font-family: var(--font-mono);
   font-size: 10px;
@@ -206,6 +210,54 @@ html, body {
   letter-spacing: 1.5px;
   color: var(--text-dim);
   border-bottom: 1px solid var(--border-dim);
+}
+
+.sidebar-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+
+.sidebar-toggle:hover {
+  color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.sidebar-toggle .chevron-path {
+  transition: transform 0.2s;
+  transform-origin: center;
+}
+
+/* Collapsed sidebar */
+#sidebar.sidebar-collapsed {
+  width: 36px;
+}
+
+#sidebar.sidebar-collapsed .sidebar-header {
+  justify-content: center;
+  padding: 10px 0 8px;
+}
+
+#sidebar.sidebar-collapsed .sidebar-header-label,
+#sidebar.sidebar-collapsed #slider-container {
+  display: none;
+}
+
+#sidebar.sidebar-collapsed .sidebar-toggle .chevron-path {
+  transform: rotate(0deg);
+}
+
+#sidebar:not(.sidebar-collapsed) .sidebar-toggle .chevron-path {
+  transform: rotate(180deg);
 }
 
 #slider-container {
@@ -596,6 +648,10 @@ body.theme-light {
 
 @media (max-width: 700px) {
   #sidebar {
-    display: none;
+    width: 36px !important;
+  }
+  #sidebar .sidebar-header-label,
+  #sidebar #slider-container {
+    display: none !important;
   }
 }

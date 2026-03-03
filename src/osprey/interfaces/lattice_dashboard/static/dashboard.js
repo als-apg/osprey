@@ -71,6 +71,13 @@ document.addEventListener('DOMContentLoaded', () => {
     layoutBtn.addEventListener('click', toggleLayout);
     initLayout();
   }
+
+  // Sidebar collapse toggle
+  const sidebarBtn = document.getElementById('btn-sidebar-toggle');
+  if (sidebarBtn) {
+    sidebarBtn.addEventListener('click', toggleSidebar);
+    initSidebar();
+  }
   restorePanelOrder();
   setupDragAndDrop();
 
@@ -553,6 +560,32 @@ function handleThemeMessages() {
 
 const PANEL_ORDER_KEY = 'lattice-panel-order';
 const LAYOUT_KEY = 'lattice-layout-mode';
+const SIDEBAR_KEY = 'lattice-sidebar-collapsed';
+
+function initSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  if (!sidebar) return;
+  // Default to collapsed (true) unless user explicitly expanded
+  const collapsed = localStorage.getItem(SIDEBAR_KEY) !== 'false';
+  sidebar.classList.toggle('sidebar-collapsed', collapsed);
+}
+
+function toggleSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  if (!sidebar) return;
+  const collapsed = sidebar.classList.toggle('sidebar-collapsed');
+  localStorage.setItem(SIDEBAR_KEY, collapsed ? 'true' : 'false');
+
+  // Plotly figures need to reflow when sidebar width changes
+  setTimeout(() => {
+    ALL_FIGURES.forEach(name => {
+      const plotEl = document.getElementById(`plot-${name}`);
+      if (plotEl && plotEl.data) {
+        Plotly.relayout(plotEl, { autosize: true });
+      }
+    });
+  }, 250);
+}
 
 function initLayout() {
   const mode = localStorage.getItem(LAYOUT_KEY) || 'stacked';
