@@ -95,7 +95,8 @@ class LatticeState:
         import numpy as np
 
         ring = at.load_m(lattice_path)
-        ld0, rd, ld = at.get_optics(ring, get_chrom=True)
+        refpts = range(len(ring) + 1)
+        ld0, rd, ld = at.get_optics(ring, refpts=refpts, get_chrom=True)
 
         tunes = [float(rd.tune[0]), float(rd.tune[1])]
         chrom = [float(rd.chromaticity[0]), float(rd.chromaticity[1])]
@@ -143,7 +144,11 @@ class LatticeState:
             "tunes": tunes,
             "chromaticity": chrom,
             "num_elements": len(ring),
-            "beta_max": [float(np.max(ld.beta[:, 0])), float(np.max(ld.beta[:, 1]))],
+            "beta_max": (
+                [float(np.max(ld.beta[:, 0])), float(np.max(ld.beta[:, 1]))]
+                if ld.beta.size > 0
+                else [0.0, 0.0]
+            ),
         }
 
         state = {
