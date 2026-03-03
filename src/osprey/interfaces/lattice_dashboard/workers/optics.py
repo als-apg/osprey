@@ -17,7 +17,7 @@ from osprey.interfaces.lattice_dashboard.workers._base import (
     load_ring,
     load_state,
     parse_args,
-    save_figure,
+    save_data,
 )
 
 
@@ -133,13 +133,25 @@ def main() -> None:
     ring = load_ring(state)
     s_pos, beta_x, beta_y, eta_x = compute_optics(ring)
 
-    baseline_data = None
+    raw: dict = {
+        "s_pos": s_pos.tolist(),
+        "beta_x": beta_x.tolist(),
+        "beta_y": beta_y.tolist(),
+        "eta_x": eta_x.tolist(),
+        "baseline": None,
+    }
+
     baseline_ring = load_baseline_ring(state_path, state)
     if baseline_ring is not None:
-        baseline_data = compute_optics(baseline_ring)
+        bs, bbx, bby, bex = compute_optics(baseline_ring)
+        raw["baseline"] = {
+            "s_pos": bs.tolist(),
+            "beta_x": bbx.tolist(),
+            "beta_y": bby.tolist(),
+            "eta_x": bex.tolist(),
+        }
 
-    fig = build_figure(s_pos, beta_x, beta_y, eta_x, baseline_data)
-    save_figure(fig, output_path)
+    save_data(raw, output_path)
 
 
 if __name__ == "__main__":
