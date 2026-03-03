@@ -21,6 +21,21 @@ import numpy as np
 import plotly.graph_objects as go
 
 
+def load_settings(state: dict[str, Any], group: str) -> dict[str, Any]:
+    """Load settings for a worker group, merged with defaults.
+
+    Workers call this as ``settings = load_settings(state, "da")``
+    to get a complete settings dict even if state.json is missing keys.
+    """
+    from osprey.interfaces.lattice_dashboard.state import DEFAULT_SETTINGS
+
+    defaults = DEFAULT_SETTINGS.get(group, {})
+    saved = state.get("settings", {}).get(group, {})
+    merged = dict(defaults)
+    merged.update({k: v for k, v in saved.items() if k in defaults})
+    return merged
+
+
 def unpack_tracking(result: Any) -> np.ndarray:
     """Extract ndarray from ring.track() return value.
 

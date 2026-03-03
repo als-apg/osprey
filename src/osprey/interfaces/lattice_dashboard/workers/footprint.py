@@ -16,6 +16,7 @@ from osprey.interfaces.lattice_dashboard.workers._base import (
     add_resonance_overlay,
     load_baseline_ring,
     load_ring,
+    load_settings,
     load_state,
     parse_args,
     save_data,
@@ -108,6 +109,7 @@ def build_figure(
     design_tune: tuple[float, float] | None = None,
     baseline_tune: tuple[float, float] | None = None,
     baseline: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
+    n_total: int = 100,
 ) -> go.Figure:
     fig = go.Figure()
 
@@ -191,7 +193,6 @@ def build_figure(
             )
         )
 
-    n_total = 100  # default grid is 10x10
     fig.update_layout(
         title=f"Tune Footprint ({n_survived}/{n_total} survived)",
         xaxis_title="\u03bd<sub>x</sub>",
@@ -210,7 +211,15 @@ def main() -> None:
     state = load_state(state_path)
 
     ring = load_ring(state)
-    nux, nuy, amps, diffusion = compute_footprint(ring)
+    settings = load_settings(state, "footprint")
+    n_amp = settings["n_amp"]
+    x_max = settings["x_max_mm"] / 1000.0
+    y_max = settings["y_max_mm"] / 1000.0
+    n_half = settings["n_half"]
+
+    nux, nuy, amps, diffusion = compute_footprint(
+        ring, n_amp=n_amp, x_max=x_max, y_max=y_max, n_half=n_half
+    )
 
     tunes = at.get_tune(ring)
     design_tune = [float(tunes[0]), float(tunes[1])]
@@ -221,13 +230,16 @@ def main() -> None:
         "amps": amps.tolist(),
         "diffusion": diffusion.tolist(),
         "design_tune": design_tune,
+        "n_amp": n_amp,
         "baseline": None,
         "baseline_tune": None,
     }
 
     baseline_ring = load_baseline_ring(state_path, state)
     if baseline_ring is not None:
-        bnux, bnuy, bamps, _ = compute_footprint(baseline_ring)
+        bnux, bnuy, bamps, _ = compute_footprint(
+            baseline_ring, n_amp=n_amp, x_max=x_max, y_max=y_max, n_half=n_half
+        )
         raw["baseline"] = {
             "nux": bnux.tolist(),
             "nuy": bnuy.tolist(),

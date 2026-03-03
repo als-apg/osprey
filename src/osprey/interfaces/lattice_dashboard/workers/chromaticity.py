@@ -13,15 +13,21 @@ import plotly.graph_objects as go
 from osprey.interfaces.lattice_dashboard.workers._base import (
     load_baseline_ring,
     load_ring,
+    load_settings,
     load_state,
     parse_args,
     save_data,
 )
 
 
-def compute_chromaticity(ring: at.Lattice) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def compute_chromaticity(
+    ring: at.Lattice,
+    dp_min: float = -0.03,
+    dp_max: float = 0.03,
+    n_steps: int = 25,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Sweep dp/p and return (dp_values, nux_values, nuy_values)."""
-    dp_values = np.linspace(-0.03, 0.03, 25)
+    dp_values = np.linspace(dp_min, dp_max, n_steps)
     nux_vals = np.zeros_like(dp_values)
     nuy_vals = np.zeros_like(dp_values)
 
@@ -120,7 +126,12 @@ def main() -> None:
     state = load_state(state_path)
 
     ring = load_ring(state)
-    dp, nux, nuy = compute_chromaticity(ring)
+    settings = load_settings(state, "chromaticity")
+    dp_min = settings["dp_min_pct"] / 100.0
+    dp_max = settings["dp_max_pct"] / 100.0
+    n_steps = settings["n_steps"]
+
+    dp, nux, nuy = compute_chromaticity(ring, dp_min=dp_min, dp_max=dp_max, n_steps=n_steps)
 
     raw: dict = {
         "dp": dp.tolist(),
@@ -131,7 +142,9 @@ def main() -> None:
 
     baseline_ring = load_baseline_ring(state_path, state)
     if baseline_ring is not None:
-        bdp, bnux, bnuy = compute_chromaticity(baseline_ring)
+        bdp, bnux, bnuy = compute_chromaticity(
+            baseline_ring, dp_min=dp_min, dp_max=dp_max, n_steps=n_steps
+        )
         raw["baseline"] = {
             "dp": bdp.tolist(),
             "nux": bnux.tolist(),

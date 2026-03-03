@@ -17,6 +17,7 @@ from plotly.subplots import make_subplots
 from osprey.interfaces.lattice_dashboard.workers._base import (
     load_baseline_ring,
     load_ring,
+    load_settings,
     load_state,
     parse_args,
     save_data,
@@ -139,6 +140,7 @@ def build_figure(
     dp_minus: np.ndarray,
     lattice_elements: list[dict[str, Any]],
     baseline: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
+    n_sectors: int = 1,
 ) -> go.Figure:
     """Build LMA figure with lattice strip overlay."""
     fig = make_subplots(
@@ -280,7 +282,7 @@ def build_figure(
     fig.update_xaxes(title_text="s [m]", gridcolor="lightgray", row=2, col=1)
 
     fig.update_layout(
-        title="Local Momentum Aperture (1 sector)",
+        title=f"Local Momentum Aperture ({n_sectors} sector{'s' if n_sectors > 1 else ''})",
         height=500,
         template="plotly_white",
         margin={"l": 50, "r": 20, "t": 40, "b": 40},
@@ -294,11 +296,20 @@ def main() -> None:
     state = load_state(state_path)
 
     ring = load_ring(state)
+    settings = load_settings(state, "lma")
+    nturns = settings["nturns"]
+    n_refpts = settings["n_refpts"]
+    dp_max = settings["dp_max_pct"] / 100.0
+
     circumference = float(ring.get_s_pos(len(ring))[0])
     periodicity = state.get("summary", {}).get("periodicity", 1)
-    sector_length = circumference / periodicity
+    n_sectors_setting = settings["n_sectors"]
+    n_sectors = n_sectors_setting if n_sectors_setting is not None else periodicity
+    sector_length = circumference / n_sectors
 
-    s_pos, dp_plus, dp_minus = compute_lma(ring, sector_length=sector_length)
+    s_pos, dp_plus, dp_minus = compute_lma(
+        ring, n_refpts=n_refpts, nturns=nturns, dp_max=dp_max, sector_length=sector_length
+    )
     lattice_elements = extract_lattice_elements(ring, sector_length)
 
     raw: dict = {
@@ -306,12 +317,16 @@ def main() -> None:
         "dp_plus": dp_plus.tolist(),
         "dp_minus": dp_minus.tolist(),
         "lattice_elements": lattice_elements,
+        "n_sectors": n_sectors,
         "baseline": None,
     }
 
     baseline_ring = load_baseline_ring(state_path, state)
     if baseline_ring is not None:
-        bs, bdp_p, bdp_m = compute_lma(baseline_ring, sector_length=sector_length)
+        bs, bdp_p, bdp_m = compute_lma(
+            baseline_ring, n_refpts=n_refpts, nturns=nturns, dp_max=dp_max,
+            sector_length=sector_length,
+        )
         raw["baseline"] = {
             "s_pos": bs.tolist(),
             "dp_plus": bdp_p.tolist(),

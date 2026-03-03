@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 from osprey.interfaces.lattice_dashboard.workers._base import (
     load_baseline_ring,
     load_ring,
+    load_settings,
     load_state,
     parse_args,
     save_data,
@@ -159,19 +160,26 @@ def main() -> None:
     state = load_state(state_path)
 
     ring = load_ring(state)
-    da_x, da_y, _, area_mm2 = compute_da(ring)
+    settings = load_settings(state, "da")
+    nturns = settings["nturns"]
+    n_angles = settings["n_angles"]
+    amp_max = settings["amp_max_mm"] / 1000.0
+
+    da_x, da_y, _, area_mm2 = compute_da(ring, nturns=nturns, n_angles=n_angles, amp_max=amp_max)
 
     raw: dict = {
         "da_x": da_x.tolist(),
         "da_y": da_y.tolist(),
         "area_mm2": float(area_mm2),
-        "nturns": 512,
+        "nturns": nturns,
         "baseline": None,
     }
 
     baseline_ring = load_baseline_ring(state_path, state)
     if baseline_ring is not None:
-        bda_x, bda_y, _, barea = compute_da(baseline_ring)
+        bda_x, bda_y, _, barea = compute_da(
+            baseline_ring, nturns=nturns, n_angles=n_angles, amp_max=amp_max
+        )
         raw["baseline"] = {
             "da_x": bda_x.tolist(),
             "da_y": bda_y.tolist(),
