@@ -10,6 +10,8 @@ Core Components:
     - :class:`LimitsValidator`: Channel write safety limits enforcement
 """
 
+from osprey.connectors.control_system.limits_validator import LimitsValidator
+
 from .analysis import (
     detect_control_system_operations,
     get_framework_standard_patterns,
@@ -24,7 +26,6 @@ from .exceptions import (
     PythonExecutorException,
 )
 from .execution.control import ExecutionControlConfig, ExecutionMode
-from osprey.connectors.control_system.limits_validator import LimitsValidator
 from .models import (
     NotebookAttempt,
     NotebookType,

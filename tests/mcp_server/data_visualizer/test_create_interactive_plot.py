@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from osprey.stores.artifact_store import get_artifact_store
 from osprey.mcp_server.workspace.execution.sandbox_executor import SandboxExecutionResult
 from osprey.mcp_server.workspace.tools._viz_common import resolve_data_source
+from osprey.stores.artifact_store import get_artifact_store
 
 # Mock target for the sandbox executor used by create_interactive_plot
 _SANDBOX_EXEC_TARGET = "osprey.mcp_server.workspace.execution.sandbox_executor.execute_sandbox_code"

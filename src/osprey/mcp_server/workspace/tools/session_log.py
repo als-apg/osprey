@@ -10,9 +10,9 @@ import logging
 from datetime import datetime
 
 from osprey.mcp_server.errors import make_error
-from osprey.utils.workspace import resolve_workspace_root
 from osprey.mcp_server.workspace.server import mcp
 from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
+from osprey.utils.workspace import resolve_workspace_root
 
 logger = logging.getLogger("osprey.mcp_server.tools.session_log")
 

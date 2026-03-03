@@ -85,9 +85,7 @@ def initialize_providers(
     configured_providers = _get_configured_provider_names()
 
     if configured_providers is not None:
-        logger.info(
-            f"Initializing providers (config-driven: {sorted(configured_providers)})..."
-        )
+        logger.info(f"Initializing providers (config-driven: {sorted(configured_providers)})...")
     else:
         logger.info("Initializing providers (all available)...")
 
@@ -101,8 +99,7 @@ def initialize_providers(
         logger.info(f"  ✓ Registered provider: {name}")
 
     logger.info(
-        f"Provider initialization complete: "
-        f"{len(registries['providers'])} providers loaded"
+        f"Provider initialization complete: {len(registries['providers'])} providers loaded"
     )
 
 
@@ -146,29 +143,21 @@ def initialize_connectors(
             registries["connectors"][registration.name] = connector_class
 
             logger.info(
-                f"  ✓ Registered {registration.connector_type} connector: "
-                f"{registration.name}"
+                f"  ✓ Registered {registration.connector_type} connector: {registration.name}"
             )
             logger.debug(f"    - Description: {registration.description}")
             logger.debug(f"    - Module: {registration.module_path}")
             logger.debug(f"    - Class: {registration.class_name}")
 
         except ImportError as e:
-            logger.warning(
-                f"  ⊘ Skipping connector '{registration.name}' (import failed): {e}"
-            )
-            logger.debug(
-                f"    Connector {registration.name} may require optional dependencies"
-            )
+            logger.warning(f"  ⊘ Skipping connector '{registration.name}' (import failed): {e}")
+            logger.debug(f"    Connector {registration.name} may require optional dependencies")
         except Exception as e:
             logger.error(f"  ✗ Failed to register connector '{registration.name}': {e}")
-            raise RegistryError(
-                f"Connector registration failed for {registration.name}"
-            ) from e
+            raise RegistryError(f"Connector registration failed for {registration.name}") from e
 
     logger.info(
-        f"Connector initialization complete: "
-        f"{len(registries['connectors'])} connectors loaded"
+        f"Connector initialization complete: {len(registries['connectors'])} connectors loaded"
     )
 
 
@@ -186,9 +175,7 @@ def initialize_ariel_search_modules(
     if not config.ariel_search_modules:
         return
 
-    logger.info(
-        f"Initializing {len(config.ariel_search_modules)} ARIEL search module(s)..."
-    )
+    logger.info(f"Initializing {len(config.ariel_search_modules)} ARIEL search module(s)...")
 
     for registration in config.ariel_search_modules:
         try:
@@ -208,13 +195,10 @@ def initialize_ariel_search_modules(
 
         except ImportError as e:
             logger.warning(
-                f"  ⊘ Skipping ARIEL search module '{registration.name}' "
-                f"(import failed): {e}"
+                f"  ⊘ Skipping ARIEL search module '{registration.name}' (import failed): {e}"
             )
         except Exception as e:
-            logger.error(
-                f"  ✗ Failed to register ARIEL search module '{registration.name}': {e}"
-            )
+            logger.error(f"  ✗ Failed to register ARIEL search module '{registration.name}': {e}")
             raise RegistryError(
                 f"ARIEL search module registration failed for {registration.name}"
             ) from e
@@ -240,8 +224,7 @@ def initialize_ariel_enhancement_modules(
         return
 
     logger.info(
-        f"Initializing {len(config.ariel_enhancement_modules)} "
-        f"ARIEL enhancement module(s)..."
+        f"Initializing {len(config.ariel_enhancement_modules)} ARIEL enhancement module(s)..."
     )
 
     for registration in config.ariel_enhancement_modules:
@@ -257,13 +240,11 @@ def initialize_ariel_enhancement_modules(
 
         except ImportError as e:
             logger.warning(
-                f"  ⊘ Skipping ARIEL enhancement module '{registration.name}' "
-                f"(import failed): {e}"
+                f"  ⊘ Skipping ARIEL enhancement module '{registration.name}' (import failed): {e}"
             )
         except Exception as e:
             logger.error(
-                f"  ✗ Failed to register ARIEL enhancement module "
-                f"'{registration.name}': {e}"
+                f"  ✗ Failed to register ARIEL enhancement module '{registration.name}': {e}"
             )
             raise RegistryError(
                 f"ARIEL enhancement module registration failed for {registration.name}"
@@ -312,9 +293,7 @@ def initialize_ariel_pipelines(
                 f"  ⊘ Skipping ARIEL pipeline '{registration.name}' (import failed): {e}"
             )
         except Exception as e:
-            logger.error(
-                f"  ✗ Failed to register ARIEL pipeline '{registration.name}': {e}"
-            )
+            logger.error(f"  ✗ Failed to register ARIEL pipeline '{registration.name}': {e}")
             raise RegistryError(
                 f"ARIEL pipeline registration failed for {registration.name}"
             ) from e
@@ -340,8 +319,7 @@ def initialize_ariel_ingestion_adapters(
         return
 
     logger.info(
-        f"Initializing {len(config.ariel_ingestion_adapters)} "
-        f"ARIEL ingestion adapter(s)..."
+        f"Initializing {len(config.ariel_ingestion_adapters)} ARIEL ingestion adapter(s)..."
     )
 
     for registration in config.ariel_ingestion_adapters:
@@ -357,13 +335,11 @@ def initialize_ariel_ingestion_adapters(
 
         except ImportError as e:
             logger.warning(
-                f"  ⊘ Skipping ARIEL ingestion adapter '{registration.name}' "
-                f"(import failed): {e}"
+                f"  ⊘ Skipping ARIEL ingestion adapter '{registration.name}' (import failed): {e}"
             )
         except Exception as e:
             logger.error(
-                f"  ✗ Failed to register ARIEL ingestion adapter "
-                f"'{registration.name}': {e}"
+                f"  ✗ Failed to register ARIEL ingestion adapter '{registration.name}': {e}"
             )
             raise RegistryError(
                 f"ARIEL ingestion adapter registration failed for {registration.name}"

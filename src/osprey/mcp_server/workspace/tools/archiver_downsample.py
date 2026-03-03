@@ -8,10 +8,10 @@ keeping the payload small enough for inline report generation.
 import json
 import logging
 
-from osprey.utils.timeseries import extract_timeseries_frame, lttb_downsample
 from osprey.mcp_server.errors import make_error
-from osprey.utils.workspace import resolve_workspace_root
 from osprey.mcp_server.workspace.server import mcp
+from osprey.utils.timeseries import extract_timeseries_frame, lttb_downsample
+from osprey.utils.workspace import resolve_workspace_root
 
 logger = logging.getLogger("osprey.mcp_server.tools.archiver_downsample")
 

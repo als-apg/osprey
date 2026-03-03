@@ -28,7 +28,6 @@ def _pipeline_type(request: Request) -> str:
     return getattr(request.app.state, "pipeline_type", "in_context")
 
 
-
 # ---------------------------------------------------------------------------
 # Request models
 # ---------------------------------------------------------------------------
@@ -540,9 +539,7 @@ def _get_database(request: Request):
     databases = getattr(request.app.state, "databases", {})
     db = databases.get(pt)
     if db is None:
-        raise HTTPException(
-            status_code=503, detail=f"Database not available for pipeline '{pt}'"
-        )
+        raise HTTPException(status_code=503, detail=f"Database not available for pipeline '{pt}'")
     return db
 
 

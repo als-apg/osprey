@@ -1,7 +1,5 @@
 """Tests for naming summary generation."""
 
-import pytest
-
 from osprey.services.channel_finder.utils.naming_summary import generate_naming_summary
 
 

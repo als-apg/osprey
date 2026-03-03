@@ -93,7 +93,7 @@ nearby = []
 for order in range(1, 6):
     for m in range(-order, order + 1):
         n_abs = order - abs(m)
-        for n in ([n_abs, -n_abs] if n_abs != 0 else [0]):
+        for n in [n_abs, -n_abs] if n_abs != 0 else [0]:
             if m == 0 and n == 0:
                 continue
             # Find integer p values near m*nux + n*nuy
@@ -104,16 +104,18 @@ for order in range(1, 6):
                 d = abs(m * nux + n * nuy - p) / norm
                 if d < PROXIMITY_THRESHOLD:
                     category, type_label = classify_resonance(m, n)
-                    nearby.append({
-                        "m": m,
-                        "n": n,
-                        "p": p,
-                        "order": order,
-                        "distance": d,
-                        "category": category,
-                        "type_label": type_label,
-                        "condition": format_condition(m, n, p),
-                    })
+                    nearby.append(
+                        {
+                            "m": m,
+                            "n": n,
+                            "p": p,
+                            "order": order,
+                            "distance": d,
+                            "category": category,
+                            "type_label": type_label,
+                            "condition": format_condition(m, n, p),
+                        }
+                    )
 
 # ── Deduplicate: (m, n, p) ≡ (-m, -n, -p) ───────────────────────────
 seen = set()
@@ -136,10 +138,7 @@ print(f"Top {top_n} nearest resonances:")
 print(f"{'Rank':<6}{'Resonance':<22}{'Type':<26}{'Category':<12}{'Distance':<10}")
 print("─" * 76)
 for i, r in enumerate(unique[:top_n], 1):
-    print(
-        f"{i:<6}{r['condition']:<22}{r['type_label']:<26}"
-        f"{r['category']:<12}{r['distance']:.4f}"
-    )
+    print(f"{i:<6}{r['condition']:<22}{r['type_label']:<26}{r['category']:<12}{r['distance']:.4f}")
 print()
 
 # ── Build annotated Plotly figure ─────────────────────────────────────
@@ -153,7 +152,7 @@ fig = go.Figure()
 for order in range(1, 6):
     for m in range(-order, order + 1):
         n_abs = order - abs(m)
-        for n in ([n_abs, -n_abs] if n_abs != 0 else [0]):
+        for n in [n_abs, -n_abs] if n_abs != 0 else [0]:
             if m == 0 and n == 0:
                 continue
             for p in range(-100, 101):
@@ -195,8 +194,7 @@ for order in range(1, 6):
                             legendgroup=f"order{order}",
                             showlegend=False,
                             hovertemplate=(
-                                f"{m}·ν<sub>x</sub> + {n}·ν<sub>y</sub> = {p}"
-                                "<extra></extra>"
+                                f"{m}·ν<sub>x</sub> + {n}·ν<sub>y</sub> = {p}<extra></extra>"
                             ),
                         )
                     )
@@ -300,9 +298,7 @@ fig.add_trace(
         mode="markers",
         marker=dict(size=14, color="black", symbol="star"),
         name="Working point",
-        hovertemplate=(
-            f"ν<sub>x</sub> = {nux:.4f}<br>ν<sub>y</sub> = {nuy:.4f}<extra></extra>"
-        ),
+        hovertemplate=(f"ν<sub>x</sub> = {nux:.4f}<br>ν<sub>y</sub> = {nuy:.4f}<extra></extra>"),
     )
 )
 

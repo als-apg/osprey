@@ -72,9 +72,7 @@ class RegistryManager:
             "ariel_ingestion_adapters": {},
         }
 
-        self.config, self._excluded_provider_names = build_merged_configuration(
-            registry_path
-        )
+        self.config, self._excluded_provider_names = build_merged_configuration(registry_path)
 
     def initialize(self, silent: bool = False) -> None:
         """Load all registered components in dependency order.
@@ -116,9 +114,7 @@ class RegistryManager:
             raise RegistryError(f"Failed to initialize registry: {e}") from e
         except Exception as e:
             logger.error(f"Registry initialization failed with unexpected error: {e}")
-            raise RegistryError(
-                f"Unexpected error during registry initialization: {e}"
-            ) from e
+            raise RegistryError(f"Unexpected error during registry initialization: {e}") from e
         finally:
             if silent:
                 for logger_name, level in original_levels.items():
@@ -407,8 +403,7 @@ def _create_registry_from_config(config_path: str | None = None) -> RegistryMana
         if env_registry_path:
             registry_path = env_registry_path
             logger.info(
-                f"Using registry path from REGISTRY_PATH environment variable: "
-                f"{registry_path}"
+                f"Using registry path from REGISTRY_PATH environment variable: {registry_path}"
             )
             return RegistryManager(registry_path=registry_path)
 

@@ -145,9 +145,7 @@ def config_remove_from_list(
                 del parent_node[parent_key]
 
     _save(config_path, data)
-    logger.info(
-        "config_remove_from_list: %s -= %s in %s", ".".join(key_path), value, config_path
-    )
+    logger.info("config_remove_from_list: %s -= %s in %s", ".".join(key_path), value, config_path)
     return True
 
 

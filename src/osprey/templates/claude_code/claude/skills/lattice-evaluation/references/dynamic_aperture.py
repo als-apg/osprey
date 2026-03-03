@@ -25,8 +25,8 @@ angles_rad = np.radians(angles_deg)
 
 # Amplitude search range [m]
 amp_min = 0.0001  # 0.1 mm
-amp_max = 0.030   # 30 mm
-n_bisect = 15     # binary search iterations
+amp_max = 0.030  # 30 mm
+n_bisect = 15  # binary search iterations
 
 
 def find_da_at_angle(ring, angle_rad, nturns, amp_min, amp_max, n_bisect):
@@ -67,9 +67,7 @@ da_x_full = np.concatenate([da_x, -da_x[::-1], da_x[:1]])
 da_y_full = np.concatenate([da_y, da_y[::-1], da_y[:1]])
 
 # --- Compute DA area (shoelace formula) ---
-area = 0.5 * abs(
-    np.sum(da_x_full[:-1] * da_y_full[1:] - da_x_full[1:] * da_y_full[:-1])
-)
+area = 0.5 * abs(np.sum(da_x_full[:-1] * da_y_full[1:] - da_x_full[1:] * da_y_full[:-1]))
 area_mm2 = area * 1e6
 
 print(f"\n  DA area:     {area_mm2:.1f} mm²")

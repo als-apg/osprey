@@ -330,8 +330,19 @@ class TestHookDebugEndpoints:
         log_dir.mkdir(parents=True)
         log_file = log_dir / "hook_debug.jsonl"
         entries = [
-            {"ts": "2026-03-02T10:00:00Z", "hook": "PreToolUse", "tool": "Bash", "status": "allowed"},
-            {"ts": "2026-03-02T10:00:01Z", "hook": "PreToolUse", "tool": "Write", "status": "blocked", "detail": "safety check"},
+            {
+                "ts": "2026-03-02T10:00:00Z",
+                "hook": "PreToolUse",
+                "tool": "Bash",
+                "status": "allowed",
+            },
+            {
+                "ts": "2026-03-02T10:00:01Z",
+                "hook": "PreToolUse",
+                "tool": "Write",
+                "status": "blocked",
+                "detail": "safety check",
+            },
         ]
         log_file.write_text("\n".join(json.dumps(e) for e in entries))
 

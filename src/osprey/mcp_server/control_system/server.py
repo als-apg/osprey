@@ -20,13 +20,13 @@ mcp = FastMCP(
 
 def create_server() -> FastMCP:
     """Initialize the registry and import tool modules, then return the server."""
+    from osprey.mcp_server.control_system.registry import initialize_mcp_registry
     from osprey.mcp_server.startup import (
         initialize_workspace_singletons,
         prime_config_builder,
         startup_timer,
     )
     from osprey.utils.workspace import resolve_workspace_root
-    from osprey.mcp_server.control_system.registry import initialize_mcp_registry
 
     prime_config_builder()
 

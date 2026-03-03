@@ -19,23 +19,6 @@ from typing import Any
 
 import yaml
 
-from osprey.cli.styles import (
-    Messages,
-    Styles,
-    console,
-    get_questionary_style,
-)
-from osprey.deployment.runtime_helper import get_runtime_command
-
-# Re-export from menu_display (backward compatibility)
-from osprey.cli.menu_display import (  # noqa: F401
-    handle_help_action,
-    handle_help_action_root,
-    show_banner,
-    show_deploy_help,
-    show_success_art,
-)
-
 # Re-export from init_wizard (backward compatibility)
 from osprey.cli.init_wizard import (  # noqa: F401
     configure_api_key,
@@ -48,6 +31,15 @@ from osprey.cli.init_wizard import (  # noqa: F401
     show_api_key_help,
     show_manual_config_instructions,
     write_env_file,
+)
+
+# Re-export from menu_display (backward compatibility)
+from osprey.cli.menu_display import (  # noqa: F401
+    handle_help_action,
+    handle_help_action_root,
+    show_banner,
+    show_deploy_help,
+    show_success_art,
 )
 
 # Re-export from project_actions (backward compatibility)
@@ -64,6 +56,12 @@ from osprey.cli.project_actions import (  # noqa: F401
     handle_tasks_action,
     show_config_menu,
 )
+from osprey.cli.styles import (
+    Messages,
+    console,
+    get_questionary_style,
+)
+from osprey.deployment.runtime_helper import get_runtime_command
 
 try:
     import questionary

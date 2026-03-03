@@ -74,9 +74,7 @@ def build_merged_configuration(
             )
 
             merge_application_with_override(merged, app_config, app_name, excluded_provider_names)
-            logger.info(
-                f"Loaded application registry from: {registry_path} (app: {app_name})"
-            )
+            logger.info(f"Loaded application registry from: {registry_path} (app: {app_name})")
             return merged, excluded_provider_names
 
         else:
@@ -88,9 +86,7 @@ def build_merged_configuration(
 
     except Exception as e:
         logger.error(f"Failed to load registry from {registry_path}: {e}")
-        raise RegistryError(
-            f"Failed to load registry from {registry_path}: {e}"
-        ) from e
+        raise RegistryError(f"Failed to load registry from {registry_path}: {e}") from e
 
 
 def load_registry_from_module(module_path: str) -> RegistryConfig:
@@ -143,8 +139,7 @@ def load_registry_from_module(module_path: str) -> RegistryConfig:
         config = provider_instance.get_registry_config()
 
         logger.debug(
-            f"Loaded {component_name} registry via {provider_class.__name__} "
-            f"from {module_path}"
+            f"Loaded {component_name} registry via {provider_class.__name__} from {module_path}"
         )
         return config
 
@@ -178,9 +173,7 @@ def load_registry_from_path(registry_path: str) -> RegistryConfig:
         )
 
     if not path.is_file():
-        raise RegistryError(
-            f"Registry path is not a file: {registry_path}\nResolved path: {path}"
-        )
+        raise RegistryError(f"Registry path is not a file: {registry_path}\nResolved path: {path}")
 
     # Add parent directory to sys.path so registry module references resolve.
     app_dir = path.parent
@@ -315,8 +308,7 @@ def apply_framework_exclusions(
         component_collection = getattr(merged, component_type, None)
         if component_collection is None:
             logger.warning(
-                f"Application {app_name} tried to exclude unknown component type: "
-                f"{component_type}"
+                f"Application {app_name} tried to exclude unknown component type: {component_type}"
             )
             continue
 
@@ -373,9 +365,7 @@ def merge_application_with_override(
         merged.services.append(app_service)
 
     if service_overrides:
-        logger.info(
-            f"Application {app_name} overrode framework services: {service_overrides}"
-        )
+        logger.info(f"Application {app_name} overrode framework services: {service_overrides}")
 
     framework_provider_keys = {(p.module_path, p.class_name) for p in merged.providers}
     provider_overrides = []
@@ -395,13 +385,9 @@ def merge_application_with_override(
             merged.providers.append(app_provider)
 
     if provider_overrides:
-        logger.info(
-            f"Application {app_name} overrode framework providers: {provider_overrides}"
-        )
+        logger.info(f"Application {app_name} overrode framework providers: {provider_overrides}")
     if providers_added:
-        logger.info(
-            f"Application {app_name} added {len(providers_added)} new provider(s)"
-        )
+        logger.info(f"Application {app_name} added {len(providers_added)} new provider(s)")
 
     framework_connector_names = {conn.name for conn in merged.connectors}
     connector_overrides = []
@@ -420,9 +406,7 @@ def merge_application_with_override(
             merged.connectors.append(app_connector)
 
     if connector_overrides:
-        logger.info(
-            f"Application {app_name} overrode framework connectors: {connector_overrides}"
-        )
+        logger.info(f"Application {app_name} overrode framework connectors: {connector_overrides}")
     if connectors_added:
         logger.info(
             f"Application {app_name} added {len(connectors_added)} new connector(s): "
@@ -485,11 +469,8 @@ def merge_named_registrations(
         merged_list.append(app_item)
 
     if overrides:
-        logger.info(
-            f"Application {app_name} overrode framework {type_label}s: {overrides}"
-        )
+        logger.info(f"Application {app_name} overrode framework {type_label}s: {overrides}")
     if additions:
         logger.info(
-            f"Application {app_name} added {len(additions)} new "
-            f"{type_label}(s): {additions}"
+            f"Application {app_name} added {len(additions)} new {type_label}(s): {additions}"
         )

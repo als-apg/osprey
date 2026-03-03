@@ -4,7 +4,6 @@ import pytest
 import yaml
 
 from osprey.mcp_server.direct_channel_finder.registry import (
-    DirectChannelFinderRegistry,
     get_dcf_registry,
     initialize_dcf_registry,
     reset_dcf_registry,

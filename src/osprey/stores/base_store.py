@@ -180,9 +180,7 @@ class BaseStore(Generic[T]):
                 if e.id == entry_id:
                     for key, value in kwargs.items():
                         if not hasattr(e, key):
-                            raise AttributeError(
-                                f"{type(e).__name__} has no attribute {key!r}"
-                            )
+                            raise AttributeError(f"{type(e).__name__} has no attribute {key!r}")
                         setattr(e, key, value)
                     self._save_index()
                     return e

@@ -7,11 +7,9 @@ and configuration management actions invoked from the TUI menu.
 import os
 import socket
 from pathlib import Path
-from typing import Any
 
 from osprey.cli.styles import (
     Messages,
-    Styles,
     console,
     get_questionary_style,
 )
@@ -590,6 +588,7 @@ def _check_simulation_ioc_running(host: str = "localhost", port: int = 5064) -> 
 
 def handle_set_epics_gateway(project_path: Path | None = None) -> None:
     """Handle interactive EPICS gateway configuration."""
+    from osprey.templates.data import FACILITY_PRESETS
     from osprey.utils.config_writer import (
         find_config_file,
         get_control_system_type,
@@ -597,7 +596,6 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
         set_control_system_type,
         set_epics_gateway_config,
     )
-    from osprey.templates.data import FACILITY_PRESETS
 
     console.clear()
     console.print(f"\n{Messages.header('Configure EPICS Gateway')}\n")

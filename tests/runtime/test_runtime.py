@@ -7,6 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from osprey.connectors.control_system.limits_validator import (
+    ChannelLimitsConfig,
+    LimitsValidator,
+)
+from osprey.errors import ChannelLimitsViolationError
 from osprey.runtime import (
     _write_channel_async,
     cleanup_runtime,
@@ -14,11 +19,6 @@ from osprey.runtime import (
     write_channel,
     write_channels,
 )
-from osprey.connectors.control_system.limits_validator import (
-    ChannelLimitsConfig,
-    LimitsValidator,
-)
-from osprey.errors import ChannelLimitsViolationError
 
 
 class MockConnector:
