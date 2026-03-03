@@ -34,8 +34,8 @@ logger = __import__("logging").getLogger(__name__)
 def _launch_artifact_server(app: FastAPI) -> None:
     """Auto-launch the artifact gallery server if configured."""
     try:
-        from osprey.utils.workspace import load_osprey_config
         from osprey.infrastructure.server_launcher import ensure_artifact_server
+        from osprey.utils.workspace import load_osprey_config
 
         config = load_osprey_config()
         art_config = config.get("artifact_server", {})
@@ -53,8 +53,8 @@ def _launch_artifact_server(app: FastAPI) -> None:
 def _launch_ariel_server(app: FastAPI) -> None:
     """Auto-launch the ARIEL logbook server if configured."""
     try:
-        from osprey.utils.workspace import load_osprey_config
         from osprey.infrastructure.server_launcher import ensure_ariel_server
+        from osprey.utils.workspace import load_osprey_config
 
         config = load_osprey_config()
         ariel_web = config.get("ariel", {}).get("web", {})
@@ -72,8 +72,8 @@ def _launch_ariel_server(app: FastAPI) -> None:
 def _launch_tuning_server(app: FastAPI) -> None:
     """Auto-launch the tuning panel server if configured."""
     try:
-        from osprey.utils.workspace import load_osprey_config
         from osprey.infrastructure.server_launcher import ensure_tuning_server
+        from osprey.utils.workspace import load_osprey_config
 
         config = load_osprey_config()
         tuning_web = config.get("tuning", {}).get("web", {})
@@ -91,8 +91,8 @@ def _launch_tuning_server(app: FastAPI) -> None:
 def _launch_deplot_server(app: FastAPI) -> None:
     """Auto-launch the DePlot graph extraction service if configured."""
     try:
-        from osprey.utils.workspace import load_osprey_config
         from osprey.infrastructure.server_launcher import ensure_deplot_server
+        from osprey.utils.workspace import load_osprey_config
 
         config = load_osprey_config()
         deplot = config.get("deplot", {})
@@ -112,8 +112,8 @@ def _launch_deplot_server(app: FastAPI) -> None:
 def _launch_channel_finder_server(app: FastAPI) -> None:
     """Auto-launch the Channel Finder web server if configured."""
     try:
-        from osprey.utils.workspace import load_osprey_config
         from osprey.infrastructure.server_launcher import ensure_channel_finder_server
+        from osprey.utils.workspace import load_osprey_config
 
         config = load_osprey_config()
         cf = config.get("channel_finder", {})
@@ -154,6 +154,27 @@ def _launch_agentsview_server(app: FastAPI) -> None:
         app.state.agentsview_project = None
 
 
+def _launch_lattice_dashboard_server(app: FastAPI) -> None:
+    """Auto-launch the lattice dashboard server if configured."""
+    try:
+        from osprey.infrastructure.server_launcher import ensure_lattice_dashboard_server
+        from osprey.utils.workspace import load_osprey_config
+
+        config = load_osprey_config()
+        ld = config.get("lattice_dashboard", {})
+        if not ld:
+            return
+        host = ld.get("host", "127.0.0.1")
+        port = ld.get("port", 8097)
+
+        app.state.lattice_dashboard_server_url = f"http://{host}:{port}"
+        ensure_lattice_dashboard_server()
+        logger.info("Lattice dashboard available at %s", app.state.lattice_dashboard_server_url)
+    except Exception:
+        logger.warning("Could not auto-launch lattice dashboard", exc_info=True)
+        app.state.lattice_dashboard_server_url = None
+
+
 def _launch_cui_server(app: FastAPI) -> None:
     """Auto-launch the CUI server subprocess if configured."""
     try:
@@ -177,7 +198,9 @@ def _launch_cui_server(app: FastAPI) -> None:
 
 # Panel classification constants
 UNIVERSAL_PANELS = {"artifacts", "session", "session-analytics"}
-BUILTIN_PANELS = {"artifacts", "ariel", "tuning", "channel-finder", "session", "session-analytics"}
+BUILTIN_PANELS = {
+    "artifacts", "ariel", "tuning", "channel-finder", "session", "session-analytics", "lattice",
+}
 
 
 def _load_panel_config() -> tuple[set[str], list[dict]]:
@@ -303,6 +326,8 @@ def _create_lifespan(
             _launch_tuning_server(app)
         if "channel-finder" in enabled_panels:
             _launch_channel_finder_server(app)
+        if "lattice" in enabled_panels:
+            _launch_lattice_dashboard_server(app)
 
         # Standalone services — always launched (not panel-tied)
         _launch_deplot_server(app)

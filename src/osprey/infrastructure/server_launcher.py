@@ -289,3 +289,37 @@ _channel_finder_launcher = ServerLauncher(
 def ensure_channel_finder_server() -> None:
     """Ensure the Channel Finder web server is running; launch if needed."""
     _channel_finder_launcher.ensure_running()
+
+
+def _lattice_dashboard_config() -> tuple[str, int]:
+    config = load_osprey_config()
+    ld = config.get("lattice_dashboard", {})
+    return ld.get("host", "127.0.0.1"), ld.get("port", 8097)
+
+
+def _lattice_dashboard_auto_launch() -> bool:
+    config = load_osprey_config()
+    ld = config.get("lattice_dashboard", {})
+    if not ld:
+        return False
+    return ld.get("auto_launch", True)
+
+
+def _lattice_dashboard_app_factory(workspace_root: Path | None = None) -> object:
+    from osprey.interfaces.lattice_dashboard.app import create_app
+
+    return create_app(workspace_root=workspace_root)
+
+
+_lattice_dashboard_launcher = ServerLauncher(
+    name="Lattice dashboard",
+    config_reader=_lattice_dashboard_config,
+    auto_launch_checker=_lattice_dashboard_auto_launch,
+    app_factory=_lattice_dashboard_app_factory,
+    pass_workspace=True,
+)
+
+
+def ensure_lattice_dashboard_server() -> None:
+    """Ensure the lattice dashboard server is running; launch if needed."""
+    _lattice_dashboard_launcher.ensure_running()

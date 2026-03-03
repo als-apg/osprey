@@ -63,6 +63,13 @@ async def channel_finder_server_config(request: Request):
     return {"url": url, "available": url is not None}
 
 
+@router.get("/api/lattice-server")
+async def lattice_server_config(request: Request):
+    """Return the lattice dashboard server URL for iframe embedding."""
+    url = getattr(request.app.state, "lattice_dashboard_server_url", None)
+    return {"url": url, "available": url is not None}
+
+
 @router.get("/api/wiki-url")
 async def wiki_url(request: Request):
     """Return the external wiki URL for the header link button."""

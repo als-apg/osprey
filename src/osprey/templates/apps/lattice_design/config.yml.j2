@@ -117,18 +117,25 @@ agentsview:
   project: "{{ project_name | replace('-', '_') }}"
 
 # ============================================================
+# LATTICE DASHBOARD
+# ============================================================
+# Live visualization of lattice optics, resonance diagrams,
+# chromaticity, tune footprint, dynamic aperture, and frequency maps.
+
+lattice_dashboard:
+  host: "127.0.0.1"
+  port: 8097
+  auto_launch: true
+
+# ============================================================
 # WEB PANEL CONFIGURATION
 # ============================================================
 # Controls which panel tabs appear in the web terminal (osprey web).
 # Universal panels (Workspace, Activity, Session Analytics) are always shown.
-# No domain-specific panels enabled for lattice design template.
 
 web:
-  panels: {}
-  # Custom panels can be added here:
-  # my-dashboard:
-  #   label: "DASHBOARD"
-  #   url: "http://localhost:3000"
+  panels:
+    lattice: true
 
 # ============================================================
 # CLAUDE CODE INTEGRATION

@@ -647,7 +647,7 @@ class TestLatticeSkillIsolation:
     """Test that lattice-specific skills/rules only appear for lattice_design."""
 
     LATTICE_SKILLS = [
-        "lattice-evaluation",
+        # lattice-evaluation skill was replaced by the lattice dashboard panel
     ]
 
     def test_control_assistant_has_no_lattice_skills(self, tmp_path):
@@ -738,7 +738,6 @@ class TestTemplateManifest:
 
         assert mf is not None
         artifacts = mf["artifacts"]
-        assert "lattice-evaluation" in artifacts["skills"]
         assert "lattice-physics" in artifacts["rules"]
         # Should NOT have control-system-specific entries
         assert "limits" not in artifacts["hooks"]
@@ -791,7 +790,7 @@ class TestTemplateManifest:
         assert not (project_dir / ".claude" / "rules" / "control-system-safety.md").exists()
 
     def test_lattice_init_has_lattice_artifacts(self, tmp_path):
-        """Lattice project must have lattice-physics rule and lattice-evaluation skill."""
+        """Lattice project must have lattice-physics rule and reference scripts."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="lat-artifacts-test",
@@ -804,12 +803,8 @@ class TestTemplateManifest:
         assert rule.exists()
         assert len(rule.read_text(encoding="utf-8").strip()) > 0
 
-        # Consolidated lattice-evaluation skill
-        skill_file = project_dir / ".claude" / "skills" / "lattice-evaluation" / "SKILL.md"
-        assert skill_file.exists(), "Missing lattice-evaluation skill"
-        assert len(skill_file.read_text(encoding="utf-8").strip()) > 0
-
-        # 4 reference scripts
+        # lattice-evaluation SKILL.md was replaced by the dashboard panel
+        # but the 4 reference scripts should still be deployed
         refs_dir = project_dir / ".claude" / "skills" / "lattice-evaluation" / "references"
         for ref_name in [
             "analyze_working_point.py",

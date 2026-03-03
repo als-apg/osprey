@@ -245,13 +245,7 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             output_path=".claude/skills/diagnose/SKILL.md",
             description="OSPREY infrastructure failure diagnosis skill",
         ),
-        # ── Skills (lattice_design) ──────────────────────────────
-        PromptArtifact(
-            canonical_name="skills/lattice-evaluation",
-            template_path="claude/skills/lattice-evaluation/SKILL.md.j2",
-            output_path=".claude/skills/lattice-evaluation/SKILL.md",
-            description="Comprehensive lattice health evaluation (lattice_design only)",
-        ),
+        # ── Reference scripts (lattice_design) ─────────────────────
         PromptArtifact(
             canonical_name="skills/lattice-evaluation/ref-analyze-working-point",
             template_path="claude/skills/lattice-evaluation/references/analyze_working_point.py",

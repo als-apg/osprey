@@ -111,7 +111,7 @@ def load_template_manifest(template_root: Path, template_name: str) -> dict | No
                 )
 
     # Validate web_panels entries
-    valid_panel_ids = {"ariel", "channel-finder", "tuning"}
+    valid_panel_ids = {"ariel", "channel-finder", "tuning", "lattice"}
     for panel_id in manifest.get("web_panels", []):
         if panel_id not in valid_panel_ids:
             logger.warning("Unknown web_panel '%s' in template '%s'", panel_id, template_name)

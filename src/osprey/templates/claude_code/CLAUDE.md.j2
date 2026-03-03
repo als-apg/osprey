@@ -7,14 +7,21 @@ Python executor to load lattices, compute optics, fit tunes and chromaticities,
 and produce interactive plots. Every result comes from real AT computations —
 never fabricated.
 
-## Workflows
+## Lattice Dashboard
 
-Use `/lattice-evaluation` for comprehensive lattice analysis. It handles:
-loading, optics, working point safety, tune/chromaticity correction,
-and verification (dynamic aperture, frequency map).
+The LATTICE panel in the web terminal provides live visualization of
+the current lattice state.  Use MCP tools to drive it:
 
-For quick single-step work, the AT API is documented in the
-lattice-physics rule.
+- `lattice_init("machine_data/als.m")` — load a lattice, auto-compute fast figures
+- `lattice_state` — inspect tunes, chromaticity, families, baseline
+- `lattice_set_param("QF", 2.6)` — adjust a magnet family
+- `lattice_refresh` — recompute fast figures (optics, resonance, chromaticity, footprint)
+- `lattice_refresh("da")` — run dynamic aperture verification
+- `lattice_set_baseline` — snapshot current state for overlay comparison
+
+For direct lattice manipulation, use the AT API documented in the
+lattice-physics rule.  Edit `.m` files directly, then call `lattice_init`
+to reload.
 
 ## Lattice File
 

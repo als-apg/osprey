@@ -39,6 +39,12 @@ const PANELS = [
     statusBarId: 'channel-finder-status',
   },
   {
+    id: 'lattice',
+    label: 'LATTICE',
+    configEndpoint: '/api/lattice-server',
+    statusBarId: null,
+  },
+  {
     id: 'session',
     label: 'ACTIVITY',
     configEndpoint: '/api/session-server',
