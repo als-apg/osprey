@@ -201,7 +201,7 @@ def build_figure(
         template="plotly_white",
         margin={"l": 50, "r": 20, "t": 40, "b": 40},
         xaxis={"gridcolor": "lightgray"},
-        yaxis={"gridcolor": "lightgray", "scaleanchor": "x"},
+        yaxis={"gridcolor": "lightgray"},
     )
     return fig
 

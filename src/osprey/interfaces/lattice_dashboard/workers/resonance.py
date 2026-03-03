@@ -145,7 +145,7 @@ def build_figure(
         template="plotly_white",
         margin={"l": 50, "r": 20, "t": 40, "b": 40},
         xaxis={"range": list(tune_range_x), "gridcolor": "lightgray"},
-        yaxis={"range": list(tune_range_y), "gridcolor": "lightgray", "scaleanchor": "x"},
+        yaxis={"range": list(tune_range_y), "gridcolor": "lightgray"},
     )
     return fig
 
