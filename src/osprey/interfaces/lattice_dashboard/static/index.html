@@ -77,10 +77,15 @@
 
   <!-- Main Content -->
   <div id="main-layout">
-    <!-- Sidebar: Magnet Controls -->
-    <aside id="sidebar">
+    <!-- Sidebar: Magnet Controls (collapsed by default) -->
+    <aside id="sidebar" class="sidebar-collapsed">
       <div class="sidebar-header">
-        <span>MAGNET FAMILIES</span>
+        <span class="sidebar-header-label">MAGNET FAMILIES</span>
+        <button id="btn-sidebar-toggle" class="sidebar-toggle" title="Toggle magnet panel">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+            <path class="chevron-path" d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
       </div>
       <div id="slider-container">
         <div class="sidebar-empty">Load a lattice to see controls</div>
