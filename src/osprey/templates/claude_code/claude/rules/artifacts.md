@@ -66,6 +66,12 @@ The user's current gallery selection is automatically included in your context
 via the `UserPromptSubmit` hook (reads `focus_state.txt`). Use this to
 understand what the user is looking at.
 
+## Math in Markdown Artifacts
+
+The gallery renders LaTeX math via KaTeX. Use `$...$` for inline math and
+`$$...$$` for display equations. **Never use code blocks for equations** — they
+render as monospaced plain text without typesetting.
+
 ## Best Practices
 
 - Use descriptive titles — they're the primary identifier in the gallery

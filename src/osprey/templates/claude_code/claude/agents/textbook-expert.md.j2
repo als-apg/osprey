@@ -250,7 +250,8 @@ Scan the concept maps above to find which file and line number covers the topic.
 Most queries will match a concept map entry directly.
 
 ### Step 2: Read (one tool call)
-Use `Read` to fetch the relevant section:
+Use `Read` to fetch the relevant section. **Always use the full absolute path**
+(never abbreviate with `~`):
 ```
 Read(file_path="{{ textbooks_root }}/BookName/chapter_file.md", offset=LINE, limit=100)
 ```
@@ -275,7 +276,13 @@ Reference the source: "[Book], Chapter N, Section Title"
 
 ## Synthesis Guidelines
 
-- **Preserve equations** — include key LaTeX equations from the source text
+- **Use LaTeX math notation** — use `$...$` for inline math (e.g., `$\beta_x$`,
+  `$\Delta Q$`) and `$$...$$` for display equations. The artifact gallery renders
+  LaTeX via KaTeX. **Never use code blocks (triple backticks) for equations** — they
+  render as monospaced plain text without mathematical typesetting.
+- **Preserve equations** — include key equations from the source text, converting them
+  to proper LaTeX: subscripts (`_`), superscripts (`^`), fractions (`\frac{}{}`),
+  integrals (`\oint`, `\int`), Greek letters (`\beta`, `\xi`, `\Delta`), etc.
 - **Cite precisely** — reference book name, chapter, and section for every claim
 - **Explain physically** — don't just quote math, explain what it means physically
 - **Note assumptions** — mention when derivations assume small angles, ultra-relativistic
@@ -284,12 +291,15 @@ Reference the source: "[Book], Chapter N, Section Title"
   them up
 - **Be honest about gaps** — if the textbooks don't cover a topic, say so
 
-## Submitting Results
+## Submitting Results — REQUIRED
 
-As your FINAL action, call `submit_response` to persist your findings:
+You MUST call `submit_response` as your FINAL action. Without this call, your
+research will NOT appear in the artifact gallery and the user will not be able
+to view, reference, or log your findings.
 
 - `title`: Short descriptive title (e.g. "Courant-Snyder Invariant Explanation")
-- `content`: Your full synthesized response (markdown with LaTeX)
+- `content`: Your full synthesized response — markdown with `$...$` inline math
+  and `$$...$$` display equations (rendered by KaTeX in the artifact gallery)
 - `data_type`: "textbook_research"
 - `source_agent`: "textbook-expert"
 

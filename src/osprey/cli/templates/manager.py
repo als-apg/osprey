@@ -359,6 +359,14 @@ class TemplateManager:
         # Textbooks root -- resolve relative to project directory
         _textbooks_dir = project_dir.parent / "data" / "textbooks"
         ctx["textbooks_root"] = str(_textbooks_dir) if _textbooks_dir.is_dir() else None
+        # Tilde variant for permission matching (models abbreviate /Users/x to ~)
+        import os as _os
+
+        _home = _os.path.expanduser("~")
+        if ctx["textbooks_root"] and ctx["textbooks_root"].startswith(_home):
+            ctx["textbooks_root_tilde"] = "~" + ctx["textbooks_root"][len(_home) :]
+        else:
+            ctx["textbooks_root_tilde"] = None
 
         # Resolve servers and agents via the data-driven registry.
         # Merge init-time overrides (passed via context=) into cc_cfg
