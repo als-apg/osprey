@@ -37,7 +37,10 @@ def find_da_at_angle(
         rin[2] = mid * np.sin(angle_rad)
 
         rout = ring.track(rin, nturns=nturns)
-        survived = np.all(np.isfinite(rout))
+        try:
+            survived = np.all(np.isfinite(rout))
+        except (ValueError, TypeError):
+            survived = False
 
         if survived:
             lo = mid
