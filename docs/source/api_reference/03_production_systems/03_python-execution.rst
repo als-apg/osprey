@@ -2,20 +2,10 @@
 Python Execution
 ================
 
-Python code generation and execution service with LangGraph-based workflow, approval integration, and flexible deployment options.
+Python code execution service with approval integration and flexible deployment options.
 
 .. note::
    For implementation tutorials and usage examples, see :doc:`../../../developer-guides/05_production-systems/03_python-execution-service/index`.
-
-Service Interface
-=================
-
-.. currentmodule:: osprey.services.python_executor.service
-
-.. autoclass:: PythonExecutorService
-   :members:
-   :show-inheritance:
-   :no-index:
 
 Request and Response Models
 ===========================
@@ -42,11 +32,6 @@ State Management
 
 .. currentmodule:: osprey.services.python_executor.models
 
-.. autoclass:: PythonExecutionState
-   :members:
-   :show-inheritance:
-   :no-index:
-
 .. autoclass:: PythonExecutionContext
    :members:
    :show-inheritance:
@@ -58,18 +43,6 @@ Configuration Models
 .. currentmodule:: osprey.services.python_executor.config
 
 .. autoclass:: PythonExecutorConfig
-   :members:
-   :show-inheritance:
-   :no-index:
-
-.. currentmodule:: osprey.services.python_executor.models
-
-.. autoclass:: ExecutionModeConfig
-   :members:
-   :show-inheritance:
-   :no-index:
-
-.. autoclass:: ContainerEndpointConfig
    :members:
    :show-inheritance:
    :no-index:
@@ -111,11 +84,6 @@ Exceptions
    :show-inheritance:
    :no-index:
 
-.. autoclass:: CodeGenerationError
-   :members:
-   :show-inheritance:
-   :no-index:
-
 .. autoclass:: ContainerConnectivityError
    :members:
    :show-inheritance:
@@ -135,17 +103,6 @@ Exceptions
    :members:
    :show-inheritance:
    :no-index:
-
-Utility Functions
-=================
-
-.. currentmodule:: osprey.services.python_executor.models
-
-.. autofunction:: get_execution_control_config_from_configurable
-
-.. autofunction:: get_execution_mode_config_from_configurable
-
-.. autofunction:: get_container_endpoint_config_from_configurable
 
 Serialization Utilities
 =======================

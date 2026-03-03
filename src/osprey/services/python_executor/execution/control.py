@@ -36,7 +36,6 @@ for manual control when needed.
 
 .. seealso::
    :class:`osprey.services.python_executor.execution_policy_analyzer` : Code analysis integration
-   :class:`osprey.services.python_executor.models.ExecutionModeConfig` : Container configuration
    :class:`osprey.services.python_executor.analysis.node` : Analysis node using these modes
 
 Examples:
@@ -100,7 +99,6 @@ class ExecutionMode(Enum):
 
     .. seealso::
        :class:`ExecutionControlConfig` : Configuration logic for mode selection
-       :class:`osprey.services.python_executor.models.ExecutionModeConfig` : Container settings
 
     Examples:
         Mode selection based on operation requirements::
