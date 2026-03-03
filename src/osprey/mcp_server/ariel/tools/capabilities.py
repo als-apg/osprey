@@ -3,7 +3,7 @@
 import json
 import logging
 
-from osprey.mcp_server.ariel.registry import get_ariel_registry
+from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.ariel.server import make_error, mcp
 from osprey.services.ariel_search.models import SearchMode
 
@@ -22,7 +22,7 @@ async def capabilities() -> str:
         JSON with capabilities information.
     """
     try:
-        registry = get_ariel_registry()
+        registry = get_ariel_context()
         config = registry.config
 
         return json.dumps(

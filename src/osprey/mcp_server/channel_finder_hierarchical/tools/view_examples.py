@@ -7,7 +7,7 @@ shortcut hierarchy exploration for queries similar to previously verified ones.
 import json
 import logging
 
-from osprey.mcp_server.channel_finder_hierarchical.registry import get_cf_hier_registry
+from osprey.mcp_server.channel_finder_hierarchical.server_context import get_cf_hier_context
 from osprey.mcp_server.channel_finder_hierarchical.server import mcp
 from osprey.services.channel_finder.feedback.formatters import (
     format_failure,
@@ -34,7 +34,7 @@ def view_examples(keywords: str | None = None) -> str:
         JSON with keyword-matched examples (if keywords provided)
         and all example summaries.
     """
-    registry = get_cf_hier_registry()
+    registry = get_cf_hier_context()
     store = registry.feedback_store
 
     if store is None:

@@ -1,15 +1,15 @@
-"""Tests for ARIEL MCP registry."""
+"""Tests for ARIEL MCP server context."""
 
 import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from osprey.mcp_server.ariel.registry import (
-    ARIELMCPRegistry,
-    get_ariel_registry,
-    initialize_ariel_registry,
-    reset_ariel_registry,
+from osprey.mcp_server.ariel.server_context import (
+    ARIELContext,
+    get_ariel_context,
+    initialize_ariel_context,
+    reset_ariel_context,
 )
 
 
@@ -25,7 +25,7 @@ def test_initialize_loads_config(tmp_path, monkeypatch):
     }
     (tmp_path / "config.yml").write_text(json.dumps(config))
 
-    registry = initialize_ariel_registry()
+    registry = initialize_ariel_context()
     assert registry.config is not None
     assert registry.config.database.uri == "postgresql://localhost:5432/ariel"
 
@@ -41,7 +41,7 @@ def test_initialize_connection_string_compat(tmp_path, monkeypatch):
     }
     (tmp_path / "config.yml").write_text(json.dumps(config))
 
-    registry = initialize_ariel_registry()
+    registry = initialize_ariel_context()
     assert registry.config.database.uri == "postgresql://localhost:5432/ariel"
 
 
@@ -51,35 +51,35 @@ def test_initialize_missing_ariel_section(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("control_system: {}\n")
 
-    registry = initialize_ariel_registry()
+    registry = initialize_ariel_context()
     with pytest.raises(RuntimeError, match="ARIEL config not available"):
         _ = registry.config
 
 
 @pytest.mark.unit
 def test_get_registry_before_init():
-    """get_ariel_registry raises before initialization."""
-    reset_ariel_registry()
+    """get_ariel_context raises before initialization."""
+    reset_ariel_context()
     with pytest.raises(RuntimeError, match="not initialized"):
-        get_ariel_registry()
+        get_ariel_context()
 
 
 @pytest.mark.unit
 def test_reset_clears_singleton():
-    """reset_ariel_registry clears the singleton."""
+    """reset_ariel_context clears the singleton."""
     # Initialize first
-    with patch.object(ARIELMCPRegistry, "_load_config", return_value={}):
-        initialize_ariel_registry()
+    with patch.object(ARIELContext, "_load_config", return_value={}):
+        initialize_ariel_context()
 
     # Should work
-    get_ariel_registry()
+    get_ariel_context()
 
     # Reset
-    reset_ariel_registry()
+    reset_ariel_context()
 
     # Should fail now
     with pytest.raises(RuntimeError):
-        get_ariel_registry()
+        get_ariel_context()
 
 
 @pytest.mark.unit
@@ -93,7 +93,7 @@ async def test_service_caches(tmp_path, monkeypatch):
     }
     (tmp_path / "config.yml").write_text(json.dumps(config))
 
-    registry = initialize_ariel_registry()
+    registry = initialize_ariel_context()
 
     mock_service = AsyncMock()
     with patch(

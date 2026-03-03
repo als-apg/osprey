@@ -7,7 +7,7 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
 import json
 import logging
 
-from osprey.mcp_server.ariel.registry import get_ariel_registry
+from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.ariel.server import (
     make_error,
     mcp,
@@ -57,7 +57,7 @@ async def keyword_search(
     try:
         from osprey.services.ariel_search.models import SearchMode
 
-        registry = get_ariel_registry()
+        registry = get_ariel_context()
         service = await registry.service()
 
         parsed_start, parsed_end = parse_date_filters(start_date, end_date)

@@ -5,7 +5,7 @@ import warnings
 
 import pytest
 
-from osprey.cli.server_registry import resolve_agents, resolve_servers
+from osprey.cli.server_catalog import resolve_agents, resolve_servers
 
 # ---------------------------------------------------------------------------
 # Helpers

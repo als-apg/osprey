@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from osprey.mcp_server.ariel.registry import initialize_ariel_registry
+from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.services.ariel_search.models import SearchMode
 from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
 
@@ -33,7 +33,7 @@ def _setup_registry(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     config = '{"ariel": {"database": {"uri": "postgresql://localhost/test"}}}'
     (tmp_path / "config.yml").write_text(config)
-    initialize_ariel_registry()
+    initialize_ariel_context()
 
 
 @pytest.mark.unit
@@ -48,7 +48,7 @@ async def test_semantic_search_basic(tmp_path, monkeypatch):
     mock_service.search.return_value = mock_result
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_semantic_search()
@@ -71,7 +71,7 @@ async def test_semantic_search_similarity_threshold(tmp_path, monkeypatch):
     mock_service.search.return_value = mock_result
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_semantic_search()
@@ -96,7 +96,7 @@ async def test_semantic_search_exclude_entry_ids(tmp_path, monkeypatch):
     mock_service.search.return_value = mock_result
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_semantic_search()
@@ -127,7 +127,7 @@ async def test_semantic_search_service_error(tmp_path, monkeypatch):
     mock_service.search.side_effect = RuntimeError("Embedding service down")
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_semantic_search()

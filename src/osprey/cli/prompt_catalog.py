@@ -293,12 +293,12 @@ def _get_default_artifacts() -> list[PromptArtifact]:
     ]
 
 
-class PromptRegistry:
+class PromptCatalog:
     """Catalog of all known Claude Code prompt artifacts.
 
     Usage::
 
-        registry = PromptRegistry.default()
+        registry = PromptCatalog.default()
         artifact = registry.get("agents/channel-finder")
         for name in registry.all_names():
             print(name)
@@ -309,7 +309,7 @@ class PromptRegistry:
         self._by_output: dict[str, PromptArtifact] = {a.output_path: a for a in artifacts}
 
     @classmethod
-    def default(cls) -> PromptRegistry:
+    def default(cls) -> PromptCatalog:
         """Create a registry populated with the default artifact list."""
         return cls(_get_default_artifacts())
 

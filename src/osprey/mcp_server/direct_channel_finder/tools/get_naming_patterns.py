@@ -20,9 +20,9 @@ def get_naming_patterns() -> str:
         JSON with naming_summary (markdown) and facility_name.
     """
     try:
-        from osprey.mcp_server.direct_channel_finder.registry import get_dcf_registry
+        from osprey.mcp_server.direct_channel_finder.server_context import get_dcf_context
 
-        registry = get_dcf_registry()
+        registry = get_dcf_context()
 
         from osprey.services.channel_finder.utils.naming_summary import (
             generate_naming_summary,

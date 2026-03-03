@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from osprey.mcp_server.ariel.registry import initialize_ariel_registry
+from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from tests.mcp_server.ariel.conftest import get_tool_fn
 
 
@@ -39,7 +39,7 @@ def _setup_registry(tmp_path, monkeypatch):
         }
     )
     (tmp_path / "config.yml").write_text(config)
-    initialize_ariel_registry()
+    initialize_ariel_context()
 
 
 @pytest.mark.unit

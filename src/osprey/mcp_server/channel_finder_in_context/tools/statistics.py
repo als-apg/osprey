@@ -3,7 +3,7 @@
 import json
 import logging
 
-from osprey.mcp_server.channel_finder_in_context.registry import get_cf_ic_registry
+from osprey.mcp_server.channel_finder_in_context.server_context import get_cf_ic_context
 from osprey.mcp_server.channel_finder_in_context.server import make_error, mcp
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_in_context.tools.statistics")
@@ -18,7 +18,7 @@ def statistics() -> str:
         format, and the number of chunks at the default chunk size of 50.
     """
     try:
-        registry = get_cf_ic_registry()
+        registry = get_cf_ic_context()
         db = registry.database
 
         stats = db.get_statistics()

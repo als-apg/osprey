@@ -42,9 +42,9 @@ class TestGetContentReadsDisk:
         re-renders the template, it won't have the marker. If it reads from
         disk, it will.
         """
-        from osprey.cli.prompt_registry import PromptRegistry
+        from osprey.cli.prompt_catalog import PromptCatalog
 
-        registry = PromptRegistry.default()
+        registry = PromptCatalog.default()
         art = registry.get(SAFE_ARTIFACT)
         assert art is not None
 
@@ -65,9 +65,9 @@ class TestGetContentReadsDisk:
 
     def test_get_content_falls_back_to_render_when_file_missing(self, service, project_dir):
         """When the on-disk file is missing, get_content falls back to _render_framework."""
-        from osprey.cli.prompt_registry import PromptRegistry
+        from osprey.cli.prompt_catalog import PromptCatalog
 
-        registry = PromptRegistry.default()
+        registry = PromptCatalog.default()
         art = registry.get(SAFE_ARTIFACT)
         assert art is not None
 

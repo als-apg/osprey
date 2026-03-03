@@ -35,7 +35,7 @@ async def connector_error_handler(
     Usage::
 
         async with connector_error_handler("channel_read") as _:
-            registry = get_mcp_registry()
+            registry = get_server_context()
             connector = await registry.control_system()
             # ... tool logic ...
             return json.dumps(result)
@@ -48,9 +48,9 @@ async def connector_error_handler(
     except ToolError:
         raise  # Already a formatted response — re-raise as-is
     except ConnectionError as exc:
-        from osprey.mcp_server.control_system.registry import get_mcp_registry
+        from osprey.mcp_server.control_system.server_context import get_server_context
 
-        registry = get_mcp_registry()
+        registry = get_server_context()
         await registry.invalidate_connector(connector_name)
         raise ToolError(
             json.dumps(

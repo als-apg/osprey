@@ -1,13 +1,13 @@
-"""MCP Server Registry — singleton config and connector management.
+"""MCP Server Context — singleton config and connector management.
 
 Provides centralized configuration access and connector lifecycle
 management for all MCP tools. Mirrors the RegistryManager pattern
 from the main OSPREY framework, adapted for the simpler MCP context.
 
 Usage in tools:
-    from osprey.mcp_server.control_system.registry import get_mcp_registry
+    from osprey.mcp_server.control_system.server_context import get_server_context
 
-    registry = get_mcp_registry()
+    registry = get_server_context()
     config = registry.config                          # Full parsed config
     connector = await registry.control_system()       # Cached connector
     archiver = await registry.archiver()              # Cached connector
@@ -24,7 +24,7 @@ from typing import Any
 from osprey.connectors.archiver.base import ArchiverConnector
 from osprey.connectors.control_system.base import ControlSystemConnector
 
-logger = logging.getLogger("osprey.mcp_server.control_system.registry")
+logger = logging.getLogger("osprey.mcp_server.control_system.server_context")
 
 
 # ---------------------------------------------------------------------------
@@ -74,11 +74,11 @@ class MCPServerConfig:
 
 
 # ---------------------------------------------------------------------------
-# MCPRegistry
+# ControlSystemContext
 # ---------------------------------------------------------------------------
 
 
-class MCPRegistry:
+class ControlSystemContext:
     """Singleton registry that caches config and control-system connectors for MCP tools.
 
     Responsibilities:
@@ -103,7 +103,7 @@ class MCPRegistry:
 
         # 1. Load config
         self._config = self._load_config()
-        logger.info("MCPRegistry: config loaded from %s", self._config.config_path)
+        logger.info("ControlSystemContext: config loaded from %s", self._config.config_path)
 
         # 2. Register connector types with ConnectorFactory
         self._register_connector_types()
@@ -123,7 +123,7 @@ class MCPRegistry:
 
         self._initialized = True
         logger.info(
-            "MCPRegistry: initialized (control_system=%s, archiver=%s, writes=%s)",
+            "ControlSystemContext: initialized (control_system=%s, archiver=%s, writes=%s)",
             self._config.control_system.get("type", "not configured"),
             self._config.archiver.get("type", "not configured"),
             self._config.writes_enabled,
@@ -133,7 +133,7 @@ class MCPRegistry:
     def config(self) -> MCPServerConfig:
         """Full parsed configuration."""
         if self._config is None:
-            raise RuntimeError("MCPRegistry not initialized — call initialize() first")
+            raise RuntimeError("ControlSystemContext not initialized — call initialize() first")
         return self._config
 
     def get(self, key: str, default: Any = None) -> Any:
@@ -173,7 +173,7 @@ class MCPRegistry:
         elif name == "archiver":
             entry.instance = await ConnectorFactory.create_archiver_connector(entry.config)
 
-        logger.info("MCPRegistry: created %s connector", name)
+        logger.info("ControlSystemContext: created %s connector", name)
         return entry.instance
 
     async def invalidate_connector(self, name: str) -> None:
@@ -188,7 +188,7 @@ class MCPRegistry:
             except Exception:
                 logger.debug("Error disconnecting %s (ignored)", name, exc_info=True)
             entry.instance = None
-            logger.info("MCPRegistry: invalidated %s connector", name)
+            logger.info("ControlSystemContext: invalidated %s connector", name)
 
     def channel_finder_config(self) -> dict[str, Any]:
         """Config section for ChannelFinderService."""
@@ -237,35 +237,35 @@ class MCPRegistry:
         """Disconnect all connectors. Called on server shutdown."""
         for name in list(self._connectors):
             await self.invalidate_connector(name)
-        logger.info("MCPRegistry: shutdown complete")
+        logger.info("ControlSystemContext: shutdown complete")
 
 
 # ---------------------------------------------------------------------------
 # Module-level singleton (mirrors osprey.registry.get_registry())
 # ---------------------------------------------------------------------------
 
-_registry: MCPRegistry | None = None
+_registry: ControlSystemContext | None = None
 
 
-def get_mcp_registry() -> MCPRegistry:
+def get_server_context() -> ControlSystemContext:
     """Get the MCP server registry singleton.
 
-    Raises RuntimeError if initialize_mcp_registry() hasn't been called.
+    Raises RuntimeError if initialize_server_context() hasn't been called.
     """
     if _registry is None:
-        raise RuntimeError("MCP registry not initialized. Call initialize_mcp_registry() first.")
+        raise RuntimeError("MCP registry not initialized. Call initialize_server_context() first.")
     return _registry
 
 
-def initialize_mcp_registry() -> MCPRegistry:
+def initialize_server_context() -> ControlSystemContext:
     """Create and initialize the MCP registry singleton."""
     global _registry
-    _registry = MCPRegistry()
+    _registry = ControlSystemContext()
     _registry.initialize()
     return _registry
 
 
-def reset_mcp_registry() -> None:
+def reset_server_context() -> None:
     """Reset the registry (for testing)."""
     global _registry
     _registry = None

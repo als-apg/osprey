@@ -9,7 +9,7 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
 import json
 import logging
 
-from osprey.mcp_server.channel_finder_middle_layer.registry import get_cf_ml_registry
+from osprey.mcp_server.channel_finder_middle_layer.server_context import get_cf_ml_context
 from osprey.mcp_server.channel_finder_middle_layer.server import make_error, mcp
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_middle_layer.tools.list_channels")
@@ -42,7 +42,7 @@ def list_channels(
         JSON with list of channel names and total count.
     """
     try:
-        registry = get_cf_ml_registry()
+        registry = get_cf_ml_context()
         channels = registry.database.list_channel_names(
             system, family, field, subfield, sectors, devices
         )

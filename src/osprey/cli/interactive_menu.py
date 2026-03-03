@@ -326,7 +326,7 @@ def get_provider_metadata() -> dict[str, dict[str, Any]]:
 
     try:
         # Import osprey registry provider directly (no config.yml needed!)
-        from osprey.registry.registry import FrameworkRegistryProvider
+        from osprey.registry.builtins import FrameworkRegistryProvider
 
         # Get osprey registry config (doesn't require project config)
         framework_registry = FrameworkRegistryProvider()

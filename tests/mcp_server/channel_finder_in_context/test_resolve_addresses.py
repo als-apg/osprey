@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
-from osprey.mcp_server.channel_finder_in_context.registry import (
-    initialize_cf_ic_registry,
+from osprey.mcp_server.channel_finder_in_context.server_context import (
+    initialize_cf_ic_context,
 )
 from tests.mcp_server.channel_finder_in_context.conftest import get_tool_fn
 
@@ -14,7 +14,7 @@ from tests.mcp_server.channel_finder_in_context.conftest import get_tool_fn
 def _setup(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_ic_registry()
+    initialize_cf_ic_context()
 
 
 @pytest.mark.unit
@@ -27,7 +27,7 @@ def test_resolve_addresses_happy_path(tmp_path, monkeypatch):
         "TubeVacuumStatus": {"address": "VacStatus"},
     }.get(name)
     with patch(
-        "osprey.mcp_server.channel_finder_in_context.registry.ChannelFinderICRegistry.database",
+        "osprey.mcp_server.channel_finder_in_context.server_context.ChannelFinderICContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -54,7 +54,7 @@ def test_resolve_addresses_partial_unresolved(tmp_path, monkeypatch):
         {"address": "GunPressure"} if name == "TubeGunPressure" else None
     )
     with patch(
-        "osprey.mcp_server.channel_finder_in_context.registry.ChannelFinderICRegistry.database",
+        "osprey.mcp_server.channel_finder_in_context.server_context.ChannelFinderICContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -79,7 +79,7 @@ def test_resolve_addresses_all_unresolved(tmp_path, monkeypatch):
     mock_db = MagicMock()
     mock_db.get_channel.return_value = None
     with patch(
-        "osprey.mcp_server.channel_finder_in_context.registry.ChannelFinderICRegistry.database",
+        "osprey.mcp_server.channel_finder_in_context.server_context.ChannelFinderICContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):

@@ -1,15 +1,15 @@
-"""Direct Channel Finder MCP Registry -- singleton config and backend management.
+"""Direct Channel Finder MCP server context -- singleton config and backend management.
 
 Provides centralized configuration access and PV info backend lifecycle
 management for all direct channel finder MCP tools.
 
 Usage in tools:
-    from osprey.mcp_server.direct_channel_finder.registry import (
-        get_dcf_registry,
+    from osprey.mcp_server.direct_channel_finder.server_context import (
+        get_dcf_context,
     )
 
-    registry = get_dcf_registry()
-    backend = registry.backend
+    ctx = get_dcf_context()
+    backend = ctx.backend
 """
 
 from __future__ import annotations
@@ -23,11 +23,11 @@ import yaml
 
 from osprey.services.channel_finder.backends.base import PVInfoBackend
 
-logger = logging.getLogger("osprey.mcp_server.direct_channel_finder.registry")
+logger = logging.getLogger("osprey.mcp_server.direct_channel_finder.server_context")
 
 
-class DirectChannelFinderRegistry:
-    """Singleton registry for direct channel finder MCP server state.
+class DirectChannelFinderContext:
+    """Singleton context for direct channel finder MCP server state.
 
     Responsibilities:
       1. Load and cache config.yml once at startup
@@ -61,7 +61,7 @@ class DirectChannelFinderRegistry:
 
             self._backend = MockPVInfoBackend()
             logger.info(
-                "DirectChannelFinderRegistry: using MockPVInfoBackend (%d PVs)",
+                "DirectChannelFinderContext: using MockPVInfoBackend (%d PVs)",
                 self._backend.total_pv_count,
             )
         elif backend_type == "als_channel_finder":
@@ -72,7 +72,7 @@ class DirectChannelFinderRegistry:
             backend_url = direct_config.get("backend_url", "https://localhost:8443/ChannelFinder")
             self._backend = ALSChannelFinderBackend(backend_url)
             logger.info(
-                "DirectChannelFinderRegistry: using ALSChannelFinderBackend at %s",
+                "DirectChannelFinderContext: using ALSChannelFinderBackend at %s",
                 backend_url,
             )
         else:
@@ -86,7 +86,7 @@ class DirectChannelFinderRegistry:
         self._facility_name = facility.get("name", "control system")
 
         self._initialized = True
-        logger.info("DirectChannelFinderRegistry: initialized")
+        logger.info("DirectChannelFinderContext: initialized")
 
     @property
     def backend(self) -> PVInfoBackend:
@@ -122,7 +122,7 @@ class DirectChannelFinderRegistry:
         if config_path.exists():
             with open(config_path) as f:
                 raw = yaml.safe_load(f) or {}
-            logger.info("DirectChannelFinderRegistry: config loaded from %s", config_path)
+            logger.info("DirectChannelFinderContext: config loaded from %s", config_path)
         else:
             logger.warning("Config file not found: %s", config_path)
 
@@ -133,31 +133,31 @@ class DirectChannelFinderRegistry:
 # Module-level singleton
 # ---------------------------------------------------------------------------
 
-_registry: DirectChannelFinderRegistry | None = None
+_registry: DirectChannelFinderContext | None = None
 
 
-def get_dcf_registry() -> DirectChannelFinderRegistry:
-    """Get the direct channel finder MCP registry singleton.
+def get_dcf_context() -> DirectChannelFinderContext:
+    """Get the direct channel finder MCP context singleton.
 
-    Raises RuntimeError if initialize_dcf_registry() hasn't been called.
+    Raises RuntimeError if initialize_dcf_context() hasn't been called.
     """
     if _registry is None:
         raise RuntimeError(
-            "Direct Channel Finder MCP registry not initialized. "
-            "Call initialize_dcf_registry() first."
+            "Direct Channel Finder MCP context not initialized. "
+            "Call initialize_dcf_context() first."
         )
     return _registry
 
 
-def initialize_dcf_registry() -> DirectChannelFinderRegistry:
-    """Create and initialize the direct channel finder MCP registry singleton."""
+def initialize_dcf_context() -> DirectChannelFinderContext:
+    """Create and initialize the direct channel finder MCP context singleton."""
     global _registry
-    _registry = DirectChannelFinderRegistry()
+    _registry = DirectChannelFinderContext()
     _registry.initialize()
     return _registry
 
 
-def reset_dcf_registry() -> None:
-    """Reset the registry (for testing)."""
+def reset_dcf_context() -> None:
+    """Reset the context (for testing)."""
     global _registry
     _registry = None

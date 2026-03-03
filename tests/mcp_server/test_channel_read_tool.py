@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from osprey.mcp_server.control_system.registry import initialize_mcp_registry
+from osprey.mcp_server.control_system.server_context import initialize_server_context
 from tests.mcp_server.conftest import get_tool_fn
 
 
@@ -40,7 +40,7 @@ async def test_channel_read_single(tmp_path, monkeypatch):
     """Single channel read returns value with metadata in summary."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
-    initialize_mcp_registry()
+    initialize_server_context()
 
     mock_value = _make_channel_value(value=500.2, units="mA")
     mock_connector = AsyncMock()
@@ -67,7 +67,7 @@ async def test_channel_read_multiple(tmp_path, monkeypatch):
     """Multiple channel read returns all values in summary."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
-    initialize_mcp_registry()
+    initialize_server_context()
 
     values = {
         "SR:CURRENT:RB": _make_channel_value(value=500.2, units="mA"),
@@ -96,7 +96,7 @@ async def test_channel_read_metadata_disabled(tmp_path, monkeypatch):
     """Reading with include_metadata=False omits metadata fields."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
-    initialize_mcp_registry()
+    initialize_server_context()
 
     mock_value = _make_channel_value(value=500.2)
     mock_connector = AsyncMock()
@@ -122,7 +122,7 @@ async def test_channel_read_with_metadata(tmp_path, monkeypatch):
     """Reading with include_metadata=True includes metadata fields."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
-    initialize_mcp_registry()
+    initialize_server_context()
 
     mock_value = _make_channel_value(value=500.2, units="mA", alarm_status="NO_ALARM")
     mock_connector = AsyncMock()
@@ -147,7 +147,7 @@ async def test_channel_read_connection_error(tmp_path, monkeypatch):
     """Connection error returns standard error format."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
-    initialize_mcp_registry()
+    initialize_server_context()
 
     mock_connector = AsyncMock()
     mock_connector.read_channel.side_effect = ConnectionError("timeout")

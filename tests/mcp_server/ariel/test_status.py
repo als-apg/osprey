@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from osprey.mcp_server.ariel.registry import initialize_ariel_registry
+from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.services.ariel_search.models import ARIELStatusResult, EmbeddingTableInfo
 from tests.mcp_server.ariel.conftest import get_tool_fn
 
@@ -22,7 +22,7 @@ def _setup_registry(tmp_path, monkeypatch):
     (tmp_path / "config.yml").write_text(
         '{"ariel": {"database": {"uri": "postgresql://localhost/test"}}}'
     )
-    initialize_ariel_registry()
+    initialize_ariel_context()
 
 
 @pytest.mark.unit
@@ -55,7 +55,7 @@ async def test_status_healthy(tmp_path, monkeypatch):
     mock_service.get_status.return_value = status_result
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_status()
@@ -94,7 +94,7 @@ async def test_status_db_error(tmp_path, monkeypatch):
     mock_service.get_status.return_value = status_result
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_status()
@@ -115,7 +115,7 @@ async def test_status_service_exception(tmp_path, monkeypatch):
     mock_service.get_status.side_effect = RuntimeError("Service crashed")
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_status()

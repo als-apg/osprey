@@ -98,7 +98,7 @@ def serialize_entry(entry: dict, text_limit: int = 300) -> dict:
 # ---------------------------------------------------------------------------
 def create_server() -> FastMCP:
     """Initialize the registry and import tool modules, then return the server."""
-    from osprey.mcp_server.ariel.registry import initialize_ariel_registry
+    from osprey.mcp_server.ariel.server_context import initialize_ariel_context
     from osprey.mcp_server.startup import (
         initialize_workspace_singletons,
         prime_config_builder,
@@ -106,7 +106,7 @@ def create_server() -> FastMCP:
     from osprey.utils.workspace import resolve_workspace_root
 
     prime_config_builder()
-    initialize_ariel_registry()
+    initialize_ariel_context()
 
     workspace_root = resolve_workspace_root()
     logger.info("ARIEL workspace root: %s", workspace_root)

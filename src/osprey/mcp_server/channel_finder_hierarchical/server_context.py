@@ -4,9 +4,9 @@ Provides centralized configuration access and HierarchicalChannelDatabase lifecy
 management for all Hierarchical channel finder MCP tools.
 
 Usage in tools:
-    from osprey.mcp_server.channel_finder_hierarchical.registry import get_cf_hier_registry
+    from osprey.mcp_server.channel_finder_hierarchical.server_context import get_cf_hier_context
 
-    registry = get_cf_hier_registry()
+    context = get_cf_hier_context()
     options = registry.database.get_options_at_level("system", {})
 """
 
@@ -25,10 +25,10 @@ if TYPE_CHECKING:
     )
     from osprey.services.channel_finder.feedback.store import FeedbackStore
 
-logger = logging.getLogger("osprey.mcp_server.channel_finder_hierarchical.registry")
+logger = logging.getLogger("osprey.mcp_server.channel_finder_hierarchical.server_context")
 
 
-class ChannelFinderHierRegistry:
+class ChannelFinderHierContext:
     """Singleton registry for Hierarchical channel finder MCP server state.
 
     Loads config.yml once at startup, provides a cached
@@ -66,7 +66,7 @@ class ChannelFinderHierRegistry:
             )
 
             self._database = HierarchicalChannelDatabase(db_path)
-            logger.info("ChannelFinderHierRegistry: database loaded from %s", db_path)
+            logger.info("ChannelFinderHierContext: database loaded from %s", db_path)
         else:
             logger.warning(
                 "No database path configured at "
@@ -82,10 +82,10 @@ class ChannelFinderHierRegistry:
 
                 store_path = self._resolve_path(feedback_config["store_path"])
                 self._feedback_store = FeedbackStore(store_path)
-                logger.info("ChannelFinderHierRegistry: feedback store loaded from %s", store_path)
+                logger.info("ChannelFinderHierContext: feedback store loaded from %s", store_path)
             except Exception:
                 logger.warning(
-                    "ChannelFinderHierRegistry: failed to initialize feedback store",
+                    "ChannelFinderHierContext: failed to initialize feedback store",
                     exc_info=True,
                 )
 
@@ -93,7 +93,7 @@ class ChannelFinderHierRegistry:
         self._facility_name = facility.get("name", "control system")
 
         self._initialized = True
-        logger.info("ChannelFinderHierRegistry: initialized")
+        logger.info("ChannelFinderHierContext: initialized")
 
     @property
     def database(self) -> HierarchicalChannelDatabase:
@@ -139,7 +139,7 @@ class ChannelFinderHierRegistry:
         if config_path.exists():
             with open(config_path) as f:
                 raw = yaml.safe_load(f) or {}
-            logger.info("ChannelFinderHierRegistry: config loaded from %s", config_path)
+            logger.info("ChannelFinderHierContext: config loaded from %s", config_path)
         else:
             logger.warning("Config file not found: %s", config_path)
 
@@ -150,31 +150,31 @@ class ChannelFinderHierRegistry:
 # Module-level singleton
 # ---------------------------------------------------------------------------
 
-_registry: ChannelFinderHierRegistry | None = None
+_registry: ChannelFinderHierContext | None = None
 
 
-def get_cf_hier_registry() -> ChannelFinderHierRegistry:
+def get_cf_hier_context() -> ChannelFinderHierContext:
     """Get the Channel Finder Hierarchical MCP registry singleton.
 
-    Raises RuntimeError if initialize_cf_hier_registry() hasn't been called.
+    Raises RuntimeError if initialize_cf_hier_context() hasn't been called.
     """
     if _registry is None:
         raise RuntimeError(
             "Channel Finder Hierarchical MCP registry not initialized. "
-            "Call initialize_cf_hier_registry() first."
+            "Call initialize_cf_hier_context() first."
         )
     return _registry
 
 
-def initialize_cf_hier_registry() -> ChannelFinderHierRegistry:
+def initialize_cf_hier_context() -> ChannelFinderHierContext:
     """Create and initialize the Channel Finder Hierarchical MCP registry singleton."""
     global _registry
-    _registry = ChannelFinderHierRegistry()
+    _registry = ChannelFinderHierContext()
     _registry.initialize()
     return _registry
 
 
-def reset_cf_hier_registry() -> None:
+def reset_cf_hier_context() -> None:
     """Reset the registry (for testing)."""
     global _registry
     _registry = None

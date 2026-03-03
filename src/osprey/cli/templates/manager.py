@@ -371,7 +371,7 @@ class TemplateManager:
         # Resolve servers and agents via the data-driven registry.
         # Merge init-time overrides (passed via context=) into cc_cfg
         # so the resolver sees them -- e.g. context={"disable_agents": [...]}.
-        from osprey.cli.server_registry import resolve_agents, resolve_servers
+        from osprey.cli.server_catalog import resolve_agents, resolve_servers
 
         if ctx.get("disable_servers") and "disable_servers" not in cc_cfg:
             cc_cfg = {**cc_cfg, "disable_servers": ctx["disable_servers"]}

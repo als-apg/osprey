@@ -46,7 +46,7 @@ def build_merged_configuration(
 
     if not registry_path:
         logger.info("Built framework-only registry (no application)")
-        return load_registry_from_module("osprey.registry.registry"), excluded_provider_names
+        return load_registry_from_module("osprey.registry.builtins"), excluded_provider_names
 
     try:
         app_config = load_registry_from_path(registry_path)
@@ -61,7 +61,7 @@ def build_merged_configuration(
         if isinstance(app_config, ExtendedRegistryConfig):
             logger.info(f"Extending framework registry with application '{app_name}'")
 
-            framework_config = load_registry_from_module("osprey.registry.registry")
+            framework_config = load_registry_from_module("osprey.registry.builtins")
             merged = RegistryConfig(
                 services=framework_config.services.copy(),
                 providers=framework_config.providers.copy(),
@@ -95,13 +95,13 @@ def load_registry_from_module(module_path: str) -> RegistryConfig:
     Convention: the module must contain exactly one class implementing
     :class:`RegistryConfigProvider`.
 
-    :param module_path: Dotted Python module path (e.g., ``'osprey.registry.registry'``).
+    :param module_path: Dotted Python module path (e.g., ``'osprey.registry.builtins'``).
     :return: Registry configuration from the provider.
     :raises RegistryError: If module cannot be imported or no single provider found.
     """
     if module_path.startswith("applications."):
         component_name = f"{module_path.split('.')[1]} application"
-    elif module_path == "osprey.registry.registry":
+    elif module_path == "osprey.registry.builtins":
         component_name = "framework"
     else:
         component_name = f"module {module_path}"

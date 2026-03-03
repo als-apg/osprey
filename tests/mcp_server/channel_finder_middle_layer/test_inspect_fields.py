@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
-from osprey.mcp_server.channel_finder_middle_layer.registry import (
-    initialize_cf_ml_registry,
+from osprey.mcp_server.channel_finder_middle_layer.server_context import (
+    initialize_cf_ml_context,
 )
 from tests.mcp_server.channel_finder_middle_layer.conftest import get_tool_fn
 
@@ -14,7 +14,7 @@ from tests.mcp_server.channel_finder_middle_layer.conftest import get_tool_fn
 def _setup(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_ml_registry()
+    initialize_cf_ml_context()
 
 
 @pytest.mark.unit
@@ -27,7 +27,7 @@ def test_inspect_fields_returns_fields(tmp_path, monkeypatch):
         "Setpoint": {"type": "leaf", "description": "Writable values"},
     }
     with patch(
-        "osprey.mcp_server.channel_finder_middle_layer.registry.ChannelFinderMLRegistry.database",
+        "osprey.mcp_server.channel_finder_middle_layer.server_context.ChannelFinderMLContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -54,7 +54,7 @@ def test_inspect_fields_with_field_drilldown(tmp_path, monkeypatch):
         "Y": {"type": "leaf", "description": "Vertical position"},
     }
     with patch(
-        "osprey.mcp_server.channel_finder_middle_layer.registry.ChannelFinderMLRegistry.database",
+        "osprey.mcp_server.channel_finder_middle_layer.server_context.ChannelFinderMLContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -78,7 +78,7 @@ def test_inspect_fields_validation_error(tmp_path, monkeypatch):
     mock_db = MagicMock()
     mock_db.inspect_fields.side_effect = ValueError("Unknown family 'XYZ' in system 'SR'")
     with patch(
-        "osprey.mcp_server.channel_finder_middle_layer.registry.ChannelFinderMLRegistry.database",
+        "osprey.mcp_server.channel_finder_middle_layer.server_context.ChannelFinderMLContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -102,7 +102,7 @@ def test_inspect_fields_internal_error(tmp_path, monkeypatch):
     mock_db = MagicMock()
     mock_db.inspect_fields.side_effect = Exception("Unexpected failure")
     with patch(
-        "osprey.mcp_server.channel_finder_middle_layer.registry.ChannelFinderMLRegistry.database",
+        "osprey.mcp_server.channel_finder_middle_layer.server_context.ChannelFinderMLContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):

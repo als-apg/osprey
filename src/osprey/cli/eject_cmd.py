@@ -80,7 +80,7 @@ def eject():
 @eject.command("list")
 def eject_list():
     """List all ejectable framework capabilities and services."""
-    from osprey.registry.registry import FrameworkRegistryProvider
+    from osprey.registry.builtins import FrameworkRegistryProvider
 
     provider = FrameworkRegistryProvider()
     config = provider.get_registry_config()
@@ -113,7 +113,7 @@ def eject_service(name: str, output: str | None, include_tests: bool):
 
     This copies the entire service directory including all sub-modules.
     """
-    from osprey.registry.registry import FrameworkRegistryProvider
+    from osprey.registry.builtins import FrameworkRegistryProvider
 
     # Find the service in the framework registry
     provider = FrameworkRegistryProvider()

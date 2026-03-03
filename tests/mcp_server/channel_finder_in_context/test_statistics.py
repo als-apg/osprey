@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
-from osprey.mcp_server.channel_finder_in_context.registry import (
-    initialize_cf_ic_registry,
+from osprey.mcp_server.channel_finder_in_context.server_context import (
+    initialize_cf_ic_context,
 )
 from tests.mcp_server.channel_finder_in_context.conftest import get_tool_fn
 
@@ -14,7 +14,7 @@ from tests.mcp_server.channel_finder_in_context.conftest import get_tool_fn
 def _setup(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_ic_registry()
+    initialize_cf_ic_context()
 
 
 @pytest.mark.unit
@@ -30,7 +30,7 @@ def test_statistics_happy_path(tmp_path, monkeypatch):
         [{"channel": f"CH{i}"} for i in range(50, 100)],
     ]
     with patch(
-        "osprey.mcp_server.channel_finder_in_context.registry.ChannelFinderICRegistry.database",
+        "osprey.mcp_server.channel_finder_in_context.server_context.ChannelFinderICContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -54,7 +54,7 @@ def test_statistics_internal_error(tmp_path, monkeypatch):
     mock_db = MagicMock()
     mock_db.get_statistics.side_effect = RuntimeError("Stats unavailable")
     with patch(
-        "osprey.mcp_server.channel_finder_in_context.registry.ChannelFinderICRegistry.database",
+        "osprey.mcp_server.channel_finder_in_context.server_context.ChannelFinderICContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):

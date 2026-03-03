@@ -34,9 +34,9 @@ def search_pvs(
         JSON with matching PVs, pagination info, and total count.
     """
     try:
-        from osprey.mcp_server.direct_channel_finder.registry import get_dcf_registry
+        from osprey.mcp_server.direct_channel_finder.server_context import get_dcf_context
 
-        registry = get_dcf_registry()
+        registry = get_dcf_context()
         backend = registry.backend
 
         page_size = max(1, min(page_size, 200))

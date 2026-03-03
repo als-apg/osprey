@@ -3,7 +3,7 @@
 
 build_dir: ./build
 project_root: ..
-registry_path: ../src/osprey/registry/registry.py
+registry_path: ../src/osprey/registry/builtins.py
 
 # Minimal model configuration (not used during docs build)
 models:

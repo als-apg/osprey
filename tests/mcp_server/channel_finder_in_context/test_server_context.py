@@ -1,33 +1,33 @@
-"""Tests for ChannelFinderICRegistry."""
+"""Tests for ChannelFinderICContext."""
 
 import json
 
 import pytest
 
-from osprey.mcp_server.channel_finder_in_context.registry import (
-    get_cf_ic_registry,
-    initialize_cf_ic_registry,
+from osprey.mcp_server.channel_finder_in_context.server_context import (
+    get_cf_ic_context,
+    initialize_cf_ic_context,
 )
 
 
 @pytest.mark.unit
-def test_registry_not_initialized():
+def test_context_not_initialized():
     with pytest.raises(RuntimeError, match="not initialized"):
-        get_cf_ic_registry()
+        get_cf_ic_context()
 
 
 @pytest.mark.unit
-def test_registry_database_not_configured(tmp_path, monkeypatch):
+def test_context_database_not_configured(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_ic_registry()
-    reg = get_cf_ic_registry()
+    initialize_cf_ic_context()
+    reg = get_cf_ic_context()
     with pytest.raises(RuntimeError, match="not available"):
         _ = reg.database
 
 
 @pytest.mark.unit
-def test_registry_loads_flat_database(tmp_path, monkeypatch):
+def test_context_loads_flat_database(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     db_data = [
         {"channel": "CH1", "address": "PV:CH1", "description": "Channel 1"},
@@ -44,15 +44,15 @@ def test_registry_loads_flat_database(tmp_path, monkeypatch):
         f'        type: "flat"\n'
     )
     (tmp_path / "config.yml").write_text(config)
-    initialize_cf_ic_registry()
-    reg = get_cf_ic_registry()
+    initialize_cf_ic_context()
+    reg = get_cf_ic_context()
     assert reg.database is not None
     assert len(reg.database.get_all_channels()) == 2
 
 
 @pytest.mark.unit
-def test_registry_facility_name(tmp_path, monkeypatch):
+def test_context_facility_name(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text('facility:\n  name: "ALS"')
-    initialize_cf_ic_registry()
-    assert get_cf_ic_registry().facility_name == "ALS"
+    initialize_cf_ic_context()
+    assert get_cf_ic_context().facility_name == "ALS"

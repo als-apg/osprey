@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from osprey.mcp_server.ariel.registry import initialize_ariel_registry
+from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
 
 
@@ -26,7 +26,7 @@ def _setup_registry(tmp_path, monkeypatch):
     (tmp_path / "config.yml").write_text(
         '{"ariel": {"database": {"uri": "postgresql://localhost/test"}}}'
     )
-    initialize_ariel_registry()
+    initialize_ariel_context()
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +45,7 @@ async def test_entry_get_existing(tmp_path, monkeypatch):
     mock_service.repository.get_entry.return_value = entry
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_entry_get()
@@ -66,7 +66,7 @@ async def test_entry_get_nonexistent(tmp_path, monkeypatch):
     mock_service.repository.get_entry.return_value = None
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_entry_get()
@@ -102,7 +102,7 @@ async def test_entry_create_all_fields(tmp_path, monkeypatch):
     mock_service.repository.upsert_entry.return_value = None
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_entry_create()
@@ -140,7 +140,7 @@ async def test_entry_create_minimal_fields(tmp_path, monkeypatch):
     mock_service.repository.upsert_entry.return_value = None
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_entry_create()
@@ -189,7 +189,7 @@ async def test_entry_create_with_file_paths(tmp_path, monkeypatch):
     mock_service.repository.store_attachment.return_value = None
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_entry_create()
@@ -264,7 +264,7 @@ async def test_entry_create_file_paths_none(tmp_path, monkeypatch):
     mock_service.repository.upsert_entry.return_value = None
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_entry_create()
@@ -384,7 +384,7 @@ async def test_entry_create_with_artifact_ids_direct(tmp_path, monkeypatch):
 
     with (
         patch(
-            "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
             new=AsyncMock(return_value=mock_service),
         ),
         patch(
@@ -435,7 +435,7 @@ async def test_entry_create_with_html_artifact_auto_converts(tmp_path, monkeypat
 
     with (
         patch(
-            "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
             new=AsyncMock(return_value=mock_service),
         ),
         patch(
@@ -489,7 +489,7 @@ async def test_entry_create_with_markdown_artifact(tmp_path, monkeypatch):
 
     with (
         patch(
-            "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
             new=AsyncMock(return_value=mock_service),
         ),
         patch(
@@ -543,7 +543,7 @@ async def test_entry_create_with_unknown_mime_type_artifact(tmp_path, monkeypatc
 
     with (
         patch(
-            "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
             new=AsyncMock(return_value=mock_service),
         ),
         patch(
@@ -756,7 +756,7 @@ async def test_entries_by_ids_batch_retrieval(tmp_path, monkeypatch):
     mock_service.repository.get_entries_by_ids.return_value = entries
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_entries_by_ids()
@@ -801,7 +801,7 @@ async def test_entries_by_ids_service_error(tmp_path, monkeypatch):
     mock_service.repository.get_entries_by_ids.side_effect = RuntimeError("DB down")
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_entries_by_ids()

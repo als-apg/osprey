@@ -8,7 +8,7 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
 import json
 import logging
 
-from osprey.mcp_server.channel_finder_hierarchical.registry import get_cf_hier_registry
+from osprey.mcp_server.channel_finder_hierarchical.server_context import get_cf_hier_context
 from osprey.mcp_server.channel_finder_hierarchical.server import make_error, mcp
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_hierarchical.tools.get_options")
@@ -30,7 +30,7 @@ def get_options(level: str, selections: dict | None = None) -> str:
         JSON with level name, list of options (name + description), and total count.
     """
     try:
-        registry = get_cf_hier_registry()
+        registry = get_cf_hier_context()
         db = registry.database
 
         options = db.get_options_at_level(level, selections or {})
