@@ -9,6 +9,21 @@
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/dashboard.css">
   <script src="https://cdn.plot.ly/plotly-3.3.1.min.js"></script>
+  <!-- Theme sync: set initial theme + listen for live changes from parent Web Terminal.
+       This MUST be inline (not in a module) so it runs before CSS loads and has zero
+       import dependencies that could prevent the listener from registering. -->
+  <script>
+    (function() {
+      var p = new URLSearchParams(window.location.search);
+      var t = p.get('theme') || localStorage.getItem('osprey-theme');
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+      window.addEventListener('message', function(e) {
+        if (e.data && e.data.type === 'osprey-theme-change' && e.data.theme) {
+          document.documentElement.setAttribute('data-theme', e.data.theme);
+        }
+      });
+    })();
+  </script>
 </head>
 <body>
   <!-- Top Bar -->

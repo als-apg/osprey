@@ -499,7 +499,7 @@ class TestQuickstartCommand:
                 return_value=mock_pool,
             ),
             patch(
-                "osprey.services.ariel_search.database.migrate.run_migrations",
+                "osprey.services.ariel_search.database.migrations.run_migrations",
                 new_callable=AsyncMock,
                 return_value=["core_schema"],
             ),

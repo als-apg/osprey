@@ -614,7 +614,7 @@ class ARIELRepository:
 
                     is_active = False
                     if active_model:
-                        from osprey.services.ariel_search.database.migration import (
+                        from osprey.services.ariel_search.database.migrations import (
                             model_to_table_name,
                         )
 
@@ -645,7 +645,7 @@ class ARIELRepository:
         Raises:
             ConfigurationError: If table does not exist
         """
-        from osprey.services.ariel_search.database.migration import model_to_table_name
+        from osprey.services.ariel_search.database.migrations import model_to_table_name
         from osprey.services.ariel_search.exceptions import ConfigurationError
 
         table_name = model_to_table_name(model)
@@ -692,7 +692,7 @@ class ARIELRepository:
             embedding: The embedding vector
             model_name: The model name (determines table)
         """
-        from osprey.services.ariel_search.database.migration import model_to_table_name
+        from osprey.services.ariel_search.database.migrations import model_to_table_name
 
         table_name = model_to_table_name(model_name)
 
@@ -891,7 +891,7 @@ class ARIELRepository:
         """
         from psycopg.rows import dict_row
 
-        from osprey.services.ariel_search.database.migration import model_to_table_name
+        from osprey.services.ariel_search.database.migrations import model_to_table_name
 
         table_name = model_to_table_name(model_name)
         embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"

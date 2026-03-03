@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from psycopg import AsyncConnection
 
-    from osprey.services.ariel_search.database.migration import BaseMigration
+    from osprey.services.ariel_search.database.migrations import BaseMigration
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
 
 

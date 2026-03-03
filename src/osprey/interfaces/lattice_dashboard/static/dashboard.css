@@ -533,7 +533,7 @@ body.drag-active .figure-plot {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(10, 12, 16, 0.7);
+  background: color-mix(in srgb, var(--bg-deep) 70%, transparent);
   z-index: 5;
 }
 
@@ -629,7 +629,7 @@ body.drag-active .figure-plot {
 
 /* ── Light theme support ───────────────────────────────── */
 
-body.theme-light {
+:root[data-theme="light"] {
   --bg-deep: #f0f2f5;
   --bg-surface: #ffffff;
   --bg-elevated: #f5f6f8;
