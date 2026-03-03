@@ -9,7 +9,7 @@
 const API_BASE = '';  // Same origin (served by dashboard server)
 
 const FAST_FIGURES = ['optics', 'resonance', 'chromaticity', 'footprint'];
-const VERIFICATION_FIGURES = ['da', 'fma'];
+const VERIFICATION_FIGURES = ['da', 'lma'];
 const ALL_FIGURES = [...FAST_FIGURES, ...VERIFICATION_FIGURES];
 
 // Plotly layout overrides per theme
@@ -684,6 +684,7 @@ function restorePanelOrder() {
 
   try {
     const order = JSON.parse(saved);
+
     // Collect all containers that hold figure cells (grid + verification row)
     const containers = document.querySelectorAll('.figure-grid, .verification-row');
     // Collect all cells in current DOM order
@@ -701,6 +702,15 @@ function restorePanelOrder() {
     allSlots.forEach(slot => {
       cellMap[slot.placeholder.dataset.figure] = slot.placeholder;
     });
+
+    // Validate saved order matches current DOM cells — if panel names
+    // have changed (e.g. fma → lma), discard stale order
+    const currentNames = new Set(Object.keys(cellMap));
+    const savedNames = new Set(order);
+    if (order.length !== allSlots.length || ![...currentNames].every(n => savedNames.has(n))) {
+      localStorage.removeItem(PANEL_ORDER_KEY);
+      return;
+    }
 
     // Reorder: place cells into slots according to saved order
     const slotPositions = allSlots.map(s => ({

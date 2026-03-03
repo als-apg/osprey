@@ -18,6 +18,23 @@ from typing import Any
 
 import at
 import numpy as np
+import plotly.graph_objects as go
+
+
+def unpack_tracking(result: Any) -> np.ndarray:
+    """Extract ndarray from ring.track() return value.
+
+    Handles both old API (returns ndarray) and new API (returns tuple).
+    Squeezes single-particle dimension for 1-particle tracking.
+    """
+    if isinstance(result, tuple):
+        data = result[0]
+    else:
+        data = result
+    # Squeeze nparticles dim: (6, nrefpts, 1, nturns) → (6, nrefpts, nturns)
+    if data.ndim == 4 and data.shape[2] == 1:
+        data = data[:, :, 0, :]
+    return data
 
 
 def parse_args() -> tuple[Path, Path]:
@@ -86,3 +103,45 @@ def save_data(data: dict[str, Any], output_path: Path) -> None:
 def figure_to_dict(fig: Any) -> dict[str, Any]:
     """Convert a Plotly figure to a JSON-safe dict (no numpy types)."""
     return json.loads(json.dumps(fig.to_dict(), default=_numpy_default))
+
+
+def add_resonance_overlay(
+    fig: go.Figure,
+    nux_range: tuple[float, float],
+    nuy_range: tuple[float, float],
+) -> None:
+    """Add light resonance lines to a tune-space figure.
+
+    Draws lines m*nux + n*nuy = p for orders 1-4 as faint gray
+    lines, giving context for resonance proximity without visual clutter.
+    """
+    for order in range(1, 5):
+        for m in range(-order, order + 1):
+            n_abs = order - abs(m)
+            for n in [n_abs, -n_abs] if n_abs != 0 else [0]:
+                if m == 0 and n == 0:
+                    continue
+                for p in range(-100, 101):
+                    pts: list[tuple[float, float]] = []
+                    if n != 0:
+                        for nx_edge in nux_range:
+                            ny_val = (p - m * nx_edge) / n
+                            if nuy_range[0] <= ny_val <= nuy_range[1]:
+                                pts.append((nx_edge, ny_val))
+                    if m != 0:
+                        for ny_edge in nuy_range:
+                            nx_val = (p - n * ny_edge) / m
+                            if nux_range[0] <= nx_val <= nux_range[1]:
+                                pts.append((nx_val, ny_edge))
+                    if len(pts) >= 2:
+                        pts = sorted(set(pts))
+                        fig.add_trace(
+                            go.Scatter(
+                                x=[pts[0][0], pts[-1][0]],
+                                y=[pts[0][1], pts[-1][1]],
+                                mode="lines",
+                                line={"color": "rgba(128,128,128,0.2)", "width": 0.5},
+                                showlegend=False,
+                                hoverinfo="skip",
+                            )
+                        )

@@ -17,7 +17,7 @@ from typing import Any
 logger = logging.getLogger("osprey.lattice_dashboard.state")
 
 FAST_FIGURES = ("optics", "resonance", "chromaticity", "footprint")
-VERIFICATION_FIGURES = ("da", "fma")
+VERIFICATION_FIGURES = ("da", "lma")
 ALL_FIGURES = FAST_FIGURES + VERIFICATION_FIGURES
 
 
@@ -102,6 +102,7 @@ class LatticeState:
         chrom = [float(rd.chromaticity[0]), float(rd.chromaticity[1])]
         energy_gev = float(ring.energy) / 1e9
         circumference = float(ring.get_s_pos(len(ring))[0])
+        periodicity = int(getattr(ring, "periodicity", 1))
 
         # Discover magnet families
         families: dict[str, dict[str, Any]] = {}
@@ -113,17 +114,8 @@ class LatticeState:
                 families[fam]["count"] += 1
                 continue
 
-            k_val = getattr(elem, "K", None)
-            if k_val is not None:
-                families[fam] = {
-                    "type": "quadrupole",
-                    "param": "K",
-                    "value": float(k_val),
-                    "count": 1,
-                    "range": [-5.0, 5.0],
-                }
-                continue
-
+            # Check H (sextupole) BEFORE K (quadrupole), since sextupoles
+            # also have K attribute (returns their quadrupole component = 0)
             h_val = getattr(elem, "H", None)
             if h_val is None:
                 poly_b = getattr(elem, "PolynomB", None)
@@ -137,10 +129,22 @@ class LatticeState:
                     "count": 1,
                     "range": [-200.0, 200.0],
                 }
+                continue
+
+            k_val = getattr(elem, "K", None)
+            if k_val is not None:
+                families[fam] = {
+                    "type": "quadrupole",
+                    "param": "K",
+                    "value": float(k_val),
+                    "count": 1,
+                    "range": [-5.0, 5.0],
+                }
 
         summary = {
             "energy_gev": energy_gev,
             "circumference_m": circumference,
+            "periodicity": periodicity,
             "tunes": tunes,
             "chromaticity": chrom,
             "num_elements": len(ring),

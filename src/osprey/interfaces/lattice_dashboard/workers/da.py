@@ -17,6 +17,7 @@ from osprey.interfaces.lattice_dashboard.workers._base import (
     load_state,
     parse_args,
     save_data,
+    unpack_tracking,
 )
 
 
@@ -36,7 +37,8 @@ def find_da_at_angle(
         rin[0] = mid * np.cos(angle_rad)
         rin[2] = mid * np.sin(angle_rad)
 
-        rout = ring.track(rin, nturns=nturns)
+        result = ring.track(rin, nturns=nturns)
+        rout = unpack_tracking(result)
         try:
             survived = np.all(np.isfinite(rout))
         except (ValueError, TypeError):
