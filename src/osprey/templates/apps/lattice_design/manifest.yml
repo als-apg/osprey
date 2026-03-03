@@ -23,7 +23,7 @@ artifacts:
     - diagnose
     - setup-mode
     - session-report
-    - lattice-evaluation
+    - lattice-evaluation  # references only (SKILL.md.j2 replaced by dashboard)
   agents:
     - data-visualizer
     - literature-search
@@ -31,4 +31,5 @@ artifacts:
   output_styles:
     - control-operator
 
-web_panels: []
+web_panels:
+  - lattice
