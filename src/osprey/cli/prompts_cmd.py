@@ -16,7 +16,7 @@ from typing import Any
 import click
 import yaml
 
-from osprey.cli.prompt_registry import PromptRegistry
+from osprey.cli.prompt_catalog import PromptCatalog
 from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates.manager import TemplateManager
@@ -79,7 +79,7 @@ def list_artifacts(project):
         config = {}
 
     user_owned = _get_user_owned(config)
-    registry = PromptRegistry.default()
+    registry = PromptCatalog.default()
 
     framework_managed = []
     owned = []
@@ -130,7 +130,7 @@ def claim(name, project):
       osprey prompts claim rules/safety
     """
     project_dir = Path(project) if project else Path.cwd()
-    registry = PromptRegistry.default()
+    registry = PromptCatalog.default()
     artifact = registry.get(name)
 
     if artifact is None:
@@ -224,7 +224,7 @@ def diff(name, project):
             f"'{name}' is not user-owned in config.yml. Run `osprey prompts claim {name}` first."
         )
 
-    registry = PromptRegistry.default()
+    registry = PromptCatalog.default()
     artifact = registry.get(name)
     if artifact is None:
         raise click.ClickException(f"Unknown artifact '{name}'.")
@@ -354,7 +354,7 @@ def _update_manifest_add_user_owned(
         manifest["user_owned"] = {}
 
     # Compute framework hash
-    registry = PromptRegistry.default()
+    registry = PromptCatalog.default()
     artifact = registry.get(name)
     framework_hash = None
     if artifact:

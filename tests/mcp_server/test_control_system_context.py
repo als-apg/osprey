@@ -10,11 +10,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import yaml
 
-from osprey.mcp_server.control_system.registry import (
-    MCPRegistry,
-    get_mcp_registry,
-    initialize_mcp_registry,
-    reset_mcp_registry,
+from osprey.mcp_server.control_system.server_context import (
+    ControlSystemContext,
+    get_server_context,
+    initialize_server_context,
+    reset_server_context,
 )
 
 # ---------------------------------------------------------------------------
@@ -47,7 +47,7 @@ def test_initialize_loads_config(tmp_path, monkeypatch):
         },
     )
 
-    registry = initialize_mcp_registry()
+    registry = initialize_server_context()
 
     assert registry.config.control_system["type"] == "mock"
     assert registry.config.archiver["type"] == "mock_archiver"
@@ -61,7 +61,7 @@ def test_initialize_missing_config(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
-    registry = initialize_mcp_registry()
+    registry = initialize_server_context()
 
     assert registry.config.raw == {}
     assert registry.config.control_system == {}
@@ -74,7 +74,7 @@ def test_initialize_idempotent(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, {"control_system": {"type": "mock"}})
 
-    registry = MCPRegistry()
+    registry = ControlSystemContext()
     registry.initialize()
     registry.initialize()  # Second call should be a no-op
 
@@ -84,7 +84,7 @@ def test_initialize_idempotent(tmp_path, monkeypatch):
 @pytest.mark.unit
 def test_config_not_initialized_raises():
     """Accessing config before initialization raises RuntimeError."""
-    registry = MCPRegistry()
+    registry = ControlSystemContext()
     with pytest.raises(RuntimeError, match="not initialized"):
         _ = registry.config
 
@@ -96,35 +96,35 @@ def test_config_not_initialized_raises():
 
 @pytest.mark.unit
 def test_singleton_access(tmp_path, monkeypatch):
-    """get_mcp_registry() returns the same instance."""
+    """get_server_context() returns the same instance."""
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, {"control_system": {"type": "mock"}})
 
-    initialize_mcp_registry()
-    r1 = get_mcp_registry()
-    r2 = get_mcp_registry()
+    initialize_server_context()
+    r1 = get_server_context()
+    r2 = get_server_context()
 
     assert r1 is r2
 
 
 @pytest.mark.unit
 def test_get_before_initialize_raises():
-    """get_mcp_registry() raises before initialize_mcp_registry()."""
+    """get_server_context() raises before initialize_server_context()."""
     with pytest.raises(RuntimeError, match="not initialized"):
-        get_mcp_registry()
+        get_server_context()
 
 
 @pytest.mark.unit
 def test_reset_clears_singleton(tmp_path, monkeypatch):
-    """reset_mcp_registry() clears the singleton so get raises again."""
+    """reset_server_context() clears the singleton so get raises again."""
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, {"control_system": {"type": "mock"}})
 
-    initialize_mcp_registry()
-    reset_mcp_registry()
+    initialize_server_context()
+    reset_server_context()
 
     with pytest.raises(RuntimeError, match="not initialized"):
-        get_mcp_registry()
+        get_server_context()
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +137,7 @@ async def test_connector_caching(tmp_path, monkeypatch):
     """Two calls to registry.control_system() return the same instance."""
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, {"control_system": {"type": "mock"}})
-    registry = initialize_mcp_registry()
+    registry = initialize_server_context()
 
     mock_connector = AsyncMock()
     with patch(
@@ -158,7 +158,7 @@ async def test_archiver_connector_caching(tmp_path, monkeypatch):
     """Two calls to registry.archiver() return the same instance."""
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, {"archiver": {"type": "mock_archiver"}})
-    registry = initialize_mcp_registry()
+    registry = initialize_server_context()
 
     mock_connector = AsyncMock()
     with patch(
@@ -182,7 +182,7 @@ async def test_connector_invalidation(tmp_path, monkeypatch):
     """After invalidate_connector(), next call creates a fresh instance."""
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, {"control_system": {"type": "mock"}})
-    registry = initialize_mcp_registry()
+    registry = initialize_server_context()
 
     mock_c1 = AsyncMock()
     mock_c2 = AsyncMock()
@@ -207,7 +207,7 @@ async def test_invalidate_unknown_connector(tmp_path, monkeypatch):
     """Invalidating a non-existent connector is a no-op."""
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, {"control_system": {"type": "mock"}})
-    registry = initialize_mcp_registry()
+    registry = initialize_server_context()
 
     # Should not raise
     await registry.invalidate_connector("nonexistent")
@@ -218,7 +218,7 @@ async def test_invalidate_unconnected(tmp_path, monkeypatch):
     """Invalidating a connector that was never created is a no-op."""
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, {"control_system": {"type": "mock"}})
-    registry = initialize_mcp_registry()
+    registry = initialize_server_context()
 
     # Should not raise (no instance to disconnect)
     await registry.invalidate_connector("control_system")
@@ -242,7 +242,7 @@ def test_config_validation_warnings_unknown_type(tmp_path, monkeypatch, caplog):
     )
 
     with caplog.at_level(logging.WARNING, logger="osprey.mcp_server.registry"):
-        initialize_mcp_registry()
+        initialize_server_context()
 
     assert "Unknown control_system.type: unknown_system" in caplog.text
     assert "Unknown archiver.type: unknown_archiver" in caplog.text
@@ -255,7 +255,7 @@ def test_config_validation_warnings_missing_sections(tmp_path, monkeypatch, capl
     _write_config(tmp_path, {})
 
     with caplog.at_level(logging.WARNING, logger="osprey.mcp_server.registry"):
-        initialize_mcp_registry()
+        initialize_server_context()
 
     assert "No control_system section" in caplog.text
     assert "No archiver section" in caplog.text
@@ -277,7 +277,7 @@ async def test_shutdown_disconnects_all(tmp_path, monkeypatch):
             "archiver": {"type": "mock_archiver"},
         },
     )
-    registry = initialize_mcp_registry()
+    registry = initialize_server_context()
 
     mock_cs = AsyncMock()
     mock_arch = AsyncMock()
@@ -322,7 +322,7 @@ def test_channel_finder_config(tmp_path, monkeypatch):
         },
     )
 
-    registry = initialize_mcp_registry()
+    registry = initialize_server_context()
     cf_config = registry.channel_finder_config()
 
     assert cf_config["db_path"] == "/data/channels.db"
@@ -335,7 +335,7 @@ def test_channel_finder_config_empty(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, {})
 
-    registry = initialize_mcp_registry()
+    registry = initialize_server_context()
     assert registry.channel_finder_config() == {}
 
 
@@ -355,7 +355,7 @@ def test_dot_path_access(tmp_path, monkeypatch):
         },
     )
 
-    registry = initialize_mcp_registry()
+    registry = initialize_server_context()
 
     assert registry.get("control_system.type") == "mock"
     assert registry.get("control_system.writes_enabled") is True
@@ -384,7 +384,7 @@ def test_mcp_server_config_properties(tmp_path, monkeypatch):
         },
     )
 
-    registry = initialize_mcp_registry()
+    registry = initialize_server_context()
     cfg = registry.config
 
     assert cfg.control_system["type"] == "mock"
@@ -400,7 +400,7 @@ async def test_unknown_connector_raises(tmp_path, monkeypatch):
     """Requesting an unknown connector type raises ValueError."""
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, {"control_system": {"type": "mock"}})
-    registry = initialize_mcp_registry()
+    registry = initialize_server_context()
 
     with pytest.raises(ValueError, match="Unknown connector"):
         await registry._get_connector("nonexistent")

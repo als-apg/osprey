@@ -3,7 +3,7 @@
 import json
 import logging
 
-from osprey.mcp_server.channel_finder_middle_layer.registry import get_cf_ml_registry
+from osprey.mcp_server.channel_finder_middle_layer.server_context import get_cf_ml_context
 from osprey.mcp_server.channel_finder_middle_layer.server import make_error, mcp
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_middle_layer.tools.statistics")
@@ -18,7 +18,7 @@ def statistics() -> str:
         number of systems, and number of unique families.
     """
     try:
-        registry = get_cf_ml_registry()
+        registry = get_cf_ml_context()
         stats = registry.database.get_statistics()
 
         return json.dumps(stats)

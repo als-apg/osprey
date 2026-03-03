@@ -86,9 +86,9 @@ async def channel_write(
     # Execute writes
     try:
         async with connector_error_handler("channel_write"):
-            from osprey.mcp_server.control_system.registry import get_mcp_registry
+            from osprey.mcp_server.control_system.server_context import get_server_context
 
-            registry = get_mcp_registry()
+            registry = get_server_context()
             connector = await registry.control_system()
 
             # Determine per-channel verification level and tolerance

@@ -2,7 +2,7 @@
 
 import pytest
 
-from osprey.mcp_server.channel_finder_in_context.registry import reset_cf_ic_registry
+from osprey.mcp_server.channel_finder_in_context.server_context import reset_cf_ic_context
 
 
 @pytest.fixture(autouse=True)
@@ -18,7 +18,7 @@ def _reset_registry():
 
     yield
 
-    reset_cf_ic_registry()
+    reset_cf_ic_context()
     reset_config_cache()
     _cfg._config_cache.clear()
 

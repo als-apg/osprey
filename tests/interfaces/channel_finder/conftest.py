@@ -31,7 +31,7 @@ def mock_registry():
     mock_reg.facility_name = "TEST"
 
     with patch(
-        "osprey.mcp_server.channel_finder_in_context.registry.initialize_cf_ic_registry",
+        "osprey.mcp_server.channel_finder_in_context.server_context.initialize_cf_ic_context",
         return_value=mock_reg,
     ) as init_mock:
         yield init_mock

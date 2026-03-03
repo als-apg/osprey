@@ -1,27 +1,27 @@
-"""Tests for ChannelFinderHierRegistry."""
+"""Tests for ChannelFinderHierContext."""
 
 import textwrap
 
 import pytest
 
-from osprey.mcp_server.channel_finder_hierarchical.registry import (
-    get_cf_hier_registry,
-    initialize_cf_hier_registry,
+from osprey.mcp_server.channel_finder_hierarchical.server_context import (
+    get_cf_hier_context,
+    initialize_cf_hier_context,
 )
 
 
 @pytest.mark.unit
 def test_registry_not_initialized():
     with pytest.raises(RuntimeError, match="not initialized"):
-        get_cf_hier_registry()
+        get_cf_hier_context()
 
 
 @pytest.mark.unit
 def test_registry_database_not_configured(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_hier_registry()
-    reg = get_cf_hier_registry()
+    initialize_cf_hier_context()
+    reg = get_cf_hier_context()
     with pytest.raises(RuntimeError, match="not configured"):
         _ = reg.database
 
@@ -30,16 +30,16 @@ def test_registry_database_not_configured(tmp_path, monkeypatch):
 def test_registry_facility_name_default(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_hier_registry()
-    assert get_cf_hier_registry().facility_name == "control system"
+    initialize_cf_hier_context()
+    assert get_cf_hier_context().facility_name == "control system"
 
 
 @pytest.mark.unit
 def test_registry_facility_name_from_config(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text('facility:\n  name: "NSLS-II"')
-    initialize_cf_hier_registry()
-    assert get_cf_hier_registry().facility_name == "NSLS-II"
+    initialize_cf_hier_context()
+    assert get_cf_hier_context().facility_name == "NSLS-II"
 
 
 # ------------------------------------------------------------------
@@ -61,8 +61,8 @@ def test_registry_feedback_store_initialized(tmp_path, monkeypatch):
                 store_path: "{store_path}"
     """)
     (tmp_path / "config.yml").write_text(config)
-    initialize_cf_hier_registry()
-    reg = get_cf_hier_registry()
+    initialize_cf_hier_context()
+    reg = get_cf_hier_context()
     assert reg.feedback_store is not None
 
 
@@ -79,8 +79,8 @@ def test_registry_feedback_store_disabled(tmp_path, monkeypatch):
                 store_path: "feedback.json"
     """)
     (tmp_path / "config.yml").write_text(config)
-    initialize_cf_hier_registry()
-    reg = get_cf_hier_registry()
+    initialize_cf_hier_context()
+    reg = get_cf_hier_context()
     assert reg.feedback_store is None
 
 
@@ -89,6 +89,6 @@ def test_registry_feedback_store_no_config(tmp_path, monkeypatch):
     """No feedback section in config results in None feedback_store."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_hier_registry()
-    reg = get_cf_hier_registry()
+    initialize_cf_hier_context()
+    reg = get_cf_hier_context()
     assert reg.feedback_store is None

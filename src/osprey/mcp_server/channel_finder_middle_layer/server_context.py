@@ -4,9 +4,9 @@ Provides centralized configuration access and MiddleLayerDatabase lifecycle
 management for all Middle Layer channel finder MCP tools.
 
 Usage in tools:
-    from osprey.mcp_server.channel_finder_middle_layer.registry import get_cf_ml_registry
+    from osprey.mcp_server.channel_finder_middle_layer.server_context import get_cf_ml_context
 
-    registry = get_cf_ml_registry()
+    registry = get_cf_ml_context()
     systems = registry.database.list_systems()
 """
 
@@ -22,10 +22,10 @@ import yaml
 if TYPE_CHECKING:
     from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
 
-logger = logging.getLogger("osprey.mcp_server.channel_finder_middle_layer.registry")
+logger = logging.getLogger("osprey.mcp_server.channel_finder_middle_layer.server_context")
 
 
-class ChannelFinderMLRegistry:
+class ChannelFinderMLContext:
     """Singleton registry for Middle Layer channel finder MCP server state.
 
     Responsibilities:
@@ -64,7 +64,7 @@ class ChannelFinderMLRegistry:
             )
 
             self._database = MiddleLayerDatabase(db_path)
-            logger.info("ChannelFinderMLRegistry: database loaded from %s", db_path)
+            logger.info("ChannelFinderMLContext: database loaded from %s", db_path)
         else:
             logger.warning(
                 "No database path configured at "
@@ -76,7 +76,7 @@ class ChannelFinderMLRegistry:
         self._facility_name = facility.get("name", "control system")
 
         self._initialized = True
-        logger.info("ChannelFinderMLRegistry: initialized")
+        logger.info("ChannelFinderMLContext: initialized")
 
     @property
     def database(self) -> MiddleLayerDatabase:
@@ -117,7 +117,7 @@ class ChannelFinderMLRegistry:
         if config_path.exists():
             with open(config_path) as f:
                 raw = yaml.safe_load(f) or {}
-            logger.info("ChannelFinderMLRegistry: config loaded from %s", config_path)
+            logger.info("ChannelFinderMLContext: config loaded from %s", config_path)
         else:
             logger.warning("Config file not found: %s", config_path)
 
@@ -128,31 +128,31 @@ class ChannelFinderMLRegistry:
 # Module-level singleton
 # ---------------------------------------------------------------------------
 
-_registry: ChannelFinderMLRegistry | None = None
+_registry: ChannelFinderMLContext | None = None
 
 
-def get_cf_ml_registry() -> ChannelFinderMLRegistry:
+def get_cf_ml_context() -> ChannelFinderMLContext:
     """Get the Channel Finder ML MCP registry singleton.
 
-    Raises RuntimeError if initialize_cf_ml_registry() hasn't been called.
+    Raises RuntimeError if initialize_cf_ml_context() hasn't been called.
     """
     if _registry is None:
         raise RuntimeError(
             "Channel Finder ML MCP registry not initialized. "
-            "Call initialize_cf_ml_registry() first."
+            "Call initialize_cf_ml_context() first."
         )
     return _registry
 
 
-def initialize_cf_ml_registry() -> ChannelFinderMLRegistry:
+def initialize_cf_ml_context() -> ChannelFinderMLContext:
     """Create and initialize the Channel Finder ML MCP registry singleton."""
     global _registry
-    _registry = ChannelFinderMLRegistry()
+    _registry = ChannelFinderMLContext()
     _registry.initialize()
     return _registry
 
 
-def reset_cf_ml_registry() -> None:
+def reset_cf_ml_context() -> None:
     """Reset the registry (for testing)."""
     global _registry
     _registry = None

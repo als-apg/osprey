@@ -13,7 +13,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from osprey.mcp_server.ariel.registry import get_ariel_registry
+from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.ariel.server import make_error, mcp, serialize_entry
 
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.entry")
@@ -86,7 +86,7 @@ async def entry_get(
         )
 
     try:
-        registry = get_ariel_registry()
+        registry = get_ariel_context()
         service = await registry.service()
 
         entry = await service.repository.get_entry(entry_id)
@@ -167,7 +167,7 @@ async def entries_by_ids(
         )
 
     try:
-        registry = get_ariel_registry()
+        registry = get_ariel_context()
         service = await registry.service()
 
         entries = await service.repository.get_entries_by_ids(entry_ids)
@@ -358,7 +358,7 @@ async def entry_create(
     try:
         from osprey.mcp_server.session import gather_session_metadata
 
-        registry = get_ariel_registry()
+        registry = get_ariel_context()
         service = await registry.service()
 
         entry_id = f"ariel-{uuid.uuid4().hex[:12]}"

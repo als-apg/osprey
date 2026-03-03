@@ -49,11 +49,11 @@ def create_server() -> FastMCP:
 
     prime_config_builder()
 
-    from osprey.mcp_server.direct_channel_finder.registry import (
-        initialize_dcf_registry,
+    from osprey.mcp_server.direct_channel_finder.server_context import (
+        initialize_dcf_context,
     )
 
-    initialize_dcf_registry()
+    initialize_dcf_context()
 
     workspace_root = resolve_workspace_root()
     initialize_workspace_singletons(workspace_root)

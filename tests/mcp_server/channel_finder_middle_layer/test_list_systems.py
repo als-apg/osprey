@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
-from osprey.mcp_server.channel_finder_middle_layer.registry import (
-    initialize_cf_ml_registry,
+from osprey.mcp_server.channel_finder_middle_layer.server_context import (
+    initialize_cf_ml_context,
 )
 from tests.mcp_server.channel_finder_middle_layer.conftest import get_tool_fn
 
@@ -14,7 +14,7 @@ from tests.mcp_server.channel_finder_middle_layer.conftest import get_tool_fn
 def _setup(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_ml_registry()
+    initialize_cf_ml_context()
 
 
 @pytest.mark.unit
@@ -27,7 +27,7 @@ def test_list_systems_returns_systems(tmp_path, monkeypatch):
         {"name": "BR", "description": "Booster Ring"},
     ]
     with patch(
-        "osprey.mcp_server.channel_finder_middle_layer.registry.ChannelFinderMLRegistry.database",
+        "osprey.mcp_server.channel_finder_middle_layer.server_context.ChannelFinderMLContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -51,7 +51,7 @@ def test_list_systems_empty(tmp_path, monkeypatch):
     mock_db = MagicMock()
     mock_db.list_systems.return_value = []
     with patch(
-        "osprey.mcp_server.channel_finder_middle_layer.registry.ChannelFinderMLRegistry.database",
+        "osprey.mcp_server.channel_finder_middle_layer.server_context.ChannelFinderMLContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -74,7 +74,7 @@ def test_list_systems_internal_error(tmp_path, monkeypatch):
     mock_db = MagicMock()
     mock_db.list_systems.side_effect = Exception("DB broke")
     with patch(
-        "osprey.mcp_server.channel_finder_middle_layer.registry.ChannelFinderMLRegistry.database",
+        "osprey.mcp_server.channel_finder_middle_layer.server_context.ChannelFinderMLContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):

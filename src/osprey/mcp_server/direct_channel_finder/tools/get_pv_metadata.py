@@ -31,9 +31,9 @@ def get_pv_metadata(pv_names: list[str]) -> str:
                 )
             )
 
-        from osprey.mcp_server.direct_channel_finder.registry import get_dcf_registry
+        from osprey.mcp_server.direct_channel_finder.server_context import get_dcf_context
 
-        registry = get_dcf_registry()
+        registry = get_dcf_context()
         backend = registry.backend
 
         records = asyncio.run(backend.get_metadata(pv_names))

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from osprey.mcp_server.ariel.registry import initialize_ariel_registry
+from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.services.ariel_search.search.sql_query import validate_sql_query
 from tests.mcp_server.ariel.conftest import get_tool_fn
 
@@ -115,7 +115,7 @@ def _setup_registry(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     config = '{"ariel": {"database": {"uri": "postgresql://localhost/test"}}}'
     (tmp_path / "config.yml").write_text(config)
-    initialize_ariel_registry()
+    initialize_ariel_context()
 
 
 @pytest.mark.unit
@@ -133,7 +133,7 @@ async def test_sql_query_valid(tmp_path, monkeypatch):
 
     with (
         patch(
-            "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
             new=AsyncMock(return_value=mock_service),
         ),
         patch(
@@ -185,7 +185,7 @@ async def test_sql_query_row_limit(tmp_path, monkeypatch):
 
     with (
         patch(
-            "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
             new=AsyncMock(return_value=mock_service),
         ),
         patch(
@@ -210,7 +210,7 @@ async def test_sql_query_service_error(tmp_path, monkeypatch):
 
     with (
         patch(
-            "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
             new=AsyncMock(return_value=mock_service),
         ),
         patch(

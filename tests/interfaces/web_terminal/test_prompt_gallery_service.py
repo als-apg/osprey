@@ -1,4 +1,4 @@
-"""Tests for PromptGalleryService — bridges PromptRegistry + TemplateManager for web UI."""
+"""Tests for PromptGalleryService — bridges PromptCatalog + TemplateManager for web UI."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.init_cmd import init
-from osprey.cli.prompt_registry import PromptRegistry
+from osprey.cli.prompt_catalog import PromptCatalog
 from osprey.interfaces.web_terminal.prompt_gallery_service import PromptGalleryService
 
 # ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ class TestListArtifacts:
 
     def test_list_artifacts_bounded_by_registry(self, service):
         """Returned count is at most the registry size (no phantom artifacts)."""
-        registry = PromptRegistry.default()
+        registry = PromptCatalog.default()
         result = service.list_artifacts()
         assert len(result) <= len(registry.all_artifacts())
 
@@ -329,7 +329,7 @@ class TestDescriptionExtraction:
 
     def test_config_falls_back_to_registry(self, service):
         """Config artifacts (JSON templates) fall back to registry description."""
-        registry = PromptRegistry.default()
+        registry = PromptCatalog.default()
         reg_art = registry.get("claude-md")
         result = service.list_artifacts()
         by_name = {a["name"]: a for a in result}

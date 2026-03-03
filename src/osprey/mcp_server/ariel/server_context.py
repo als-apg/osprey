@@ -1,13 +1,13 @@
-"""ARIEL MCP Server Registry — singleton config and service management.
+"""ARIEL MCP Server Context — singleton config and service management.
 
 Provides centralized configuration access and ARIEL service lifecycle
 management for all ARIEL MCP tools.
 
 Usage in tools:
-    from osprey.mcp_server.ariel.registry import get_ariel_registry
+    from osprey.mcp_server.ariel.server_context import get_ariel_context
 
-    registry = get_ariel_registry()
-    service = await registry.service()
+    ctx = get_ariel_context()
+    service = await ctx.service()
 """
 
 from __future__ import annotations
@@ -18,10 +18,10 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from osprey.services.ariel_search.service import ARIELSearchService
 
-logger = logging.getLogger("osprey.mcp_server.ariel.registry")
+logger = logging.getLogger("osprey.mcp_server.ariel.server_context")
 
 
-class ARIELMCPRegistry:
+class ARIELContext:
     """Singleton registry for ARIEL MCP server state.
 
     Responsibilities:
@@ -66,7 +66,7 @@ class ARIELMCPRegistry:
         self._ariel_config = ARIELConfig.from_dict(ariel_section)
 
         self._initialized = True
-        logger.info("ARIELMCPRegistry: initialized")
+        logger.info("ARIELContext: initialized")
 
     @property
     def config(self) -> Any:
@@ -97,7 +97,7 @@ class ARIELMCPRegistry:
         # Call directly — NOT as context manager. We manage pool shutdown
         # ourselves in shutdown().
         self._service = await create_ariel_service(self.config)
-        logger.info("ARIELMCPRegistry: created ARIEL service")
+        logger.info("ARIELContext: created ARIEL service")
         return self._service
 
     async def shutdown(self) -> None:
@@ -108,7 +108,7 @@ class ARIELMCPRegistry:
             except Exception:
                 logger.debug("Error closing ARIEL pool (ignored)", exc_info=True)
             self._service = None
-            logger.info("ARIELMCPRegistry: shutdown complete")
+            logger.info("ARIELContext: shutdown complete")
 
     @staticmethod
     def _load_config() -> dict[str, Any]:
@@ -118,7 +118,7 @@ class ARIELMCPRegistry:
         raw = load_osprey_config()
         config_path = resolve_config_path()
         if config_path.exists():
-            logger.info("ARIELMCPRegistry: config loaded from %s", config_path)
+            logger.info("ARIELContext: config loaded from %s", config_path)
         else:
             logger.warning("Config file not found: %s", config_path)
 
@@ -129,30 +129,30 @@ class ARIELMCPRegistry:
 # Module-level singleton
 # ---------------------------------------------------------------------------
 
-_registry: ARIELMCPRegistry | None = None
+_registry: ARIELContext | None = None
 
 
-def get_ariel_registry() -> ARIELMCPRegistry:
+def get_ariel_context() -> ARIELContext:
     """Get the ARIEL MCP registry singleton.
 
-    Raises RuntimeError if initialize_ariel_registry() hasn't been called.
+    Raises RuntimeError if initialize_ariel_context() hasn't been called.
     """
     if _registry is None:
         raise RuntimeError(
-            "ARIEL MCP registry not initialized. Call initialize_ariel_registry() first."
+            "ARIEL MCP registry not initialized. Call initialize_ariel_context() first."
         )
     return _registry
 
 
-def initialize_ariel_registry() -> ARIELMCPRegistry:
+def initialize_ariel_context() -> ARIELContext:
     """Create and initialize the ARIEL MCP registry singleton."""
     global _registry
-    _registry = ARIELMCPRegistry()
+    _registry = ARIELContext()
     _registry.initialize()
     return _registry
 
 
-def reset_ariel_registry() -> None:
+def reset_ariel_context() -> None:
     """Reset the registry (for testing)."""
     global _registry
     _registry = None

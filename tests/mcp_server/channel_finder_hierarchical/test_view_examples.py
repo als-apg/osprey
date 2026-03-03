@@ -5,8 +5,8 @@ from unittest.mock import PropertyMock, patch
 
 import pytest
 
-from osprey.mcp_server.channel_finder_hierarchical.registry import (
-    initialize_cf_hier_registry,
+from osprey.mcp_server.channel_finder_hierarchical.server_context import (
+    initialize_cf_hier_context,
 )
 from osprey.services.channel_finder.feedback.store import FeedbackStore
 from tests.mcp_server.channel_finder_hierarchical.conftest import get_tool_fn
@@ -15,7 +15,7 @@ from tests.mcp_server.channel_finder_hierarchical.conftest import get_tool_fn
 def _setup(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_hier_registry()
+    initialize_cf_hier_context()
 
 
 def _make_store_with_entries(tmp_path):
@@ -47,8 +47,8 @@ def test_view_examples_no_store(tmp_path, monkeypatch):
     """Registry has no feedback_store, returns empty."""
     _setup(tmp_path, monkeypatch)
     with patch(
-        "osprey.mcp_server.channel_finder_hierarchical.registry."
-        "ChannelFinderHierRegistry.feedback_store",
+        "osprey.mcp_server.channel_finder_hierarchical.server_context."
+        "ChannelFinderHierContext.feedback_store",
         new_callable=PropertyMock,
         return_value=None,
     ):
@@ -69,8 +69,8 @@ def test_view_examples_no_keywords_lists_all(tmp_path, monkeypatch):
     store = _make_store_with_entries(tmp_path)
 
     with patch(
-        "osprey.mcp_server.channel_finder_hierarchical.registry."
-        "ChannelFinderHierRegistry.feedback_store",
+        "osprey.mcp_server.channel_finder_hierarchical.server_context."
+        "ChannelFinderHierContext.feedback_store",
         new_callable=PropertyMock,
         return_value=store,
     ):
@@ -96,8 +96,8 @@ def test_view_examples_with_keywords_returns_matches(tmp_path, monkeypatch):
     store = _make_store_with_entries(tmp_path)
 
     with patch(
-        "osprey.mcp_server.channel_finder_hierarchical.registry."
-        "ChannelFinderHierRegistry.feedback_store",
+        "osprey.mcp_server.channel_finder_hierarchical.server_context."
+        "ChannelFinderHierContext.feedback_store",
         new_callable=PropertyMock,
         return_value=store,
     ):
@@ -124,14 +124,14 @@ def test_view_examples_with_exact_query_returns_hints(tmp_path, monkeypatch):
 
     with (
         patch(
-            "osprey.mcp_server.channel_finder_hierarchical.registry."
-            "ChannelFinderHierRegistry.feedback_store",
+            "osprey.mcp_server.channel_finder_hierarchical.server_context."
+            "ChannelFinderHierContext.feedback_store",
             new_callable=PropertyMock,
             return_value=store,
         ),
         patch(
-            "osprey.mcp_server.channel_finder_hierarchical.registry."
-            "ChannelFinderHierRegistry.facility_name",
+            "osprey.mcp_server.channel_finder_hierarchical.server_context."
+            "ChannelFinderHierContext.facility_name",
             new_callable=PropertyMock,
             return_value="ALS",
         ),
@@ -155,8 +155,8 @@ def test_view_examples_with_keywords_no_match(tmp_path, monkeypatch):
     store = _make_store_with_entries(tmp_path)
 
     with patch(
-        "osprey.mcp_server.channel_finder_hierarchical.registry."
-        "ChannelFinderHierRegistry.feedback_store",
+        "osprey.mcp_server.channel_finder_hierarchical.server_context."
+        "ChannelFinderHierContext.feedback_store",
         new_callable=PropertyMock,
         return_value=store,
     ):

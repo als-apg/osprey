@@ -105,7 +105,7 @@ def get_framework_defaults() -> RegistryConfig:
     Returns:
         Complete framework RegistryConfig with all core components
     """
-    from .registry import FrameworkRegistryProvider
+    from .builtins import FrameworkRegistryProvider
 
     provider = FrameworkRegistryProvider()
     return provider.get_registry_config()

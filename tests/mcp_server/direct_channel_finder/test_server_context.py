@@ -1,12 +1,12 @@
-"""Tests for DirectChannelFinderRegistry."""
+"""Tests for DirectChannelFinderContext."""
 
 import pytest
 import yaml
 
-from osprey.mcp_server.direct_channel_finder.registry import (
-    get_dcf_registry,
-    initialize_dcf_registry,
-    reset_dcf_registry,
+from osprey.mcp_server.direct_channel_finder.server_context import (
+    get_dcf_context,
+    initialize_dcf_context,
+    reset_dcf_context,
 )
 from osprey.services.channel_finder.backends.als_channel_finder import (
     ALSChannelFinderBackend,
@@ -14,7 +14,7 @@ from osprey.services.channel_finder.backends.als_channel_finder import (
 from osprey.services.channel_finder.backends.mock import MockPVInfoBackend
 
 
-class TestDirectChannelFinderRegistry:
+class TestDirectChannelFinderContext:
     def test_initialize_with_mock_backend(self, tmp_path):
         config = {"channel_finder": {"direct": {"backend": "mock"}}}
         config_path = tmp_path / "config.yml"
@@ -24,7 +24,7 @@ class TestDirectChannelFinderRegistry:
 
         os.environ["OSPREY_CONFIG"] = str(config_path)
         try:
-            registry = initialize_dcf_registry()
+            registry = initialize_dcf_context()
             assert isinstance(registry.backend, MockPVInfoBackend)
         finally:
             del os.environ["OSPREY_CONFIG"]
@@ -38,7 +38,7 @@ class TestDirectChannelFinderRegistry:
 
         os.environ["OSPREY_CONFIG"] = str(config_path)
         try:
-            registry = initialize_dcf_registry()
+            registry = initialize_dcf_context()
             assert isinstance(registry.backend, MockPVInfoBackend)
         finally:
             del os.environ["OSPREY_CONFIG"]
@@ -52,7 +52,7 @@ class TestDirectChannelFinderRegistry:
 
         os.environ["OSPREY_CONFIG"] = str(config_path)
         try:
-            registry = initialize_dcf_registry()
+            registry = initialize_dcf_context()
             with pytest.raises(RuntimeError, match="PV info backend not available"):
                 _ = registry.backend
         finally:
@@ -70,7 +70,7 @@ class TestDirectChannelFinderRegistry:
 
         os.environ["OSPREY_CONFIG"] = str(config_path)
         try:
-            registry = initialize_dcf_registry()
+            registry = initialize_dcf_context()
             assert registry.facility_name == "ALS"
         finally:
             del os.environ["OSPREY_CONFIG"]
@@ -91,7 +91,7 @@ class TestDirectChannelFinderRegistry:
 
         os.environ["OSPREY_CONFIG"] = str(config_path)
         try:
-            registry = initialize_dcf_registry()
+            registry = initialize_dcf_context()
             assert isinstance(registry.backend, ALSChannelFinderBackend)
         finally:
             del os.environ["OSPREY_CONFIG"]
@@ -105,19 +105,19 @@ class TestDirectChannelFinderRegistry:
 
         os.environ["OSPREY_CONFIG"] = str(config_path)
         try:
-            registry = initialize_dcf_registry()
+            registry = initialize_dcf_context()
             backend = registry.backend
             assert isinstance(backend, ALSChannelFinderBackend)
             assert "localhost:8443" in backend._base_url
         finally:
             del os.environ["OSPREY_CONFIG"]
 
-    def test_get_registry_before_init_raises(self):
-        reset_dcf_registry()
+    def test_get_context_before_init_raises(self):
+        reset_dcf_context()
         with pytest.raises(RuntimeError, match="not initialized"):
-            get_dcf_registry()
+            get_dcf_context()
 
-    def test_get_registry_after_init(self, tmp_path):
+    def test_get_context_after_init(self, tmp_path):
         config = {"channel_finder": {"direct": {"backend": "mock"}}}
         config_path = tmp_path / "config.yml"
         config_path.write_text(yaml.dump(config))
@@ -126,8 +126,8 @@ class TestDirectChannelFinderRegistry:
 
         os.environ["OSPREY_CONFIG"] = str(config_path)
         try:
-            initialize_dcf_registry()
-            registry = get_dcf_registry()
+            initialize_dcf_context()
+            registry = get_dcf_context()
             assert registry is not None
         finally:
             del os.environ["OSPREY_CONFIG"]

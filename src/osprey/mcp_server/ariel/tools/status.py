@@ -3,7 +3,7 @@
 import json
 import logging
 
-from osprey.mcp_server.ariel.registry import get_ariel_registry
+from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.ariel.server import make_error, mcp
 
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.status")
@@ -18,7 +18,7 @@ async def status() -> str:
         JSON with comprehensive service status.
     """
     try:
-        registry = get_ariel_registry()
+        registry = get_ariel_context()
         service = await registry.service()
 
         status = await service.get_status()

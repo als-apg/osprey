@@ -53,11 +53,11 @@ def create_server() -> FastMCP:
 
     prime_config_builder()
 
-    from osprey.mcp_server.channel_finder_hierarchical.registry import (
-        initialize_cf_hier_registry,
+    from osprey.mcp_server.channel_finder_hierarchical.server_context import (
+        initialize_cf_hier_context,
     )
 
-    initialize_cf_hier_registry()
+    initialize_cf_hier_context()
 
     workspace_root = resolve_workspace_root()
     initialize_workspace_singletons(workspace_root)

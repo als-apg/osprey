@@ -3,7 +3,7 @@
 import json
 import logging
 
-from osprey.mcp_server.channel_finder_middle_layer.registry import get_cf_ml_registry
+from osprey.mcp_server.channel_finder_middle_layer.server_context import get_cf_ml_context
 from osprey.mcp_server.channel_finder_middle_layer.server import make_error, mcp
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_middle_layer.tools.validate")
@@ -32,7 +32,7 @@ def validate(channels: list[str]) -> str:
         )
 
     try:
-        registry = get_cf_ml_registry()
+        registry = get_cf_ml_context()
         results = []
         for ch in channels:
             results.append(

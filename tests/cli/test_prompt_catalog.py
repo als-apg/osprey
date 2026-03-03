@@ -1,10 +1,10 @@
-"""Tests for PromptRegistry — the declarative catalog of prompt artifacts."""
+"""Tests for PromptCatalog — the declarative catalog of prompt artifacts."""
 
 from pathlib import Path
 
 import pytest
 
-from osprey.cli.prompt_registry import PromptArtifact, PromptRegistry
+from osprey.cli.prompt_catalog import PromptArtifact, PromptCatalog
 
 
 class TestPromptArtifact:
@@ -23,12 +23,12 @@ class TestPromptArtifact:
         assert art.description == "d"
 
 
-class TestPromptRegistryDefault:
+class TestPromptCatalogDefault:
     """Tests for the default registry contents."""
 
     @pytest.fixture()
     def registry(self):
-        return PromptRegistry.default()
+        return PromptCatalog.default()
 
     def test_has_artifacts(self, registry):
         assert len(registry.all_artifacts()) > 0
@@ -117,7 +117,7 @@ class TestRegistryMatchesTemplateDirectory:
 
     def test_all_template_paths_exist(self):
         """Every artifact's template_path must exist in the template directory."""
-        registry = PromptRegistry.default()
+        registry = PromptCatalog.default()
         template_root = (
             Path(__file__).parent.parent.parent / "src" / "osprey" / "templates" / "claude_code"
         )
@@ -134,7 +134,7 @@ class TestRegistryMatchesTemplateDirectory:
 
         Exemptions: __pycache__, .pyc, directories-only, __init__.py
         """
-        registry = PromptRegistry.default()
+        registry = PromptCatalog.default()
         template_root = (
             Path(__file__).parent.parent.parent / "src" / "osprey" / "templates" / "claude_code"
         )
@@ -153,7 +153,7 @@ class TestRegistryMatchesTemplateDirectory:
 
             rel = str(template_file.relative_to(template_root))
             assert rel in registered_templates, (
-                f"Template file {rel} is not registered in the PromptRegistry"
+                f"Template file {rel} is not registered in the PromptCatalog"
             )
 
 
@@ -161,13 +161,13 @@ class TestCustomRegistry:
     """Tests for constructing a custom registry."""
 
     def test_empty_registry(self):
-        reg = PromptRegistry([])
+        reg = PromptCatalog([])
         assert reg.all_artifacts() == []
         assert reg.all_names() == []
         assert reg.get("anything") is None
 
     def test_custom_artifacts(self):
         art = PromptArtifact("my/thing", "my.j2", "my.md", "My thing")
-        reg = PromptRegistry([art])
+        reg = PromptCatalog([art])
         assert reg.get("my/thing") is art
         assert reg.all_names() == ["my/thing"]

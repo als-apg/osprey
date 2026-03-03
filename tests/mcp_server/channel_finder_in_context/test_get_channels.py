@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
-from osprey.mcp_server.channel_finder_in_context.registry import (
-    initialize_cf_ic_registry,
+from osprey.mcp_server.channel_finder_in_context.server_context import (
+    initialize_cf_ic_context,
 )
 from tests.mcp_server.channel_finder_in_context.conftest import get_tool_fn
 
@@ -14,7 +14,7 @@ from tests.mcp_server.channel_finder_in_context.conftest import get_tool_fn
 def _setup(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_ic_registry()
+    initialize_cf_ic_context()
 
 
 @pytest.mark.unit
@@ -26,7 +26,7 @@ def test_get_all_channels(tmp_path, monkeypatch):
         {"channel": "CH2", "address": "PV:CH2"},
     ]
     with patch(
-        "osprey.mcp_server.channel_finder_in_context.registry.ChannelFinderICRegistry.database",
+        "osprey.mcp_server.channel_finder_in_context.server_context.ChannelFinderICContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -51,7 +51,7 @@ def test_get_channels_chunked(tmp_path, monkeypatch):
     ]
     mock_db.format_chunk_for_prompt.return_value = "- CH1"
     with patch(
-        "osprey.mcp_server.channel_finder_in_context.registry.ChannelFinderICRegistry.database",
+        "osprey.mcp_server.channel_finder_in_context.server_context.ChannelFinderICContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -73,7 +73,7 @@ def test_get_channels_invalid_chunk(tmp_path, monkeypatch):
     mock_db = MagicMock()
     mock_db.chunk_database.return_value = [[{"channel": "CH1"}]]
     with patch(
-        "osprey.mcp_server.channel_finder_in_context.registry.ChannelFinderICRegistry.database",
+        "osprey.mcp_server.channel_finder_in_context.server_context.ChannelFinderICContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -94,7 +94,7 @@ def test_get_channels_internal_error(tmp_path, monkeypatch):
     mock_db = MagicMock()
     mock_db.get_all_channels.side_effect = RuntimeError("DB exploded")
     with patch(
-        "osprey.mcp_server.channel_finder_in_context.registry.ChannelFinderICRegistry.database",
+        "osprey.mcp_server.channel_finder_in_context.server_context.ChannelFinderICContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):

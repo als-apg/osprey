@@ -51,11 +51,11 @@ def _create_lifespan(project_cwd: str | None = None):
         facility_names: dict[str, str] = {}
 
         try:
-            from osprey.mcp_server.channel_finder_hierarchical.registry import (
-                initialize_cf_hier_registry,
+            from osprey.mcp_server.channel_finder_hierarchical.server_context import (
+                initialize_cf_hier_context,
             )
 
-            registry = initialize_cf_hier_registry()
+            registry = initialize_cf_hier_context()
             databases["hierarchical"] = registry.database
             facility_names["hierarchical"] = registry.facility_name
             available.append("hierarchical")
@@ -64,11 +64,11 @@ def _create_lifespan(project_cwd: str | None = None):
             logger.debug("Hierarchical pipeline not available", exc_info=True)
 
         try:
-            from osprey.mcp_server.channel_finder_middle_layer.registry import (
-                initialize_cf_ml_registry,
+            from osprey.mcp_server.channel_finder_middle_layer.server_context import (
+                initialize_cf_ml_context,
             )
 
-            registry = initialize_cf_ml_registry()
+            registry = initialize_cf_ml_context()
             databases["middle_layer"] = registry.database
             facility_names["middle_layer"] = registry.facility_name
             available.append("middle_layer")
@@ -77,11 +77,11 @@ def _create_lifespan(project_cwd: str | None = None):
             logger.debug("Middle layer pipeline not available", exc_info=True)
 
         try:
-            from osprey.mcp_server.channel_finder_in_context.registry import (
-                initialize_cf_ic_registry,
+            from osprey.mcp_server.channel_finder_in_context.server_context import (
+                initialize_cf_ic_context,
             )
 
-            registry = initialize_cf_ic_registry()
+            registry = initialize_cf_ic_context()
             databases["in_context"] = registry.database
             facility_names["in_context"] = registry.facility_name
             available.append("in_context")

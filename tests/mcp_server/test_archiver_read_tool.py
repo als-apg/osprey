@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, patch
 import pandas as pd
 import pytest
 
-from osprey.mcp_server.control_system.registry import initialize_mcp_registry
+from osprey.mcp_server.control_system.server_context import initialize_server_context
 from tests.mcp_server.conftest import get_tool_fn
 
 
@@ -37,7 +37,7 @@ async def test_archiver_read_basic(tmp_path, monkeypatch):
     """Basic archiver read returns summary with data file path."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("archiver:\n  type: mock\n")
-    initialize_mcp_registry()
+    initialize_server_context()
 
     mock_df = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
     mock_connector = AsyncMock()
@@ -81,7 +81,7 @@ async def test_archiver_read_relative_time(tmp_path, monkeypatch):
     """Archiver read with relative time strings (e.g., '1h ago')."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("archiver:\n  type: mock\n")
-    initialize_mcp_registry()
+    initialize_server_context()
 
     mock_df = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
     mock_connector = AsyncMock()
@@ -108,7 +108,7 @@ async def test_archiver_read_file_persistence(tmp_path, monkeypatch):
     """Archiver read saves data to osprey-workspace/artifacts/ via ArtifactStore."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("archiver:\n  type: mock\n")
-    initialize_mcp_registry()
+    initialize_server_context()
 
     mock_df = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
     mock_connector = AsyncMock()
@@ -150,7 +150,7 @@ async def test_archiver_read_multiple_channels(tmp_path, monkeypatch):
     """Multi-channel archiver read returns summary for all channels."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("archiver:\n  type: mock\n")
-    initialize_mcp_registry()
+    initialize_server_context()
 
     mock_df = _make_archiver_df(
         {
@@ -184,7 +184,7 @@ async def test_archiver_read_timeout(tmp_path, monkeypatch):
     """Archiver read timeout returns error."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("archiver:\n  type: mock\n")
-    initialize_mcp_registry()
+    initialize_server_context()
 
     mock_connector = AsyncMock()
     mock_connector.get_data.side_effect = TimeoutError("archiver query timed out")
@@ -213,7 +213,7 @@ async def test_archiver_read_connection_error(tmp_path, monkeypatch):
     """Archiver connection error returns standard error format."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("archiver:\n  type: mock\n")
-    initialize_mcp_registry()
+    initialize_server_context()
 
     mock_connector = AsyncMock()
     mock_connector.get_data.side_effect = ConnectionError("archiver unreachable")

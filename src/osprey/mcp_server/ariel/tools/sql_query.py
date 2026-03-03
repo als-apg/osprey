@@ -7,7 +7,7 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
 import json
 import logging
 
-from osprey.mcp_server.ariel.registry import get_ariel_registry
+from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.ariel.server import make_error, mcp
 from osprey.services.ariel_search.search.sql_query import (
     format_sql_result,
@@ -62,7 +62,7 @@ async def sql_query(
         # Fail fast before acquiring a DB connection
         validate_sql_query(query)
 
-        registry = get_ariel_registry()
+        registry = get_ariel_context()
         service = await registry.service()
 
         # execute_sql_query re-validates internally

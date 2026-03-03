@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from osprey.cli.prompt_registry import PromptRegistry
+from osprey.cli.prompt_catalog import PromptCatalog
 
 logger = logging.getLogger("osprey.cli.templates")
 
@@ -19,7 +19,7 @@ MANIFEST_SCHEMA_VERSION = "1.1.0"
 # File used to store project manifest
 MANIFEST_FILENAME = ".osprey-manifest.json"
 
-# Maps manifest YAML category keys to PromptRegistry canonical-name prefixes.
+# Maps manifest YAML category keys to PromptCatalog canonical-name prefixes.
 # Needed because YAML convention uses underscores while registry uses hyphens.
 _MANIFEST_CATEGORY_PREFIX = {
     "hooks": "hooks/",
@@ -85,7 +85,7 @@ def load_template_manifest(template_root: Path, template_name: str) -> dict | No
         manifest = yaml.safe_load(f) or {}
 
     # Validate entries against the prompt registry
-    registry = PromptRegistry.default()
+    registry = PromptCatalog.default()
     artifacts = manifest.get("artifacts", {})
     for category, entries in artifacts.items():
         prefix = _MANIFEST_CATEGORY_PREFIX.get(category)
@@ -135,7 +135,7 @@ def resolve_manifest_outputs(manifest: dict) -> set[str]:
     """
     result = {"CLAUDE.md", ".mcp.json", ".claude/settings.json"}
 
-    registry = PromptRegistry.default()
+    registry = PromptCatalog.default()
     all_artifacts = registry.all_artifacts()
 
     for category, entries in manifest.get("artifacts", {}).items():
@@ -373,7 +373,7 @@ def build_user_owned_manifest(
 
     import tempfile
 
-    registry = PromptRegistry.default()
+    registry = PromptCatalog.default()
     result: dict[str, Any] = {}
     claude_code_dir = template_root / "claude_code"
 

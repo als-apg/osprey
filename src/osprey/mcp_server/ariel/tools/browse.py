@@ -8,7 +8,7 @@ PROMPT-PROVIDER: Tool docstrings are static prompts visible to Claude Code.
 import json
 import logging
 
-from osprey.mcp_server.ariel.registry import get_ariel_registry
+from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.ariel.server import make_error, mcp, parse_date_filters, serialize_entry
 
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.browse")
@@ -39,7 +39,7 @@ async def browse(
         JSON with entries and total_count.
     """
     try:
-        registry = get_ariel_registry()
+        registry = get_ariel_context()
         service = await registry.service()
 
         page_size = max(1, min(page_size, 100))
@@ -100,7 +100,7 @@ async def filter_options(
         JSON with field name and list of options.
     """
     try:
-        registry = get_ariel_registry()
+        registry = get_ariel_context()
         service = await registry.service()
 
         field_methods = {

@@ -379,7 +379,7 @@ Registry Architecture
 
 The registry system uses a two-tier architecture with configuration-driven application loading:
 
-**Framework Registry:** Core infrastructure loaded from ``osprey.registry.registry``
+**Framework Registry:** Core infrastructure loaded from ``osprey.registry.builtins``
 
 **Application Registries:** Domain-specific components from ``applications.{app}.registry`` (applications must be listed in global configuration)
 

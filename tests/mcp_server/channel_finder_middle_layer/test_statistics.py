@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
-from osprey.mcp_server.channel_finder_middle_layer.registry import (
-    initialize_cf_ml_registry,
+from osprey.mcp_server.channel_finder_middle_layer.server_context import (
+    initialize_cf_ml_context,
 )
 from tests.mcp_server.channel_finder_middle_layer.conftest import get_tool_fn
 
@@ -14,7 +14,7 @@ from tests.mcp_server.channel_finder_middle_layer.conftest import get_tool_fn
 def _setup(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("{}")
-    initialize_cf_ml_registry()
+    initialize_cf_ml_context()
 
 
 @pytest.mark.unit
@@ -28,7 +28,7 @@ def test_statistics_returns_stats(tmp_path, monkeypatch):
         "total_families": 25,
     }
     with patch(
-        "osprey.mcp_server.channel_finder_middle_layer.registry.ChannelFinderMLRegistry.database",
+        "osprey.mcp_server.channel_finder_middle_layer.server_context.ChannelFinderMLContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -56,7 +56,7 @@ def test_statistics_empty_database(tmp_path, monkeypatch):
         "total_families": 0,
     }
     with patch(
-        "osprey.mcp_server.channel_finder_middle_layer.registry.ChannelFinderMLRegistry.database",
+        "osprey.mcp_server.channel_finder_middle_layer.server_context.ChannelFinderMLContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):
@@ -79,7 +79,7 @@ def test_statistics_internal_error(tmp_path, monkeypatch):
     mock_db = MagicMock()
     mock_db.get_statistics.side_effect = Exception("Stats computation failed")
     with patch(
-        "osprey.mcp_server.channel_finder_middle_layer.registry.ChannelFinderMLRegistry.database",
+        "osprey.mcp_server.channel_finder_middle_layer.server_context.ChannelFinderMLContext.database",
         new_callable=PropertyMock,
         return_value=mock_db,
     ):

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from osprey.cli.prompt_registry import PromptRegistry
+from osprey.cli.prompt_catalog import PromptCatalog
 from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates._rendering import render_template
@@ -130,7 +130,7 @@ def build_claude_code_context(
     # Claude Code server + agent resolution (data-driven registry)
     claude_code_config = config.get("claude_code", {})
 
-    from osprey.cli.server_registry import resolve_agents, resolve_servers
+    from osprey.cli.server_catalog import resolve_agents, resolve_servers
 
     ctx["servers"] = resolve_servers(claude_code_config, ctx)
     ctx["agents"] = resolve_agents(claude_code_config, ctx, project_dir, ctx["servers"])
@@ -210,7 +210,7 @@ def is_user_owned(rel_path: str, ctx: dict) -> bool:
     user_owned = ctx.get("user_owned", [])
     if not user_owned:
         return False
-    registry = PromptRegistry.default()
+    registry = PromptCatalog.default()
     art = registry.get_by_output(rel_path)
     return art is not None and art.canonical_name in user_owned
 
@@ -230,7 +230,7 @@ def auto_register_user_owned(project_dir: Path, canonical_name: str):
     config_add_to_list(config_path, ["prompts", "user_owned"], canonical_name)
 
 
-def output_path_to_canonical(output_path: str, registry: PromptRegistry) -> str | None:
+def output_path_to_canonical(output_path: str, registry: PromptCatalog) -> str | None:
     """Reverse-lookup: map an output file path to its canonical artifact name."""
     art = registry.get_by_output(output_path)
     return art.canonical_name if art else None
@@ -412,7 +412,7 @@ def check_user_owned_drift(
 
     import tempfile
 
-    registry = PromptRegistry.default()
+    registry = PromptCatalog.default()
     claude_code_dir = template_root / "claude_code"
     drift: list[str] = []
 

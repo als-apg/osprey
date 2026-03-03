@@ -8,7 +8,7 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
 import json
 import logging
 
-from osprey.mcp_server.channel_finder_middle_layer.registry import get_cf_ml_registry
+from osprey.mcp_server.channel_finder_middle_layer.server_context import get_cf_ml_context
 from osprey.mcp_server.channel_finder_middle_layer.server import make_error, mcp
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_middle_layer.tools.get_common_names")
@@ -29,7 +29,7 @@ def get_common_names(system: str, family: str) -> str:
         JSON with list of common names, or null with a message if not available.
     """
     try:
-        registry = get_cf_ml_registry()
+        registry = get_cf_ml_context()
         common_names = registry.database.get_common_names(system, family)
 
         if common_names is not None:

@@ -30,7 +30,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.mcp_server.control_system.registry import initialize_mcp_registry, reset_mcp_registry
+from osprey.mcp_server.control_system.server_context import initialize_server_context, reset_server_context
 from osprey.stores.artifact_store import reset_artifact_store
 from osprey.utils.workspace import reset_config_cache
 
@@ -58,7 +58,7 @@ WRITE_HOOK_CHAIN = [
 def _reset_singletons():
     """Reset MCP singletons between tests."""
     yield
-    reset_mcp_registry()
+    reset_server_context()
     reset_artifact_store()
     reset_config_cache()
 
@@ -229,7 +229,7 @@ async def test_1_read_channel_tool_returns_data(smoke_env, monkeypatch):
     """channel_read tool returns mock data for any channel name."""
     monkeypatch.chdir(smoke_env["tmp_path"])
     monkeypatch.setenv("OSPREY_CONFIG", str(smoke_env["config_path"]))
-    initialize_mcp_registry()
+    initialize_server_context()
 
     fn = _get_channel_read()
     result = await fn(channels=["SR:BEAM:CURRENT"])
@@ -266,7 +266,7 @@ async def test_2_valid_write_tool_succeeds(smoke_env, monkeypatch):
     """channel_write tool executes a valid write against mock connector."""
     monkeypatch.chdir(smoke_env["tmp_path"])
     monkeypatch.setenv("OSPREY_CONFIG", str(smoke_env["config_path"]))
-    initialize_mcp_registry()
+    initialize_server_context()
 
     fn = _get_channel_write()
     result = await fn(operations=[{"channel": "DIAG:TEMP:SP", "value": 50.0}])
@@ -301,7 +301,7 @@ async def test_3_over_limit_write_tool_rejects(smoke_env, monkeypatch):
     """channel_write tool's inline validator also rejects over-limit writes."""
     monkeypatch.chdir(smoke_env["tmp_path"])
     monkeypatch.setenv("OSPREY_CONFIG", str(smoke_env["config_path"]))
-    initialize_mcp_registry()
+    initialize_server_context()
 
     fn = _get_channel_write()
     result = await fn(operations=[{"channel": "MAG:HCM01:CURRENT:SP", "value": 999.0}])
@@ -352,7 +352,7 @@ async def test_5_unlisted_channel_tool_succeeds(smoke_env, monkeypatch):
     """channel_write tool accepts writes to unlisted channels in permissive mode."""
     monkeypatch.chdir(smoke_env["tmp_path"])
     monkeypatch.setenv("OSPREY_CONFIG", str(smoke_env["config_path"]))
-    initialize_mcp_registry()
+    initialize_server_context()
 
     fn = _get_channel_write()
     result = await fn(operations=[{"channel": "SR:RANDOM:CHANNEL", "value": 42.0}])

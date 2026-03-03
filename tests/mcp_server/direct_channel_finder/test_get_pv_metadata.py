@@ -6,7 +6,7 @@ import os
 import pytest
 import yaml
 
-from osprey.mcp_server.direct_channel_finder.registry import initialize_dcf_registry
+from osprey.mcp_server.direct_channel_finder.server_context import initialize_dcf_context
 
 
 @pytest.fixture
@@ -16,7 +16,7 @@ def mock_config(tmp_path):
     config_path.write_text(yaml.dump(config))
     old = os.environ.get("OSPREY_CONFIG")
     os.environ["OSPREY_CONFIG"] = str(config_path)
-    initialize_dcf_registry()
+    initialize_dcf_context()
     yield
     if old is None:
         del os.environ["OSPREY_CONFIG"]

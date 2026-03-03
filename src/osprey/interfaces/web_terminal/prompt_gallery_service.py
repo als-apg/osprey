@@ -1,4 +1,4 @@
-"""Prompt Gallery Service — bridges PromptRegistry + TemplateManager for the web UI.
+"""Prompt Gallery Service — bridges PromptCatalog + TemplateManager for the web UI.
 
 Stateless service class instantiated per-request with a project directory.
 Provides list/get/diff/claim/save/unclaim operations that the frontend
@@ -14,7 +14,7 @@ from typing import Any
 
 import yaml
 
-from osprey.cli.prompt_registry import PromptArtifact, PromptRegistry
+from osprey.cli.prompt_catalog import PromptArtifact, PromptCatalog
 from osprey.cli.prompts_cmd import (
     _get_user_owned,
     _update_config_add_user_owned,
@@ -58,7 +58,7 @@ class PromptGalleryService:
 
     def __init__(self, project_dir: Path) -> None:
         self.project_dir = project_dir
-        self._registry = PromptRegistry.default()
+        self._registry = PromptCatalog.default()
         self._config = self._load_config()
         self._user_owned = _get_user_owned(self._config)
         self._manager: TemplateManager | None = None

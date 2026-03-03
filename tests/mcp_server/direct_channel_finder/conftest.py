@@ -2,7 +2,7 @@
 
 import pytest
 
-from osprey.mcp_server.direct_channel_finder.registry import reset_dcf_registry
+from osprey.mcp_server.direct_channel_finder.server_context import reset_dcf_context
 
 
 @pytest.fixture(autouse=True)
@@ -18,7 +18,7 @@ def _reset_registry():
 
     yield
 
-    reset_dcf_registry()
+    reset_dcf_context()
     reset_config_cache()
     _cfg._config_cache.clear()
 

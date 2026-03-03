@@ -1,18 +1,18 @@
-"""Channel Finder In-Context MCP Registry -- singleton config and database management.
+"""Channel Finder In-Context MCP Server Context -- singleton config and database management.
 
 Provides centralized configuration access and channel database lifecycle
 management for all in-context channel finder MCP tools.
 
-The registry conditionally imports the appropriate database class based
+The server context conditionally imports the appropriate database class based
 on the configured database type (``template`` or ``flat``).
 
 Usage in tools:
-    from osprey.mcp_server.channel_finder_in_context.registry import (
-        get_cf_ic_registry,
+    from osprey.mcp_server.channel_finder_in_context.server_context import (
+        get_cf_ic_context,
     )
 
-    registry = get_cf_ic_registry()
-    db = registry.database
+    ctx = get_cf_ic_context()
+    db = ctx.database
 """
 
 from __future__ import annotations
@@ -26,10 +26,10 @@ import yaml
 
 from osprey.services.channel_finder.core.base_database import BaseDatabase
 
-logger = logging.getLogger("osprey.mcp_server.channel_finder_in_context.registry")
+logger = logging.getLogger("osprey.mcp_server.channel_finder_in_context.server_context")
 
 
-class ChannelFinderICRegistry:
+class ChannelFinderICContext:
     """Singleton registry for in-context channel finder MCP server state.
 
     Responsibilities:
@@ -75,7 +75,7 @@ class ChannelFinderICRegistry:
 
             self._database = ChannelDatabase(db_path)
             logger.info(
-                "ChannelFinderICRegistry: loaded %s database from %s (%d channels)",
+                "ChannelFinderICContext: loaded %s database from %s (%d channels)",
                 db_type,
                 db_path,
                 len(self._database.get_all_channels()),
@@ -91,7 +91,7 @@ class ChannelFinderICRegistry:
         self._facility_name = facility.get("name", "control system")
 
         self._initialized = True
-        logger.info("ChannelFinderICRegistry: initialized")
+        logger.info("ChannelFinderICContext: initialized")
 
     @property
     def database(self) -> BaseDatabase:
@@ -127,7 +127,7 @@ class ChannelFinderICRegistry:
         if config_path.exists():
             with open(config_path) as f:
                 raw = yaml.safe_load(f) or {}
-            logger.info("ChannelFinderICRegistry: config loaded from %s", config_path)
+            logger.info("ChannelFinderICContext: config loaded from %s", config_path)
         else:
             logger.warning("Config file not found: %s", config_path)
 
@@ -149,31 +149,31 @@ class ChannelFinderICRegistry:
 # Module-level singleton
 # ---------------------------------------------------------------------------
 
-_registry: ChannelFinderICRegistry | None = None
+_registry: ChannelFinderICContext | None = None
 
 
-def get_cf_ic_registry() -> ChannelFinderICRegistry:
+def get_cf_ic_context() -> ChannelFinderICContext:
     """Get the channel finder IC MCP registry singleton.
 
-    Raises RuntimeError if initialize_cf_ic_registry() hasn't been called.
+    Raises RuntimeError if initialize_cf_ic_context() hasn't been called.
     """
     if _registry is None:
         raise RuntimeError(
             "Channel Finder IC MCP registry not initialized. "
-            "Call initialize_cf_ic_registry() first."
+            "Call initialize_cf_ic_context() first."
         )
     return _registry
 
 
-def initialize_cf_ic_registry() -> ChannelFinderICRegistry:
+def initialize_cf_ic_context() -> ChannelFinderICContext:
     """Create and initialize the channel finder IC MCP registry singleton."""
     global _registry
-    _registry = ChannelFinderICRegistry()
+    _registry = ChannelFinderICContext()
     _registry.initialize()
     return _registry
 
 
-def reset_cf_ic_registry() -> None:
+def reset_cf_ic_context() -> None:
     """Reset the registry (for testing)."""
     global _registry
     _registry = None

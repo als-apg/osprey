@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from osprey.mcp_server.control_system.registry import initialize_mcp_registry
+from osprey.mcp_server.control_system.server_context import initialize_server_context
 from tests.mcp_server.conftest import get_tool_fn
 
 
@@ -44,7 +44,7 @@ async def test_channel_write_success(tmp_path, monkeypatch):
     """Successful write returns result with verification in summary."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
-    initialize_mcp_registry()
+    initialize_server_context()
 
     write_result = _make_write_result(channel="TEST:PV", value=42.0)
     mock_connector = AsyncMock()
@@ -76,7 +76,7 @@ async def test_channel_write_with_readback(tmp_path, monkeypatch):
     """Write with readback verification returns verification details in summary."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
-    initialize_mcp_registry()
+    initialize_server_context()
 
     write_result = _make_write_result(channel="TEST:PV", value=42.0, verification_level="readback")
     write_result.verification.readback_value = 42.01
@@ -132,7 +132,7 @@ async def test_channel_write_connection_error(tmp_path, monkeypatch):
     """Connection error during write returns standard error format."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
-    initialize_mcp_registry()
+    initialize_server_context()
 
     mock_connector = AsyncMock()
     mock_connector.write_channel.side_effect = ConnectionError("IOC unreachable")
@@ -163,7 +163,7 @@ async def test_channel_write_multiple_operations(tmp_path, monkeypatch):
     """Multiple write operations are all processed."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
-    initialize_mcp_registry()
+    initialize_server_context()
 
     results = [
         _make_write_result(channel="PV:A", value=1.0),

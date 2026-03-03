@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from osprey.mcp_server.ariel.registry import reset_ariel_registry
+from osprey.mcp_server.ariel.server_context import reset_ariel_context
 from osprey.utils.workspace import reset_config_cache
 from tests.mcp_server.conftest import get_tool_fn  # noqa: F401
 
@@ -21,7 +21,7 @@ from tests.mcp_server.conftest import get_tool_fn  # noqa: F401
 def _reset_registry(tmp_path):
     """Reset the ARIEL MCP registry singletons between tests."""
     yield
-    reset_ariel_registry()
+    reset_ariel_context()
     reset_config_cache()
 
 

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from osprey.mcp_server.ariel.registry import initialize_ariel_registry
+from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
 
 
@@ -26,7 +26,7 @@ def _setup_registry(tmp_path, monkeypatch):
     (tmp_path / "config.yml").write_text(
         '{"ariel": {"database": {"uri": "postgresql://localhost/test"}}}'
     )
-    initialize_ariel_registry()
+    initialize_ariel_context()
 
 
 @pytest.mark.unit
@@ -44,7 +44,7 @@ async def test_browse_returns_entries(tmp_path, monkeypatch):
     mock_service.repository.count_entries.return_value = 100
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_browse()
@@ -66,7 +66,7 @@ async def test_browse_empty_db(tmp_path, monkeypatch):
     mock_service.repository.count_entries.return_value = 0
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_browse()
@@ -93,7 +93,7 @@ async def test_browse_author_filter(tmp_path, monkeypatch):
     mock_service.repository.count_entries.return_value = 3
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_browse()
@@ -113,7 +113,7 @@ async def test_filter_options_authors(tmp_path, monkeypatch):
     mock_service.repository.get_distinct_authors.return_value = ["Alice", "Bob", "Charlie"]
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_filter_options()
@@ -133,7 +133,7 @@ async def test_filter_options_source_systems(tmp_path, monkeypatch):
     mock_service.repository.get_distinct_source_systems.return_value = ["ALS eLog", "ARIEL Web"]
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_filter_options()
@@ -152,7 +152,7 @@ async def test_filter_options_unknown_field(tmp_path, monkeypatch):
     mock_service = AsyncMock()
 
     with patch(
-        "osprey.mcp_server.ariel.registry.ARIELMCPRegistry.service",
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_filter_options()
