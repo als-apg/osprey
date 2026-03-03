@@ -63,7 +63,7 @@ async def session_summary() -> str:
         )
 
     # --- Unified artifact store ---
-    from osprey.mcp_server.artifact_store import ArtifactStore
+    from osprey.stores.artifact_store import ArtifactStore
 
     store = ArtifactStore(workspace_root=workspace_root)
     all_entries = store.list_entries()

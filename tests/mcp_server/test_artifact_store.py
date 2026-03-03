@@ -24,7 +24,7 @@ class TestArtifactStore:
     """Unit tests for ArtifactStore."""
 
     def test_save_file_creates_file_and_index(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         entry = store.save_file(
@@ -56,7 +56,7 @@ class TestArtifactStore:
         assert index["entries"][0]["id"] == entry.id
 
     def test_save_object_string_markdown(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         entry = store.save_object("# Hello World", title="Markdown Test")
@@ -65,7 +65,7 @@ class TestArtifactStore:
         assert entry.mime_type == "text/markdown"
 
     def test_save_object_string_html(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         entry = store.save_object("<h1>Title</h1><p>Body</p>", title="HTML Test")
@@ -74,7 +74,7 @@ class TestArtifactStore:
         assert entry.mime_type == "text/html"
 
     def test_save_object_dict(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         entry = store.save_object({"key": "value", "n": 42}, title="JSON Data")
@@ -85,7 +85,7 @@ class TestArtifactStore:
         assert content["key"] == "value"
 
     def test_save_object_list(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         entry = store.save_object([1, 2, 3], title="List Data")
@@ -93,7 +93,7 @@ class TestArtifactStore:
         assert entry.artifact_type == "json"
 
     def test_save_object_bytes(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         entry = store.save_object(b"\x89PNG\r\n", title="Binary Data")
@@ -101,7 +101,7 @@ class TestArtifactStore:
         assert entry.artifact_type == "binary"
 
     def test_save_from_path(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         # Create a source file
         source = tmp_path / "source_file.png"
@@ -119,14 +119,14 @@ class TestArtifactStore:
         assert filepath.read_bytes() == b"\x89PNG fake image data"
 
     def test_save_from_path_file_not_found(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         with pytest.raises(FileNotFoundError):
             store.save_from_path("/nonexistent/file.txt", title="Missing")
 
     def test_list_entries_no_filter(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         store.save_object("# A", title="First")
@@ -136,7 +136,7 @@ class TestArtifactStore:
         assert len(entries) == 2
 
     def test_list_entries_type_filter(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         store.save_object("# A", title="Markdown")
@@ -147,7 +147,7 @@ class TestArtifactStore:
         assert md[0].title == "Markdown"
 
     def test_list_entries_search(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         store.save_object("# A", title="Beam Current Plot")
@@ -158,7 +158,7 @@ class TestArtifactStore:
         assert results[0].title == "Beam Current Plot"
 
     def test_get_entry(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         entry = store.save_object("data", title="Test")
@@ -171,7 +171,7 @@ class TestArtifactStore:
 
     def test_index_persistence(self, tmp_path):
         """Index survives re-instantiation."""
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store1 = ArtifactStore(workspace_root=tmp_path)
         entry = store1.save_object("data", title="Persistent")
@@ -181,7 +181,7 @@ class TestArtifactStore:
         assert store2.get_entry(entry.id) is not None
 
     def test_to_tool_response(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         entry = store.save_object("data", title="Resp Test")
@@ -192,7 +192,7 @@ class TestArtifactStore:
         assert resp["gallery_url"] == "http://localhost:8086"
 
     def test_unique_ids(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         ids = set()
@@ -211,7 +211,7 @@ class TestDeleteEntry:
     """Tests for ArtifactStore.delete_entry()."""
 
     def test_delete_existing(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         entry = store.save_file(
@@ -233,14 +233,14 @@ class TestDeleteEntry:
         assert not filepath.exists()
 
     def test_delete_nonexistent(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         result = store.delete_entry("nonexistent")
         assert result is False
 
     def test_delete_preserves_other_entries(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         e1 = store.save_object("data1", title="Keep")
@@ -255,7 +255,7 @@ class TestUpdateEntryMetadata:
     """Tests for BaseStore.update_entry_metadata()."""
 
     def test_update_single_field(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         entry = store.save_object("# Hello", title="Test")
@@ -270,7 +270,7 @@ class TestUpdateEntryMetadata:
         assert reloaded.category == "document"
 
     def test_update_multiple_fields(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         entry = store.save_object("# Hello", title="Test")
@@ -282,14 +282,14 @@ class TestUpdateEntryMetadata:
         assert result.source_agent == "data-visualizer"
 
     def test_invalid_entry_id_returns_none(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         result = store.update_entry_metadata("nonexistent", category="x")
         assert result is None
 
     def test_invalid_attribute_raises(self, tmp_path):
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
         entry = store.save_object("# Hello", title="Test")
@@ -303,7 +303,7 @@ class TestCrossProcessSafety:
 
     def test_save_no_orphan_files(self, tmp_path):
         """Both instances save — all artifact files are referenced in the index."""
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store_a = ArtifactStore(workspace_root=tmp_path)
         store_b = ArtifactStore(workspace_root=tmp_path)
@@ -332,7 +332,7 @@ class TestCrossProcessSafety:
 
     def test_concurrent_saves_both_persist(self, tmp_path):
         """Both instances save — both entries present on reload."""
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store_a = ArtifactStore(workspace_root=tmp_path)
         store_b = ArtifactStore(workspace_root=tmp_path)
@@ -348,7 +348,7 @@ class TestCrossProcessSafety:
 
     def test_delete_concurrent_with_save(self, tmp_path):
         """Delete from one instance while another saves — no data loss."""
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store_a = ArtifactStore(workspace_root=tmp_path)
         e1 = store_a.save_object("data", title="To Delete")
@@ -370,7 +370,7 @@ class TestSingleton:
     """Tests for singleton lifecycle."""
 
     def test_get_and_reset(self, tmp_path, monkeypatch):
-        from osprey.mcp_server.artifact_store import (
+        from osprey.stores.artifact_store import (
             get_artifact_store,
             reset_artifact_store,
         )
@@ -710,7 +710,7 @@ class TestAutoLaunchLogging:
         """Auto-launch failure produces a warning-level log (not debug)."""
         import logging
 
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
 
@@ -719,7 +719,7 @@ class TestAutoLaunchLogging:
                 "osprey.infrastructure.server_launcher.ensure_artifact_server",
                 side_effect=RuntimeError("server launch failed"),
             ),
-            caplog.at_level(logging.WARNING, logger="osprey.mcp_server.artifact_store"),
+            caplog.at_level(logging.WARNING, logger="osprey.stores.artifact_store"),
         ):
             store.save_file(
                 file_content=b"test",

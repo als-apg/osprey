@@ -114,7 +114,7 @@ async def execute(
     # Auto-save figure artifacts collected by the adapter
     for fig_path in exec_result.figures:
         try:
-            from osprey.mcp_server.artifact_store import get_artifact_store
+            from osprey.stores.artifact_store import get_artifact_store
 
             store = get_artifact_store()
             fig_entry = store.save_file(
@@ -133,7 +133,7 @@ async def execute(
     # Auto-save artifacts collected from subprocess save_artifact() calls
     for art in exec_result.artifacts:
         try:
-            from osprey.mcp_server.artifact_store import get_artifact_store
+            from osprey.stores.artifact_store import get_artifact_store
 
             store = get_artifact_store()
             art_entry = store.save_file(
@@ -169,12 +169,12 @@ async def execute(
     # Auto-save a notebook artifact for every execution
     notebook_artifact_id = None
     try:
-        from osprey.mcp_server.notebook_renderer import create_notebook_from_code
+        from osprey.stores.notebook_renderer import create_notebook_from_code
 
         nb = create_notebook_from_code(code, description, stdout_text, stderr_text)
         nb_bytes = nbformat.writes(nb).encode()
 
-        from osprey.mcp_server.artifact_store import get_artifact_store
+        from osprey.stores.artifact_store import get_artifact_store
 
         store = get_artifact_store()
         nb_entry = store.save_file(
@@ -225,7 +225,7 @@ async def execute(
     }
 
     # Save via ArtifactStore (unified)
-    from osprey.mcp_server.artifact_store import get_artifact_store
+    from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
     entry = store.save_data(

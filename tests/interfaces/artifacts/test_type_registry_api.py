@@ -4,7 +4,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from osprey.interfaces.artifacts.app import create_app
-from osprey.mcp_server.type_registry import ARTIFACT_TYPES, TOOL_TYPES
+from osprey.stores.type_registry import ARTIFACT_TYPES, TOOL_TYPES
 
 
 @pytest.fixture

@@ -24,9 +24,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from osprey.mcp_server.base_store import BaseStore
+from osprey.stores.base_store import BaseStore
 
-logger = logging.getLogger("osprey.mcp_server.artifact_store")
+logger = logging.getLogger("osprey.stores.artifact_store")
 
 
 def register_artifact_listener(fn: Callable[[ArtifactEntry], None]) -> None:
@@ -338,7 +338,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         Writes raw JSON (no envelope) to ``artifacts/{id}_{tool}.json`` and
         registers the entry in the unified artifact index.
         """
-        from osprey.mcp_server.type_registry import valid_category_keys
+        from osprey.stores.type_registry import valid_category_keys
 
         if category and category not in valid_category_keys():
             logger.warning("Unregistered category %r — add to type_registry.py", category)

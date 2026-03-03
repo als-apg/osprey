@@ -74,7 +74,7 @@ async def artifact_save(
             )
         )
 
-    from osprey.mcp_server.artifact_store import get_artifact_store
+    from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
 
@@ -101,7 +101,7 @@ async def artifact_save(
                 )
 
             a_type, mime, ext = _CONTENT_TYPE_MAP[content_type]
-            from osprey.mcp_server.artifact_store import _slugify
+            from osprey.stores.artifact_store import _slugify
 
             filename = f"{_slugify(title)}{ext}"
 
@@ -150,7 +150,7 @@ async def artifact_delete(artifact_id: str) -> str:
         JSON confirmation of deletion.
     """
     try:
-        from osprey.mcp_server.artifact_store import get_artifact_store
+        from osprey.stores.artifact_store import get_artifact_store
 
         store = get_artifact_store()
         deleted = store.delete_entry(artifact_id)
@@ -198,7 +198,7 @@ async def artifact_get(artifact_id: str) -> str:
         JSON with artifact metadata and file path.
     """
     try:
-        from osprey.mcp_server.artifact_store import get_artifact_store
+        from osprey.stores.artifact_store import get_artifact_store
 
         store = get_artifact_store()
         entry = store.get_entry(artifact_id)

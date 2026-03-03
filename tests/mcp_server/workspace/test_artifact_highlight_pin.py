@@ -12,7 +12,7 @@ import json
 
 import pytest
 
-from osprey.mcp_server.artifact_store import ArtifactStore
+from osprey.stores.artifact_store import ArtifactStore
 
 
 @pytest.fixture

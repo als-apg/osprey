@@ -117,7 +117,7 @@ async def markdown_to_png(source: Path, output_dir: Path) -> Path:
 async def notebook_to_png(source: Path, output_dir: Path) -> Path:
     """Render a Jupyter notebook to PNG: nbconvert -> HTML -> Playwright screenshot."""
     from osprey.mcp_server.export.converter import convert_html_to_image
-    from osprey.mcp_server.notebook_renderer import render_notebook_to_html
+    from osprey.stores.notebook_renderer import render_notebook_to_html
 
     html = render_notebook_to_html(source)
     html_path = output_dir / f"{source.stem}.html"

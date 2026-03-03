@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from osprey.mcp_server.artifact_store import ArtifactStore
+from osprey.stores.artifact_store import ArtifactStore
 from osprey.mcp_server.export.converter import PlaywrightNotInstalledError
 from tests.mcp_server.conftest import get_tool_fn
 
@@ -38,7 +38,7 @@ async def test_export_html_to_png(tmp_path, monkeypatch):
         return Path(output_path).resolve()
 
     with (
-        patch("osprey.mcp_server.artifact_store.get_artifact_store", return_value=store),
+        patch("osprey.stores.artifact_store.get_artifact_store", return_value=store),
         patch(
             "osprey.mcp_server.export.converter.convert_html_to_image",
             side_effect=fake_convert,
@@ -68,7 +68,7 @@ async def test_export_already_target_format(tmp_path, monkeypatch):
         tool_source="screen_capture",
     )
 
-    with patch("osprey.mcp_server.artifact_store.get_artifact_store", return_value=store):
+    with patch("osprey.stores.artifact_store.get_artifact_store", return_value=store):
         fn = _get_artifact_export()
         result = await fn(artifact_id=entry.id, format="png")
 
@@ -84,7 +84,7 @@ async def test_export_nonexistent_artifact(tmp_path, monkeypatch):
 
     store = ArtifactStore(workspace_root=tmp_path)
 
-    with patch("osprey.mcp_server.artifact_store.get_artifact_store", return_value=store):
+    with patch("osprey.stores.artifact_store.get_artifact_store", return_value=store):
         fn = _get_artifact_export()
         result = await fn(artifact_id="nonexistent-id")
 
@@ -108,7 +108,7 @@ async def test_export_non_html_artifact(tmp_path, monkeypatch):
         tool_source="test",
     )
 
-    with patch("osprey.mcp_server.artifact_store.get_artifact_store", return_value=store):
+    with patch("osprey.stores.artifact_store.get_artifact_store", return_value=store):
         fn = _get_artifact_export()
         result = await fn(artifact_id=entry.id)
 
@@ -136,7 +136,7 @@ async def test_export_playwright_missing(tmp_path, monkeypatch):
         raise PlaywrightNotInstalledError("Playwright not installed")
 
     with (
-        patch("osprey.mcp_server.artifact_store.get_artifact_store", return_value=store),
+        patch("osprey.stores.artifact_store.get_artifact_store", return_value=store),
         patch(
             "osprey.mcp_server.export.converter.convert_html_to_image",
             side_effect=raise_pw_error,

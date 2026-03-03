@@ -32,7 +32,7 @@ async def artifact_export(
     Returns:
         JSON with the new (or existing) artifact ID and gallery URL.
     """
-    from osprey.mcp_server.artifact_store import get_artifact_store
+    from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
     entry = store.get_entry(artifact_id)

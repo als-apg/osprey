@@ -23,7 +23,7 @@ def _resolve_artifacts_to_build_dir(artifact_ids: list[str], build_dir: Path) ->
 
     Returns list of filenames available in build_dir (sans ID prefix).
     """
-    from osprey.mcp_server.artifact_store import get_artifact_store
+    from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
     available: list[str] = []
@@ -147,7 +147,7 @@ async def create_document(
             )
 
         # Save artifacts
-        from osprey.mcp_server.artifact_store import get_artifact_store
+        from osprey.stores.artifact_store import get_artifact_store
 
         store = get_artifact_store()
         output_artifact_ids: list[str] = []

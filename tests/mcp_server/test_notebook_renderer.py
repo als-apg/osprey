@@ -11,7 +11,7 @@ import time
 import nbformat
 import pytest
 
-from osprey.mcp_server.notebook_renderer import (
+from osprey.stores.notebook_renderer import (
     create_notebook_from_code,
     get_or_render_html,
     render_notebook_to_html,

@@ -80,7 +80,7 @@ async def submit_response(
             )
         )
 
-    from osprey.mcp_server.type_registry import valid_category_keys
+    from osprey.stores.type_registry import valid_category_keys
 
     valid = valid_category_keys()
     if data_type not in valid:
@@ -93,7 +93,7 @@ async def submit_response(
         )
 
     try:
-        from osprey.mcp_server.artifact_store import get_artifact_store
+        from osprey.stores.artifact_store import get_artifact_store
 
         cited = entry_ids or []
         agent = source_agent or ""

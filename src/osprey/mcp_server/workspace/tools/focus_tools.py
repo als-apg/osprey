@@ -30,7 +30,7 @@ async def artifact_focus(artifact_id: str, fullscreen: bool = False) -> str:
     Returns:
         JSON with status and gallery URL.
     """
-    from osprey.mcp_server.artifact_store import get_artifact_store
+    from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
     entry = store.get_entry(artifact_id)
@@ -74,7 +74,7 @@ async def artifact_pin(artifact_id: str, pinned: bool = True) -> str:
     Returns:
         JSON with status and updated pinned state.
     """
-    from osprey.mcp_server.artifact_store import get_artifact_store
+    from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
     entry = store.set_pinned(artifact_id, pinned)

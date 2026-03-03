@@ -6,8 +6,8 @@
 ## Summary
 
 - Total items: 34
-- Completed: 3 (RF-001, RF-002, RF-008) | Partial: 1 (RF-003)
-- Remaining: 30
+- Completed: 5 (RF-001, RF-002, RF-004, RF-005, RF-008) | Partial: 1 (RF-003)
+- Remaining: 28
 - High priority (P0): 3 | P1: 9 | P2: 12 | P3: 10
 
 ---
@@ -75,7 +75,7 @@
 
 ---
 
-### [P1] RF-004: cli/templates.py — 1973-line god-module (pending)
+### [P1] RF-004: cli/templates.py — 1973-line god-module (completed)
 
 **Severity**: high | **Category**: structure, naming
 **Files**: `src/osprey/cli/templates.py`
@@ -85,12 +85,13 @@
 
 **Approach**: Split into a `cli/templates/` package with `discovery.py`, `renderer.py`, `scaffolding.py`, and `manifest.py`. This also resolves the naming collision.
 
-**Status**: pending
-**Notes**:
+**Status**: completed
+**Completed date**: 2026-03-02
+**Notes**: Split into `cli/templates/` package with `manager.py`, `renderer.py`, `scaffolding.py`, `manifest.py`, `hooks.py`, `prompts.py`. All 3664 tests pass.
 
 ---
 
-### [P1] RF-005: Store infrastructure misplaced in mcp_server/ (pending)
+### [P1] RF-005: Store infrastructure misplaced in mcp_server/ (completed)
 
 **Severity**: high | **Category**: dependency, cohesion
 **Files**: `src/osprey/mcp_server/artifact_store.py`, `src/osprey/mcp_server/base_store.py`, `src/osprey/mcp_server/type_registry.py`, `src/osprey/mcp_server/notebook_renderer.py`
@@ -100,8 +101,9 @@
 
 **Approach**: Move to a new `src/osprey/stores/` package. Both `mcp_server/` and `interfaces/` import from this shared layer instead.
 
-**Status**: pending
-**Notes**:
+**Status**: completed
+**Completed date**: 2026-03-02
+**Notes**: Clean cut-over (no re-export shims). Moved 4 files to `src/osprey/stores/`. Updated 20 src/ files and 23 test files (imports + patch targets + logger name strings). All 3664 tests pass.
 
 ---
 

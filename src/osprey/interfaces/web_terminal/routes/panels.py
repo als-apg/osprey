@@ -37,7 +37,7 @@ async def artifact_server_config(request: Request):
 @router.get("/api/type-registry")
 async def get_type_registry():
     """Return the OSPREY type registry for tool/category color mapping."""
-    from osprey.mcp_server.type_registry import registry_to_api_dict
+    from osprey.stores.type_registry import registry_to_api_dict
 
     return registry_to_api_dict()
 

@@ -174,7 +174,7 @@ async def archiver_read(
             }
 
             # Save via ArtifactStore (unified)
-            from osprey.mcp_server.artifact_store import get_artifact_store
+            from osprey.stores.artifact_store import get_artifact_store
 
             store = get_artifact_store()
             entry = store.save_data(

@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher
-from osprey.mcp_server.artifact_store import ArtifactStore
+from osprey.stores.artifact_store import ArtifactStore
 
 
 def _make_watcher(tmp_path):

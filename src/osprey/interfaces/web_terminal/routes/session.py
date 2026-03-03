@@ -135,7 +135,7 @@ async def session_log(request: Request):
 async def session_summary(request: Request):
     """Return artifact inventory with channel extraction for the current session."""
     try:
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
         from osprey.mcp_server.workspace.tools.session_summary import _extract_channels
 
         store = ArtifactStore(request.app.state.workspace_dir)

@@ -149,7 +149,7 @@ def _create_pre_execution_notebook(code: str, exec_mode: str, config: dict) -> s
     try:
         import nbformat
 
-        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import ArtifactStore
 
         # Build a minimal notebook with the code to be reviewed
         cells = []
