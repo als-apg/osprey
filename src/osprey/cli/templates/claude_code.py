@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from osprey.cli.prompt_catalog import PromptCatalog
+from osprey.services.prompts.catalog import PromptCatalog
 from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates._rendering import render_template

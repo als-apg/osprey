@@ -14,13 +14,13 @@ from typing import Any
 
 import yaml
 
-from osprey.cli.prompt_catalog import PromptArtifact, PromptCatalog
-from osprey.cli.prompts_cmd import (
-    _get_user_owned,
-    _update_config_add_user_owned,
-    _update_config_remove_user_owned,
-    _update_manifest_add_user_owned,
-    _update_manifest_remove_user_owned,
+from osprey.services.prompts.catalog import PromptArtifact, PromptCatalog
+from osprey.services.prompts.ownership import (
+    get_user_owned,
+    update_config_add_user_owned,
+    update_config_remove_user_owned,
+    update_manifest_add_user_owned,
+    update_manifest_remove_user_owned,
 )
 from osprey.cli.templates.manager import TemplateManager
 from osprey.utils.config import resolve_env_vars
@@ -60,7 +60,7 @@ class PromptGalleryService:
         self.project_dir = project_dir
         self._registry = PromptCatalog.default()
         self._config = self._load_config()
-        self._user_owned = _get_user_owned(self._config)
+        self._user_owned = get_user_owned(self._config)
         self._manager: TemplateManager | None = None
         self._ctx: dict[str, Any] | None = None
 
@@ -228,15 +228,15 @@ class PromptGalleryService:
             content = output_file.read_text(encoding="utf-8")
 
         # Update config.yml
-        _update_config_add_user_owned(self.project_dir, name)
+        update_config_add_user_owned(self.project_dir, name)
 
         # Update manifest
         manager, ctx = self._ensure_template_context()
-        _update_manifest_add_user_owned(self.project_dir, manager, ctx, name)
+        update_manifest_add_user_owned(self.project_dir, manager, ctx, name)
 
         # Refresh internal state
         self._config = self._load_config()
-        self._user_owned = _get_user_owned(self._config)
+        self._user_owned = get_user_owned(self._config)
 
         return {
             "status": "claimed",
@@ -270,11 +270,11 @@ class PromptGalleryService:
         is_custom = self._registry.get(name) is None
 
         # Remove from config.yml
-        _update_config_remove_user_owned(self.project_dir, name)
+        update_config_remove_user_owned(self.project_dir, name)
 
         # Remove from manifest (only for registry artifacts)
         if not is_custom:
-            _update_manifest_remove_user_owned(self.project_dir, name)
+            update_manifest_remove_user_owned(self.project_dir, name)
 
         deleted = False
         restored = False
@@ -298,7 +298,7 @@ class PromptGalleryService:
 
         # Refresh internal state
         self._config = self._load_config()
-        self._user_owned = _get_user_owned(self._config)
+        self._user_owned = get_user_owned(self._config)
 
         return {"status": "removed", "deleted_file": deleted, "restored_file": restored}
 
@@ -356,10 +356,10 @@ class PromptGalleryService:
         if canonical_name in self._user_owned:
             raise FileExistsError(f"'{canonical_name}' is already registered")
 
-        _update_config_add_user_owned(self.project_dir, canonical_name)
+        update_config_add_user_owned(self.project_dir, canonical_name)
 
         self._config = self._load_config()
-        self._user_owned = _get_user_owned(self._config)
+        self._user_owned = get_user_owned(self._config)
 
         return {"status": "registered", "canonical_name": canonical_name}
 

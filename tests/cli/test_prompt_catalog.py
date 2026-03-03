@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli.prompt_catalog import PromptArtifact, PromptCatalog
+from osprey.services.prompts.catalog import PromptArtifact, PromptCatalog
 
 
 class TestPromptArtifact:

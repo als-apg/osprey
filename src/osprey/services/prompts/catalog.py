@@ -1,8 +1,8 @@
-"""Prompt Registry — declarative catalog of all Claude Code prompt artifacts.
+"""Prompt Catalog — declarative catalog of all Claude Code prompt artifacts.
 
 Each prompt artifact produced by ``osprey init`` / ``osprey claude regen``
 is cataloged here with a canonical name, template path, output path, and
-metadata.  The registry enables:
+metadata.  The catalog enables:
 
 * ``osprey prompts list`` — show all artifacts and their override status
 * ``osprey prompts scaffold <name>`` — create an editable override copy
@@ -298,9 +298,9 @@ class PromptCatalog:
 
     Usage::
 
-        registry = PromptCatalog.default()
-        artifact = registry.get("agents/channel-finder")
-        for name in registry.all_names():
+        catalog = PromptCatalog.default()
+        artifact = catalog.get("agents/channel-finder")
+        for name in catalog.all_names():
             print(name)
     """
 
@@ -310,7 +310,7 @@ class PromptCatalog:
 
     @classmethod
     def default(cls) -> PromptCatalog:
-        """Create a registry populated with the default artifact list."""
+        """Create a catalog populated with the default artifact list."""
         return cls(_get_default_artifacts())
 
     def get(self, name: str) -> PromptArtifact | None:

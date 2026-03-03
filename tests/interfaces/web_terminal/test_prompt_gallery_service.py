@@ -9,7 +9,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.init_cmd import init
-from osprey.cli.prompt_catalog import PromptCatalog
+from osprey.services.prompts.catalog import PromptCatalog
 from osprey.interfaces.web_terminal.prompt_gallery_service import PromptGalleryService
 
 # ---------------------------------------------------------------------------

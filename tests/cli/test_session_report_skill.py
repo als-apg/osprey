@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli.prompt_catalog import PromptCatalog
+from osprey.services.prompts.catalog import PromptCatalog
 
 TEMPLATE_ROOT = Path(__file__).parent.parent.parent / "src" / "osprey" / "templates" / "claude_code"
 

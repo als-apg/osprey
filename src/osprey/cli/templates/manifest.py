@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from osprey.cli.prompt_catalog import PromptCatalog
+from osprey.services.prompts.catalog import PromptCatalog
 
 logger = logging.getLogger("osprey.cli.templates")
 
