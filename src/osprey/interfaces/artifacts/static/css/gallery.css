@@ -2876,3 +2876,81 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
   padding: 1px 4px;
   border-radius: 3px;
 }
+
+/* ================================================================
+   Preview Header — Icon-only action buttons (btn-action-icon)
+   Replaces .btn.btn-sm for a cleaner, uniform 28x28 icon grid.
+   Tooltips via native [title] attribute.
+   ================================================================ */
+
+.btn-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast),
+              border-color var(--transition-fast),
+              color var(--transition-fast);
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.btn-action-icon svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.btn-action-icon:hover:not(:disabled) {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+/* Pin active state — teal accent */
+.btn-action-icon.btn-action-pinned {
+  color: var(--color-accent-light);
+  border-color: var(--color-accent-dark);
+  background: var(--color-accent-subtle);
+}
+
+.btn-action-icon.btn-action-pinned:hover:not(:disabled) {
+  background: rgba(79, 209, 197, 0.15);
+  border-color: var(--color-accent);
+}
+
+/* Danger (Delete) — red tint */
+.btn-action-icon.btn-action-danger {
+  color: var(--color-error);
+  border-color: rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.btn-action-icon.btn-action-danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+/* Logbook button — override to icon-only 28x28, keep amber identity */
+.preview-header-actions .logbook-action-btn {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  font-size: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-header-actions .logbook-action-btn svg {
+  width: 14px;
+  height: 14px;
+}

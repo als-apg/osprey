@@ -677,24 +677,17 @@
         </div>
         <div class="preview-header-actions">
           <span class="fullscreen-new-badge" id="fullscreen-new-badge" data-count="0"></span>
-          <button class="btn btn-sm ${a.pinned ? "btn-primary" : "btn-secondary"}" id="preview-toggle-pin" title="${a.pinned ? "Unpin" : "Pin"}">
-            &#128204; ${a.pinned ? "Pinned" : "Pin"}
+          <button class="btn-action-icon ${a.pinned ? "btn-action-pinned" : ""}" id="preview-toggle-pin" title="${a.pinned ? "Unpin" : "Pin"}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M5 9l2-1V4a1 1 0 011-1h8a1 1 0 011 1v4l2 1a1 1 0 01.4 1.6l-1.4 2a1 1 0 01-.8.4H6.8a1 1 0 01-.8-.4l-1.4-2A1 1 0 015 9z"/></svg>
           </button>
-          <button class="btn btn-secondary btn-sm fullscreen-enter-btn" id="fullscreen-enter" title="Fullscreen (F)">
+          <button class="btn-action-icon fullscreen-enter-btn" id="fullscreen-enter" title="Maximize (F)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3M21 8V5a2 2 0 00-2-2h-3M16 21h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
-            Maximize
           </button>
-          <a href="${url}" target="_blank" class="btn btn-secondary btn-sm" title="Open in new tab">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/>
-            </svg>
-            Open
+          <a href="${url}" target="_blank" class="btn-action-icon" title="Open in new tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
           </a>
-          <button class="btn btn-danger btn-sm" id="preview-delete" title="Delete artifact">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
-            </svg>
-            Delete
+          <button class="btn-action-icon btn-action-danger" id="preview-delete" title="Delete artifact">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
           </button>
         </div>
       </div>
@@ -789,6 +782,7 @@
 
     requestColorPass();
     if (window.injectLogbookButtons) window.injectLogbookButtons();
+    if (window.injectPrintButton) window.injectPrintButton();
   }
 
   // ---- Pin / Focus actions ----
@@ -1535,11 +1529,12 @@
     }
   }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
-  // ---- Expose state for logbook.js ----
+  // ---- Expose state for logbook.js / print.js ----
 
   window._galleryState = {
     getFocusedArtifact() { return focusedArtifact; },
     getSelectedArtifact() { return selectedArtifact; },
+    fileUrl,
   };
 
   // ---- Init ----

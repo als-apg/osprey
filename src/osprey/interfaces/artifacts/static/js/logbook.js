@@ -607,7 +607,12 @@
     if (selectedArtifact) {
       var bar = document.querySelector("#preview-content .preview-header-actions");
       if (bar) {
-        bar.appendChild(createLogbookBtn({ artifact_id: selectedArtifact.id }));
+        var deleteBtn = bar.querySelector(".btn-action-danger");
+        if (deleteBtn) {
+          bar.insertBefore(createLogbookBtn({ artifact_id: selectedArtifact.id }), deleteBtn);
+        } else {
+          bar.appendChild(createLogbookBtn({ artifact_id: selectedArtifact.id }));
+        }
       }
     }
   }
