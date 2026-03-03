@@ -16,7 +16,7 @@ from osprey.interfaces.lattice_dashboard.workers._base import (
     load_ring,
     load_state,
     parse_args,
-    save_figure,
+    save_data,
 )
 
 
@@ -34,8 +34,8 @@ def get_tune_fft(turn_data: np.ndarray) -> float:
 def compute_footprint(
     ring: at.Lattice,
     n_amp: int = 10,
-    x_max: float = 0.012,
-    y_max: float = 0.006,
+    x_max: float = 0.003,
+    y_max: float = 0.001,
     nturns: int = 256,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Compute tune footprint at various amplitudes.
@@ -145,13 +145,23 @@ def main() -> None:
     ring = load_ring(state)
     nux, nuy, amps = compute_footprint(ring)
 
-    baseline_data = None
+    raw: dict = {
+        "nux": nux.tolist(),
+        "nuy": nuy.tolist(),
+        "amps": amps.tolist(),
+        "baseline": None,
+    }
+
     baseline_ring = load_baseline_ring(state_path, state)
     if baseline_ring is not None:
-        baseline_data = compute_footprint(baseline_ring)
+        bnux, bnuy, bamps = compute_footprint(baseline_ring)
+        raw["baseline"] = {
+            "nux": bnux.tolist(),
+            "nuy": bnuy.tolist(),
+            "amps": bamps.tolist(),
+        }
 
-    fig = build_figure(nux, nuy, amps, baseline_data)
-    save_figure(fig, output_path)
+    save_data(raw, output_path)
 
 
 if __name__ == "__main__":

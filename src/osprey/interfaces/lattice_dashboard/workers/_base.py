@@ -6,7 +6,7 @@ Each worker is invoked as::
         <state_path> <output_path>
 
 This module provides the common boilerplate: argument parsing, ring
-loading (with overrides), baseline ring loading, and figure saving.
+loading (with overrides), baseline ring loading, and data saving.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import at
+import numpy as np
 
 
 def parse_args() -> tuple[Path, Path]:
@@ -67,7 +68,21 @@ def load_baseline_ring(state_path: Path, state: dict[str, Any]) -> at.Lattice | 
     return ring
 
 
-def save_figure(fig: Any, output_path: Path) -> None:
-    """Save a Plotly figure as JSON."""
+def _numpy_default(obj: Any) -> Any:
+    """JSON encoder fallback for numpy types."""
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, (np.floating, np.integer)):
+        return float(obj)
+    raise TypeError(f"Not JSON serializable: {type(obj)}")
+
+
+def save_data(data: dict[str, Any], output_path: Path) -> None:
+    """Save raw physics data as plain JSON (no Plotly, no bdata)."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(fig.to_json())
+    output_path.write_text(json.dumps(data, default=_numpy_default))
+
+
+def figure_to_dict(fig: Any) -> dict[str, Any]:
+    """Convert a Plotly figure to a JSON-safe dict (no numpy types)."""
+    return json.loads(json.dumps(fig.to_dict(), default=_numpy_default))

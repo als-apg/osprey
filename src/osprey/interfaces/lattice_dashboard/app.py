@@ -18,6 +18,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+import plotly.graph_objects as go
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -27,10 +29,122 @@ from starlette.responses import StreamingResponse
 
 from osprey.interfaces.lattice_dashboard.compute import ComputeManager
 from osprey.interfaces.lattice_dashboard.state import ALL_FIGURES, LatticeState
+from osprey.interfaces.lattice_dashboard.workers._base import figure_to_dict
+from osprey.interfaces.lattice_dashboard.workers.chromaticity import (
+    build_figure as build_chromaticity,
+)
+from osprey.interfaces.lattice_dashboard.workers.da import build_figure as build_da
+from osprey.interfaces.lattice_dashboard.workers.fma import build_figure as build_fma
+from osprey.interfaces.lattice_dashboard.workers.footprint import (
+    build_figure as build_footprint,
+)
+from osprey.interfaces.lattice_dashboard.workers.optics import build_figure as build_optics
+from osprey.interfaces.lattice_dashboard.workers.resonance import (
+    build_figure as build_resonance,
+)
 
 logger = logging.getLogger("osprey.lattice_dashboard")
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+# ── Figure adapters ──────────────────────────────────────
+# Each adapter unpacks a raw data dict and calls the worker's
+# build_figure(), converting lists → numpy arrays as needed.
+
+
+def _build_optics(raw: dict) -> go.Figure:
+    baseline = None
+    if raw.get("baseline"):
+        b = raw["baseline"]
+        baseline = (
+            np.array(b["s_pos"]),
+            np.array(b["beta_x"]),
+            np.array(b["beta_y"]),
+            np.array(b["eta_x"]),
+        )
+    return build_optics(
+        np.array(raw["s_pos"]),
+        np.array(raw["beta_x"]),
+        np.array(raw["beta_y"]),
+        np.array(raw["eta_x"]),
+        baseline,
+    )
+
+
+def _build_chromaticity(raw: dict) -> go.Figure:
+    baseline = None
+    if raw.get("baseline"):
+        b = raw["baseline"]
+        baseline = (np.array(b["dp"]), np.array(b["nux"]), np.array(b["nuy"]))
+    return build_chromaticity(
+        np.array(raw["dp"]),
+        np.array(raw["nux"]),
+        np.array(raw["nuy"]),
+        baseline,
+    )
+
+
+def _build_footprint(raw: dict) -> go.Figure:
+    baseline = None
+    if raw.get("baseline"):
+        b = raw["baseline"]
+        baseline = (np.array(b["nux"]), np.array(b["nuy"]), np.array(b["amps"]))
+    return build_footprint(
+        np.array(raw["nux"]),
+        np.array(raw["nuy"]),
+        np.array(raw["amps"]),
+        baseline,
+    )
+
+
+def _build_resonance(raw: dict) -> go.Figure:
+    return build_resonance(
+        raw["nux"],
+        raw["nuy"],
+        raw.get("baseline_nux"),
+        raw.get("baseline_nuy"),
+    )
+
+
+def _build_da_figure(raw: dict) -> go.Figure:
+    baseline = None
+    if raw.get("baseline"):
+        b = raw["baseline"]
+        baseline = (np.array(b["da_x"]), np.array(b["da_y"]), b["area_mm2"])
+    return build_da(
+        np.array(raw["da_x"]),
+        np.array(raw["da_y"]),
+        raw["area_mm2"],
+        nturns=raw.get("nturns", 512),
+        baseline=baseline,
+    )
+
+
+def _build_fma_figure(raw: dict) -> go.Figure:
+    baseline_tune = None
+    if raw.get("baseline_tune"):
+        baseline_tune = tuple(raw["baseline_tune"])
+    design_tune = None
+    if raw.get("design_tune"):
+        design_tune = tuple(raw["design_tune"])
+    return build_fma(
+        np.array(raw["nux_map"]),
+        np.array(raw["nuy_map"]),
+        np.array(raw["diffusion"]),
+        design_tune=design_tune,
+        baseline_tune=baseline_tune,
+    )
+
+
+FIGURE_BUILDERS: dict[str, Any] = {
+    "optics": _build_optics,
+    "chromaticity": _build_chromaticity,
+    "footprint": _build_footprint,
+    "resonance": _build_resonance,
+    "da": _build_da_figure,
+    "fma": _build_fma_figure,
+}
 
 
 class _SSEBroadcaster:
@@ -189,6 +303,22 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         fig_path = state.figures_dir / f"{name}.json"
         if not fig_path.exists():
             raise HTTPException(status_code=404, detail=f"Figure not yet computed: {name}")
+
+        raw = json.loads(fig_path.read_text())
+        builder = FIGURE_BUILDERS.get(name)
+        if builder is None:
+            return raw  # fallback for unknown figure types
+        fig = builder(raw)
+        return figure_to_dict(fig)
+
+    @app.get("/api/data/{name}")
+    async def get_data(name: str) -> Any:
+        if name not in ALL_FIGURES:
+            raise HTTPException(status_code=404, detail=f"Unknown figure: {name}")
+
+        fig_path = state.figures_dir / f"{name}.json"
+        if not fig_path.exists():
+            raise HTTPException(status_code=404, detail=f"Data not yet computed: {name}")
 
         return json.loads(fig_path.read_text())
 

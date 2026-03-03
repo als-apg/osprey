@@ -16,7 +16,7 @@ from osprey.interfaces.lattice_dashboard.workers._base import (
     load_ring,
     load_state,
     parse_args,
-    save_figure,
+    save_data,
 )
 
 
@@ -36,8 +36,8 @@ def compute_fma(
     n_half: int = 256,
     nx: int = 12,
     ny: int = 12,
-    x_max: float = 0.012,
-    y_max: float = 0.006,
+    x_max: float = 0.003,
+    y_max: float = 0.001,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Compute frequency map.
 
@@ -207,18 +207,23 @@ def main() -> None:
     ring = load_ring(state)
     nux_map, nuy_map, diffusion = compute_fma(ring)
 
-    design_tune = None
     tunes = at.get_tune(ring)
-    design_tune = (float(tunes[0]), float(tunes[1]))
+    design_tune = [float(tunes[0]), float(tunes[1])]
 
-    baseline_tune = None
+    raw: dict = {
+        "nux_map": nux_map.tolist(),
+        "nuy_map": nuy_map.tolist(),
+        "diffusion": diffusion.tolist(),
+        "design_tune": design_tune,
+        "baseline_tune": None,
+    }
+
     baseline_ring = load_baseline_ring(state_path, state)
     if baseline_ring is not None:
         bt = at.get_tune(baseline_ring)
-        baseline_tune = (float(bt[0]), float(bt[1]))
+        raw["baseline_tune"] = [float(bt[0]), float(bt[1])]
 
-    fig = build_figure(nux_map, nuy_map, diffusion, design_tune, baseline_tune)
-    save_figure(fig, output_path)
+    save_data(raw, output_path)
 
 
 if __name__ == "__main__":

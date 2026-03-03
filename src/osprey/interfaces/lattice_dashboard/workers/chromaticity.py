@@ -9,14 +9,13 @@ from __future__ import annotations
 import at
 import numpy as np
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 from osprey.interfaces.lattice_dashboard.workers._base import (
     load_baseline_ring,
     load_ring,
     load_state,
     parse_args,
-    save_figure,
+    save_data,
 )
 
 
@@ -44,12 +43,7 @@ def build_figure(
     nuy: np.ndarray,
     baseline: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
 ) -> go.Figure:
-    fig = make_subplots(
-        rows=1,
-        cols=2,
-        subplot_titles=("\u03bd<sub>x</sub> vs \u03b4p/p", "\u03bd<sub>y</sub> vs \u03b4p/p"),
-        horizontal_spacing=0.12,
-    )
+    fig = go.Figure()
 
     dp_pct = dp * 100  # Convert to percent
 
@@ -65,8 +59,6 @@ def build_figure(
                 line={"color": "rgb(31,119,180)", "width": 1, "dash": "dash"},
                 opacity=0.5,
             ),
-            row=1,
-            col=1,
         )
         fig.add_trace(
             go.Scatter(
@@ -76,8 +68,6 @@ def build_figure(
                 line={"color": "rgb(255,127,14)", "width": 1, "dash": "dash"},
                 opacity=0.5,
             ),
-            row=1,
-            col=2,
         )
 
     # Current (solid)
@@ -90,8 +80,6 @@ def build_figure(
             mode="lines+markers",
             marker={"size": 3},
         ),
-        row=1,
-        col=1,
     )
     fig.add_trace(
         go.Scatter(
@@ -102,27 +90,27 @@ def build_figure(
             mode="lines+markers",
             marker={"size": 3},
         ),
-        row=1,
-        col=2,
     )
 
     # Fit linear chromaticity
+    title = "Chromaticity"
     valid = np.isfinite(nux) & np.isfinite(nuy)
     if np.sum(valid) > 2:
         px = np.polyfit(dp[valid], nux[valid], 1)
         py = np.polyfit(dp[valid], nuy[valid], 1)
         xi_x, xi_y = px[0], py[0]
-        fig.update_layout(
-            title=f"Chromaticity: \u03be<sub>x</sub>={xi_x:.2f}, \u03be<sub>y</sub>={xi_y:.2f}",
-        )
+        title = f"Chromaticity: \u03be<sub>x</sub>={xi_x:.2f}, \u03be<sub>y</sub>={xi_y:.2f}"
 
-    fig.update_xaxes(title_text="\u03b4p/p [%]", gridcolor="lightgray")
-    fig.update_yaxes(title_text="\u03bd", gridcolor="lightgray")
     fig.update_layout(
+        title=title,
+        xaxis_title="\u03b4p/p [%]",
+        yaxis_title="\u03bd",
         height=400,
         template="plotly_white",
         margin={"l": 50, "r": 20, "t": 50, "b": 40},
         showlegend=True,
+        xaxis={"gridcolor": "lightgray"},
+        yaxis={"gridcolor": "lightgray"},
     )
     return fig
 
@@ -134,13 +122,23 @@ def main() -> None:
     ring = load_ring(state)
     dp, nux, nuy = compute_chromaticity(ring)
 
-    baseline_data = None
+    raw: dict = {
+        "dp": dp.tolist(),
+        "nux": nux.tolist(),
+        "nuy": nuy.tolist(),
+        "baseline": None,
+    }
+
     baseline_ring = load_baseline_ring(state_path, state)
     if baseline_ring is not None:
-        baseline_data = compute_chromaticity(baseline_ring)
+        bdp, bnux, bnuy = compute_chromaticity(baseline_ring)
+        raw["baseline"] = {
+            "dp": bdp.tolist(),
+            "nux": bnux.tolist(),
+            "nuy": bnuy.tolist(),
+        }
 
-    fig = build_figure(dp, nux, nuy, baseline_data)
-    save_figure(fig, output_path)
+    save_data(raw, output_path)
 
 
 if __name__ == "__main__":

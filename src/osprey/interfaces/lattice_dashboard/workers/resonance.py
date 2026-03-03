@@ -14,7 +14,7 @@ from osprey.interfaces.lattice_dashboard.workers._base import (
     load_ring,
     load_state,
     parse_args,
-    save_figure,
+    save_data,
 )
 
 ORDER_COLORS = {1: "red", 2: "orange", 3: "green", 4: "blue", 5: "purple"}
@@ -158,14 +158,20 @@ def main() -> None:
     tunes = at.get_tune(ring)
     nux, nuy = float(tunes[0]), float(tunes[1])
 
-    baseline_nux, baseline_nuy = None, None
+    raw: dict = {
+        "nux": nux,
+        "nuy": nuy,
+        "baseline_nux": None,
+        "baseline_nuy": None,
+    }
+
     baseline_ring = load_baseline_ring(state_path, state)
     if baseline_ring is not None:
         bt = at.get_tune(baseline_ring)
-        baseline_nux, baseline_nuy = float(bt[0]), float(bt[1])
+        raw["baseline_nux"] = float(bt[0])
+        raw["baseline_nuy"] = float(bt[1])
 
-    fig = build_figure(nux, nuy, baseline_nux, baseline_nuy)
-    save_figure(fig, output_path)
+    save_data(raw, output_path)
 
 
 if __name__ == "__main__":
