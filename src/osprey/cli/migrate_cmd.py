@@ -21,7 +21,8 @@ from typing import Any
 import click
 
 from .styles import console
-from .templates import MANIFEST_FILENAME, TemplateManager
+from .templates.manager import TemplateManager
+from .templates.manifest import MANIFEST_FILENAME
 
 
 class FileCategory(Enum):
@@ -790,8 +791,10 @@ def migrate_init(project: Path, osprey_version: str | None, force: bool):
     manager = TemplateManager()
 
     # Override framework version for retroactive manifest
-    original_get_version = manager._get_framework_version
-    manager._get_framework_version = lambda: version  # type: ignore[method-assign]
+    from .templates import manifest as manifest_mod
+
+    original_get_version = manifest_mod.get_framework_version
+    manifest_mod.get_framework_version = lambda: version  # type: ignore[assignment]
 
     try:
         manifest = manager.generate_manifest(
@@ -802,7 +805,7 @@ def migrate_init(project: Path, osprey_version: str | None, force: bool):
             context=context,
         )
     finally:
-        manager._get_framework_version = original_get_version  # type: ignore[method-assign]
+        manifest_mod.get_framework_version = original_get_version  # type: ignore[assignment]
 
     console.print(f"   [success]✓[/success] Written {MANIFEST_FILENAME}")
     console.print(
@@ -843,8 +846,9 @@ def migrate_check(project: Path):
 
     # Get versions
     project_version = manifest["creation"]["osprey_version"]
-    manager = TemplateManager()
-    current_version = manager._get_framework_version()
+    from .templates.manifest import get_framework_version
+
+    current_version = get_framework_version()
 
     console.print(f"Project OSPREY version: [accent]{project_version}[/accent]")
     console.print(f"Installed OSPREY version: [accent]{current_version}[/accent]")
@@ -914,8 +918,9 @@ def migrate_run(project: Path, dry_run: bool, output: Path | None, use_current_v
         raise click.Abort()
 
     old_version = manifest["creation"]["osprey_version"]
-    manager = TemplateManager()
-    new_version = manager._get_framework_version()
+    from .templates.manifest import get_framework_version
+
+    new_version = get_framework_version()
 
     console.print(f"Migration: [accent]{old_version}[/accent] -> [accent]{new_version}[/accent]\n")
 

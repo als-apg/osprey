@@ -12,7 +12,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.init_cmd import init
-from osprey.cli.templates import TemplateManager
+from osprey.cli.templates.manager import TemplateManager
 
 
 class TestClaudeCodeIntegrationDefault:

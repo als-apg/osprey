@@ -22,7 +22,7 @@ from osprey.cli.prompts_cmd import (
     _update_manifest_add_user_owned,
     _update_manifest_remove_user_owned,
 )
-from osprey.cli.templates import TemplateManager
+from osprey.cli.templates.manager import TemplateManager
 from osprey.utils.config import resolve_env_vars
 
 # Language inference from file extension
@@ -504,7 +504,11 @@ class PromptGalleryService:
         """Return cached (manager, context) pair, creating on first call."""
         if self._manager is None:
             self._manager = TemplateManager()
-            self._ctx = self._manager._build_claude_code_context(self.project_dir, self._config)
+            from osprey.cli.templates.claude_code import build_claude_code_context
+
+            self._ctx = build_claude_code_context(
+                self._manager.template_root, self._manager.jinja_env, self.project_dir, self._config
+            )
         return self._manager, self._ctx  # type: ignore[return-value]
 
     def _render_framework(self, art: PromptArtifact) -> str:

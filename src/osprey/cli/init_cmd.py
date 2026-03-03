@@ -10,7 +10,7 @@ from pathlib import Path
 import click
 
 from .styles import Messages, Styles, console
-from .templates import TemplateManager
+from .templates.manager import TemplateManager
 
 
 def _clear_claude_code_project_state(project_path: Path) -> None:
@@ -162,7 +162,9 @@ def init(
         console.print(f"  📋 Using template: [accent]{template}[/accent]")
         console.print("  🤖 Mode: Claude Code")
 
-        detected_env = manager._detect_environment_variables()
+        from .templates.scaffolding import detect_environment_variables
+
+        detected_env = detect_environment_variables()
         if detected_env:
             console.print(f"  🔑 Detected {len(detected_env)} environment variable(s) from system:")
             for env_var in detected_env.keys():

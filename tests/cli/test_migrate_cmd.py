@@ -18,11 +18,8 @@ from osprey.cli.migrate_cmd import (
     _load_manifest,
     migrate,
 )
-from osprey.cli.templates import (
-    MANIFEST_FILENAME,
-    MANIFEST_SCHEMA_VERSION,
-    TemplateManager,
-)
+from osprey.cli.templates.manager import TemplateManager
+from osprey.cli.templates.manifest import MANIFEST_FILENAME, MANIFEST_SCHEMA_VERSION
 
 
 class TestManifestGeneration:

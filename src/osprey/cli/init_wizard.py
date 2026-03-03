@@ -197,10 +197,9 @@ def configure_api_key(
     console.print(f"Required: [accent]{key_name}[/accent]\n")
 
     # Check if already detected from environment
-    from osprey.cli.templates import TemplateManager
+    from osprey.cli.templates.scaffolding import detect_environment_variables
 
-    manager = TemplateManager()
-    detected_env = manager._detect_environment_variables()
+    detected_env = detect_environment_variables()
 
     if key_name in detected_env:
         console.print(Messages.success("API key already detected from environment"))
@@ -375,7 +374,7 @@ def run_interactive_init() -> str:
     console.print(f"\n{Messages.header('Create New Project')}\n")
 
     # Get dynamic data with loading indicator
-    from osprey.cli.templates import TemplateManager
+    from osprey.cli.templates.manager import TemplateManager
 
     manager = TemplateManager()
 
@@ -699,9 +698,10 @@ def run_interactive_init() -> str:
         console.print(f"\n{msg} {path}\n")
 
         # Check if API keys were detected and .env was created
+        from osprey.cli.templates.scaffolding import detect_environment_variables
         from osprey.models.provider_registry import PROVIDER_API_KEYS
 
-        detected_env = manager._detect_environment_variables()
+        detected_env = detect_environment_variables()
         api_key_names = {v for v in PROVIDER_API_KEYS.values() if v is not None}
         has_api_keys = any(key in detected_env for key in api_key_names)
 

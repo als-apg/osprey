@@ -8,7 +8,7 @@ from click.testing import CliRunner
 
 from osprey.cli.init_cmd import init
 from osprey.cli.prompts_cmd import prompts
-from osprey.cli.templates import MANIFEST_FILENAME
+from osprey.cli.templates.manifest import MANIFEST_FILENAME
 
 
 @pytest.fixture()

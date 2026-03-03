@@ -9,7 +9,8 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.init_cmd import init
-from osprey.cli.templates import TemplateManager
+from osprey.cli.templates import claude_code, manifest
+from osprey.cli.templates.manager import TemplateManager
 
 
 class TestTemplateManager:
@@ -526,7 +527,7 @@ class TestGitIsolation:
 
 
 class TestBuildClaudeCodeContextHierarchy:
-    """Tests for hierarchy embedding in _build_claude_code_context."""
+    """Tests for hierarchy embedding in build_claude_code_context."""
 
     def _make_manager_and_config(self, tmp_path, db_data):
         """Create a TemplateManager and config pointing at a hierarchy database."""
@@ -579,7 +580,9 @@ class TestBuildClaudeCodeContextHierarchy:
                 },
             },
         )
-        ctx = manager._build_claude_code_context(tmp_path, config)
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, tmp_path, config
+        )
         hier = ctx["channel_finder_hierarchy"]
         assert hier is not None
         assert hier["hierarchy_levels"] == ["system", "device"]
@@ -601,7 +604,9 @@ class TestBuildClaudeCodeContextHierarchy:
             },
         }
         manager = TemplateManager()
-        ctx = manager._build_claude_code_context(tmp_path, config)
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, tmp_path, config
+        )
         assert ctx["channel_finder_hierarchy"] is None
 
     @pytest.mark.unit
@@ -614,7 +619,9 @@ class TestBuildClaudeCodeContextHierarchy:
             },
         }
         manager = TemplateManager()
-        ctx = manager._build_claude_code_context(tmp_path, config)
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, tmp_path, config
+        )
         assert ctx["channel_finder_hierarchy"] is None
 
     @pytest.mark.unit
@@ -712,10 +719,10 @@ class TestTemplateManifest:
     def test_load_manifest_control_assistant(self):
         """Control assistant manifest loads with all expected categories."""
         manager = TemplateManager()
-        manifest = manager._load_template_manifest("control_assistant")
+        mf = manifest.load_template_manifest(manager.template_root, "control_assistant")
 
-        assert manifest is not None
-        artifacts = manifest["artifacts"]
+        assert mf is not None
+        artifacts = mf["artifacts"]
         assert "hooks" in artifacts
         assert "rules" in artifacts
         assert "skills" in artifacts
@@ -727,10 +734,10 @@ class TestTemplateManifest:
     def test_load_manifest_lattice_design(self):
         """Lattice design manifest loads with lattice-specific entries."""
         manager = TemplateManager()
-        manifest = manager._load_template_manifest("lattice_design")
+        mf = manifest.load_template_manifest(manager.template_root, "lattice_design")
 
-        assert manifest is not None
-        artifacts = manifest["artifacts"]
+        assert mf is not None
+        artifacts = mf["artifacts"]
         assert "lattice-evaluation" in artifacts["skills"]
         assert "lattice-physics" in artifacts["rules"]
         # Should NOT have control-system-specific entries
@@ -741,14 +748,14 @@ class TestTemplateManifest:
     def test_load_manifest_nonexistent_template(self):
         """Returns None for unknown template."""
         manager = TemplateManager()
-        manifest = manager._load_template_manifest("nonexistent_template")
-        assert manifest is None
+        mf = manifest.load_template_manifest(manager.template_root, "nonexistent_template")
+        assert mf is None
 
     def test_resolve_manifest_outputs_includes_config_artifacts(self):
         """Resolved outputs always contain config artifacts."""
         manager = TemplateManager()
-        manifest = manager._load_template_manifest("control_assistant")
-        outputs = manager._resolve_manifest_outputs(manifest)
+        mf = manifest.load_template_manifest(manager.template_root, "control_assistant")
+        outputs = manifest.resolve_manifest_outputs(mf)
 
         assert "CLAUDE.md" in outputs
         assert ".mcp.json" in outputs
@@ -756,17 +763,15 @@ class TestTemplateManifest:
 
     def test_resolve_manifest_outputs_maps_hooks(self):
         """hooks: [approval] resolves to .claude/hooks/osprey_approval.py."""
-        manager = TemplateManager()
-        manifest = {"artifacts": {"hooks": ["approval"]}}
-        outputs = manager._resolve_manifest_outputs(manifest)
+        mf = {"artifacts": {"hooks": ["approval"]}}
+        outputs = manifest.resolve_manifest_outputs(mf)
 
         assert ".claude/hooks/osprey_approval.py" in outputs
 
     def test_resolve_manifest_outputs_session_report_includes_reference(self):
         """skills: [session-report] resolves to both SKILL.md and reference.md."""
-        manager = TemplateManager()
-        manifest = {"artifacts": {"skills": ["session-report"]}}
-        outputs = manager._resolve_manifest_outputs(manifest)
+        mf = {"artifacts": {"skills": ["session-report"]}}
+        outputs = manifest.resolve_manifest_outputs(mf)
 
         assert ".claude/skills/session-report/SKILL.md" in outputs
         assert ".claude/skills/session-report/reference.md" in outputs
@@ -860,14 +865,14 @@ class TestTemplateManifest:
         """If manifest doesn't exist, all files are generated (backward compat)."""
         manager = TemplateManager()
 
-        # _get_tracked_files falls back to _REGEN_TRACKED_FILES when no manifest
-        tracked = manager._get_tracked_files("nonexistent_template")
-        assert tracked == list(manager._REGEN_TRACKED_FILES)
+        # get_tracked_files falls back to REGEN_TRACKED_FILES when no manifest
+        tracked = manifest.get_tracked_files(manager.template_root, "nonexistent_template")
+        assert tracked == list(manifest.REGEN_TRACKED_FILES)
 
-        # _resolve_manifest_outputs with allowed_outputs=None means no filtering
-        # Verify by checking that _load_template_manifest returns None
-        manifest = manager._load_template_manifest("nonexistent_template")
-        assert manifest is None
+        # resolve_manifest_outputs with allowed_outputs=None means no filtering
+        # Verify by checking that load_template_manifest returns None
+        mf = manifest.load_template_manifest(manager.template_root, "nonexistent_template")
+        assert mf is None
 
 
 if __name__ == "__main__":

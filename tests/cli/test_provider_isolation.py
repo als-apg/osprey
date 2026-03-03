@@ -121,7 +121,7 @@ def cli_runner():
 @pytest.fixture
 def cborg_project(tmp_path):
     """Create a minimal project configured for cborg provider."""
-    from osprey.cli.templates import TemplateManager
+    from osprey.cli.templates.manager import TemplateManager
 
     manager = TemplateManager()
     project_dir = manager.create_project(

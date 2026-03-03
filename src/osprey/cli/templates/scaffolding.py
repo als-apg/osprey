@@ -1,0 +1,574 @@
+"""Project creation helpers: directory structure, services, data files."""
+
+import json
+import logging
+import os
+import shutil
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+from osprey.cli.styles import console
+from osprey.cli.templates._rendering import render_template
+
+logger = logging.getLogger("osprey.cli.templates")
+
+
+def detect_environment_variables() -> dict[str, str]:
+    """Detect environment variables from the system for use in templates.
+
+    This checks for common environment variables that are typically
+    needed in .env files (API keys, paths, etc.) and returns those that are
+    currently set in the system.
+
+    Returns:
+        Dictionary of detected environment variables with their values.
+        Only includes variables that are actually set (non-empty).
+    """
+    # API key env vars from canonical registry + non-API env vars
+    from osprey.models.provider_registry import PROVIDER_API_KEYS
+
+    env_vars_to_check = [v for v in PROVIDER_API_KEYS.values() if v is not None] + [
+        "PROJECT_ROOT",
+        "LOCAL_PYTHON_VENV",
+        "CONFLUENCE_ACCESS_TOKEN",
+        "TZ",
+    ]
+
+    detected = {}
+    for var in env_vars_to_check:
+        value = os.environ.get(var)
+        if value:  # Only include if the variable is set and non-empty
+            detected[var] = value
+
+    return detected
+
+
+def create_project_structure(
+    template_root: Path,
+    jinja_env,
+    project_dir: Path,
+    template_name: str,
+    ctx: dict,
+):
+    """Create base project files (config, README, pyproject.toml, etc.).
+
+    Args:
+        template_root: Path to osprey's bundled templates directory
+        jinja_env: Jinja2 environment for template rendering
+        project_dir: Root directory of the project
+        template_name: Name of the application template being used
+        ctx: Template context variables
+    """
+    project_template_dir = template_root / "project"
+    app_template_dir = template_root / "apps" / template_name
+
+    # Render template files (no pyproject.toml or requirements.txt -- no src/ package)
+    files_to_render = [
+        ("config.yml.j2", "config.yml"),
+        ("env.example.j2", ".env.example"),
+        ("README.md.j2", "README.md"),
+    ]
+
+    # Copy static files
+    static_files = [
+        # requirements.txt moved to rendered templates to handle {{ framework_version }}
+    ]
+
+    for template_file, output_file in files_to_render:
+        # Check if app template has its own version first (e.g., requirements.txt.j2)
+        app_specific_template = app_template_dir / (
+            template_file + ".j2" if not template_file.endswith(".j2") else template_file
+        )
+        default_template = project_template_dir / template_file
+
+        if app_specific_template.exists():
+            # Use app-specific template
+            render_template(
+                jinja_env,
+                f"apps/{template_name}/{app_specific_template.name}",
+                ctx,
+                project_dir / output_file,
+            )
+        elif default_template.exists():
+            # Use default project template
+            render_template(jinja_env, f"project/{template_file}", ctx, project_dir / output_file)
+
+    # Create .env file only if API keys are detected
+    from osprey.models.provider_registry import PROVIDER_API_KEYS
+
+    detected_env_vars = ctx.get("env", {})
+    api_key_names = {v for v in PROVIDER_API_KEYS.values() if v is not None}
+    has_api_keys = any(key in detected_env_vars for key in api_key_names)
+
+    if has_api_keys:
+        env_template = project_template_dir / "env.j2"
+        if env_template.exists():
+            render_template(jinja_env, "project/env.j2", ctx, project_dir / ".env")
+            # Set proper permissions (owner read/write only)
+            os.chmod(project_dir / ".env", 0o600)
+
+    # Copy static files
+    for src_name, dst_name in static_files:
+        src_file = project_template_dir / src_name
+        if src_file.exists():
+            shutil.copy(src_file, project_dir / dst_name)
+
+    # Copy gitignore (renamed from 'gitignore' to '.gitignore')
+    gitignore_source = project_template_dir / "gitignore"
+    if gitignore_source.exists():
+        shutil.copy(gitignore_source, project_dir / ".gitignore")
+
+    # Render code generator config based on selected generator
+    generator_configs = {
+        "claude_code": "claude_generator_config.yml",
+        "basic": "basic_generator_config.yml",
+    }
+    selected_generator = ctx.get("code_generator")
+    if selected_generator in generator_configs:
+        config_filename = generator_configs[selected_generator]
+        config_template = app_template_dir / f"{config_filename}.j2"
+        if config_template.exists():
+            render_template(
+                jinja_env,
+                f"apps/{template_name}/{config_filename}.j2",
+                ctx,
+                project_dir / config_filename,
+            )
+
+
+def copy_services(template_root: Path, project_dir: Path):
+    """Copy service configurations to project (flattened structure).
+
+    Services are copied with a flattened structure (not nested under osprey/).
+    This makes the user's project structure cleaner.
+
+    Args:
+        template_root: Path to osprey's bundled templates directory
+        project_dir: Root directory of the project
+    """
+    src_services = template_root / "services"
+    dst_services = project_dir / "services"
+
+    if not src_services.exists():
+        return
+
+    dst_services.mkdir(parents=True, exist_ok=True)
+
+    # Copy each service directory individually (flattened)
+    for item in src_services.iterdir():
+        if item.is_dir():
+            shutil.copytree(item, dst_services / item.name, dirs_exist_ok=True)
+        elif item.is_file() and item.suffix in [".j2", ".yml", ".yaml"]:
+            # Copy docker-compose template/config files
+            shutil.copy(item, dst_services / item.name)
+
+
+def copy_services_selective(template_root: Path, project_dir: Path, service_names: list[str]):
+    """Copy only specified service directories to project.
+
+    Args:
+        template_root: Path to osprey's bundled templates directory
+        project_dir: Root directory of the project
+        service_names: List of service directory names to copy (e.g., ["postgresql"])
+    """
+    src_services = template_root / "services"
+    dst_services = project_dir / "services"
+
+    if not src_services.exists():
+        return
+
+    dst_services.mkdir(parents=True, exist_ok=True)
+
+    for name in service_names:
+        src_dir = src_services / name
+        if src_dir.is_dir():
+            shutil.copytree(src_dir, dst_services / name, dirs_exist_ok=True)
+
+    # Also copy docker-compose template if any services were copied
+    if service_names:
+        for item in src_services.iterdir():
+            if item.is_file() and item.suffix in [".j2", ".yml", ".yaml"]:
+                shutil.copy(item, dst_services / item.name)
+
+
+def copy_template_data(
+    template_root: Path,
+    project_dir: Path,
+    package_name: str,
+    template_name: str,
+    ctx: dict,
+):
+    """Copy data files from template to project root (no src/ package).
+
+    Data files (channel databases, channel_limits.json, logbook seeds,
+    benchmark datasets) are placed at project_dir/data/.
+
+    Args:
+        template_root: Path to osprey's bundled templates directory
+        project_dir: Root directory of the project
+        package_name: Python package name (used to locate template data dirs)
+        template_name: Name of the application template
+        ctx: Template context variables
+    """
+    app_template_dir = template_root / "apps" / template_name
+
+    # Look for data/ subdirectory in the template
+    template_data_dir = app_template_dir / "data"
+    if template_data_dir.exists() and template_data_dir.is_dir():
+        dst_data = project_dir / "data"
+        shutil.copytree(template_data_dir, dst_data, dirs_exist_ok=True)
+        console.print(
+            f"  [success]✓[/success] Copied template data files to [path]{dst_data}[/path]"
+        )
+        return
+
+    # Fallback: scan for data/ directories inside template subdirectories
+    # (some templates put data inside package-level dirs)
+    for template_file in app_template_dir.rglob("*"):
+        if not template_file.is_dir():
+            continue
+        if template_file.name == "data":
+            # Copy to project root data/ (flatten from template structure)
+            dst_data = project_dir / "data"
+            if not dst_data.exists():
+                shutil.copytree(template_file, dst_data, dirs_exist_ok=True)
+            else:
+                # Merge into existing data/
+                for item in template_file.iterdir():
+                    dst_item = dst_data / item.name
+                    if item.is_dir():
+                        shutil.copytree(item, dst_item, dirs_exist_ok=True)
+                    elif item.is_file():
+                        dst_item.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(item, dst_item)
+            console.print(
+                f"  [success]✓[/success] Copied template data files to [path]{dst_data}[/path]"
+            )
+            return
+
+
+def rebase_logbook_timestamps(project_dir: Path) -> None:
+    """Shift demo logbook timestamps so the most recent entry is near 'now'.
+
+    The bundled demo logbook has fixed timestamps (e.g. March 2024).  When a
+    user runs ``osprey init`` months or years later, the logbook entries look
+    stale and won't align with mock archiver data (which is generated relative
+    to the current time).
+
+    This loads the copied demo logbook, finds the latest entry timestamp,
+    computes the offset needed to place it 2 days before the current time,
+    and shifts every entry by that offset.  Relative gaps between entries
+    are preserved.
+    """
+    logbook_path = project_dir / "data" / "logbook_seed" / "demo_logbook.json"
+    if not logbook_path.exists():
+        return
+
+    try:
+        data = json.loads(logbook_path.read_text())
+        entries = data.get("entries", [])
+        if not entries:
+            return
+
+        timestamps = []
+        for entry in entries:
+            ts_str = entry.get("timestamp", "")
+            if ts_str:
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                timestamps.append(ts)
+
+        if not timestamps:
+            return
+
+        latest = max(timestamps)
+        target = datetime.now(UTC) - timedelta(days=2)
+        # Round to whole days so time-of-day is preserved -- entry text
+        # contains hardcoded clock times (e.g. "tripped at 03:15") that
+        # we can't programmatically adjust.
+        offset = timedelta(days=(target - latest).days)
+
+        for entry in entries:
+            ts_str = entry.get("timestamp", "")
+            if ts_str:
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                new_ts = ts + offset
+                entry["timestamp"] = new_ts.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        logbook_path.write_text(json.dumps(data, indent=2) + "\n")
+        span_days = (max(timestamps) - min(timestamps)).days
+        console.print(
+            f"  [success]✓[/success] Rebased {len(entries)} logbook entries "
+            f"(spanning {span_days} days) to current date"
+        )
+    except (json.JSONDecodeError, ValueError, KeyError):
+        pass  # Non-fatal -- leave the file as-is if anything goes wrong
+
+
+def create_application_code(
+    template_root: Path,
+    jinja_env,
+    src_dir: Path,
+    package_name: str,
+    template_name: str,
+    ctx: dict,
+    registry_style: str = "extend",
+    project_root: Path = None,
+):
+    """Create application code from template.
+
+    Args:
+        template_root: Path to osprey's bundled templates directory
+        jinja_env: Jinja2 environment for template rendering
+        src_dir: src/ directory where package will be created
+        package_name: Python package name (e.g., "my_assistant")
+        template_name: Name of the application template
+        ctx: Template context variables
+        registry_style: Registry style - "extend" or "standalone"
+        project_root: Actual project root (for placing scripts/ at root)
+
+    Note:
+        All templates support both extend and standalone styles. The extend style
+        renders the template as-is. The standalone style uses generate_explicit_registry_code()
+        to dynamically create a full registry with all framework + app components listed.
+        This approach works generically for all templates without needing template-specific logic.
+
+        Special handling: Files in scripts/ directory are placed at project root
+        instead of inside the package to provide convenient CLI access.
+    """
+    app_template_dir = template_root / "apps" / template_name
+    app_dir = src_dir / package_name
+    app_dir.mkdir(parents=True)
+
+    # Use src_dir's parent as project_root if not provided
+    if project_root is None:
+        project_root = src_dir.parent
+
+    # Add registry_style to context for templates that might use it
+    ctx["registry_style"] = registry_style
+
+    # Project-level files that should only live at project root, not in src/
+    # These are handled by create_project_structure() and should be skipped here
+    PROJECT_LEVEL_FILES = {
+        "config.yml.j2",
+        "config.yml",
+        "README.md.j2",
+        "README.md",
+        "env.example.j2",
+        "env.example",
+        "env.j2",
+        ".env",
+        "requirements.txt.j2",
+        "requirements.txt",
+        "pyproject.toml.j2",
+        "pyproject.toml",
+        "claude_generator_config.yml.j2",
+        "claude_generator_config.yml",
+        "basic_generator_config.yml.j2",
+        "basic_generator_config.yml",
+    }
+
+    # Process all files in the template
+    for template_file in app_template_dir.rglob("*"):
+        if not template_file.is_file():
+            continue
+
+        rel_path = template_file.relative_to(app_template_dir)
+
+        # Skip project-level files at template root (handled by create_project_structure)
+        if len(rel_path.parts) == 1 and rel_path.name in PROJECT_LEVEL_FILES:
+            continue
+
+        # Special handling for scripts/ directory - place at project root
+        if rel_path.parts[0] == "scripts":
+            base_output_dir = project_root
+            output_rel_path = rel_path
+        else:
+            base_output_dir = app_dir
+            output_rel_path = rel_path
+
+        # Determine output path
+        if template_file.suffix == ".j2":
+            # Template file - render it
+            output_name = template_file.stem  # Remove .j2 extension
+            output_path = base_output_dir / output_rel_path.parent / output_name
+
+            # Special handling for standalone registry style
+            if registry_style == "standalone" and output_name == "registry.py":
+                generate_explicit_registry(output_path, ctx, template_name)
+            else:
+                # Convert Windows backslashes to forward slashes for Jinja2
+                # (harmless on Linux/macOS where paths already use forward slashes)
+                template_path_str = f"apps/{template_name}/{rel_path}".replace("\\", "/")
+                render_template(jinja_env, template_path_str, ctx, output_path)
+        else:
+            # Static file - copy directly
+            output_path = base_output_dir / output_rel_path
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(template_file, output_path)
+
+
+def generate_explicit_registry(output_path: Path, ctx: dict, template_name: str):
+    """Generate explicit registry code using the generic code generation function.
+
+    This parses the template to extract app-specific components and uses
+    the generate_explicit_registry_code() function to create the full explicit registry.
+
+    Args:
+        output_path: Where to write the generated registry.py
+        ctx: Template context with app_class_name, app_display_name, package_name
+        template_name: Name of the template being processed
+    """
+    from osprey.registry import generate_explicit_registry_code
+
+    # Generate the explicit registry code
+    registry_code = generate_explicit_registry_code(
+        app_class_name=ctx["app_class_name"],
+        app_display_name=ctx["app_display_name"],
+        package_name=ctx["package_name"],
+    )
+
+    # Write to output file
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # Use UTF-8 encoding explicitly to support Unicode characters on Windows
+    output_path.write_text(registry_code, encoding="utf-8")
+
+
+def create_agent_data_structure(template_root: Path, project_dir: Path, ctx: dict):
+    """Create _agent_data directory structure for the project.
+
+    This creates the agent data directory and all standard subdirectories
+    based on osprey's default configuration. This ensures that container
+    deployments won't fail due to missing mount points.
+
+    Args:
+        template_root: Path to osprey's bundled templates directory
+        project_dir: Root directory of the project
+        ctx: Template context variables (used for conditional directory creation)
+    """
+    # Create main _agent_data directory
+    agent_data_dir = project_dir / "_agent_data"
+    agent_data_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create standard subdirectories
+    subdirs = [
+        "executed_scripts",
+        "user_memory",
+        "api_calls",
+    ]
+
+    # Conditionally add example_scripts for templates with claude_code generator
+    template_name = ctx.get("template_name", "")
+    code_generator = ctx.get("code_generator", "")
+
+    # Map template names to their example script subdirectories
+    _example_script_dirs = {
+        "control_assistant": ["example_scripts/plotting"],
+        "lattice_design": ["example_scripts/lattice"],
+    }
+
+    example_dirs = []
+    if code_generator == "claude_code" and template_name in _example_script_dirs:
+        example_dirs = _example_script_dirs[template_name]
+        subdirs.extend(example_dirs)
+
+    for subdir in subdirs:
+        subdir_path = agent_data_dir / subdir
+        subdir_path.mkdir(parents=True, exist_ok=True)
+
+    # Copy example script files if using claude_code generator
+    if example_dirs:
+        template_examples_dir = (
+            template_root / "apps" / template_name / "_agent_data" / "example_scripts"
+        )
+        if template_examples_dir.exists():
+            for example_subdir in example_dirs:
+                category = example_subdir.split("/")[-1]  # e.g. "plotting", "lattice"
+                template_category = template_examples_dir / category
+                project_category = agent_data_dir / example_subdir
+
+                if template_category.exists():
+                    files_copied = 0
+                    for file_path in template_category.iterdir():
+                        if file_path.is_file() and (
+                            file_path.suffix == ".py" or file_path.name == "README.md"
+                        ):
+                            shutil.copy2(file_path, project_category / file_path.name)
+                            files_copied += 1
+
+                    if files_copied > 0:
+                        console.print(
+                            f"  [success]✓[/success] Copied {files_copied} example script(s) to [path]_agent_data/{example_subdir}/[/path]"
+                        )
+                else:
+                    console.print(
+                        f"  [warning]⚠[/warning] Template example scripts not found at {template_category}",
+                        style="yellow",
+                    )
+
+    console.print(
+        f"  [success]✓[/success] Created agent data structure at [path]{agent_data_dir}[/path]"
+    )
+
+    # Create a README to explain the directory structure
+    readme_content = """# Agent Data Directory
+
+This directory contains runtime data for the Claude Code project:
+
+- `executed_scripts/`: Python scripts executed via MCP tools
+- `user_memory/`: User memory data
+- `api_calls/`: Raw LLM API inputs/outputs (when API logging enabled)
+"""
+
+    # Add example_scripts section if using Claude Code generator
+    if template_name == "control_assistant" and code_generator == "claude_code":
+        readme_content += """- `example_scripts/`: Example code for Claude Code generator to learn from
+
+## Example Scripts
+
+The `example_scripts/` directory contains example code that the Claude Code generator
+can read and learn from when generating code. The framework has provided starter
+examples organized by category:
+
+- `example_scripts/plotting/`: Matplotlib visualization examples (included)
+  - Basic time series plotting
+  - Multi-subplot layouts
+  - Publication-quality figures
+  - Aligned multi-plot arrays
+
+- `example_scripts/analysis/`: Data analysis patterns (add your own)
+- `example_scripts/archiver/`: Archiver retrieval examples (add your own)
+
+**Security Note:** Claude Code can ONLY read files in these example directories.
+It cannot access your project configuration, secrets, or other sensitive files.
+The directories listed in `claude_generator_config.yml` are the only accessible paths.
+
+Add your own examples to help Claude generate better code for your specific use cases!
+
+"""
+
+    elif template_name == "lattice_design" and code_generator == "claude_code":
+        readme_content += """- `example_scripts/`: Example code for lattice physics workflows
+
+## Example Scripts
+
+The `example_scripts/` directory contains AT (Accelerator Toolbox) examples:
+
+- `example_scripts/lattice/`: Lattice physics workflows (included)
+  - Loading and inspecting lattice files
+  - Computing Twiss parameters and optics
+  - Tune and chromaticity fitting
+  - Interactive Plotly optics plots
+
+Add your own examples to help Claude generate better lattice physics code!
+
+"""
+
+    readme_content += """
+This directory is excluded from git (see .gitignore) but is required for
+proper framework operation, especially when using containerized services.
+"""
+
+    readme_path = agent_data_dir / "README.md"
+    # Use UTF-8 encoding explicitly to support Unicode characters on Windows
+    with open(readme_path, "w", encoding="utf-8") as f:
+        f.write(readme_content)
