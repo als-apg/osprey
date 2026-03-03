@@ -5,6 +5,9 @@ Provides specific exception types for better error handling and debugging.
 """
 
 
+from osprey.errors import ConfigurationError as _FrameworkConfigurationError
+
+
 class ChannelFinderError(Exception):
     """Base exception for all channel finder errors."""
 
@@ -23,7 +26,7 @@ class DatabaseLoadError(ChannelFinderError):
     pass
 
 
-class ConfigurationError(ChannelFinderError):
+class ConfigurationError(ChannelFinderError, _FrameworkConfigurationError):
     """Raised when configuration is invalid or incomplete."""
 
     pass
