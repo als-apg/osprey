@@ -18,6 +18,9 @@
 {%- set _ = allow_entries.append('"Read(osprey-workspace/data/**)"') -%}
 {%- set _ = allow_entries.append('"Read(osprey-workspace/plots/**)"') -%}
 {%- set _ = allow_entries.append('"Read(osprey-workspace/results/**)"') -%}
+{%- if textbooks_root -%}
+{%- set _ = allow_entries.append('"Read(' ~ textbooks_root ~ '/**)"') -%}
+{%- endif -%}
 {#- Per-server tool permissions -#}
 {%- for s in servers if s.enabled -%}
 {%- for tool in s.permissions_allow -%}
