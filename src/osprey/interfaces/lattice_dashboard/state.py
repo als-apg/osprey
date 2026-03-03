@@ -30,7 +30,7 @@ DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
     },
     "lma": {
         "nturns": 512,
-        "n_refpts": 100,
+        "n_refpts": 15,
         "dp_max_pct": 5.0,
         "n_sectors": None,
         "n_bisect": 15,
