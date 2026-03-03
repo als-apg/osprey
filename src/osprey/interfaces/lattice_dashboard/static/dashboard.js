@@ -42,6 +42,47 @@ const PLOTLY_CONFIG = {
   displaylogo: false,
 };
 
+// ── Settings Field Definitions ───────────────────────────
+
+const SETTINGS_FIELDS = {
+  da: {
+    label: 'DYNAMIC APERTURE',
+    fields: [
+      { key: 'nturns', label: 'Turns', unit: '', type: 'int', min: 64, max: 8192, step: 64 },
+      { key: 'n_angles', label: 'Angles', unit: '', type: 'int', min: 5, max: 72, step: 1 },
+      { key: 'amp_max_mm', label: 'Max amp', unit: 'mm', type: 'float', min: 1, max: 100, step: 1 },
+    ],
+  },
+  lma: {
+    label: 'MOMENTUM APERTURE',
+    fields: [
+      { key: 'nturns', label: 'Turns', unit: '', type: 'int', min: 64, max: 8192, step: 64 },
+      { key: 'n_refpts', label: 'Ref pts', unit: '', type: 'int', min: 10, max: 500, step: 10 },
+      { key: 'dp_max_pct', label: 'dp max', unit: '%', type: 'float', min: 0.5, max: 20, step: 0.5 },
+      { key: 'n_sectors', label: 'Sectors', unit: '', type: 'int_or_null', min: 1, max: 100, step: 1 },
+    ],
+  },
+  chromaticity: {
+    label: 'CHROMATICITY',
+    fields: [
+      { key: 'dp_min_pct', label: 'dp min', unit: '%', type: 'float', min: -20, max: 0, step: 0.5 },
+      { key: 'dp_max_pct', label: 'dp max', unit: '%', type: 'float', min: 0, max: 20, step: 0.5 },
+      { key: 'n_steps', label: 'Steps', unit: '', type: 'int', min: 5, max: 200, step: 5 },
+    ],
+  },
+  footprint: {
+    label: 'TUNE FOOTPRINT',
+    fields: [
+      { key: 'n_amp', label: 'Grid pts', unit: '', type: 'int', min: 3, max: 30, step: 1 },
+      { key: 'x_max_mm', label: 'x max', unit: 'mm', type: 'float', min: 0.1, max: 50, step: 0.5 },
+      { key: 'y_max_mm', label: 'y max', unit: 'mm', type: 'float', min: 0.1, max: 50, step: 0.5 },
+      { key: 'n_half', label: 'Half-turns', unit: '', type: 'int', min: 32, max: 2048, step: 32 },
+    ],
+  },
+};
+
+const SIDEBAR_TAB_KEY = 'lattice-sidebar-tab';
+
 // ── State ───────────────────────────────────────────────
 
 let currentState = null;
@@ -78,6 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
     sidebarBtn.addEventListener('click', toggleSidebar);
     initSidebar();
   }
+  initSidebarTabs();
   restorePanelOrder();
   setupDragAndDrop();
 
@@ -111,6 +153,7 @@ async function fetchState() {
   try {
     currentState = await apiFetch('/api/state');
     renderState(currentState);
+    loadSettings();
   } catch (err) {
     console.warn('Failed to fetch state:', err);
   }
@@ -220,6 +263,10 @@ function handleSSEEvent(data) {
       updateLED(data.name, 'error');
       hideSpinner(data.name);
       showFigureError(data.name, data.error || 'Unknown error');
+      break;
+
+    case 'settings_updated':
+      if (data.settings) renderSettingsForm(data.settings);
       break;
 
     case 'baseline_set':
@@ -533,19 +580,26 @@ function handleThemeMessages() {
     if (event.data && event.data.type === 'osprey-theme-change' && event.data.theme) {
       const theme = event.data.theme;
       document.documentElement.setAttribute('data-theme', theme);
-      // Re-render Plotly figures with new theme colors
+      // Re-render Plotly figures with new theme colors.
+      // Use dot-notation keys so Plotly merges into the existing layout
+      // instead of replacing entire sub-objects (which would wipe axis
+      // titles, ranges, tick formats, etc.).
       const themeLayout = getThemeLayout();
       ALL_FIGURES.forEach(name => {
         const plotEl = document.getElementById(`plot-${name}`);
         if (plotEl && plotEl.data) {
-          const axisUpdates = {};
+          const update = {
+            paper_bgcolor: themeLayout.paper_bgcolor,
+            plot_bgcolor: themeLayout.plot_bgcolor,
+            'font.color': themeLayout.font.color,
+          };
           for (const key of Object.keys(plotEl.layout || {})) {
             if (key.startsWith('xaxis') || key.startsWith('yaxis')) {
-              axisUpdates[key + '.gridcolor'] = themeLayout.xaxis.gridcolor;
-              axisUpdates[key + '.zerolinecolor'] = themeLayout.xaxis.zerolinecolor;
+              update[key + '.gridcolor'] = themeLayout.xaxis.gridcolor;
+              update[key + '.zerolinecolor'] = themeLayout.xaxis.zerolinecolor;
             }
           }
-          Plotly.relayout(plotEl, { ...themeLayout, ...axisUpdates });
+          Plotly.relayout(plotEl, update);
         }
       });
     }
@@ -706,6 +760,183 @@ function savePanelOrder() {
   const order = Array.from(cells).map(c => c.dataset.figure);
   localStorage.setItem(PANEL_ORDER_KEY, JSON.stringify(order));
 }
+
+// ── Sidebar Tabs ─────────────────────────────────────────
+
+function initSidebarTabs() {
+  const tabs = document.querySelectorAll('.sidebar-tab');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const tabName = tab.dataset.tab;
+      const sidebar = document.getElementById('sidebar');
+
+      // If sidebar is collapsed, expand it
+      if (sidebar && sidebar.classList.contains('sidebar-collapsed')) {
+        sidebar.classList.remove('sidebar-collapsed');
+        localStorage.setItem(SIDEBAR_KEY, 'false');
+        setTimeout(() => {
+          ALL_FIGURES.forEach(name => {
+            const plotEl = document.getElementById(`plot-${name}`);
+            if (plotEl && plotEl.data) Plotly.relayout(plotEl, { autosize: true });
+          });
+        }, 250);
+      }
+
+      switchTab(tabName);
+    });
+  });
+
+  // Restore last active tab
+  const savedTab = localStorage.getItem(SIDEBAR_TAB_KEY);
+  if (savedTab) switchTab(savedTab);
+}
+
+function switchTab(tabName) {
+  // Update tab buttons
+  document.querySelectorAll('.sidebar-tab').forEach(t => {
+    t.classList.toggle('sidebar-tab--active', t.dataset.tab === tabName);
+  });
+  // Update tab content
+  document.querySelectorAll('.sidebar-tab-content').forEach(panel => {
+    panel.classList.toggle('sidebar-tab-content--active', panel.id === `tab-${tabName}`);
+  });
+  localStorage.setItem(SIDEBAR_TAB_KEY, tabName);
+}
+
+// ── Settings ─────────────────────────────────────────────
+
+async function loadSettings() {
+  try {
+    const settings = await apiFetch('/api/settings');
+    renderSettingsForm(settings);
+  } catch (err) {
+    console.warn('Failed to load settings:', err);
+  }
+}
+
+function renderSettingsForm(settings) {
+  const container = document.getElementById('settings-container');
+  if (!container) return;
+  container.textContent = '';
+
+  for (const [group, meta] of Object.entries(SETTINGS_FIELDS)) {
+    const groupEl = document.createElement('div');
+    groupEl.className = 'settings-group';
+
+    const header = document.createElement('div');
+    header.className = 'settings-group-header';
+    header.textContent = meta.label;
+    groupEl.appendChild(header);
+
+    const groupSettings = settings[group] || {};
+
+    for (const field of meta.fields) {
+      const row = document.createElement('div');
+      row.className = 'settings-field';
+
+      const label = document.createElement('span');
+      label.className = 'settings-field-label';
+      label.textContent = field.label;
+      row.appendChild(label);
+
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.className = 'settings-field-input';
+      input.id = `setting-${group}-${field.key}`;
+      input.min = field.min;
+      input.max = field.max;
+      input.step = field.step;
+      input.dataset.group = group;
+      input.dataset.key = field.key;
+      input.dataset.fieldType = field.type;
+
+      const val = groupSettings[field.key];
+      if (val != null) {
+        input.value = field.type === 'int' || field.type === 'int_or_null' ? Math.round(val) : val;
+      } else if (field.type === 'int_or_null') {
+        input.placeholder = 'auto';
+      }
+
+      row.appendChild(input);
+
+      if (field.unit) {
+        const unit = document.createElement('span');
+        unit.className = 'settings-field-unit';
+        unit.textContent = field.unit;
+        row.appendChild(unit);
+      }
+
+      groupEl.appendChild(row);
+    }
+
+    container.appendChild(groupEl);
+  }
+
+  // Action buttons
+  const actions = document.createElement('div');
+  actions.className = 'settings-actions';
+
+  const resetBtn = document.createElement('button');
+  resetBtn.className = 'settings-btn';
+  resetBtn.textContent = 'RESET';
+  resetBtn.addEventListener('click', resetSettings);
+  actions.appendChild(resetBtn);
+
+  const applyBtn = document.createElement('button');
+  applyBtn.className = 'settings-btn settings-btn--apply';
+  applyBtn.textContent = 'APPLY';
+  applyBtn.addEventListener('click', applySettings);
+  actions.appendChild(applyBtn);
+
+  container.appendChild(actions);
+}
+
+function collectSettingsFromForm() {
+  const settings = {};
+  const inputs = document.querySelectorAll('.settings-field-input');
+  for (const input of inputs) {
+    const group = input.dataset.group;
+    const key = input.dataset.key;
+    const fieldType = input.dataset.fieldType;
+
+    if (!settings[group]) settings[group] = {};
+
+    if (fieldType === 'int_or_null') {
+      const raw = input.value.trim();
+      settings[group][key] = raw === '' ? null : parseInt(raw, 10);
+    } else if (fieldType === 'int') {
+      settings[group][key] = parseInt(input.value, 10);
+    } else {
+      settings[group][key] = parseFloat(input.value);
+    }
+  }
+  return settings;
+}
+
+async function applySettings() {
+  const settings = collectSettingsFromForm();
+  try {
+    await apiFetch('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ settings }),
+    });
+    // Refresh fast figures (cheap, ~1-2s each)
+    await apiFetch('/api/refresh', { method: 'POST' });
+  } catch (err) {
+    console.error('Apply settings failed:', err);
+  }
+}
+
+async function resetSettings() {
+  try {
+    const result = await apiFetch('/api/settings', { method: 'DELETE' });
+    if (result.settings) renderSettingsForm(result.settings);
+  } catch (err) {
+    console.error('Reset settings failed:', err);
+  }
+}
+
+// ── Drag-and-Drop Panel Rearrangement ────────────────
 
 function restorePanelOrder() {
   const saved = localStorage.getItem(PANEL_ORDER_KEY);

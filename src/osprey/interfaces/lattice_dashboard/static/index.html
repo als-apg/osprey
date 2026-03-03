@@ -92,18 +92,41 @@
 
   <!-- Main Content -->
   <div id="main-layout">
-    <!-- Sidebar: Magnet Controls (collapsed by default) -->
+    <!-- Sidebar: Tabbed Controls (collapsed by default) -->
     <aside id="sidebar" class="sidebar-collapsed">
       <div class="sidebar-header">
-        <span class="sidebar-header-label">MAGNET FAMILIES</span>
-        <button id="btn-sidebar-toggle" class="sidebar-toggle" title="Toggle magnet panel">
+        <div class="sidebar-tabs">
+          <button class="sidebar-tab sidebar-tab--active" data-tab="magnets" title="Magnet families">
+            <svg class="sidebar-tab-icon" width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M4 2v12M12 2v12M4 5h8M4 11h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            </svg>
+            <span class="sidebar-tab-label">MAGNETS</span>
+          </button>
+          <button class="sidebar-tab" data-tab="settings" title="Computation settings">
+            <svg class="sidebar-tab-icon" width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.3"/>
+              <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+            </svg>
+            <span class="sidebar-tab-label">SETTINGS</span>
+          </button>
+        </div>
+        <button id="btn-sidebar-toggle" class="sidebar-toggle" title="Toggle panel">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
             <path class="chevron-path" d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
       </div>
-      <div id="slider-container">
-        <div class="sidebar-empty">Load a lattice to see controls</div>
+      <div id="sidebar-content">
+        <div id="tab-magnets" class="sidebar-tab-content sidebar-tab-content--active">
+          <div id="slider-container">
+            <div class="sidebar-empty">Load a lattice to see controls</div>
+          </div>
+        </div>
+        <div id="tab-settings" class="sidebar-tab-content">
+          <div id="settings-container">
+            <div class="sidebar-empty">Loading settings...</div>
+          </div>
+        </div>
       </div>
     </aside>
 
