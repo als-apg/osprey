@@ -1,8 +1,8 @@
 """Local momentum aperture worker — dp acceptance vs s-position.
 
 Computes the momentum acceptance at reference points around one sector
-of the ring using pyAT's ``get_momentum_acceptance``.  Overlays a
-lattice element strip showing magnet locations and types.
+of the ring using a bisection search (matching the DA algorithm).
+Overlays a lattice element strip showing magnet locations and types.
 """
 
 from __future__ import annotations
@@ -21,7 +21,45 @@ from osprey.interfaces.lattice_dashboard.workers._base import (
     load_state,
     parse_args,
     save_data,
+    unpack_tracking,
 )
+
+
+def find_ma_at_refpt(
+    ring: at.Lattice,
+    refpt: int,
+    nturns: int,
+    dp_max: float,
+    n_bisect: int,
+) -> tuple[float, float]:
+    """Binary search for momentum acceptance at a reference point.
+
+    Returns (dp_plus, dp_minus) — both positive values representing
+    the positive and negative momentum acceptance.
+    """
+    rotated = ring.rotate(refpt)
+
+    def search(dp_sign: float) -> float:
+        lo, hi = 0.0, dp_max
+        for _ in range(n_bisect):
+            mid = (lo + hi) / 2.0
+            rin = np.zeros(6)
+            rin[4] = dp_sign * mid
+            result = rotated.track(rin, nturns=nturns)
+            rout = unpack_tracking(result)
+            try:
+                survived = np.all(np.isfinite(rout))
+            except (ValueError, TypeError):
+                survived = False
+            if survived:
+                lo = mid
+            else:
+                hi = mid
+        return lo
+
+    dp_plus = search(+1.0)
+    dp_minus = search(-1.0)
+    return dp_plus, dp_minus
 
 
 def compute_lma(
@@ -29,43 +67,30 @@ def compute_lma(
     n_refpts: int = 100,
     nturns: int = 512,
     dp_max: float = 0.05,
+    n_bisect: int = 15,
     sector_length: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Compute local momentum acceptance over one sector.
-
-    Returns (s_pos, dp_plus, dp_minus) arrays.
-    dp_plus/dp_minus are positive/negative momentum acceptance at each refpt.
-    """
+    """Compute local momentum acceptance over one sector via bisection."""
     circumference = float(ring.get_s_pos(len(ring))[0])
     if sector_length is None:
         sector_length = circumference
 
-    # Select reference points within one sector
     s_all = ring.get_s_pos(range(len(ring) + 1))
     refpts = [i for i in range(len(ring)) if s_all[i] < sector_length]
 
-    # Subsample if too many
     if len(refpts) > n_refpts:
         indices = np.linspace(0, len(refpts) - 1, n_refpts, dtype=int)
         refpts = [refpts[i] for i in indices]
 
-    resolution = dp_max / 50
-
-    try:
-        dp_plus, dp_minus = at.get_momentum_acceptance(
-            ring,
-            resolution,
-            dp_max,
-            nturns=nturns,
-            refpts=refpts,
+    dp_plus = np.zeros(len(refpts))
+    dp_minus = np.zeros(len(refpts))
+    for i, refpt in enumerate(refpts):
+        dp_plus[i], dp_minus[i] = find_ma_at_refpt(
+            ring, refpt, nturns, dp_max, n_bisect
         )
-    except Exception:
-        # Fallback: return empty arrays
-        return np.array([]), np.array([]), np.array([])
 
-    s_pos = np.array([float(s_all[i]) for i in refpts])
-
-    return s_pos, np.array(dp_plus), np.array(dp_minus)
+    s_pos = np.array([float(s_all[r]) for r in refpts])
+    return s_pos, dp_plus, dp_minus
 
 
 def extract_lattice_elements(
@@ -300,6 +325,7 @@ def main() -> None:
     nturns = settings["nturns"]
     n_refpts = settings["n_refpts"]
     dp_max = settings["dp_max_pct"] / 100.0
+    n_bisect = settings["n_bisect"]
 
     circumference = float(ring.get_s_pos(len(ring))[0])
     periodicity = state.get("summary", {}).get("periodicity", 1)
@@ -308,7 +334,8 @@ def main() -> None:
     sector_length = circumference / n_sectors
 
     s_pos, dp_plus, dp_minus = compute_lma(
-        ring, n_refpts=n_refpts, nturns=nturns, dp_max=dp_max, sector_length=sector_length
+        ring, n_refpts=n_refpts, nturns=nturns, dp_max=dp_max,
+        n_bisect=n_bisect, sector_length=sector_length,
     )
     lattice_elements = extract_lattice_elements(ring, sector_length)
 
@@ -325,7 +352,7 @@ def main() -> None:
     if baseline_ring is not None:
         bs, bdp_p, bdp_m = compute_lma(
             baseline_ring, n_refpts=n_refpts, nturns=nturns, dp_max=dp_max,
-            sector_length=sector_length,
+            n_bisect=n_bisect, sector_length=sector_length,
         )
         raw["baseline"] = {
             "s_pos": bs.tolist(),

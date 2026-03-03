@@ -288,45 +288,54 @@ class TestResonanceOverlay:
 
 
 class TestComputeLMA:
-    """Verify LMA computation with mocked pyAT."""
+    """Verify LMA computation with mocked pyAT bisection."""
 
     def test_lma_compute_basic(self):
         """compute_lma should return s_pos, dp_plus, dp_minus arrays."""
         from osprey.interfaces.lattice_dashboard.workers.lma import compute_lma
 
+        # Rotated ring mock: track() returns finite data (particle survives)
+        rotated = MagicMock()
+        survived_data = np.zeros((6, 1, 1))  # 4D shape, squeezed by unpack_tracking
+        rotated.track.return_value = survived_data
+
         ring = MagicMock()
         ring.get_s_pos.return_value = np.linspace(0, 200, 101)
         ring.__len__ = lambda self: 100
+        ring.rotate.return_value = rotated
 
-        # Mock at.get_momentum_acceptance
         n_refpts = 20
-        dp_plus = np.full(n_refpts, 0.03)
-        dp_minus = np.full(n_refpts, 0.025)
+        dp_max = 0.05
+        s, dpp, dpm = compute_lma(
+            ring, n_refpts=n_refpts, dp_max=dp_max, n_bisect=5, sector_length=100.0,
+        )
 
-        with patch("osprey.interfaces.lattice_dashboard.workers.lma.at") as mock_at:
-            mock_at.get_momentum_acceptance.return_value = (dp_plus, dp_minus)
-            s, dpp, dpm = compute_lma(ring, n_refpts=n_refpts, sector_length=100.0)
-
-        assert len(s) > 0
+        assert len(s) == n_refpts
         assert len(s) == len(dpp) == len(dpm)
-        np.testing.assert_array_equal(dpp, dp_plus)
-        np.testing.assert_array_equal(dpm, dp_minus)
+        # All particles survive → bisection converges near dp_max
+        assert np.all(dpp > 0)
+        assert np.all(dpm > 0)
 
-    def test_lma_fallback_on_error(self):
-        """compute_lma should return empty arrays if get_momentum_acceptance fails."""
+    def test_lma_all_lost(self):
+        """compute_lma should return near-zero acceptance when all particles are lost."""
         from osprey.interfaces.lattice_dashboard.workers.lma import compute_lma
 
+        # Rotated ring mock: track() returns NaN (particle lost)
+        rotated = MagicMock()
+        lost_data = np.full((6, 1, 1), np.nan)
+        rotated.track.return_value = lost_data
+
         ring = MagicMock()
         ring.get_s_pos.return_value = np.linspace(0, 200, 101)
         ring.__len__ = lambda self: 100
+        ring.rotate.return_value = rotated
 
-        with patch("osprey.interfaces.lattice_dashboard.workers.lma.at") as mock_at:
-            mock_at.get_momentum_acceptance.side_effect = RuntimeError("No convergence")
-            s, dpp, dpm = compute_lma(ring, sector_length=100.0)
+        s, dpp, dpm = compute_lma(ring, n_refpts=10, n_bisect=5, sector_length=100.0)
 
-        assert len(s) == 0
-        assert len(dpp) == 0
-        assert len(dpm) == 0
+        assert len(s) == 10
+        # All particles lost → bisection converges to 0
+        np.testing.assert_allclose(dpp, 0.0, atol=1e-10)
+        np.testing.assert_allclose(dpm, 0.0, atol=1e-10)
 
 
 class TestExtractLatticeElements:

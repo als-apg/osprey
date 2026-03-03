@@ -26,12 +26,14 @@ DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
         "nturns": 512,
         "n_angles": 19,
         "amp_max_mm": 30.0,
+        "n_bisect": 15,
     },
     "lma": {
         "nturns": 512,
         "n_refpts": 100,
         "dp_max_pct": 5.0,
         "n_sectors": None,
+        "n_bisect": 15,
     },
     "chromaticity": {
         "dp_min_pct": -3.0,
@@ -51,12 +53,14 @@ _VALIDATION_RANGES: dict[str, dict[str, tuple[float, float]]] = {
         "nturns": (64, 8192),
         "n_angles": (5, 72),
         "amp_max_mm": (1.0, 100.0),
+        "n_bisect": (5, 30),
     },
     "lma": {
         "nturns": (64, 8192),
         "n_refpts": (10, 500),
         "dp_max_pct": (0.5, 20.0),
         "n_sectors": (1, 100),
+        "n_bisect": (5, 30),
     },
     "chromaticity": {
         "dp_min_pct": (-20.0, 0.0),
@@ -192,7 +196,12 @@ class LatticeState:
         chrom = [float(rd.chromaticity[0]), float(rd.chromaticity[1])]
         energy_gev = float(ring.energy) / 1e9
         circumference = float(ring.get_s_pos(len(ring))[0])
-        periodicity = int(getattr(ring, "periodicity", 1))
+        sect_count = sum(
+            1 for elem in ring
+            if getattr(elem, "FamName", "").startswith("SECT")
+            and getattr(elem, "FamName", "")[4:].isdigit()
+        )
+        periodicity = sect_count if sect_count > 1 else int(getattr(ring, "periodicity", 1))
 
         # Discover magnet families
         families: dict[str, dict[str, Any]] = {}
