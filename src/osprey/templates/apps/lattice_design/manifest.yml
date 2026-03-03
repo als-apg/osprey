@@ -23,6 +23,7 @@ artifacts:
     - diagnose
     - setup-mode
     - session-report
+    - demo-gallery
     - lattice-evaluation  # references only (SKILL.md.j2 replaced by dashboard)
   agents:
     - data-visualizer
