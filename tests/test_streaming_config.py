@@ -2,8 +2,6 @@
 
 from unittest.mock import patch
 
-import pytest
-
 
 class TestGetStreamingMode:
     """Tests for get_streaming_mode() resolution logic."""

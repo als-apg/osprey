@@ -370,7 +370,7 @@ openwebui:
   # Controls how LLM streaming output is displayed per node
   # Options: show | hide | disabled
   #   show     - tokens stream live, code block visible
-  #   hide     - collapsed <details> block, user can expand to watch live
+  #   hide     - buffered during streaming, collapsed <details> block after completion
   #   disabled - not displayed at all
   streaming:
     respond: show                   # Final response (show | disabled; hide not allowed)
