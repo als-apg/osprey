@@ -54,6 +54,7 @@ REGEN_TRACKED_FILES = [
     ".claude/skills/session-report/SKILL.md",
     ".claude/skills/session-report/reference.md",
     ".claude/skills/setup-mode/SKILL.md",
+    ".claude/skills/demo-gallery/SKILL.md",
     ".claude/rules/timezone.md",
     ".claude/output-styles/control-operator.md",
     # lattice_design skills and rules (render empty for other templates)

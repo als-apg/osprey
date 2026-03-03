@@ -25,6 +25,7 @@ artifacts:
     - diagnose
     - setup-mode
     - session-report
+    - demo-gallery
   agents:
     - channel-finder
     - direct-channel-finder
