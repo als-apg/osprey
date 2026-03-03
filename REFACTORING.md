@@ -6,7 +6,7 @@
 ## Summary
 
 - Total items: 34
-- Completed: 7 (RF-001, RF-002, RF-004, RF-005, RF-006, RF-008, RF-011) | Partial: 1 (RF-003)
+- Completed: 9 (RF-001, RF-002, RF-004, RF-005, RF-006, RF-007, RF-008, RF-009, RF-011) | Partial: 1 (RF-003)
 - Remaining: 27
 - High priority (P0): 3 | P1: 9 | P2: 12 | P3: 10
 
@@ -128,7 +128,7 @@
 
 ---
 
-### [P1] RF-007: "registry" concept collision across 10+ modules (pending)
+### [P1] RF-007: "registry" concept collision across 10+ modules (completed)
 
 **Severity**: high | **Category**: naming, cohesion
 **Files**: `src/osprey/registry/manager.py`, `src/osprey/mcp_server/*/registry.py` (6 files), `src/osprey/cli/prompt_registry.py`, `src/osprey/cli/server_registry.py`, `src/osprey/models/provider_registry.py`
@@ -142,8 +142,9 @@
 3. Rename `registry/registry.py` to `registry/builtins.py`
 4. Reserve "registry" exclusively for `osprey.registry.RegistryManager`
 
-**Status**: pending
-**Notes**:
+**Status**: completed
+**Completed date**: 2026-03-03
+**Notes**: Renamed CLI catalogs (`PromptRegistry` → `PromptCatalog` in `prompt_catalog.py`, `ServerRegistry` → `ServerCatalog` in `server_catalog.py`). Renamed `registry/registry.py` → `registry/builtins.py`. MCP server `registry.py` renaming deferred (lower impact, higher risk).
 
 ---
 
@@ -163,7 +164,7 @@
 
 ---
 
-### [P1] RF-009: prompt_gallery_service.py imports from cli/ — layering violation (pending)
+### [P1] RF-009: prompt_gallery_service.py imports from cli/ — layering violation (completed)
 
 **Severity**: high | **Category**: dependency
 **Files**: `src/osprey/interfaces/web_terminal/prompt_gallery_service.py`
@@ -173,8 +174,9 @@
 
 **Approach**: Extract `PromptRegistry`, `PromptArtifact`, and template access into a shared services module (e.g., `osprey.services.prompts/`). CLI commands become thin wrappers delegating to the shared service.
 
-**Status**: pending
-**Notes**:
+**Status**: completed
+**Completed date**: 2026-03-03
+**Notes**: Extracted `PromptCatalog`, `PromptArtifact` to `services/prompts/catalog.py` and 5 ownership helpers to `services/prompts/ownership.py`. Deleted `cli/prompt_catalog.py` (clean cut-over, no re-export shim). Updated 8 src/ files and 4 test files. `TemplateManager` and `build_claude_code_context` remain as lazy CLI imports (acceptable — template rendering engine used across many CLI commands).
 
 ---
 
