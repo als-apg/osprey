@@ -73,7 +73,7 @@ def _patch_model_resolution():
     """Context manager that patches provider/config resolution for compose tests."""
     return (
         patch("osprey.utils.config.get_config_value", return_value=_MOCK_COMPOSITION_CONFIG),
-        patch("osprey.utils.config.get_provider_config", return_value=_MOCK_PROVIDER_CONFIG),
+        patch("osprey.models.config.get_provider_config", return_value=_MOCK_PROVIDER_CONFIG),
     )
 
 
@@ -116,7 +116,7 @@ class TestLogbookCompose:
 
         with (
             patch("osprey.utils.config.get_config_value", return_value=_MOCK_COMPOSITION_CONFIG),
-            patch("osprey.utils.config.get_provider_config", return_value={}),
+            patch("osprey.models.config.get_provider_config", return_value={}),
         ):
             resp = app_client.post(
                 "/api/logbook/compose",

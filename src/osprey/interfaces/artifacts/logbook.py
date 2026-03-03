@@ -331,7 +331,7 @@ def _clean_llm_json(text: str) -> str:
     return text
 
 
-from osprey.utils.config import VALID_TIERS
+from osprey.models.tiers import VALID_TIERS
 
 # Default composition config when logbook.composition is absent from config.yml
 _DEFAULT_COMPOSITION = {
@@ -355,7 +355,8 @@ def _resolve_composition_model(
     Returns:
         (provider, model_id) tuple
     """
-    from osprey.utils.config import get_config_value, get_provider_config
+    from osprey.utils.config import get_config_value
+    from osprey.models.config import get_provider_config
 
     # Read logbook.composition section (or fall back to defaults)
     comp = get_config_value("logbook.composition", {})

@@ -28,16 +28,22 @@ warnings.filterwarnings(
 )
 
 from .completion import aget_chat_completion, get_chat_completion  # noqa: E402
+from .config import get_model_config, get_provider_config  # noqa: E402
 from .logging import set_api_call_context  # noqa: E402
 from .messages import ChatCompletionRequest, ChatMessage  # noqa: E402
 from .provider_registry import ProviderRegistry, get_provider_registry  # noqa: E402
+from .tiers import VALID_TIERS, resolve_model_id  # noqa: E402
 
 __all__ = [
     "ChatCompletionRequest",
     "ChatMessage",
     "ProviderRegistry",
+    "VALID_TIERS",
     "aget_chat_completion",
     "get_chat_completion",
+    "get_model_config",
+    "get_provider_config",
     "get_provider_registry",
+    "resolve_model_id",
     "set_api_call_context",
 ]

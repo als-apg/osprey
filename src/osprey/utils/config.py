@@ -17,12 +17,6 @@ import yaml
 # The short name 'CONFIG' enables easy filtering: quiet_logger(['registry', 'CONFIG'])
 logger = logging.getLogger("CONFIG")
 
-# Canonical model tier names used across the framework.
-# Defined here (utils layer) so that both cli/ and other layers can import
-# without creating layering violations.
-VALID_TIERS = frozenset(("haiku", "sonnet", "opus"))
-
-
 def resolve_env_vars(data: Any) -> Any:
     """Recursively resolve environment variables in configuration data.
 
@@ -523,75 +517,6 @@ def load_config(config_path: str | None = None) -> dict[str, Any]:
         >>> channels = config.get("channel_finder", {})
     """
     return _get_config(config_path).raw_config
-
-
-def get_model_config(model_name: str, config_path: str | None = None) -> dict[str, Any]:
-    """
-    Get model configuration with automatic context detection.
-
-    Works both inside and outside framework contexts.
-    All models are configured at the top level in the 'models' section.
-
-    Args:
-        model_name: Name of the model (e.g., 'orchestrator', 'classifier', 'time_parsing',
-                   'response', 'approval', 'memory', 'task_extraction', 'python_code_generator')
-        config_path: Optional explicit path to configuration file for multi-project workflows
-
-    Returns:
-        Dictionary with model configuration containing provider, model_id, and optional settings
-
-    Examples:
-        Default config (searches current directory):
-            >>> get_model_config("orchestrator")
-            {'provider': 'anthropic', 'model_id': 'claude-haiku-4-5-20251001', ...}
-
-        Multi-project workflow:
-            >>> get_model_config("orchestrator", config_path="~/other-project/config.yml")
-            {'provider': 'openai', 'model_id': 'gpt-4o', ...}
-
-    Configuration format (config.yml):
-        models:
-          orchestrator:
-            provider: anthropic
-            model_id: claude-haiku-4-5-20251001
-          classifier:
-            provider: anthropic
-            model_id: claude-haiku-4-5-20251001
-    """
-    configurable = _get_configurable(config_path)
-    model_configs = configurable.get("model_configs", {})
-
-    # Direct lookup from flat structure
-    return model_configs.get(model_name, {})
-
-
-def get_provider_config(provider_name: str, config_path: str | None = None) -> dict[str, Any]:
-    """Get API provider configuration with automatic context detection.
-
-    Args:
-        provider_name: Name of the provider (e.g., 'openai', 'anthropic')
-        config_path: Optional explicit path to configuration file
-
-    Returns:
-        Dictionary with provider configuration
-    """
-    configurable = _get_configurable(config_path)
-    provider_configs = configurable.get("provider_configs", {})
-    return provider_configs.get(provider_name, {})
-
-
-def resolve_model_id(provider: str, model_id_or_tier: str, config_path: str | None = None) -> str:
-    """Resolve a tier name to a provider-specific model ID.
-
-    If model_id_or_tier is a tier (haiku/sonnet/opus), looks up the concrete
-    model ID from api.providers[provider].models[tier]. Non-tier values pass
-    through unchanged for backward compatibility.
-    """
-    if model_id_or_tier not in VALID_TIERS:
-        return model_id_or_tier
-    provider_cfg = get_provider_config(provider, config_path)
-    models = provider_cfg.get("models", {})
-    return models.get(model_id_or_tier, model_id_or_tier)
 
 
 def get_framework_service_config(

@@ -94,7 +94,7 @@ async def semantic_search(
     )
 
     try:
-        from osprey.utils.config import get_provider_config
+        from osprey.models.config import get_provider_config
 
         provider_config = get_provider_config(provider_name)
     except FileNotFoundError:
