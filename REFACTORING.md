@@ -6,8 +6,8 @@
 ## Summary
 
 - Total items: 34
-- Completed: 5 (RF-001, RF-002, RF-004, RF-005, RF-008) | Partial: 1 (RF-003)
-- Remaining: 28
+- Completed: 7 (RF-001, RF-002, RF-004, RF-005, RF-006, RF-008, RF-011) | Partial: 1 (RF-003)
+- Remaining: 27
 - High priority (P0): 3 | P1: 9 | P2: 12 | P3: 10
 
 ---
@@ -122,8 +122,9 @@
 4. Fix stale docstring references
 5. Split remaining models into domain-specific files if still >500 lines
 
-**Status**: pending
-**Notes**:
+**Status**: completed
+**Completed date**: 2026-03-02
+**Notes**: Removed dead classes (PlanningMode, AnalysisPhase, StructuredPlan), dead fields (planning_mode, structured_plan), dead functions (3 get_*_from_configurable()), and fixed stale docstrings. File reduced from 1078 to 484 lines.
 
 ---
 
@@ -192,7 +193,7 @@
 
 ---
 
-### [P1] RF-011: ConfigurationError defined in 3 modules with same name (pending)
+### [P1] RF-011: ConfigurationError defined in 3 modules with same name (completed)
 
 **Severity**: medium | **Category**: naming, cohesion
 **Files**: `src/osprey/errors.py`, `src/osprey/services/ariel_search/exceptions.py`, `src/osprey/services/channel_finder/core/exceptions.py`
@@ -202,8 +203,9 @@
 
 **Approach**: Make service-specific exceptions inherit from the framework-level `osprey.errors.ConfigurationError` for consistent catch-all handling, while keeping their service-specific constructors.
 
-**Status**: pending
-**Notes**:
+**Status**: completed
+**Completed date**: 2026-03-02
+**Notes**: Added `osprey.errors.ConfigurationError` as second base class to both service-specific variants via multiple inheritance. MRO chains correctly: ARIEL's `ConfigurationError → ARIELException → _FrameworkConfigurationError → Exception`; channel finder's `ConfigurationError → ChannelFinderError → _FrameworkConfigurationError → Exception`. All existing `except ARIELException` and `except ChannelFinderError` catches still work; new: `except osprey.errors.ConfigurationError` catches all three.
 
 ---
 
