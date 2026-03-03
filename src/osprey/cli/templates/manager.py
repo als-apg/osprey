@@ -356,6 +356,10 @@ class TemplateManager:
         ctx.setdefault("disable_agents", [])
         ctx.setdefault("extra_servers", {})
 
+        # Textbooks root -- resolve relative to project directory
+        _textbooks_dir = project_dir.parent / "data" / "textbooks"
+        ctx["textbooks_root"] = str(_textbooks_dir) if _textbooks_dir.is_dir() else None
+
         # Resolve servers and agents via the data-driven registry.
         # Merge init-time overrides (passed via context=) into cc_cfg
         # so the resolver sees them -- e.g. context={"disable_agents": [...]}.
