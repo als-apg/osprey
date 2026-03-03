@@ -133,7 +133,7 @@ def migrate_command() -> None:
     async def _migrate() -> None:
         from osprey.services.ariel_search import ARIELConfig
         from osprey.services.ariel_search.database.connection import create_connection_pool
-        from osprey.services.ariel_search.database.migrate import run_migrations
+        from osprey.services.ariel_search.database.migrations import run_migrations
 
         # Load config (get_config imported at module level)
         config_dict = get_config_value("ariel", {})
@@ -645,7 +645,7 @@ def reembed_command(
 
     async def _reembed() -> None:
         from osprey.services.ariel_search import ARIELConfig, create_ariel_service
-        from osprey.services.ariel_search.database.migration import model_to_table_name
+        from osprey.services.ariel_search.database.migrations import model_to_table_name
         from osprey.services.ariel_search.enhancement.text_embedding import (
             TextEmbeddingMigration,
         )
@@ -826,7 +826,7 @@ def quickstart_command(source: str | None) -> None:
     async def _quickstart() -> None:
         from osprey.services.ariel_search import ARIELConfig, create_ariel_service
         from osprey.services.ariel_search.database.connection import create_connection_pool
-        from osprey.services.ariel_search.database.migrate import run_migrations
+        from osprey.services.ariel_search.database.migrations import run_migrations
         from osprey.services.ariel_search.ingestion import get_adapter
 
         # 1. Load config

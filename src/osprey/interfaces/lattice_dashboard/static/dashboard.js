@@ -32,7 +32,7 @@ const LIGHT_LAYOUT = {
 };
 
 function getThemeLayout() {
-  return document.body.classList.contains('theme-light') ? LIGHT_LAYOUT : DARK_LAYOUT;
+  return document.documentElement.getAttribute('data-theme') === 'light' ? LIGHT_LAYOUT : DARK_LAYOUT;
 }
 
 const PLOTLY_CONFIG = {
@@ -530,13 +530,9 @@ function renderPlotly(name, figData) {
 
 function handleThemeMessages() {
   window.addEventListener('message', (event) => {
-    if (event.data && typeof event.data === 'string' && event.data.startsWith('theme:set:')) {
-      const theme = event.data.split(':')[2];
-      if (theme === 'light') {
-        document.body.classList.add('theme-light');
-      } else {
-        document.body.classList.remove('theme-light');
-      }
+    if (event.data && event.data.type === 'osprey-theme-change' && event.data.theme) {
+      const theme = event.data.theme;
+      document.documentElement.setAttribute('data-theme', theme);
       // Re-render Plotly figures with new theme colors
       const themeLayout = getThemeLayout();
       ALL_FIGURES.forEach(name => {

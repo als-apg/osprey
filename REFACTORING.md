@@ -211,18 +211,19 @@
 
 ---
 
-### [P1] RF-012: migrate.py vs migration.py near-collision (pending)
+### [P1] RF-012: migrate.py vs migration.py near-collision (completed)
 
 **Severity**: medium | **Category**: naming
 **Files**: `src/osprey/services/ariel_search/database/migrate.py`, `src/osprey/services/ariel_search/database/migration.py`
-**Impact radius**: ~6 files
+**Impact radius**: ~12 files
 
 **Problem**: Two files in the same directory differ by only a suffix. `migration.py` defines the base class; `migrate.py` is the runner. A developer can't tell which to import without reading both.
 
-**Approach**: Rename `migration.py` → `migration_base.py`, `migrate.py` → `migration_runner.py`.
+**Approach**: Merged both into a single `migrations.py` (plural). Combined ~380 lines, well under module size limits. Clean cut-over with no re-export shims.
 
-**Status**: pending
-**Notes**:
+**Status**: completed
+**Completed date**: 2026-03-03
+**Notes**: Merged `migration.py` (BaseMigration, MigrationSkippedError, model_to_table_name) + `migrate.py` (KNOWN_MIGRATIONS, MigrationRunner, run_migrations) → `migrations.py`. Updated 12 importers across database/, enhancement/, cli/, scripts/, and tests/.
 
 ---
 

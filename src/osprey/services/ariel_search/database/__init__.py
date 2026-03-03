@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from osprey.services.ariel_search.database.core_migration import CoreMigration
-from osprey.services.ariel_search.database.migration import (
+from osprey.services.ariel_search.database.migrations import (
     BaseMigration,
     model_to_table_name,
 )
@@ -21,13 +21,13 @@ if TYPE_CHECKING:
     from osprey.services.ariel_search.database.connection import (
         create_connection_pool as create_connection_pool,
     )
-    from osprey.services.ariel_search.database.migrate import (
+    from osprey.services.ariel_search.database.migrations import (
         KNOWN_MIGRATIONS as KNOWN_MIGRATIONS,
     )
-    from osprey.services.ariel_search.database.migrate import (
+    from osprey.services.ariel_search.database.migrations import (
         MigrationRunner as MigrationRunner,
     )
-    from osprey.services.ariel_search.database.migrate import (
+    from osprey.services.ariel_search.database.migrations import (
         run_migrations as run_migrations,
     )
     from osprey.services.ariel_search.database.repository import (
@@ -60,7 +60,7 @@ def __getattr__(name: str):
         return create_connection_pool
 
     if name in ("KNOWN_MIGRATIONS", "MigrationRunner", "run_migrations"):
-        from osprey.services.ariel_search.database.migrate import (
+        from osprey.services.ariel_search.database.migrations import (
             KNOWN_MIGRATIONS,
             MigrationRunner,
             run_migrations,

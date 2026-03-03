@@ -439,6 +439,10 @@ function createIframe(panelId) {
           { type: 'theme:set', theme: getTheme() },
           '*'
         );
+        iframe.contentWindow.postMessage(
+          { type: 'osprey-theme-change', theme: getTheme() },
+          '*'
+        );
         const sid = getCurrentSessionId();
         if (sid) {
           iframe.contentWindow.postMessage(

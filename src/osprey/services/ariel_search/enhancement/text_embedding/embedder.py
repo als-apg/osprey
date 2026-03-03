@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from osprey.services.ariel_search.database.migration import model_to_table_name
+from osprey.services.ariel_search.database.migrations import model_to_table_name
 from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule
 from osprey.services.ariel_search.enhancement.text_embedding.migration import (
     TextEmbeddingMigration,
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from psycopg import AsyncConnection
 
     from osprey.models.embeddings.base import BaseEmbeddingProvider
-    from osprey.services.ariel_search.database.migration import BaseMigration
+    from osprey.services.ariel_search.database.migrations import BaseMigration
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
 
 logger = get_logger("ariel")

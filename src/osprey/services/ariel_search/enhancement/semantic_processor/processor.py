@@ -18,7 +18,7 @@ from osprey.utils.logger import get_logger
 if TYPE_CHECKING:
     from psycopg import AsyncConnection
 
-    from osprey.services.ariel_search.database.migration import BaseMigration
+    from osprey.services.ariel_search.database.migrations import BaseMigration
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
 
 logger = get_logger("ariel")
