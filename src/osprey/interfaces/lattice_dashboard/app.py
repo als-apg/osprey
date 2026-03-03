@@ -12,6 +12,7 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import threading
@@ -28,7 +29,7 @@ from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
 from osprey.interfaces.lattice_dashboard.compute import ComputeManager
-from osprey.interfaces.lattice_dashboard.state import ALL_FIGURES, LatticeState
+from osprey.interfaces.lattice_dashboard.state import ALL_FIGURES, DEFAULT_SETTINGS, LatticeState
 from osprey.interfaces.lattice_dashboard.workers._base import figure_to_dict
 from osprey.interfaces.lattice_dashboard.workers.chromaticity import (
     build_figure as build_chromaticity,
@@ -92,6 +93,7 @@ def _build_footprint(raw: dict) -> go.Figure:
         baseline = (np.array(b["nux"]), np.array(b["nuy"]), np.array(b["amps"]))
     design_tune = tuple(raw["design_tune"]) if raw.get("design_tune") else None
     baseline_tune = tuple(raw["baseline_tune"]) if raw.get("baseline_tune") else None
+    n_amp = raw.get("n_amp", 10)
     return build_footprint(
         np.array(raw["nux"]),
         np.array(raw["nuy"]),
@@ -100,6 +102,7 @@ def _build_footprint(raw: dict) -> go.Figure:
         design_tune=design_tune,
         baseline_tune=baseline_tune,
         baseline=baseline,
+        n_total=n_amp * n_amp,
     )
 
 
@@ -137,6 +140,7 @@ def _build_lma_figure(raw: dict) -> go.Figure:
         np.array(raw["dp_minus"]),
         raw.get("lattice_elements", []),
         baseline=baseline,
+        n_sectors=raw.get("n_sectors", 1),
     )
 
 
@@ -191,6 +195,10 @@ class ParamRequest(BaseModel):
     value: float
 
 
+class SettingsRequest(BaseModel):
+    settings: dict[str, dict[str, Any]]
+
+
 # ── App factory ───────────────────────────────────────────
 
 
@@ -232,7 +240,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     @app.get("/api/state")
     async def get_state() -> dict[str, Any]:
-        return state.load()
+        s = state.load()
+        if "settings" not in s:
+            s["settings"] = copy.deepcopy(DEFAULT_SETTINGS)
+        return s
 
     @app.post("/api/state/init")
     async def init_lattice(body: InitRequest) -> dict[str, Any]:
@@ -338,6 +349,24 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         state.clear_baseline()
         broadcaster.broadcast({"type": "baseline_cleared"})
         return {"status": "ok"}
+
+    # ── Settings API ──────────────────────────────────────
+
+    @app.get("/api/settings")
+    async def get_settings() -> dict[str, Any]:
+        return state.get_settings()
+
+    @app.put("/api/settings")
+    async def update_settings(body: SettingsRequest) -> dict[str, Any]:
+        result = state.update_settings(body.settings)
+        broadcaster.broadcast({"type": "settings_updated", "settings": result})
+        return result
+
+    @app.delete("/api/settings")
+    async def reset_settings() -> dict[str, Any]:
+        result = state.reset_settings()
+        broadcaster.broadcast({"type": "settings_updated", "settings": result})
+        return {"status": "ok", "settings": result}
 
     # ── SSE stream ────────────────────────────────────────
 

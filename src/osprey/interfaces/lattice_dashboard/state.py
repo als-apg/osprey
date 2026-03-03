@@ -7,6 +7,7 @@ through this file.
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import threading
@@ -20,6 +21,56 @@ FAST_FIGURES = ("optics", "resonance", "chromaticity", "footprint")
 VERIFICATION_FIGURES = ("da", "lma")
 ALL_FIGURES = FAST_FIGURES + VERIFICATION_FIGURES
 
+DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
+    "da": {
+        "nturns": 512,
+        "n_angles": 19,
+        "amp_max_mm": 30.0,
+    },
+    "lma": {
+        "nturns": 512,
+        "n_refpts": 100,
+        "dp_max_pct": 5.0,
+        "n_sectors": None,
+    },
+    "chromaticity": {
+        "dp_min_pct": -3.0,
+        "dp_max_pct": 3.0,
+        "n_steps": 25,
+    },
+    "footprint": {
+        "n_amp": 10,
+        "x_max_mm": 3.0,
+        "y_max_mm": 1.0,
+        "n_half": 256,
+    },
+}
+
+_VALIDATION_RANGES: dict[str, dict[str, tuple[float, float]]] = {
+    "da": {
+        "nturns": (64, 8192),
+        "n_angles": (5, 72),
+        "amp_max_mm": (1.0, 100.0),
+    },
+    "lma": {
+        "nturns": (64, 8192),
+        "n_refpts": (10, 500),
+        "dp_max_pct": (0.5, 20.0),
+        "n_sectors": (1, 100),
+    },
+    "chromaticity": {
+        "dp_min_pct": (-20.0, 0.0),
+        "dp_max_pct": (0.0, 20.0),
+        "n_steps": (5, 200),
+    },
+    "footprint": {
+        "n_amp": (3, 30),
+        "x_max_mm": (0.1, 50.0),
+        "y_max_mm": (0.1, 50.0),
+        "n_half": (32, 2048),
+    },
+}
+
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
@@ -27,6 +78,44 @@ def _now_iso() -> str:
 
 def _default_figure_status() -> dict[str, dict[str, Any]]:
     return {name: {"status": "idle", "updated": None, "error": None} for name in ALL_FIGURES}
+
+
+def _validate_setting(group: str, key: str, value: Any) -> Any:
+    """Coerce type and clamp to valid range."""
+    default = DEFAULT_SETTINGS.get(group, {}).get(key)
+
+    # Handle nullable n_sectors
+    if group == "lma" and key == "n_sectors":
+        if value is None:
+            return None
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            return default
+        lo, hi = _VALIDATION_RANGES["lma"]["n_sectors"]
+        return max(int(lo), min(int(hi), value))
+
+    # Type coercion based on default type
+    if isinstance(default, int):
+        try:
+            value = int(float(value))
+        except (TypeError, ValueError):
+            return default
+    elif isinstance(default, float):
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return default
+
+    # Range clamping
+    ranges = _VALIDATION_RANGES.get(group, {}).get(key)
+    if ranges is not None:
+        lo, hi = ranges
+        value = max(lo, min(hi, value))
+        if isinstance(default, int):
+            value = int(value)
+
+    return value
 
 
 class LatticeState:
@@ -81,6 +170,7 @@ class LatticeState:
             "families": {},
             "figures": _default_figure_status(),
             "baseline": None,
+            "settings": copy.deepcopy(DEFAULT_SETTINGS),
         }
 
     # ── Initialize ────────────────────────────────────────────
@@ -155,6 +245,10 @@ class LatticeState:
             ),
         }
 
+        # Preserve existing settings across re-init
+        existing = self.load() if self._state_path.exists() else {}
+        preserved_settings = existing.get("settings", copy.deepcopy(DEFAULT_SETTINGS))
+
         state = {
             "base_lattice": str(lattice_path),
             "overrides": {},
@@ -162,6 +256,7 @@ class LatticeState:
             "families": families,
             "figures": _default_figure_status(),
             "baseline": None,
+            "settings": preserved_settings,
         }
 
         self.save(state)
@@ -245,6 +340,67 @@ class LatticeState:
                 "error": error,
             }
             self._save_unlocked(state)
+
+    # ── Settings ──────────────────────────────────────────
+
+    def get_settings(self) -> dict[str, Any]:
+        """Return current settings merged with defaults for missing keys."""
+        state = self.load()
+        saved = state.get("settings", {})
+        merged: dict[str, Any] = copy.deepcopy(DEFAULT_SETTINGS)
+        for group, defaults in merged.items():
+            if group in saved:
+                for key in defaults:
+                    if key in saved[group]:
+                        defaults[key] = saved[group][key]
+        return merged
+
+    def update_settings(self, new_settings: dict[str, Any]) -> dict[str, Any]:
+        """Deep-merge setting updates, validate, and mark affected figures stale."""
+        with self._lock:
+            state = self._load_unlocked()
+            settings = state.get("settings", copy.deepcopy(DEFAULT_SETTINGS))
+
+            affected_figures: set[str] = set()
+            for group, values in new_settings.items():
+                if group not in DEFAULT_SETTINGS or not isinstance(values, dict):
+                    continue
+                if group not in settings:
+                    settings[group] = {}
+                for key, value in values.items():
+                    if key not in DEFAULT_SETTINGS[group]:
+                        continue
+                    settings[group][key] = _validate_setting(group, key, value)
+                # Map group → affected figure(s)
+                if group == "chromaticity":
+                    affected_figures.add("chromaticity")
+                elif group == "footprint":
+                    affected_figures.add("footprint")
+                elif group == "da":
+                    affected_figures.add("da")
+                elif group == "lma":
+                    affected_figures.add("lma")
+
+            state["settings"] = settings
+
+            for fig_name in affected_figures:
+                if state["figures"].get(fig_name, {}).get("status") == "ready":
+                    state["figures"][fig_name]["status"] = "stale"
+
+            self._save_unlocked(state)
+            return settings
+
+    def reset_settings(self) -> dict[str, Any]:
+        """Reset all settings to defaults."""
+        with self._lock:
+            state = self._load_unlocked()
+            state["settings"] = copy.deepcopy(DEFAULT_SETTINGS)
+            # Mark all figures stale
+            for fig_name in ALL_FIGURES:
+                if state["figures"].get(fig_name, {}).get("status") == "ready":
+                    state["figures"][fig_name]["status"] = "stale"
+            self._save_unlocked(state)
+            return state["settings"]
 
     # ── Baseline ──────────────────────────────────────────────
 
