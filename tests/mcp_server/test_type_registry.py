@@ -5,7 +5,7 @@ import re
 
 import pytest
 
-from osprey.mcp_server.type_registry import (
+from osprey.stores.type_registry import (
     ARTIFACT_TYPES,
     CATEGORIES,
     TOOL_TYPES,

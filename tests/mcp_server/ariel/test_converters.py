@@ -205,7 +205,7 @@ class TestNotebookToPng:
 
         with (
             patch(
-                "osprey.mcp_server.notebook_renderer.render_notebook_to_html",
+                "osprey.stores.notebook_renderer.render_notebook_to_html",
                 return_value="<html><body>Notebook</body></html>",
             ),
             patch(
@@ -232,7 +232,7 @@ class TestNotebookToPng:
 
         with (
             patch(
-                "osprey.mcp_server.notebook_renderer.render_notebook_to_html",
+                "osprey.stores.notebook_renderer.render_notebook_to_html",
                 return_value="<html>NB</html>",
             ),
             patch(

@@ -366,7 +366,7 @@ async def test_entry_create_with_artifact_ids_direct(tmp_path, monkeypatch):
     """Direct mode with artifact_ids resolves and attaches PNG artifact."""
     _setup_registry(tmp_path, monkeypatch)
 
-    from osprey.mcp_server.artifact_store import ArtifactStore
+    from osprey.stores.artifact_store import ArtifactStore
 
     store = ArtifactStore(workspace_root=tmp_path)
     art = store.save_file(
@@ -388,7 +388,7 @@ async def test_entry_create_with_artifact_ids_direct(tmp_path, monkeypatch):
             new=AsyncMock(return_value=mock_service),
         ),
         patch(
-            "osprey.mcp_server.artifact_store.get_artifact_store",
+            "osprey.stores.artifact_store.get_artifact_store",
             return_value=store,
         ),
     ):
@@ -410,7 +410,7 @@ async def test_entry_create_with_html_artifact_auto_converts(tmp_path, monkeypat
     """HTML artifact is auto-converted to PNG via converter registry."""
     _setup_registry(tmp_path, monkeypatch)
 
-    from osprey.mcp_server.artifact_store import ArtifactStore
+    from osprey.stores.artifact_store import ArtifactStore
 
     store = ArtifactStore(workspace_root=tmp_path)
     art = store.save_file(
@@ -439,7 +439,7 @@ async def test_entry_create_with_html_artifact_auto_converts(tmp_path, monkeypat
             new=AsyncMock(return_value=mock_service),
         ),
         patch(
-            "osprey.mcp_server.artifact_store.get_artifact_store",
+            "osprey.stores.artifact_store.get_artifact_store",
             return_value=store,
         ),
         patch(
@@ -465,7 +465,7 @@ async def test_entry_create_with_markdown_artifact(tmp_path, monkeypatch):
     """Markdown artifact is converted to PNG via converter registry."""
     _setup_registry(tmp_path, monkeypatch)
 
-    from osprey.mcp_server.artifact_store import ArtifactStore
+    from osprey.stores.artifact_store import ArtifactStore
 
     store = ArtifactStore(workspace_root=tmp_path)
     art = store.save_file(
@@ -493,7 +493,7 @@ async def test_entry_create_with_markdown_artifact(tmp_path, monkeypatch):
             new=AsyncMock(return_value=mock_service),
         ),
         patch(
-            "osprey.mcp_server.artifact_store.get_artifact_store",
+            "osprey.stores.artifact_store.get_artifact_store",
             return_value=store,
         ),
         patch(
@@ -519,7 +519,7 @@ async def test_entry_create_with_unknown_mime_type_artifact(tmp_path, monkeypatc
     """Unknown MIME type artifact falls back to text_to_png converter."""
     _setup_registry(tmp_path, monkeypatch)
 
-    from osprey.mcp_server.artifact_store import ArtifactStore
+    from osprey.stores.artifact_store import ArtifactStore
 
     store = ArtifactStore(workspace_root=tmp_path)
     art = store.save_file(
@@ -547,7 +547,7 @@ async def test_entry_create_with_unknown_mime_type_artifact(tmp_path, monkeypatc
             new=AsyncMock(return_value=mock_service),
         ),
         patch(
-            "osprey.mcp_server.artifact_store.get_artifact_store",
+            "osprey.stores.artifact_store.get_artifact_store",
             return_value=store,
         ),
         patch(
@@ -576,12 +576,12 @@ async def test_entry_create_with_invalid_artifact_id(tmp_path, monkeypatch):
     drafts_dir = tmp_path / "drafts"
     monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
 
-    from osprey.mcp_server.artifact_store import ArtifactStore
+    from osprey.stores.artifact_store import ArtifactStore
 
     store = ArtifactStore(workspace_root=tmp_path)
 
     with patch(
-        "osprey.mcp_server.artifact_store.get_artifact_store",
+        "osprey.stores.artifact_store.get_artifact_store",
         return_value=store,
     ):
         fn = _get_entry_create()
@@ -605,7 +605,7 @@ async def test_entry_create_draft_with_artifact_ids(tmp_path, monkeypatch):
     drafts_dir = tmp_path / "drafts"
     monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
 
-    from osprey.mcp_server.artifact_store import ArtifactStore
+    from osprey.stores.artifact_store import ArtifactStore
 
     store = ArtifactStore(workspace_root=tmp_path)
     art = store.save_file(
@@ -618,7 +618,7 @@ async def test_entry_create_draft_with_artifact_ids(tmp_path, monkeypatch):
     )
 
     with patch(
-        "osprey.mcp_server.artifact_store.get_artifact_store",
+        "osprey.stores.artifact_store.get_artifact_store",
         return_value=store,
     ):
         fn = _get_entry_create()

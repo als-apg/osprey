@@ -251,7 +251,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             Defaults to ``./osprey-workspace``.
     """
     from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher
-    from osprey.mcp_server.artifact_store import (
+    from osprey.stores.artifact_store import (
         ArtifactEntry,
         ArtifactStore,
         register_artifact_listener,
@@ -327,7 +327,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     @app.get("/api/type-registry")
     async def get_type_registry():
-        from osprey.mcp_server.type_registry import registry_to_api_dict
+        from osprey.stores.type_registry import registry_to_api_dict
 
         return JSONResponse(registry_to_api_dict())
 
@@ -555,7 +555,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Notebook file not found on disk")
 
         try:
-            from osprey.mcp_server.notebook_renderer import get_or_render_html
+            from osprey.stores.notebook_renderer import get_or_render_html
 
             cache_dir = store.artifact_dir / "_notebook_cache"
             html, _ = get_or_render_html(filepath, cache_dir=cache_dir)

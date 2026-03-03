@@ -108,7 +108,7 @@ async def screenshot_capture(
             info = await backend.capture_window(target, str(filepath))
 
         # Save to ArtifactStore (unified)
-        from osprey.mcp_server.artifact_store import get_artifact_store
+        from osprey.stores.artifact_store import get_artifact_store
 
         store = get_artifact_store()
         entry = store.save_data(

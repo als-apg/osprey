@@ -38,7 +38,7 @@ async def data_list(
         JSON with the list of data entries.
     """
     try:
-        from osprey.mcp_server.artifact_store import get_artifact_store
+        from osprey.stores.artifact_store import get_artifact_store
 
         store = get_artifact_store()
         entries = store.list_entries(
@@ -87,7 +87,7 @@ async def data_read(entry_id: str) -> str:
         The full JSON data content of the entry.
     """
     try:
-        from osprey.mcp_server.artifact_store import get_artifact_store
+        from osprey.stores.artifact_store import get_artifact_store
 
         store = get_artifact_store()
         entry = store.get_entry(entry_id)
@@ -156,7 +156,7 @@ async def data_delete(entry_id: str) -> str:
         JSON confirmation of deletion.
     """
     try:
-        from osprey.mcp_server.artifact_store import get_artifact_store
+        from osprey.stores.artifact_store import get_artifact_store
 
         store = get_artifact_store()
         deleted = store.delete_entry(entry_id)

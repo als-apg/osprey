@@ -148,7 +148,7 @@ class TestCreateStaticPlot:
         with (
             patch(_SANDBOX_EXEC_TARGET, side_effect=mock_execute),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
-            patch("osprey.mcp_server.artifact_store.get_artifact_store") as mock_store,
+            patch("osprey.stores.artifact_store.get_artifact_store") as mock_store,
         ):
             mock_store.return_value.get_file_path.return_value = art_file
             await tool_fn(

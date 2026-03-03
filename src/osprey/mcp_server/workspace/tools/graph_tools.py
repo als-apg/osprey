@@ -94,7 +94,7 @@ async def graph_extract(
         )
 
     # Save to ArtifactStore (unified)
-    from osprey.mcp_server.artifact_store import get_artifact_store
+    from osprey.stores.artifact_store import get_artifact_store
 
     desc = title or f"Graph extraction from {path.name}"
     columns = result.get("columns", [])
@@ -159,7 +159,7 @@ async def graph_compare(
     Returns:
         JSON with comparison metrics and interpretation hints.
     """
-    from osprey.mcp_server.artifact_store import get_artifact_store
+    from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
 
@@ -298,7 +298,7 @@ async def graph_save_reference(
     Returns:
         JSON with the new reference entry ID and details.
     """
-    from osprey.mcp_server.artifact_store import get_artifact_store
+    from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
 

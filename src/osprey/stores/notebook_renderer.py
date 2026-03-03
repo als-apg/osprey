@@ -12,7 +12,7 @@ from pathlib import Path
 
 import nbformat
 
-logger = logging.getLogger("osprey.mcp_server.notebook_renderer")
+logger = logging.getLogger("osprey.stores.notebook_renderer")
 
 
 def create_notebook_from_code(

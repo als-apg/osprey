@@ -13,4 +13,6 @@ Shared utilities are split across focused modules:
 - ``session`` — session metadata collection (``gather_session_metadata``)
 
 Cross-layer config/workspace utilities live in ``osprey.utils.workspace``.
+Storage infrastructure (ArtifactStore, BaseStore, type_registry,
+notebook_renderer) lives in ``osprey.stores``.
 """

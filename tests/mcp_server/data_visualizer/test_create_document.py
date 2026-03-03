@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from osprey.mcp_server.artifact_store import get_artifact_store
+from osprey.stores.artifact_store import get_artifact_store
 
 
 class TestCreateDocument:

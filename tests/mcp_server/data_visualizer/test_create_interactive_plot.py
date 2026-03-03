@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from osprey.mcp_server.artifact_store import get_artifact_store
+from osprey.stores.artifact_store import get_artifact_store
 from osprey.mcp_server.workspace.execution.sandbox_executor import SandboxExecutionResult
 from osprey.mcp_server.workspace.tools._viz_common import resolve_data_source
 
@@ -173,7 +173,7 @@ class TestCreateInteractivePlot:
         with (
             patch(_SANDBOX_EXEC_TARGET, side_effect=mock_execute),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
-            patch("osprey.mcp_server.artifact_store.get_artifact_store") as mock_store,
+            patch("osprey.stores.artifact_store.get_artifact_store") as mock_store,
         ):
             mock_store.return_value.get_file_path.return_value = art_file
             await tool_fn(
@@ -235,13 +235,13 @@ class TestResolveDataSource:
         assert result == "data/002_archiver_read.json"
 
     def test_artifact_id_resolves_via_store(self):
-        with patch("osprey.mcp_server.artifact_store.get_artifact_store") as mock_store:
+        with patch("osprey.stores.artifact_store.get_artifact_store") as mock_store:
             mock_store.return_value.get_file_path.return_value = Path("/art/file.csv")
             result = resolve_data_source("a1b2c3d4e5f6")
         assert result == "/art/file.csv"
 
     def test_artifact_id_not_found_raises(self):
-        with patch("osprey.mcp_server.artifact_store.get_artifact_store") as mock_store:
+        with patch("osprey.stores.artifact_store.get_artifact_store") as mock_store:
             mock_store.return_value.get_file_path.return_value = None
             with pytest.raises(FileNotFoundError, match="Artifact.*not found"):
                 resolve_data_source("a1b2c3d4e5f6")

@@ -14,7 +14,7 @@ import json
 
 import pytest
 
-from osprey.mcp_server.artifact_store import (
+from osprey.stores.artifact_store import (
     get_artifact_store,
     initialize_artifact_store,
     reset_artifact_store,

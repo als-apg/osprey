@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Generic, TypeVar
 
-logger = logging.getLogger("osprey.mcp_server.base_store")
+logger = logging.getLogger("osprey.stores.base_store")
 
 INDEX_VERSION = 1
 

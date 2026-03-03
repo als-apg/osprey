@@ -50,7 +50,7 @@ async def archiver_downsample(
             )
         )
 
-    from osprey.mcp_server.artifact_store import ArtifactStore
+    from osprey.stores.artifact_store import ArtifactStore
 
     store = ArtifactStore(workspace_root=workspace_root)
     entry = store.get_entry(entry_id)

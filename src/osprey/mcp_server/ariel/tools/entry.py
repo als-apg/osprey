@@ -42,7 +42,7 @@ async def _resolve_artifacts(artifact_ids: list[str]) -> list[str]:
     import tempfile
 
     from osprey.mcp_server.ariel.converters import get_converter
-    from osprey.mcp_server.artifact_store import get_artifact_store
+    from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
     resolved: list[str] = []

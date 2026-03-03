@@ -14,8 +14,8 @@ def test_gallery_notebook_render_endpoint(tmp_path):
     """The gallery /api/notebooks/{id}/rendered endpoint returns HTML."""
     import nbformat
 
-    from osprey.mcp_server.artifact_store import ArtifactStore
-    from osprey.mcp_server.notebook_renderer import create_notebook_from_code
+    from osprey.stores.artifact_store import ArtifactStore
+    from osprey.stores.notebook_renderer import create_notebook_from_code
 
     store = ArtifactStore(workspace_root=tmp_path)
     nb = create_notebook_from_code(code="GALLERY_RENDER_MARKER_XYZ", description="Gallery test")
@@ -61,7 +61,7 @@ def test_gallery_notebook_render_404_for_missing(tmp_path):
 @pytest.mark.unit
 def test_gallery_notebook_render_400_for_non_notebook(tmp_path):
     """Render endpoint returns 400 for non-notebook artifact types."""
-    from osprey.mcp_server.artifact_store import ArtifactStore
+    from osprey.stores.artifact_store import ArtifactStore
 
     store = ArtifactStore(workspace_root=tmp_path)
     entry = store.save_file(

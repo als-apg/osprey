@@ -2,7 +2,7 @@
 
 import pytest
 
-from osprey.mcp_server.artifact_store import initialize_artifact_store
+from osprey.stores.artifact_store import initialize_artifact_store
 
 
 @pytest.fixture(autouse=True)

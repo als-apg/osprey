@@ -24,7 +24,7 @@ def resolve_data_source(data_source: str) -> str:
         FileNotFoundError: If the resolved path does not exist.
     """
     if ARTIFACT_ID_RE.match(data_source):
-        from osprey.mcp_server.artifact_store import get_artifact_store
+        from osprey.stores.artifact_store import get_artifact_store
 
         store = get_artifact_store()
         path = store.get_file_path(data_source)
@@ -120,7 +120,7 @@ def collect_and_register_artifacts(
     visualization metadata (code, stdout, data_source) is embedded in the
     artifact's ``metadata`` dict — no separate JSON blob is created.
     """
-    from osprey.mcp_server.artifact_store import get_artifact_store
+    from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
     artifact_ids: list[str] = []
