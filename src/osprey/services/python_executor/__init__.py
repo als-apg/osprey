@@ -26,8 +26,6 @@ from .exceptions import (
 from .execution.control import ExecutionControlConfig, ExecutionMode
 from osprey.connectors.control_system.limits_validator import LimitsValidator
 from .models import (
-    ContainerEndpointConfig,
-    ExecutionModeConfig,
     NotebookAttempt,
     NotebookType,
     PythonExecutionContext,
@@ -59,8 +57,6 @@ __all__ = [
     # Limits validation
     "LimitsValidator",
     # Configuration
-    "ExecutionModeConfig",
-    "ContainerEndpointConfig",
     "ExecutionMode",
     "ExecutionControlConfig",
     # Exception hierarchy
