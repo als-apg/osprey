@@ -250,7 +250,7 @@ class TestTemplateRendering:
 
     @pytest.fixture()
     def template_manager(self):
-        from osprey.cli.templates import TemplateManager
+        from osprey.cli.templates.manager import TemplateManager
 
         return TemplateManager()
 

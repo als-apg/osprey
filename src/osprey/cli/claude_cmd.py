@@ -466,7 +466,7 @@ def regen(project, dry_run):
       # Regenerate for a specific project
       osprey claude regen --project /path/to/project
     """
-    from osprey.cli.templates import TemplateManager
+    from osprey.cli.templates.manager import TemplateManager
 
     project_dir = Path(project) if project else Path.cwd()
 
@@ -577,7 +577,7 @@ def status(project):
         AGENT_DEFAULT_TIERS,
         ClaudeCodeModelResolver,
     )
-    from osprey.cli.templates import TemplateManager
+    from osprey.cli.templates.manager import TemplateManager
 
     project_dir = Path(project) if project else Path.cwd()
 
@@ -710,7 +710,7 @@ def chat_claude(project, resume, print_mode):
       # Non-interactive mode
       osprey claude chat --print
     """
-    from osprey.cli.templates import TemplateManager
+    from osprey.cli.templates.manager import TemplateManager
 
     project_dir = Path(project) if project else Path.cwd()
 

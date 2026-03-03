@@ -11,11 +11,12 @@ import os
 import pytest
 import yaml
 
-from osprey.cli.templates import TemplateManager
+from osprey.cli.templates import claude_code
+from osprey.cli.templates.manager import TemplateManager
 
 
 class TestBuildClaudeCodeContext:
-    """Test _build_claude_code_context() reconstructs correct template vars."""
+    """Test build_claude_code_context() reconstructs correct template vars."""
 
     def test_basic_config(self, tmp_path):
         """Basic config produces correct base context vars."""
@@ -27,7 +28,9 @@ class TestBuildClaudeCodeContext:
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
-        ctx = manager._build_claude_code_context(project_dir, config)
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
 
         assert ctx["project_name"] == "ctx-basic"
         assert ctx["package_name"] == "ctx_basic"
@@ -43,11 +46,13 @@ class TestBuildClaudeCodeContext:
             output_dir=tmp_path,
             template_name="control_assistant",
         )
-        # Generate manifest so _build_claude_code_context can discover template_name
+        # Generate manifest so build_claude_code_context can discover template_name
         manager.generate_manifest(project_dir, "ctx-control", "control_assistant", "extend", {})
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
-        ctx = manager._build_claude_code_context(project_dir, config)
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
 
         assert ctx["template_name"] == "control_assistant"
         assert "channel_finder_pipeline" in ctx
@@ -67,7 +72,9 @@ class TestBuildClaudeCodeContext:
         config["confluence"] = {"url": "https://wiki.example.com"}
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
-        ctx = manager._build_claude_code_context(project_dir, config)
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
         assert "confluence" in ctx
         assert ctx["confluence"]["url"] == "https://wiki.example.com"
 
@@ -84,7 +91,9 @@ class TestBuildClaudeCodeContext:
         config["matlab"] = {"db_path": "~/.matlab-mml/mml.db"}
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
-        ctx = manager._build_claude_code_context(project_dir, config)
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
         assert "matlab" in ctx
         assert ctx["matlab"]["db_path"] == "~/.matlab-mml/mml.db"
 
@@ -100,7 +109,9 @@ class TestBuildClaudeCodeContext:
         manager.generate_manifest(project_dir, "ctx-manifest", "control_assistant", "extend", {})
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
-        ctx = manager._build_claude_code_context(project_dir, config)
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
 
         assert ctx["template_name"] == "control_assistant"
 
@@ -532,7 +543,7 @@ class TestDisableServers:
         assert "ariel" in result["disabled_servers"]
 
     def test_context_includes_overrides(self, tmp_path):
-        """_build_claude_code_context includes disable_servers, disable_agents, extra_servers."""
+        """build_claude_code_context includes disable_servers, disable_agents, extra_servers."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="ctx-overrides",
@@ -548,7 +559,9 @@ class TestDisableServers:
         }
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
-        ctx = manager._build_claude_code_context(project_dir, config)
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
         # disable_servers now includes both user-disabled AND condition-disabled
         assert "accelpapers" in ctx["disable_servers"]
         assert "literature-search" in ctx["disable_agents"]
@@ -568,7 +581,9 @@ class TestDisableServers:
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
-        ctx = manager._build_claude_code_context(project_dir, config)
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
         # No user-specified disables, but conditional servers (matlab, etc.) are disabled
         # Core servers should all be enabled
         enabled = {s["name"] for s in ctx["servers"] if s["enabled"]}
@@ -678,7 +693,9 @@ class TestUserOwned:
             config["prompts"]["user_owned"] = []
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
-        ctx = manager._build_claude_code_context(project_dir, config)
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
         assert ctx["user_owned"] == []
 
     def test_user_owned_controls_regen(self, tmp_path):

@@ -390,7 +390,7 @@ class TestClaudeRegenCommand:
 
     def test_regen_in_project(self, cli_runner, tmp_path):
         """Regen succeeds in a valid project directory."""
-        from osprey.cli.templates import TemplateManager
+        from osprey.cli.templates.manager import TemplateManager
 
         manager = TemplateManager()
         project_dir = manager.create_project(
@@ -405,7 +405,7 @@ class TestClaudeRegenCommand:
 
     def test_regen_dry_run_flag(self, cli_runner, tmp_path):
         """--dry-run shows what would change without modifying files."""
-        from osprey.cli.templates import TemplateManager
+        from osprey.cli.templates.manager import TemplateManager
 
         manager = TemplateManager()
         project_dir = manager.create_project(
@@ -436,7 +436,7 @@ class TestClaudeChatCommand:
     @patch("osprey.cli.claude_cmd.os.execvp")
     def test_chat_calls_regen_then_exec(self, mock_execvp, cli_runner, tmp_path):
         """Chat command regenerates then launches claude CLI."""
-        from osprey.cli.templates import TemplateManager
+        from osprey.cli.templates.manager import TemplateManager
 
         manager = TemplateManager()
         project_dir = manager.create_project(
@@ -456,7 +456,7 @@ class TestClaudeChatCommand:
     @patch("osprey.cli.claude_cmd.os.execvp")
     def test_chat_passes_resume_flag(self, mock_execvp, cli_runner, tmp_path):
         """Chat command passes --resume flag to claude CLI."""
-        from osprey.cli.templates import TemplateManager
+        from osprey.cli.templates.manager import TemplateManager
 
         manager = TemplateManager()
         project_dir = manager.create_project(
@@ -477,7 +477,7 @@ class TestClaudeChatCommand:
     @patch("osprey.cli.claude_cmd.os.execvp")
     def test_chat_passes_print_flag(self, mock_execvp, cli_runner, tmp_path):
         """Chat command passes --print flag to claude CLI."""
-        from osprey.cli.templates import TemplateManager
+        from osprey.cli.templates.manager import TemplateManager
 
         manager = TemplateManager()
         project_dir = manager.create_project(

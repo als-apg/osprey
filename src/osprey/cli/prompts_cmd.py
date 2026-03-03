@@ -18,7 +18,9 @@ import yaml
 
 from osprey.cli.prompt_registry import PromptRegistry
 from osprey.cli.styles import console
-from osprey.cli.templates import MANIFEST_FILENAME, TemplateManager
+from osprey.cli.templates import manifest as manifest_mod
+from osprey.cli.templates.manager import TemplateManager
+from osprey.cli.templates.manifest import MANIFEST_FILENAME
 from osprey.utils.config import resolve_env_vars
 
 
@@ -145,7 +147,9 @@ def claim(name, project):
 
     # Build template context
     manager = TemplateManager()
-    ctx = manager._build_claude_code_context(project_dir, config)
+    from osprey.cli.templates.claude_code import build_claude_code_context
+
+    ctx = build_claude_code_context(manager.template_root, manager.jinja_env, project_dir, config)
 
     # If file doesn't exist, render the framework template in-place
     output_file = project_dir / artifact.output_path
@@ -233,7 +237,9 @@ def diff(name, project):
 
     # Render framework template
     manager = TemplateManager()
-    ctx = manager._build_claude_code_context(project_dir, config)
+    from osprey.cli.templates.claude_code import build_claude_code_context
+
+    ctx = build_claude_code_context(manager.template_root, manager.jinja_env, project_dir, config)
     claude_code_dir = manager.template_root / "claude_code"
     template_file = claude_code_dir / artifact.template_path
 
@@ -367,10 +373,10 @@ def _update_manifest_add_user_owned(
                     ) as tmp:
                         tmp.write(rendered)
                         tmp_path = Path(tmp.name)
-                    framework_hash = f"sha256:{manager._sha256_file(tmp_path)}"
+                    framework_hash = f"sha256:{manifest_mod.sha256_file(tmp_path)}"
                     tmp_path.unlink(missing_ok=True)
                 else:
-                    framework_hash = f"sha256:{manager._sha256_file(template_file)}"
+                    framework_hash = f"sha256:{manifest_mod.sha256_file(template_file)}"
             except Exception:
                 pass
 
