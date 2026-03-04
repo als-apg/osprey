@@ -58,13 +58,6 @@ Supports three modes from `approval.global_mode` in config:
 
 Creates a pre-execution notebook artifact for code review when approving
 `execute` with write patterns.
-
-PROMPT-PROVIDER: This hook contains facility-customizable static text:
-  - build_approval_output(): Approval prompt message (section=approval_prompt)
-  - Approval reason messages for channel_write and execute (section=approval_reasons)
-  Future: source from FrameworkPromptProvider.get_approval_messages()
-  Facility-customizable: approval prompt wording,
-  reason detail format, severity/tone of approval messages
 """
 
 import json
@@ -73,10 +66,13 @@ import re
 import sys
 from pathlib import Path
 
-import yaml
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from osprey_hook_log import get_hook_input, get_project_dir, load_hook_config, log_hook
+from osprey_hook_log import (
+    get_hook_input,
+    load_hook_config,
+    load_osprey_config,
+    log_hook,
+)
 
 # Fallback write patterns: used when osprey is not importable (e.g., standalone hook).
 # Must stay in sync with get_framework_standard_patterns()["write"] (15 patterns).
@@ -127,21 +123,7 @@ except ImportError:
         return any(re.search(p, code) for p in patterns)
 
 
-def load_osprey_config(project_dir=""):
-    default = (
-        str(Path(project_dir) / "config.yml") if project_dir else str(Path.cwd() / "config.yml")
-    )
-    config_path = Path(os.path.expandvars(os.environ.get("OSPREY_CONFIG", default)))
-    if config_path.exists():
-        with open(config_path) as f:
-            return yaml.safe_load(f) or {}
-    return {}
-
-
 def build_approval_output(reason_detail: str) -> dict:
-    # PROMPT-PROVIDER: section=approval_prompt
-    # Future: source approval message template from FrameworkPromptProvider
-    # Facility-customizable: header text, instructions, severity/tone
     return {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -231,8 +213,7 @@ def main():
     tool_input = hook_input.get("tool_input", {})
     short_name = tool_name[len(matched_prefix) :]
 
-    project_dir = get_project_dir(hook_input)
-    config = load_osprey_config(project_dir)
+    config = load_osprey_config(hook_input)
     approval_config = config.get("approval", {})
     mode = approval_config.get("global_mode", "selective")
 

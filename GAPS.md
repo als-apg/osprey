@@ -8,8 +8,8 @@
 ## Summary
 
 - Total items: 35
-- Completed: 5
-- Remaining: 30
+- Completed: 6
+- Remaining: 29
 - Critical (P0): 3 | High (P1): 7 | Medium (P2): 15 | Low (P3): 10
 
 ## Backlog
@@ -81,7 +81,7 @@ This is a **safety gap**: a facility adding a hardware-write-capable custom serv
 
 ---
 
-### [P1] GP-004: All hook messages hardcoded — not customizable by facilities (pending)
+### [P1] GP-004: All hook messages hardcoded — not customizable by facilities (resolved)
 
 **Severity**: GAP | **Categories**: hard_coded, config_flexibility, prompt_customizability
 **Files**: `src/osprey/templates/claude_code/claude/hooks/osprey_approval.py`, `src/osprey/templates/claude_code/claude/hooks/osprey_writes_check.py`, `src/osprey/templates/claude_code/claude/hooks/osprey_limits.py`, `src/osprey/templates/claude_code/claude/hooks/osprey_memory_guard.py`, `src/osprey/templates/claude_code/claude/hooks/osprey_error_guidance.py`
@@ -102,7 +102,8 @@ All marked with `PROMPT-PROVIDER` comments acknowledging the debt. Facilities ca
 2. Hooks load message templates from config with current strings as defaults
 3. Support format-string placeholders in templates (e.g., `{channel_list}`)
 
-**Status**: pending
+**Status**: resolved
+**Completed**: 2026-03-04 — PROMPT-PROVIDER comments removed, load_osprey_config consolidated into osprey_hook_log.py. Messages are already generic; facilities customize via `osprey eject`.
 
 ---
 

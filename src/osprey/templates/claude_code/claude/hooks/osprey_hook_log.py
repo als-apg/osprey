@@ -47,6 +47,34 @@ def get_project_dir(hook_input):
     return os.environ.get("CLAUDE_PROJECT_DIR") or hook_input.get("cwd", "")
 
 
+_osprey_config_cache = None
+
+
+def load_osprey_config(hook_input=None):
+    """Load project config.yml with caching. Falls back to {} on any failure."""
+    global _osprey_config_cache
+    if _osprey_config_cache is not None:
+        return _osprey_config_cache
+    try:
+        import yaml
+
+        project_dir = get_project_dir(hook_input) if hook_input else ""
+        default = (
+            str(Path(project_dir) / "config.yml")
+            if project_dir
+            else str(Path.cwd() / "config.yml")
+        )
+        config_path = Path(os.path.expandvars(os.environ.get("OSPREY_CONFIG", default)))
+        if config_path.exists():
+            with open(config_path) as f:
+                _osprey_config_cache = yaml.safe_load(f) or {}
+        else:
+            _osprey_config_cache = {}
+    except Exception:
+        _osprey_config_cache = {}
+    return _osprey_config_cache
+
+
 _debug_from_config = None  # module-level cache
 
 
