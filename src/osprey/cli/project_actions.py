@@ -386,7 +386,7 @@ def handle_export_action(project_path: Path | None = None):
                     package_name="example_project",
                     project_root="/path/to/example_project",
                     hostname="localhost",
-                    default_provider="cborg",
+                    default_provider="anthropic",
                     default_model="anthropic/claude-haiku",
                 )
 

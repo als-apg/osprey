@@ -183,7 +183,7 @@ class TemplateManager:
             "project_root": str(project_dir.absolute()),
             "venv_path": "${LOCAL_PYTHON_VENV}",
             "current_python_env": current_python,  # Actual path to current Python
-            "default_provider": "cborg",
+            "default_provider": "anthropic",
             "default_model": "haiku",
             "template_name": template_name,  # Make template name available in config.yml
             # Add detected environment variables

@@ -237,7 +237,7 @@ def export(output: str, format: str):
             package_name="example_project",
             project_root="/path/to/example_project",
             hostname="localhost",
-            default_provider="cborg",
+            default_provider="anthropic",
             default_model="anthropic/claude-haiku",
         )
 

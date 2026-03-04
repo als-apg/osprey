@@ -163,7 +163,7 @@ class TestCLIIntegration:
                 "--template",
                 "control_assistant",
                 "--provider",
-                "cborg",
+                "anthropic",
                 "--model",
                 "haiku",
                 "--channel-finder-mode",
@@ -185,7 +185,7 @@ class TestCLIIntegration:
         cmd = manifest["reproducible_command"]
         # --template always included for reproducibility
         assert "--template control_assistant" in cmd
-        assert "--provider cborg" in cmd
+        assert "--provider anthropic" in cmd
         assert "--model haiku" in cmd
         assert "--channel-finder-mode hierarchical" in cmd
         assert "--code-generator claude_code" in cmd
