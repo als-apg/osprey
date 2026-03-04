@@ -108,6 +108,8 @@ control_system:
 
   # Write Access Control - Master safety switch
   writes_enabled: false  # Set true only for production hardware control
+  # write_tools:                # Additional tools blocked by writes kill switch
+  #   - "mcp__my_server__dangerous_write"
 
   # Runtime Channel Limits Checking
   limits_checking:

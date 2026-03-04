@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **AccelPapers**: Fix double-path 404 in Typesense auto-embedding — URL was `http://localhost:11434/v1/embeddings` but Typesense appends `/v1/embeddings` itself
 - **Hooks**: Deterministic project dir resolution via `hook_input["cwd"]` (replaces inconsistent env var fallback chains)
+- **Hooks**: Dynamic `write_tools` for writes kill switch — custom MCP server write tools now blocked when `writes_enabled: false` (GP-003)
 
 ### Changed
 - **Config**: Default provider changed from `cborg` (LBNL-only) to `anthropic` (universally accessible) (GP-006)
