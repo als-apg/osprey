@@ -12,7 +12,6 @@ from typing import Any
 import at
 import numpy as np
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 from osprey.interfaces.lattice_dashboard.workers._base import (
     load_baseline_ring,
@@ -167,16 +166,14 @@ def build_figure(
     baseline: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
     n_sectors: int = 1,
 ) -> go.Figure:
-    """Build LMA figure with lattice strip overlay."""
-    fig = make_subplots(
-        rows=2,
-        cols=1,
-        row_heights=[0.12, 0.88],
-        shared_xaxes=True,
-        vertical_spacing=0.02,
-    )
+    """Build LMA figure with lattice elements overlaid on the zero line."""
+    fig = go.Figure()
 
-    # ── Lattice strip (top row) ────────────────────────────
+    # ── Element scale from dp data ─────────────────────────
+    avg_dp = float(np.mean(np.concatenate([dp_plus, np.abs(dp_minus)]))) * 100  # in %
+    elem_scale = avg_dp * 0.20  # 20% of average dp height
+
+    # ── Lattice elements on zero line ──────────────────────
     colors = {
         "dipole": "rgba(100,149,237,0.7)",  # cornflower blue
         "quadrupole": "rgba(220,60,60,0.7)",  # red (focusing)
@@ -199,40 +196,25 @@ def build_figure(
 
         if t == "quadrupole":
             color = colors["quadrupole"] if s > 0 else colors["quad_defoc"]
-            y_base = 0.0
-            y_top = h_norm if s > 0 else -h_norm
+            y_top = h_norm * elem_scale if s > 0 else -h_norm * elem_scale
         elif t == "dipole":
             color = colors["dipole"]
-            y_base = 0.0
-            y_top = 0.5
+            y_top = 0.5 * elem_scale
         else:
             color = colors["sextupole"]
-            y_base = 0.0
-            y_top = h_norm if s > 0 else -h_norm
+            y_top = h_norm * elem_scale if s > 0 else -h_norm * elem_scale
 
         fig.add_shape(
             type="rect",
             x0=elem["s_start"],
             x1=elem["s_end"],
-            y0=y_base,
+            y0=0,
             y1=y_top,
             fillcolor=color,
             line={"width": 0},
-            row=1,
-            col=1,
         )
 
-    fig.update_yaxes(
-        range=[-1.1, 1.1],
-        showticklabels=False,
-        showgrid=False,
-        zeroline=True,
-        zerolinecolor="rgba(128,128,128,0.3)",
-        row=1,
-        col=1,
-    )
-
-    # ── LMA plot (bottom row) ──────────────────────────────
+    # ── LMA traces ─────────────────────────────────────────
 
     # Baseline (dashed)
     if baseline is not None:
@@ -247,8 +229,6 @@ def build_figure(
                 showlegend=False,
                 hoverinfo="skip",
             ),
-            row=2,
-            col=1,
         )
         fig.add_trace(
             go.Scatter(
@@ -260,8 +240,6 @@ def build_figure(
                 showlegend=False,
                 hoverinfo="skip",
             ),
-            row=2,
-            col=1,
         )
 
     # Positive acceptance (fill to zero)
@@ -276,8 +254,6 @@ def build_figure(
             name="dp+",
             hovertemplate="s = %{x:.1f} m<br>dp+ = %{y:.2f}%<extra></extra>",
         ),
-        row=2,
-        col=1,
     )
 
     # Negative acceptance (fill to zero)
@@ -292,19 +268,10 @@ def build_figure(
             name="dp-",
             hovertemplate="s = %{x:.1f} m<br>dp- = %{y:.2f}%<extra></extra>",
         ),
-        row=2,
-        col=1,
     )
 
-    fig.update_yaxes(
-        title_text="dp [%]",
-        gridcolor="lightgray",
-        zeroline=True,
-        zerolinecolor="gray",
-        row=2,
-        col=1,
-    )
-    fig.update_xaxes(title_text="s [m]", gridcolor="lightgray", row=2, col=1)
+    fig.update_yaxes(title_text="dp [%]", gridcolor="lightgray", zeroline=True, zerolinecolor="gray")
+    fig.update_xaxes(title_text="s [m]", gridcolor="lightgray")
 
     fig.update_layout(
         title=f"Local Momentum Aperture ({n_sectors} sector{'s' if n_sectors > 1 else ''})",
