@@ -135,11 +135,8 @@ def build_claude_code_context(
     ctx["servers"] = resolve_servers(claude_code_config, ctx)
     ctx["agents"] = resolve_agents(claude_code_config, ctx, project_dir, ctx["servers"])
 
-    # Backward compat: legacy keys for agent .md.j2 templates that
-    # still use {% if "name" not in disable_agents %} guards.
-    ctx["disable_servers"] = [s["name"] for s in ctx["servers"] if not s["enabled"]]
-    ctx["disable_agents"] = [a["name"] for a in ctx["agents"] if not a["enabled"]]
-    ctx["extra_servers"] = claude_code_config.get("extra_servers", {})
+    ctx["enabled_servers"] = {s["name"] for s in ctx["servers"] if s["enabled"]}
+    ctx["enabled_agents"] = {a["name"] for a in ctx["agents"] if a["enabled"]}
     # User-owned files: regen skips these, users edit in-place
     ctx["user_owned"] = config.get("prompts", {}).get("user_owned", [])
 

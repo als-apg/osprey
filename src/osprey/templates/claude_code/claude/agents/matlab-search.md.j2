@@ -1,4 +1,4 @@
-{% if matlab is defined and "matlab-search" not in disable_agents %}---
+{% if "matlab-search" in enabled_agents %}---
 name: matlab-search
 description: "Searches the MATLAB Middle Layer (MML) codebase database for function definitions, dependencies, call graphs, and source code. Delegate to this agent when the user asks about MML functions, MATLAB accelerator control code, function relationships, or needs to understand MML codebase structure."
 summary: Searches MATLAB MML functions and accelerator toolbox code

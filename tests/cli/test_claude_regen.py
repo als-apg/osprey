@@ -408,7 +408,7 @@ class TestDisableServers:
         tmp_path,
         disable_servers=None,
         disable_agents=None,
-        extra_servers=None,
+        custom_servers=None,
         template="control_assistant",
     ):
         """Helper: create project, set claude_code overrides, regen."""
@@ -421,12 +421,20 @@ class TestDisableServers:
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
         cc = {}
+        servers = {}
+        agents = {}
         if disable_servers:
-            cc["disable_servers"] = disable_servers
+            for name in disable_servers:
+                servers[name] = {"enabled": False}
+        if custom_servers:
+            servers.update(custom_servers)
         if disable_agents:
-            cc["disable_agents"] = disable_agents
-        if extra_servers:
-            cc["extra_servers"] = extra_servers
+            for name in disable_agents:
+                agents[name] = {"enabled": False}
+        if servers:
+            cc["servers"] = servers
+        if agents:
+            cc["agents"] = agents
         if cc:
             config["claude_code"] = cc
             (project_dir / "config.yml").write_text(yaml.dump(config))
@@ -488,26 +496,32 @@ class TestDisableServers:
         assert "### Literature search" not in content
 
     def test_extra_server_added_to_mcp_json(self, tmp_path):
-        """Extra server appears in .mcp.json."""
+        """Custom server appears in .mcp.json."""
         project_dir, _ = self._create_and_regen(
             tmp_path,
-            extra_servers={"my-server": {"command": "node", "args": ["server.js"]}},
+            custom_servers={"my-server": {"command": "node", "args": ["server.js"]}},
         )
 
         mcp_data = json.loads((project_dir / ".mcp.json").read_text())
         assert "my-server" in mcp_data["mcpServers"]
         assert mcp_data["mcpServers"]["my-server"]["command"] == "node"
 
-    def test_extra_server_ask_permission_in_settings(self, tmp_path):
-        """Extra server gets ask permission in settings.json."""
+    def test_custom_server_permission_in_settings(self, tmp_path):
+        """Custom server with explicit permissions gets them in settings.json."""
         project_dir, _ = self._create_and_regen(
             tmp_path,
-            extra_servers={"my-server": {"command": "node", "args": ["server.js"]}},
+            custom_servers={
+                "my-server": {
+                    "command": "node",
+                    "args": ["server.js"],
+                    "permissions": {"ask": ["do_stuff"]},
+                }
+            },
         )
 
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
         ask = settings["permissions"]["ask"]
-        assert any("mcp__my-server" in entry for entry in ask)
+        assert "mcp__my-server__do_stuff" in ask
 
     def test_disable_does_not_remove_safety_hooks(self, tmp_path):
         """Disabling a server doesn't remove hook script files."""
@@ -543,7 +557,7 @@ class TestDisableServers:
         assert "ariel" in result["disabled_servers"]
 
     def test_context_includes_overrides(self, tmp_path):
-        """build_claude_code_context includes disable_servers, disable_agents, extra_servers."""
+        """build_claude_code_context includes enabled_servers and enabled_agents."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="ctx-overrides",
@@ -553,26 +567,22 @@ class TestDisableServers:
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
         config["claude_code"] = {
-            "disable_servers": ["accelpapers"],
-            "disable_agents": ["literature-search"],
-            "extra_servers": {"my-srv": {"command": "echo"}},
+            "servers": {"accelpapers": {"enabled": False}, "my-srv": {"command": "echo"}},
+            "agents": {"literature-search": {"enabled": False}},
         }
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
         ctx = claude_code.build_claude_code_context(
             manager.template_root, manager.jinja_env, project_dir, config
         )
-        # disable_servers now includes both user-disabled AND condition-disabled
-        assert "accelpapers" in ctx["disable_servers"]
-        assert "literature-search" in ctx["disable_agents"]
-        # extra_servers preserved for backward compat
-        assert "my-srv" in ctx["extra_servers"]
-        # New data-driven lists available
+        assert "accelpapers" not in ctx["enabled_servers"]
+        assert "literature-search" not in ctx["enabled_agents"]
+        # Data-driven lists
         assert any(s["name"] == "my-srv" and s["enabled"] for s in ctx["servers"])
         assert any(s["name"] == "accelpapers" and not s["enabled"] for s in ctx["servers"])
 
     def test_defaults_empty_when_no_claude_code_section(self, tmp_path):
-        """Without claude_code section, overrides default to empty."""
+        """Without claude_code section, core servers are enabled."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="ctx-defaults",
@@ -584,11 +594,8 @@ class TestDisableServers:
         ctx = claude_code.build_claude_code_context(
             manager.template_root, manager.jinja_env, project_dir, config
         )
-        # No user-specified disables, but conditional servers (matlab, etc.) are disabled
         # Core servers should all be enabled
-        enabled = {s["name"] for s in ctx["servers"] if s["enabled"]}
-        assert {"controls", "workspace", "ariel", "accelpapers"} <= enabled
-        assert ctx["extra_servers"] == {}
+        assert {"controls", "workspace", "ariel", "accelpapers"} <= ctx["enabled_servers"]
 
 
 class TestFacilityMd:
@@ -800,7 +807,8 @@ class TestSettingsJsonValidity:
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
-        config["claude_code"] = {"disable_servers": disable_servers}
+        servers_override = {name: {"enabled": False} for name in disable_servers}
+        config["claude_code"] = {"servers": servers_override}
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
         manager.regenerate_claude_code(project_dir)
@@ -828,18 +836,18 @@ class TestSettingsJsonValidity:
         assert "permissions" in data
         assert "hooks" in data
 
-    def test_extra_servers_produce_valid_json(self, tmp_path):
-        """Adding extra_servers still produces valid JSON."""
+    def test_custom_servers_produce_valid_json(self, tmp_path):
+        """Adding custom servers still produces valid JSON."""
         manager = TemplateManager()
         project_dir = manager.create_project(
-            project_name="json-extra-servers",
+            project_name="json-custom-servers",
             output_dir=tmp_path,
             template_name="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
         config["claude_code"] = {
-            "extra_servers": {
+            "servers": {
                 "my-server": {"command": "node", "args": ["server.js"]},
             },
         }
@@ -850,7 +858,6 @@ class TestSettingsJsonValidity:
         settings_path = project_dir / ".claude" / "settings.json"
         data = json.loads(settings_path.read_text())
         assert "permissions" in data
-        assert any("mcp__my-server" in entry for entry in data["permissions"]["ask"])
 
     def test_all_mcp_json_files_are_valid(self, tmp_path):
         """Every template also produces valid .mcp.json."""

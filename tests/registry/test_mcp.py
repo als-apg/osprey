@@ -1,7 +1,6 @@
 """Tests for the unified server and agent registry."""
 
 import json
-import warnings
 
 import pytest
 
@@ -75,29 +74,6 @@ class TestResolveServers:
         assert s["permissions_allow"] == ["read_data"]
         assert s["permissions_ask"] == ["write_data"]
         assert s["is_custom"] is True
-
-    def test_resolve_legacy_format(self):
-        """Legacy disable_servers emits deprecation warning and disables server."""
-        ctx = _base_ctx()
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            servers = resolve_servers({"disable_servers": ["ariel"]}, ctx)
-            assert any("deprecated" in str(x.message).lower() for x in w)
-        names = {s["name"]: s["enabled"] for s in servers}
-        assert names["ariel"] is False
-
-    def test_resolve_legacy_extra_servers(self):
-        """Legacy extra_servers emits deprecation warning and adds server."""
-        ctx = _base_ctx()
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            servers = resolve_servers(
-                {"extra_servers": {"foo": {"command": "cmd", "args": ["a"]}}}, ctx
-            )
-            assert any("deprecated" in str(x.message).lower() for x in w)
-        foo = [s for s in servers if s["name"] == "foo"]
-        assert len(foo) == 1
-        assert foo[0]["enabled"] is True
 
     def test_resolve_conditional_server_enabled(self):
         """matlab in ctx → matlab server enabled."""
@@ -208,21 +184,6 @@ class TestResolveAgents:
         names = {a["name"]: a["enabled"] for a in agents}
         assert names["wiki-search"] is True
 
-    def test_legacy_disable_agents(self):
-        """Legacy disable_agents emits deprecation warning."""
-        ctx = _base_ctx()
-        servers = resolve_servers({}, ctx)
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            agents = resolve_agents(
-                {"disable_agents": ["literature-search"]},
-                ctx,
-                resolved_servers=servers,
-            )
-            assert any("deprecated" in str(x.message).lower() for x in w)
-        names = {a["name"]: a["enabled"] for a in agents}
-        assert names["literature-search"] is False
-
     def test_auto_discovery(self, tmp_path):
         """Custom agent .md file in .claude/agents/ appears in resolved list."""
         agents_dir = tmp_path / ".claude" / "agents"
@@ -264,9 +225,8 @@ class TestTemplateRendering:
         claude_code_config = overrides.pop("_claude_code_config", {})
         ctx["servers"] = resolve_servers(claude_code_config, ctx)
         ctx["agents"] = resolve_agents(claude_code_config, ctx, resolved_servers=ctx["servers"])
-        ctx["disable_servers"] = [s["name"] for s in ctx["servers"] if not s["enabled"]]
-        ctx["disable_agents"] = [a["name"] for a in ctx["agents"] if not a["enabled"]]
-        ctx["extra_servers"] = {}
+        ctx["enabled_servers"] = {s["name"] for s in ctx["servers"] if s["enabled"]}
+        ctx["enabled_agents"] = {a["name"] for a in ctx["agents"] if a["enabled"]}
         return ctx
 
     def test_render_mcp_json(self, template_manager):

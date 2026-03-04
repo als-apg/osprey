@@ -1,4 +1,4 @@
-{%- if direct_channel_finder is defined and "direct-channel-finder" not in disable_agents -%}
+{%- if "direct-channel-finder" in enabled_agents -%}
 ---
 name: direct-channel-finder
 description: "Searches live PV databases for channel/PV addresses. Use ONLY when explicitly asked to find PVs via direct query against the live PV metadata system."

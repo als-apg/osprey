@@ -1,4 +1,4 @@
-{% if confluence is defined and "wiki-search" not in disable_agents %}---
+{% if "wiki-search" in enabled_agents %}---
 name: wiki-search
 description: "Searches the facility wiki for documentation, procedures, reference material, and operational guides. Delegate to this agent when the user asks about how-to procedures, technical documentation, equipment references, or facility policies."
 summary: Searches the facility Confluence wiki for documentation
