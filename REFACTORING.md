@@ -52,10 +52,10 @@
 
 ---
 
-### [P0] RF-003: server_catalog.py — misplaced domain logic, legacy shims, misleading name (pending)
+### [P0] RF-003: server_catalog.py — misplaced domain logic, legacy shims, misleading name (done)
 
 **Severity**: high | **Category**: structure, naming, cohesion, vestige
-**Files**: `src/osprey/cli/server_catalog.py`
+**Files**: `src/osprey/registry/mcp.py` (was `src/osprey/cli/server_catalog.py`)
 **Impact radius**: 6 files import; blocks template refactoring
 
 **Problem**: Four agents flag this file — the strongest convergence signal in the scan. **Structure**: 646 lines. **Naming**: "catalog" suggests a browsable interface, but this is the authoritative source of MCP server/agent metadata (ServerDefinition, AgentDefinition, FRAMEWORK_SERVERS, FRAMEWORK_AGENTS). **Cohesion**: Domain logic (server registry) lives in the CLI presentation layer. **Vestige**: Contains backward-compatibility shims for deprecated config keys (disable_servers, disable_agents, extra_servers) including _custom_server_from_legacy() — the v0.11 migration already converts these.
@@ -66,9 +66,9 @@
 3. Remove legacy config shims (disable_servers, disable_agents, extra_servers) after confirming migration is complete
 4. Update template layer imports
 
-**Status**: pending
-**Completed date**:
-**Notes**:
+**Status**: done
+**Completed date**: 2026-03-03
+**Notes**: Moved `cli/server_catalog.py` → `registry/mcp.py`. Name follows registry layer's single-word convention and is harness-agnostic. Legacy shim removal deferred to RF-027.
 
 ---
 
