@@ -6,8 +6,8 @@
 ## Summary
 
 - Total items: 31
-- Completed: 1
-- Remaining: 30
+- Completed: 2
+- Remaining: 29
 - High priority (P0): 4 | Medium-high (P1): 11 | Medium (P2): 10 | Low (P3): 6
 
 ## Backlog
@@ -72,7 +72,7 @@
 
 ---
 
-### [P0] RF-004: server_launcher.py inverts dependency direction with 6 layering violations (pending)
+### [P0] RF-004: server_launcher.py inverts dependency direction with 6 layering violations (done)
 
 **Severity**: high | **Category**: dependency, cohesion
 **Files**: `src/osprey/infrastructure/server_launcher.py`
@@ -85,9 +85,9 @@
 2. Or reclassify server_launcher as part of the CLI layer (since it orchestrates app startup)
 3. Decouple artifact_store from server_launcher via initialization hooks
 
-**Status**: pending
-**Completed date**:
-**Notes**:
+**Status**: done
+**Completed date**: 2026-03-03
+**Notes**: Created `registry/web.py` with `WebServerDefinition` catalog (6 entries). Replaced ~200 lines of per-server boilerplate in `server_launcher.py` with ~40 lines of generic code using `importlib` dynamic loading. All 6 `ensure_*` functions preserved as backward-compat aliases. Zero callers needed changes.
 
 ---
 

@@ -1,18 +1,21 @@
 """Generic auto-launcher for OSPREY companion servers.
 
 Provides a reusable ``ServerLauncher`` that starts a uvicorn server
-in a daemon thread on first demand. Used by the Artifact Gallery and
-ARIEL logbook server launchers.
+in a daemon thread on first demand.  Server definitions live in
+``registry.web`` — this module uses ``importlib`` to resolve factories
+at call time so the infrastructure layer never imports from interfaces/.
 """
 
 from __future__ import annotations
 
+import importlib
 import logging
 import threading
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
+from osprey.registry.web import FRAMEWORK_WEB_SERVERS, WebServerDefinition
 from osprey.utils.workspace import load_osprey_config
 
 logger = logging.getLogger("osprey.infrastructure.server_launcher")
@@ -127,199 +130,120 @@ class ServerLauncher:
             self._launch_in_thread(host, port)
 
 
-def _artifact_config() -> tuple[str, int]:
-    config = load_osprey_config()
-    art = config.get("artifact_server", {})
-    return art.get("host", "127.0.0.1"), art.get("port", 8086)
+# ---------------------------------------------------------------------------
+# Generic helpers — build ServerLauncher callbacks from WebServerDefinition
+# ---------------------------------------------------------------------------
 
 
-def _artifact_auto_launch() -> bool:
-    config = load_osprey_config()
-    return config.get("artifact_server", {}).get("auto_launch", True)
+def _make_config_reader(defn: WebServerDefinition) -> Callable[[], tuple[str, int]]:
+    """Return a callable that reads (host, port) from config for *defn*."""
+
+    def _reader() -> tuple[str, int]:
+        config = load_osprey_config()
+        section = config.get(defn.config_key, {})
+        if defn.config_web_subkey:
+            section = section.get(defn.config_web_subkey, {})
+        return section.get("host", defn.host_default), section.get("port", defn.port_default)
+
+    return _reader
 
 
-def _artifact_app_factory(workspace_root: Path | None = None) -> object:
-    from osprey.interfaces.artifacts.app import create_app
+def _make_auto_launch_checker(defn: WebServerDefinition) -> Callable[[], bool]:
+    """Return a callable that checks whether auto-launch is enabled."""
 
-    return create_app(workspace_root=workspace_root)
+    def _checker() -> bool:
+        config = load_osprey_config()
+        top = config.get(defn.config_key, {})
+        if defn.require_section and not top:
+            return False
+        section = top.get(defn.config_web_subkey, {}) if defn.config_web_subkey else top
+        return section.get("auto_launch", defn.auto_launch_default)
 
-
-_artifact_launcher = ServerLauncher(
-    name="Artifact gallery",
-    config_reader=_artifact_config,
-    auto_launch_checker=_artifact_auto_launch,
-    app_factory=_artifact_app_factory,
-    pass_workspace=True,
-)
-
-
-def _ariel_config() -> tuple[str, int]:
-    config = load_osprey_config()
-    ariel = config.get("ariel", {}).get("web", {})
-    return ariel.get("host", "127.0.0.1"), ariel.get("port", 8085)
+    return _checker
 
 
-def _ariel_auto_launch() -> bool:
-    config = load_osprey_config()
-    return config.get("ariel", {}).get("web", {}).get("auto_launch", True)
+def _resolve_dotted(config: dict, dotted: str) -> object:
+    """Traverse a dotted path like ``"tuning.api_url"`` into *config*."""
+    obj: object = config
+    for key in dotted.split("."):
+        if not isinstance(obj, dict):
+            return None
+        obj = obj.get(key)  # type: ignore[union-attr]
+    return obj
 
 
-def _ariel_app_factory() -> object:
-    from osprey.interfaces.ariel.app import create_app
+def _make_app_factory(defn: WebServerDefinition) -> Callable[..., object]:
+    """Return a callable that dynamically imports and invokes the factory."""
+    module_path, attr_name = defn.factory_path.rsplit(":", 1)
 
-    return create_app()
+    def _factory(workspace_root: Path | None = None) -> object:
+        try:
+            mod = importlib.import_module(module_path)
+        except ImportError as err:
+            if defn.import_error_message:
+                raise ImportError(defn.import_error_message) from err
+            raise
+        create_app = getattr(mod, attr_name)
+
+        kwargs: dict[str, object] = {}
+        if defn.pass_workspace:
+            kwargs["workspace_root"] = workspace_root
+        if defn.factory_config_kwargs:
+            config = load_osprey_config()
+            for kwarg_name, dotted_path in defn.factory_config_kwargs.items():
+                kwargs[kwarg_name] = _resolve_dotted(config, dotted_path)
+        return create_app(**kwargs)
+
+    return _factory
 
 
-_ariel_launcher = ServerLauncher(
-    name="ARIEL server",
-    config_reader=_ariel_config,
-    auto_launch_checker=_ariel_auto_launch,
-    app_factory=_ariel_app_factory,
-)
+# ---------------------------------------------------------------------------
+# Build launchers from the catalog
+# ---------------------------------------------------------------------------
+
+_launchers: dict[str, ServerLauncher] = {
+    key: ServerLauncher(
+        name=defn.name,
+        config_reader=_make_config_reader(defn),
+        auto_launch_checker=_make_auto_launch_checker(defn),
+        app_factory=_make_app_factory(defn),
+        pass_workspace=defn.pass_workspace,
+    )
+    for key, defn in FRAMEWORK_WEB_SERVERS.items()
+}
 
 
+def ensure_web_server(key: str) -> None:
+    """Ensure the web server identified by *key* is running."""
+    _launchers[key].ensure_running()
+
+
+# Backward-compatible named aliases (used by web_terminal/app.py, artifact_store.py)
 def ensure_artifact_server() -> None:
     """Ensure the artifact server is running; launch if needed."""
-    _artifact_launcher.ensure_running()
+    ensure_web_server("artifact")
 
 
 def ensure_ariel_server() -> None:
     """Ensure the ARIEL server is running; launch if needed."""
-    _ariel_launcher.ensure_running()
-
-
-def _tuning_config() -> tuple[str, int]:
-    config = load_osprey_config()
-    tuning_web = config.get("tuning", {}).get("web", {})
-    return tuning_web.get("host", "127.0.0.1"), tuning_web.get("port", 8090)
-
-
-def _tuning_auto_launch() -> bool:
-    config = load_osprey_config()
-    return config.get("tuning", {}).get("web", {}).get("auto_launch", True)
-
-
-def _tuning_app_factory() -> object:
-    from osprey.interfaces.tuning.app import create_app
-
-    config = load_osprey_config()
-    api_url = config.get("tuning", {}).get("api_url")
-    return create_app(tuning_api_url=api_url)
-
-
-_tuning_launcher = ServerLauncher(
-    name="Tuning panel",
-    config_reader=_tuning_config,
-    auto_launch_checker=_tuning_auto_launch,
-    app_factory=_tuning_app_factory,
-)
+    ensure_web_server("ariel")
 
 
 def ensure_tuning_server() -> None:
     """Ensure the tuning panel server is running; launch if needed."""
-    _tuning_launcher.ensure_running()
-
-
-def _deplot_config() -> tuple[str, int]:
-    config = load_osprey_config()
-    deplot = config.get("deplot", {})
-    return deplot.get("host", "127.0.0.1"), deplot.get("port", 8095)
-
-
-def _deplot_auto_launch() -> bool:
-    config = load_osprey_config()
-    deplot = config.get("deplot", {})
-    if not deplot:
-        return False  # No deplot section → don't launch
-    return deplot.get("auto_launch", True)
-
-
-def _deplot_app_factory() -> object:
-    try:
-        from osprey.services.deplot.server import create_app
-
-        return create_app()
-    except ImportError as err:
-        raise ImportError(
-            "DePlot dependencies not installed. Install with: uv sync --extra graph"
-        ) from err
-
-
-_deplot_launcher = ServerLauncher(
-    name="DePlot service",
-    config_reader=_deplot_config,
-    auto_launch_checker=_deplot_auto_launch,
-    app_factory=_deplot_app_factory,
-)
+    ensure_web_server("tuning")
 
 
 def ensure_deplot_server() -> None:
     """Ensure the DePlot service is running; launch if needed."""
-    _deplot_launcher.ensure_running()
-
-
-def _channel_finder_config() -> tuple[str, int]:
-    config = load_osprey_config()
-    cf = config.get("channel_finder", {}).get("web", {})
-    return cf.get("host", "127.0.0.1"), cf.get("port", 8092)
-
-
-def _channel_finder_auto_launch() -> bool:
-    config = load_osprey_config()
-    cf = config.get("channel_finder", {})
-    if not cf:
-        return False  # No channel_finder section → don't launch
-    return cf.get("web", {}).get("auto_launch", True)
-
-
-def _channel_finder_app_factory() -> object:
-    from osprey.interfaces.channel_finder.app import create_app
-
-    return create_app()
-
-
-_channel_finder_launcher = ServerLauncher(
-    name="Channel Finder",
-    config_reader=_channel_finder_config,
-    auto_launch_checker=_channel_finder_auto_launch,
-    app_factory=_channel_finder_app_factory,
-)
+    ensure_web_server("deplot")
 
 
 def ensure_channel_finder_server() -> None:
     """Ensure the Channel Finder web server is running; launch if needed."""
-    _channel_finder_launcher.ensure_running()
-
-
-def _lattice_dashboard_config() -> tuple[str, int]:
-    config = load_osprey_config()
-    ld = config.get("lattice_dashboard", {})
-    return ld.get("host", "127.0.0.1"), ld.get("port", 8097)
-
-
-def _lattice_dashboard_auto_launch() -> bool:
-    config = load_osprey_config()
-    ld = config.get("lattice_dashboard", {})
-    if not ld:
-        return False
-    return ld.get("auto_launch", True)
-
-
-def _lattice_dashboard_app_factory(workspace_root: Path | None = None) -> object:
-    from osprey.interfaces.lattice_dashboard.app import create_app
-
-    return create_app(workspace_root=workspace_root)
-
-
-_lattice_dashboard_launcher = ServerLauncher(
-    name="Lattice dashboard",
-    config_reader=_lattice_dashboard_config,
-    auto_launch_checker=_lattice_dashboard_auto_launch,
-    app_factory=_lattice_dashboard_app_factory,
-    pass_workspace=True,
-)
+    ensure_web_server("channel_finder")
 
 
 def ensure_lattice_dashboard_server() -> None:
     """Ensure the lattice dashboard server is running; launch if needed."""
-    _lattice_dashboard_launcher.ensure_running()
+    ensure_web_server("lattice_dashboard")
