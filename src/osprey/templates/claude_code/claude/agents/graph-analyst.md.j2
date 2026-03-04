@@ -1,4 +1,4 @@
-{% if deplot is defined and "graph-analyst" not in disable_agents %}---
+{% if "graph-analyst" in enabled_agents %}---
 name: graph-analyst
 description: "Extracts numerical data from graph/chart images, compares them against reference datasets using mathematical metrics (RMSE, correlation, DTW), and saves reference patterns. Delegate to this agent when the user needs to digitize a plot, compare current graphs to a baseline, or save reference datasets."
 summary: Extracts data from graph images and compares against reference datasets

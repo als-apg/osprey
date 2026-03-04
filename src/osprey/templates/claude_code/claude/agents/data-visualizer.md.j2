@@ -1,4 +1,4 @@
-{% if "python" not in disable_servers and "data-visualizer" not in disable_agents %}---
+{% if "data-visualizer" in enabled_agents %}---
 name: data-visualizer
 description: "Creates data visualizations (plots, charts, dashboards), compiles LaTeX documents (reports, slides) to PDF, and manages visualization artifacts. Delegate to this agent when the user needs plots, charts, dashboards, reports, or presentation slides."
 summary: Creates plots, charts, dashboards, and compiles LaTeX reports

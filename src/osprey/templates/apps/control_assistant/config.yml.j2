@@ -645,14 +645,17 @@ matlab:
 #   logbook-search, logbook-deep-research, literature-search
 #
 claude_code:
-  # disable_servers: []     # e.g., [accelpapers] to remove a server
-  # disable_agents: []      # e.g., [literature-search] to remove an agent
-  # extra_servers:           # Add custom MCP servers
-  #   my-server:
+  # servers:                 # Override server settings
+  #   accelpapers:
+  #     enabled: false       # Disable a framework server
+  #   my-server:             # Add a custom MCP server
   #     command: "node"
   #     args: ["my-server.js"]
   #     env:
   #       MY_VAR: "value"
+  # agents:                  # Override agent settings
+  #   literature-search:
+  #     enabled: false       # Disable an agent
   #
   # ── Model Provider ──────────────────────────────────────────
   # Which provider serves Claude models. Must support Anthropic Messages API.

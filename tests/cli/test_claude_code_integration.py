@@ -720,8 +720,8 @@ class TestGraphAnalystAgent:
         content = (project_dir / "CLAUDE.md").read_text()
         assert "graph-analyst" in content
 
-    def test_agent_disabled_via_disable_agents(self, tmp_path):
-        """graph-analyst is suppressed when in disable_agents."""
+    def test_agent_disabled_via_config(self, tmp_path):
+        """graph-analyst is suppressed when disabled via config."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="graph-disabled-test",
@@ -729,9 +729,17 @@ class TestGraphAnalystAgent:
             template_name="control_assistant",
             context={
                 "deplot": {"host": "127.0.0.1", "port": 8095},
-                "disable_agents": ["graph-analyst"],
             },
         )
+
+        # Disable graph-analyst via new-format config and regen
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config.setdefault("claude_code", {})["agents"] = {
+            "graph-analyst": {"enabled": False}
+        }
+        config["deplot"] = {"host": "127.0.0.1", "port": 8095}
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+        manager.regenerate_claude_code(project_dir)
         agent_path = project_dir / ".claude" / "agents" / "graph-analyst.md"
         if agent_path.exists():
             assert agent_path.read_text().strip() == ""

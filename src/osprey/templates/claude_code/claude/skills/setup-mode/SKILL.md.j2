@@ -93,14 +93,14 @@ Then re-enter `/setup-mode` to verify the fix.
 
 | Server | Purpose | Status |
 |--------|---------|--------|
-| `workspace` | Memory, artifacts, plots, screen capture | {% if "workspace" not in disable_servers %}Enabled{% else %}Disabled{% endif %} |
-| `controls` | Channel read/write, archiver, channel find | {% if "controls" not in disable_servers %}Enabled{% else %}Disabled{% endif %} |
-| `python` | Python code execution | {% if "python" not in disable_servers %}Enabled{% else %}Disabled{% endif %} |
-| `ariel` | ARIEL logbook search and entry creation | {% if "ariel" not in disable_servers %}Enabled{% else %}Disabled{% endif %} |
-| `accelpapers` | Accelerator papers search | {% if "accelpapers" not in disable_servers %}Enabled{% else %}Disabled{% endif %} |
-{% if matlab is defined %}| `matlab` | MATLAB MML search | {% if "matlab" not in disable_servers %}Enabled{% else %}Disabled{% endif %} |
-{% endif %}{% if channel_finder_pipeline is defined %}| `channel-finder` | Channel finder pipeline ({{ channel_finder_pipeline }}) | {% if "channel-finder" not in disable_servers %}Enabled{% else %}Disabled{% endif %} |
-{% endif %}{% if confluence is defined %}| `confluence` | Confluence wiki search | {% if "confluence" not in disable_servers %}Enabled{% else %}Disabled{% endif %} |
+| `workspace` | Memory, artifacts, plots, screen capture | {% if "workspace" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
+| `controls` | Channel read/write, archiver, channel find | {% if "controls" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
+| `python` | Python code execution | {% if "python" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
+| `ariel` | ARIEL logbook search and entry creation | {% if "ariel" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
+| `accelpapers` | Accelerator papers search | {% if "accelpapers" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
+{% if matlab is defined %}| `matlab` | MATLAB MML search | {% if "matlab" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
+{% endif %}{% if channel_finder_pipeline is defined %}| `channel-finder` | Channel finder pipeline ({{ channel_finder_pipeline }}) | {% if "channel-finder" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
+{% endif %}{% if confluence is defined %}| `confluence` | Confluence wiki search | {% if "confluence" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
 {% endif %}
 ### Required Environment Variables
 

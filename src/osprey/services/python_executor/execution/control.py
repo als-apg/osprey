@@ -34,10 +34,6 @@ for manual control when needed.
    consequences. Ensure proper approval workflows are configured before enabling
    write access in production environments.
 
-.. seealso::
-   :class:`osprey.services.python_executor.execution_policy_analyzer` : Code analysis integration
-   :class:`osprey.services.python_executor.analysis.node` : Analysis node using these modes
-
 Examples:
     Basic execution control configuration::
 

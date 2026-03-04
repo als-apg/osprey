@@ -273,9 +273,6 @@ class TemplateManager:
             # Claude Code explicit overrides
             cc_config = rendered_config.get("claude_code", {})
             cc_cfg = cc_config
-            ctx.setdefault("disable_servers", cc_config.get("disable_servers", []))
-            ctx.setdefault("disable_agents", cc_config.get("disable_agents", []))
-            ctx.setdefault("extra_servers", cc_config.get("extra_servers", {}))
             # Model provider resolution for init-time rendering
             from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
 
@@ -351,11 +348,6 @@ class TemplateManager:
                         exc_info=True,
                     )
 
-        # Ensure defaults exist even without rendered config
-        ctx.setdefault("disable_servers", [])
-        ctx.setdefault("disable_agents", [])
-        ctx.setdefault("extra_servers", {})
-
         # Textbooks root -- resolve relative to project directory
         _textbooks_dir = project_dir.parent / "data" / "textbooks"
         ctx["textbooks_root"] = str(_textbooks_dir) if _textbooks_dir.is_dir() else None
@@ -369,20 +361,12 @@ class TemplateManager:
             ctx["textbooks_root_tilde"] = None
 
         # Resolve servers and agents via the data-driven registry.
-        # Merge init-time overrides (passed via context=) into cc_cfg
-        # so the resolver sees them -- e.g. context={"disable_agents": [...]}.
         from osprey.registry.mcp import resolve_agents, resolve_servers
-
-        if ctx.get("disable_servers") and "disable_servers" not in cc_cfg:
-            cc_cfg = {**cc_cfg, "disable_servers": ctx["disable_servers"]}
-        if ctx.get("disable_agents") and "disable_agents" not in cc_cfg:
-            cc_cfg = {**cc_cfg, "disable_agents": ctx["disable_agents"]}
 
         ctx["servers"] = resolve_servers(cc_cfg, ctx)
         ctx["agents"] = resolve_agents(cc_cfg, ctx, project_dir, ctx["servers"])
-        # Update legacy keys from resolved data
-        ctx["disable_servers"] = [s["name"] for s in ctx["servers"] if not s["enabled"]]
-        ctx["disable_agents"] = [a["name"] for a in ctx["agents"] if not a["enabled"]]
+        ctx["enabled_servers"] = {s["name"] for s in ctx["servers"] if s["enabled"]}
+        ctx["enabled_agents"] = {a["name"] for a in ctx["agents"] if a["enabled"]}
 
         # Load template manifest and resolve allowed outputs
         manifest_data = manifest.load_template_manifest(self.template_root, template_name)

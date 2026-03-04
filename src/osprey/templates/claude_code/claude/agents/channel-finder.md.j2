@@ -1,4 +1,4 @@
-{%- if channel_finder_pipeline is defined and "channel-finder" not in disable_agents -%}
+{%- if "channel-finder" in enabled_agents -%}
 ---
 name: channel-finder
 description: "Finds and verifies EPICS channel/PV addresses by exploring the channel database. Delegate to this agent when the user needs to find, locate, or discover channels by description or function (e.g., 'beam current', 'BPM positions', 'corrector magnets')."

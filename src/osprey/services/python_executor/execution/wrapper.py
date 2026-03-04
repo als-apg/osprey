@@ -57,7 +57,6 @@ class ExecutionWrapper:
         limits_checking = self._get_limits_checking_monkeypatch()
         metadata_init = self._get_metadata_init()
         save_artifact_injection = self._get_save_artifact_injection()
-        context_loading = self._get_context_loading()
         output_capture_start = self._get_output_capture_start()
         user_code_section = self._wrap_user_code(user_code)
         cleanup_and_export = self._get_cleanup_and_export()
@@ -70,7 +69,6 @@ class ExecutionWrapper:
                 limits_checking,
                 metadata_init,
                 save_artifact_injection,
-                context_loading,
                 output_capture_start,
                 user_code_section,
                 cleanup_and_export,
@@ -136,7 +134,7 @@ import sys
 import os
 from pathlib import Path
 
-# Add framework src directory to Python path (FIXES THE CURRENT BUG!)
+# Add framework src directory to Python path
 current_path = Path.cwd()
 project_root = None
 
@@ -481,20 +479,6 @@ print(f"Container working directory: {{Path.cwd()}}")
                 manifest_path.write_text(_json.dumps(manifest, indent=2))
 
                 print(f"Artifact saved: {title} ({final_type}, {len(content)} bytes)")
-        """
-        ).strip()
-
-    def _get_context_loading(self) -> str:
-        """Get context initialization code.
-
-        Context loading via osprey.context was removed (module deleted).
-        We still set ``context = None`` so that any user code referencing
-        the variable doesn't raise a NameError.
-        """
-        return textwrap.dedent(
-            """
-            # Context placeholder (osprey.context module removed)
-            context = None
         """
         ).strip()
 

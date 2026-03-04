@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import copy
 import logging
-import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -395,31 +394,6 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
             if isinstance(spec, dict) and spec.get("enabled") is not False:
                 servers[name] = _custom_server_from_spec(name, spec)
 
-    # ── Legacy format: disable_servers / extra_servers ─────────
-    legacy_disable = claude_code_config.get("disable_servers", [])
-    if legacy_disable:
-        warnings.warn(
-            "claude_code.disable_servers is deprecated. "
-            "Use claude_code.servers: {name: {enabled: false}} instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        for name in legacy_disable:
-            if name in servers:
-                servers[name].default_enabled = False
-
-    legacy_extra = claude_code_config.get("extra_servers", {})
-    if legacy_extra:
-        warnings.warn(
-            "claude_code.extra_servers is deprecated. "
-            "Use claude_code.servers: {name: {command, args, env}} instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        for name, spec in legacy_extra.items():
-            if name not in servers:
-                servers[name] = _custom_server_from_legacy(name, spec)
-
     # ── Build output dicts ────────────────────────────────────
     result = []
     for sdef in servers.values():
@@ -444,25 +418,6 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition:
         else [],
     )
 
-
-def _custom_server_from_legacy(name: str, spec: dict) -> ServerDefinition:
-    """Build a ServerDefinition from the old extra_servers format.
-
-    Legacy extra_servers are raw JSON blobs passed through to mcp.json.
-    They get a wildcard ask permission (matching old behavior).
-    """
-    return ServerDefinition(
-        name=name,
-        module="",
-        env=spec.get("env", {}),
-        is_external=True,
-        external_command=spec.get("command", ""),
-        external_args=spec.get("args", []),
-        fixed_allow=[],
-        permissions_ask=[],
-        # Legacy extra_servers got a wildcard ask entry "mcp__name" in settings
-        fixed_ask=[f"mcp__{name}"],
-    )
 
 
 def _server_to_dict(sdef: ServerDefinition, ctx: dict) -> dict:
@@ -590,19 +545,6 @@ def resolve_agents(
                 agents[name].default_enabled = False
             elif isinstance(spec, dict) and spec.get("enabled") is True:
                 agents[name].default_enabled = True
-
-    # ── Legacy format: disable_agents ─────────────────────────
-    legacy_disable = claude_code_config.get("disable_agents", [])
-    if legacy_disable:
-        warnings.warn(
-            "claude_code.disable_agents is deprecated. "
-            "Use claude_code.agents: {name: {enabled: false}} instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        for name in legacy_disable:
-            if name in agents:
-                agents[name].default_enabled = False
 
     # ── Auto-discover custom agents ───────────────────────────
     if project_dir:
