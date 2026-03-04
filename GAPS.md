@@ -8,8 +8,8 @@
 ## Summary
 
 - Total items: 35
-- Completed: 3
-- Remaining: 32
+- Completed: 5
+- Remaining: 30
 - Critical (P0): 3 | High (P1): 7 | Medium (P2): 15 | Low (P3): 10
 
 ## Backlog
@@ -62,7 +62,7 @@ This is a **safety gap**: a facility adding a hardware-write-capable custom serv
 
 ---
 
-### [P0] GP-003: WRITE_TOOLS kill switch only blocks 2 hardcoded tools (pending)
+### [P0] GP-003: WRITE_TOOLS kill switch only blocks 2 hardcoded tools (completed)
 
 **Severity**: GAP | **Categories**: hard_coded, config_flexibility
 **Files**: `src/osprey/templates/claude_code/claude/hooks/osprey_writes_check.py`
@@ -76,7 +76,8 @@ This is a **safety gap**: a facility adding a hardware-write-capable custom serv
 2. Generate WRITE_TOOLS at deploy time from server registry (tools with `permissions: ask`)
 3. Merge config-specified tools with framework defaults at hook startup
 
-**Status**: pending
+**Status**: completed
+**Completed**: 2026-03-04 — dynamic write_tools via hook_config.json, fail-closed fallback to framework defaults
 
 ---
 
@@ -226,7 +227,7 @@ A fusion experiment or beamline has completely different systems, families, and 
 
 ---
 
-### [P2] GP-011: execution_control config section is entirely dead (pending)
+### [P2] GP-011: execution_control config section is entirely dead (completed)
 
 **Severity**: IMPROVEMENT | **Categories**: config_flexibility
 **Files**: `src/osprey/templates/project/config.yml.j2`
@@ -239,7 +240,8 @@ A fusion experiment or beamline has completely different systems, families, and 
 1. Remove the entire `execution_control` section from `config.yml.j2`
 2. Remove corresponding defaults from `utils/config.py` if present
 
-**Status**: pending
+**Status**: completed
+**Completed**: 2026-03-04 — removed from project template, control_assistant template, test fixtures, and test data
 
 ---
 

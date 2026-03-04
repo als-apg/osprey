@@ -1,5 +1,6 @@
 {%- set server_pfx = [] -%}
 {%- set approval_pfx = [] -%}
+{%- set write_tools = [] -%}
 {%- for s in servers if s.enabled -%}
   {%- set _ = server_pfx.append("mcp__" ~ s.name ~ "__") -%}
   {%- for rule in s.hooks_pre -%}
@@ -7,10 +8,19 @@
       {%- if 'osprey_approval.py' in hook.command -%}
         {%- set _ = approval_pfx.append("mcp__" ~ s.name ~ "__") -%}
       {%- endif -%}
+      {%- if 'osprey_writes_check.py' in hook.command -%}
+        {%- set _ = write_tools.append(rule.matcher) -%}
+      {%- endif -%}
     {%- endfor -%}
   {%- endfor -%}
 {%- endfor -%}
+{%- for extra in control_system_write_tools -%}
+  {%- if extra not in write_tools -%}
+    {%- set _ = write_tools.append(extra) -%}
+  {%- endif -%}
+{%- endfor -%}
 {
   "server_prefixes": {{ server_pfx | tojson }},
-  "approval_prefixes": {{ approval_pfx | tojson }}
+  "approval_prefixes": {{ approval_pfx | tojson }},
+  "write_tools": {{ write_tools | tojson }}
 }

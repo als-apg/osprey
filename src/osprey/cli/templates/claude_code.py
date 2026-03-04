@@ -163,6 +163,11 @@ def build_claude_code_context(
         model_spec = None
     ctx["claude_code_model_spec"] = model_spec
 
+    # Write tools blocked by the writes kill switch (for hook_config.json)
+    ctx["control_system_write_tools"] = (
+        config.get("control_system", {}).get("write_tools", [])
+    )
+
     return ctx
 
 

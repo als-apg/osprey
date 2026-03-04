@@ -147,6 +147,7 @@ def smoke_env(tmp_path):
 _SMOKE_HOOK_CONFIG = {
     "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__"],
     "approval_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__"],
+    "write_tools": ["mcp__controls__channel_write", "mcp__python__execute"],
 }
 
 

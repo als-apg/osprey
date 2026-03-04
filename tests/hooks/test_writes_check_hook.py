@@ -194,3 +194,60 @@ def test_missing_writes_enabled_key_denies(tmp_path, hook_runner, make_config):
     # Missing writes_enabled key → defaults to False → deny
     assert result is not None
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+# -- Dynamic write_tools via hook_config --
+
+
+@pytest.mark.unit
+def test_custom_write_tool_blocked_via_hook_config(tmp_path, hook_runner, make_config):
+    """A custom tool listed in hook_config write_tools is blocked when writes disabled."""
+    config = make_config({"control_system": {"writes_enabled": False}})
+
+    result = hook_runner(
+        "osprey_writes_check.py",
+        "mcp__custom__write_thing",
+        {"param": "value"},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config={"write_tools": ["mcp__custom__write_thing"]},
+    )
+
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+@pytest.mark.unit
+def test_custom_write_tool_allowed_when_writes_enabled(tmp_path, hook_runner, make_config):
+    """A custom tool in write_tools is allowed through when writes are enabled."""
+    config = make_config({"control_system": {"writes_enabled": True}})
+
+    result = hook_runner(
+        "osprey_writes_check.py",
+        "mcp__custom__write_thing",
+        {"param": "value"},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config={"write_tools": ["mcp__custom__write_thing"]},
+    )
+
+    assert result is None  # Allowed through
+
+
+@pytest.mark.unit
+def test_fallback_defaults_when_no_hook_config(tmp_path, hook_runner, make_config):
+    """Without hook_config, falls back to the 2 framework default write tools."""
+    config = make_config({"control_system": {"writes_enabled": False}})
+
+    # The default tool mcp__controls__channel_write should still be blocked
+    result = hook_runner(
+        "osprey_writes_check.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+        config_path=config,
+        cwd=tmp_path,
+        # No hook_config — uses fallback defaults
+    )
+
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"

@@ -57,7 +57,7 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from osprey_hook_log import get_hook_input, get_project_dir, log_hook
+from osprey_hook_log import get_hook_input, get_project_dir, load_hook_config, log_hook
 
 
 def load_osprey_config(project_dir=""):
@@ -71,10 +71,20 @@ def load_osprey_config(project_dir=""):
     return {}
 
 
-WRITE_TOOLS = {
+_FALLBACK_WRITE_TOOLS = [
     "mcp__controls__channel_write",
     "mcp__python__execute",
-}
+]
+
+
+def _get_write_tools():
+    """Return the set of tool names subject to the writes kill switch.
+
+    Loaded from hook_config.json (generated at deploy time).
+    Falls back to framework defaults if missing — fail-closed.
+    """
+    tools = load_hook_config().get("write_tools", _FALLBACK_WRITE_TOOLS)
+    return set(tools)
 
 
 def main():
@@ -85,7 +95,7 @@ def main():
     tool_name = hook_input.get("tool_name", "")
 
     # Only inspect write tools
-    if tool_name not in WRITE_TOOLS:
+    if tool_name not in _get_write_tools():
         sys.exit(0)
 
     tool_input = hook_input.get("tool_input", {})
