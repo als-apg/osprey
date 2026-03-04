@@ -15,10 +15,10 @@ async def channel_read(
     channels: list[str],
     include_metadata: bool = True,
 ) -> str:
-    """Read current values from one or more EPICS control-system channels.
+    """Read current values from one or more control-system channels.
 
     Args:
-        channels: List of channel/PV addresses to read (e.g. ["SR:C01-MG:G01A{Quad:01}Fld-I"]).
+        channels: List of channel/PV addresses to read.
         include_metadata: If True, include units, alarm status, and limits alongside values.
 
     Returns:
