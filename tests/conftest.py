@@ -177,9 +177,6 @@ class TestRegistryProvider(RegistryConfigProvider):
     config = {
         "project_root": str(tmp_path),
         "registry_path": str(registry_file),
-        "execution_control": {
-            "epics": {"writes_enabled": False},
-        },
         "approval": {
             "global_mode": "selective",
             "capabilities": {
@@ -259,9 +256,6 @@ class TestRegistryProvider(RegistryConfigProvider):
     config = {
         "project_root": str(tmp_path),
         "registry_path": str(registry_file),
-        "execution_control": {
-            "epics": {"writes_enabled": False},
-        },
         "approval": {
             "global_mode": "selective",
             "capabilities": {

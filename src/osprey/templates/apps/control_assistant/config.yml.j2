@@ -130,19 +130,6 @@ approval:
 hooks:
   debug: true
 
-# Execution limits and safety controls
-execution_control:
-  agent_control:
-    orchestration_mode: plan_first
-    task_extraction_bypass_enabled: false
-    capability_selection_bypass_enabled: false
-  limits:
-    max_reclassifications: 1
-    max_planning_attempts: 2
-    max_step_retries: 0
-    max_execution_time_seconds: 300
-    max_concurrent_classifications: 5
-
 # ============================================================
 # CONTROL SYSTEM & ARCHIVER CONFIGURATION
 # Issue #18 - Control System Abstraction

@@ -38,22 +38,6 @@ approval:
     memory:
       enabled: true
 
-# Execution limits and safety controls
-execution_control:
-  # Agent control - Runtime behavior configuration
-  agent_control:
-    orchestration_mode: plan_first          # Options: plan_first | react
-    task_extraction_bypass_enabled: false    # Skip LLM task extraction
-    capability_selection_bypass_enabled: false  # Skip LLM capability selection
-
-  # Execution safety limits and control flow
-  limits:
-    max_reclassifications: 1          # Maximum times a task can be reclassified
-    max_planning_attempts: 2          # Maximum number of planning attempts
-    max_step_retries: 0               # Not used in Claude Code mode
-    max_execution_time_seconds: 300   # Default timeout
-    max_concurrent_classifications: 5 # Maximum concurrent LLM classification requests
-
 # ============================================================
 # SYSTEM CONFIGURATION
 # ============================================================

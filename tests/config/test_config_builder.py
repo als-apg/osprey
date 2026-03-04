@@ -66,10 +66,10 @@ api:
         config_file = tmp_path / "config.yml"
         config_file.write_text(
             """
-execution_control:
+control_system:
   limits:
-    max_retries: 3
-    graph_recursion_limit: 100
+    max_channels: 100
+    timeout: 30
 models:
   orchestrator:
     provider: openai
@@ -79,8 +79,8 @@ models:
         builder = ConfigBuilder(str(config_file))
 
         # Test nested path access
-        assert builder.get("execution_control.limits.max_retries") == 3
-        assert builder.get("execution_control.limits.graph_recursion_limit") == 100
+        assert builder.get("control_system.limits.max_channels") == 100
+        assert builder.get("control_system.limits.timeout") == 30
         assert builder.get("models.orchestrator.provider") == "openai"
 
         # Test missing paths return default
@@ -129,9 +129,9 @@ registry_path: ./app/registry.py
 models:
   orchestrator:
     provider: openai
-execution_control:
+control_system:
   limits:
-    graph_recursion_limit: 100
+    max_channels: 100
 """
         )
 
@@ -256,9 +256,9 @@ class TestConfigGlobalAccess:
         config_file.write_text(
             """
 project_root: /test/project
-execution_control:
+control_system:
   limits:
-    max_retries: 3
+    max_channels: 100
 """
         )
 
@@ -272,8 +272,8 @@ execution_control:
         config_module._default_configurable = None
 
         # Test access
-        value = get_config_value("execution_control.limits.max_retries", 0)
-        assert value == 3  # Should retrieve the value from config
+        value = get_config_value("control_system.limits.max_channels", 0)
+        assert value == 100  # Should retrieve the value from config
 
 
 if __name__ == "__main__":
