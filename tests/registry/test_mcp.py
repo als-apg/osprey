@@ -1,10 +1,11 @@
 """Tests for the unified server and agent registry."""
 
 import json
+import logging
 
 import pytest
 
-from osprey.registry.mcp import resolve_agents, resolve_servers
+from osprey.registry.mcp import HOOK_PRESETS, resolve_agents, resolve_servers
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -136,6 +137,93 @@ class TestResolveServers:
         cf = [s for s in servers if s["name"] == "channel-finder"][0]
         assert cf["enabled"] is True
         assert cf["args"] == ["-m", "osprey.mcp_server.channel_finder_hierarchical"]
+
+    def test_custom_server_with_approval_preset(self):
+        """Custom server with hooks.pre_tool_use: [approval] gets approval hook."""
+        ctx = _base_ctx()
+        cfg = {
+            "servers": {
+                "my-plc": {
+                    "command": "python",
+                    "args": ["-m", "my_plc_server"],
+                    "hooks": {"pre_tool_use": ["approval"]},
+                    "permissions": {"ask": ["set_output"]},
+                }
+            }
+        }
+        servers = resolve_servers(cfg, ctx)
+        plc = [s for s in servers if s["name"] == "my-plc"][0]
+        assert plc["enabled"] is True
+        assert len(plc["hooks_pre"]) == 1
+        rule = plc["hooks_pre"][0]
+        assert rule["matcher"] == "mcp__my-plc__.*"
+        assert len(rule["hooks"]) == 1
+        assert "osprey_approval.py" in rule["hooks"][0]["command"]
+
+    def test_custom_server_with_multiple_presets(self):
+        """Custom server with multiple hook presets gets all hooks in one rule."""
+        ctx = _base_ctx()
+        cfg = {
+            "servers": {
+                "my-plc": {
+                    "command": "python",
+                    "args": ["-m", "my_plc_server"],
+                    "hooks": {"pre_tool_use": ["approval", "writes_check"]},
+                    "permissions": {"ask": ["set_output"]},
+                }
+            }
+        }
+        servers = resolve_servers(cfg, ctx)
+        plc = [s for s in servers if s["name"] == "my-plc"][0]
+        assert len(plc["hooks_pre"]) == 1
+        rule = plc["hooks_pre"][0]
+        assert len(rule["hooks"]) == 2
+        commands = [h["command"] for h in rule["hooks"]]
+        assert any("osprey_approval.py" in c for c in commands)
+        assert any("osprey_writes_check.py" in c for c in commands)
+
+    def test_custom_server_invalid_preset_warns(self, caplog):
+        """Unknown hook preset logs a warning and is skipped."""
+        ctx = _base_ctx()
+        cfg = {
+            "servers": {
+                "my-plc": {
+                    "command": "python",
+                    "args": ["-m", "my_plc_server"],
+                    "hooks": {"pre_tool_use": ["approval", "bogus"]},
+                    "permissions": {"ask": ["set_output"]},
+                }
+            }
+        }
+        with caplog.at_level(logging.WARNING):
+            servers = resolve_servers(cfg, ctx)
+        plc = [s for s in servers if s["name"] == "my-plc"][0]
+        # Only the valid preset should be in the hooks
+        assert len(plc["hooks_pre"]) == 1
+        assert len(plc["hooks_pre"][0]["hooks"]) == 1
+        assert "osprey_approval.py" in plc["hooks_pre"][0]["hooks"][0]["command"]
+        # Warning should have been logged
+        assert any("bogus" in r.message for r in caplog.records)
+
+    def test_custom_server_no_hooks_key(self):
+        """Custom server without hooks key gets no pre-tool-use hooks."""
+        ctx = _base_ctx()
+        cfg = {
+            "servers": {
+                "my-server": {
+                    "command": "node",
+                    "args": ["server.js"],
+                    "permissions": {"allow": ["read_data"]},
+                }
+            }
+        }
+        servers = resolve_servers(cfg, ctx)
+        custom = [s for s in servers if s["name"] == "my-server"][0]
+        assert custom["hooks_pre"] == []
+
+    def test_hook_presets_dict_contains_expected_keys(self):
+        """HOOK_PRESETS has the three expected preset names."""
+        assert set(HOOK_PRESETS.keys()) == {"approval", "writes_check", "limits"}
 
 
 # ---------------------------------------------------------------------------
@@ -308,3 +396,39 @@ class TestTemplateRendering:
         )
         rendered = self._render(template_manager, "claude_code/CLAUDE.md.j2", ctx)
         assert "wiki-search" in rendered
+
+    def test_render_hook_config_json(self, template_manager):
+        """hook_config.json.j2 renders valid JSON with server/approval prefixes."""
+        ctx = self._full_ctx()
+        rendered = self._render(
+            template_manager, "claude_code/claude/hooks/hook_config.json.j2", ctx
+        )
+        data = json.loads(rendered)
+        assert "server_prefixes" in data
+        assert "approval_prefixes" in data
+        # Core servers should be in server_prefixes
+        assert "mcp__controls__" in data["server_prefixes"]
+        assert "mcp__workspace__" in data["server_prefixes"]
+        # Controls has approval hooks, workspace does not
+        assert "mcp__controls__" in data["approval_prefixes"]
+        assert "mcp__workspace__" not in data["approval_prefixes"]
+
+    def test_render_hook_config_json_with_custom_server(self, template_manager):
+        """Custom server with approval preset appears in both prefix lists."""
+        cfg = {
+            "servers": {
+                "my-plc": {
+                    "command": "python",
+                    "args": ["-m", "my_plc"],
+                    "hooks": {"pre_tool_use": ["approval"]},
+                    "permissions": {"ask": ["set_output"]},
+                }
+            }
+        }
+        ctx = self._full_ctx(_claude_code_config=cfg)
+        rendered = self._render(
+            template_manager, "claude_code/claude/hooks/hook_config.json.j2", ctx
+        )
+        data = json.loads(rendered)
+        assert "mcp__my-plc__" in data["server_prefixes"]
+        assert "mcp__my-plc__" in data["approval_prefixes"]

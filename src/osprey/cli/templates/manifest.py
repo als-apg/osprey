@@ -46,6 +46,7 @@ REGEN_TRACKED_FILES = [
     ".claude/hooks/osprey_notebook_update.py",
     ".claude/hooks/osprey_cf_feedback_capture.py",
     ".claude/hooks/osprey_hook_log.py",
+    ".claude/hooks/hook_config.json",
     ".claude/hooks/osprey_memory_guard.py",
     ".claude/rules/python-execution.md",
     ".claude/rules/data-visualization.md",

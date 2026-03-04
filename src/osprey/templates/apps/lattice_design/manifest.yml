@@ -4,6 +4,7 @@ description: "Lattice physics with Accelerator Toolbox"
 artifacts:
   hooks:
     - hook-log
+    - hook-config
     - approval
     - writes-check
     - error-guidance

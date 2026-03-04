@@ -170,6 +170,8 @@ claude_code:
   #     args: ["-m", "my_mcp"]
   #     env:
   #       MY_KEY: "${MY_KEY}"
+  #     hooks:
+  #       pre_tool_use: [approval]       # Human approval for all tools
   #     permissions:
   #       allow: [read_data, list_items]
   #       ask: [write_data]

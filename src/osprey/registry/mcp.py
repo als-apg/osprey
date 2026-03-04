@@ -85,6 +85,13 @@ _CF_FEEDBACK = HookEntry(
 )
 
 
+HOOK_PRESETS: dict[str, HookEntry] = {
+    "approval": _APPROVAL,
+    "writes_check": _WRITES_CHECK,
+    "limits": _LIMITS,
+}
+
+
 def _post_error(matcher: str) -> HookRule:
     """Standard PostToolUse error-guidance hook for a server."""
     return HookRule(matcher=matcher, hooks=[_ERROR_GUIDANCE])
@@ -404,6 +411,23 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
 def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition:
     """Build a ServerDefinition from a new-format config spec."""
     perms = spec.get("permissions", {})
+
+    # Resolve pre-tool-use hook presets
+    hooks_pre: list[HookRule] = []
+    pre_presets = spec.get("hooks", {}).get("pre_tool_use", [])
+    if pre_presets:
+        resolved = []
+        for preset in pre_presets:
+            hook = HOOK_PRESETS.get(preset)
+            if hook:
+                resolved.append(hook)
+            else:
+                logger.warning(
+                    "Unknown hook preset %r for server %r — skipping", preset, name
+                )
+        if resolved:
+            hooks_pre = [HookRule(matcher=f"mcp__{name}__.*", hooks=resolved)]
+
     return ServerDefinition(
         name=name,
         module="",
@@ -413,6 +437,7 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition:
         external_args=spec.get("args", []),
         permissions_allow=perms.get("allow", []),
         permissions_ask=perms.get("ask", []),
+        hooks_pre=hooks_pre,
         hooks_post=[_post_error(f"mcp__{name}__.*")]
         if perms.get("allow") or perms.get("ask")
         else [],

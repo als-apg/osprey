@@ -24,6 +24,27 @@ WRITE_HOOK_CHAIN = [
     "osprey_approval.py",
 ]
 
+# Default hook_config for chain tests (approval hook needs approval_prefixes)
+DEFAULT_CHAIN_CONFIG = {
+    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__"],
+    "approval_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__"],
+}
+
+# Default hook_config for error guidance tests
+DEFAULT_ERROR_CONFIG = {
+    "server_prefixes": [
+        "mcp__controls__",
+        "mcp__python__",
+        "mcp__workspace__",
+        "mcp__ariel__",
+        "mcp__accelpapers__",
+        "mcp__matlab__",
+        "mcp__channel-finder__",
+        "mcp__confluence__",
+    ],
+    "approval_prefixes": [],
+}
+
 
 def _make_chain_config(
     tmp_path,
@@ -65,6 +86,7 @@ def run_hook_chain(hook_runner, hook_names, tool_name, tool_input, config_path, 
             tool_input,
             config_path=config_path,
             cwd=cwd,
+            hook_config=DEFAULT_CHAIN_CONFIG,
         )
         if result is not None:
             decision = result.get("hookSpecificOutput", {}).get("permissionDecision")
@@ -253,7 +275,7 @@ def test_hook_invalid_json_stdin_exits_cleanly(hook_runner_raw):
     """Hook receiving invalid JSON on stdin exits with code 0 (fail-open).
 
     All hooks wrap stdin parsing in try/except and call sys.exit(0) on failure,
-    which allows the tool to proceed. This is intentional — a broken hook
+    which allows the tool to proceed. This is intentional -- a broken hook
     should not block the entire system.
     """
     returncode, stdout, stderr = hook_runner_raw(
@@ -304,6 +326,7 @@ def test_error_guidance_fires_on_tool_error(hook_runner, make_config):
                 "suggestions": [],
             }
         ),
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is not None
@@ -343,7 +366,7 @@ def test_notebook_update_no_cache_is_noop(tmp_path, hook_runner):
     nb_path = tmp_path / "test_notebook.ipynb"
     nb_path.write_text("{}")
 
-    # No cache dir exists — should not raise or produce output
+    # No cache dir exists -- should not raise or produce output
     result = hook_runner(
         "osprey_notebook_update.py",
         "NotebookEdit",
@@ -375,6 +398,7 @@ def test_post_tool_use_hooks_independent(hook_runner, make_config):
                 "error_message": "something broke",
             }
         ),
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert error_result is None  # NotebookEdit is not an OSPREY MCP tool

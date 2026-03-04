@@ -4,6 +4,7 @@ description: "Full control system deployment"
 artifacts:
   hooks:
     - hook-log
+    - hook-config
     - approval
     - writes-check
     - limits

@@ -4,6 +4,34 @@ import json
 import os
 import sys
 from datetime import UTC, datetime
+from pathlib import Path
+
+
+_hook_config_cache = None
+
+
+def load_hook_config():
+    """Load hook_config.json (generated at regen time) with prefix lists.
+
+    Lookup order:
+    1. ``OSPREY_HOOK_CONFIG`` env var (for tests)
+    2. ``hook_config.json`` next to this script (deployed projects)
+
+    Returns ``{}`` if the file is missing or unparseable — hooks degrade
+    gracefully to "match nothing" rather than crashing.
+    """
+    global _hook_config_cache
+    if _hook_config_cache is not None:
+        return _hook_config_cache
+    config_path = os.environ.get("OSPREY_HOOK_CONFIG")
+    if config_path is None:
+        config_path = Path(__file__).parent / "hook_config.json"
+    try:
+        with open(config_path) as f:
+            _hook_config_cache = json.load(f)
+    except Exception:
+        _hook_config_cache = {}
+    return _hook_config_cache
 
 
 def get_hook_input():
