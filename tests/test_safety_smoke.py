@@ -143,45 +143,69 @@ def smoke_env(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _run_hook(hook_name, tool_name, tool_input, config_path, cwd):
+# Default hook_config for smoke tests (approval + error guidance prefixes)
+_SMOKE_HOOK_CONFIG = {
+    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__"],
+    "approval_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__"],
+}
+
+
+def _run_hook(hook_name, tool_name, tool_input, config_path, cwd, hook_config=None):
     """Run a single hook script as a subprocess."""
+    import tempfile
+
     hook_script = HOOKS_DIR / hook_name
     stdin_data = json.dumps({"tool_name": tool_name, "tool_input": tool_input})
     env = os.environ.copy()
     env["OSPREY_CONFIG"] = str(config_path)
     env["CONFIG_FILE"] = str(config_path)
 
-    result = subprocess.run(
-        [sys.executable, str(hook_script)],
-        input=stdin_data,
-        capture_output=True,
-        text=True,
-        env=env,
-        cwd=str(cwd),
-    )
-    assert result.returncode == 0, (
-        f"Hook {hook_name} failed (exit {result.returncode}): {result.stderr}"
-    )
-    stdout = result.stdout.strip()
-    if not stdout:
-        return None
-    for line in reversed(stdout.split("\n")):
-        line = line.strip()
-        if line.startswith("{"):
-            try:
-                return json.loads(line)
-            except json.JSONDecodeError:
-                pass
+    # Write hook_config.json to a temp file for the subprocess
+    hc_file = None
+    if hook_config is not None:
+        hc_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        json.dump(hook_config, hc_file)
+        hc_file.close()
+        env["OSPREY_HOOK_CONFIG"] = hc_file.name
+
     try:
-        return json.loads(stdout)
-    except json.JSONDecodeError:
-        return None
+        result = subprocess.run(
+            [sys.executable, str(hook_script)],
+            input=stdin_data,
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=str(cwd),
+        )
+        assert result.returncode == 0, (
+            f"Hook {hook_name} failed (exit {result.returncode}): {result.stderr}"
+        )
+        stdout = result.stdout.strip()
+        if not stdout:
+            return None
+        for line in reversed(stdout.split("\n")):
+            line = line.strip()
+            if line.startswith("{"):
+                try:
+                    return json.loads(line)
+                except json.JSONDecodeError:
+                    pass
+        try:
+            return json.loads(stdout)
+        except json.JSONDecodeError:
+            return None
+    finally:
+        if hc_file is not None:
+            os.unlink(hc_file.name)
 
 
 def _run_hook_chain(tool_name, tool_input, config_path, cwd):
     """Run the full write hook chain, stopping at first deny/ask."""
     for hook_name in WRITE_HOOK_CHAIN:
-        result = _run_hook(hook_name, tool_name, tool_input, config_path, cwd)
+        result = _run_hook(
+            hook_name, tool_name, tool_input, config_path, cwd,
+            hook_config=_SMOKE_HOOK_CONFIG,
+        )
         if result is not None:
             decision = result.get("hookSpecificOutput", {}).get("permissionDecision")
             if decision in ("deny", "ask"):

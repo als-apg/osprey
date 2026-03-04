@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,7 @@ def hook_runner():
         cwd=None,
         tool_response=None,
         hook_input_extra=None,
+        hook_config=None,
     ):
         hook_script = HOOKS_DIR / hook_name
         payload = {
@@ -52,31 +54,47 @@ def hook_runner():
             # (prevents pollution from other tests that set CONFIG_FILE)
             env["CONFIG_FILE"] = str(config_path)
 
-        result = subprocess.run(
-            [sys.executable, str(hook_script)],
-            input=stdin_data,
-            capture_output=True,
-            text=True,
-            env=env,
-            cwd=str(cwd) if cwd else None,
-        )
-        assert result.returncode == 0, f"Hook failed (exit {result.returncode}): {result.stderr}"
-        stdout = result.stdout.strip()
-        if not stdout:
-            return None  # Hook allowed (no output = pass through)
-        # Find the JSON object in stdout (skip any log/warning lines)
-        for line in reversed(stdout.split("\n")):
-            line = line.strip()
-            if line.startswith("{"):
-                try:
-                    return json.loads(line)
-                except json.JSONDecodeError:
-                    pass
-        # Try the full stdout as JSON
+        # Write hook_config.json to a temp file for the subprocess
+        hc_file = None
+        if hook_config is not None:
+            hc_file = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", delete=False
+            )
+            json.dump(hook_config, hc_file)
+            hc_file.close()
+            env["OSPREY_HOOK_CONFIG"] = hc_file.name
+
         try:
-            return json.loads(stdout)
-        except json.JSONDecodeError:
-            return None  # Non-JSON output = treat as pass through
+            result = subprocess.run(
+                [sys.executable, str(hook_script)],
+                input=stdin_data,
+                capture_output=True,
+                text=True,
+                env=env,
+                cwd=str(cwd) if cwd else None,
+            )
+            assert (
+                result.returncode == 0
+            ), f"Hook failed (exit {result.returncode}): {result.stderr}"
+            stdout = result.stdout.strip()
+            if not stdout:
+                return None  # Hook allowed (no output = pass through)
+            # Find the JSON object in stdout (skip any log/warning lines)
+            for line in reversed(stdout.split("\n")):
+                line = line.strip()
+                if line.startswith("{"):
+                    try:
+                        return json.loads(line)
+                    except json.JSONDecodeError:
+                        pass
+            # Try the full stdout as JSON
+            try:
+                return json.loads(stdout)
+            except json.JSONDecodeError:
+                return None  # Non-JSON output = treat as pass through
+        finally:
+            if hc_file is not None:
+                os.unlink(hc_file.name)
 
     return run
 
@@ -98,6 +116,7 @@ def hook_runner_raw():
         tool_response=None,
         hook_input_extra=None,
         stdin_override=None,
+        hook_config=None,
     ):
         hook_script = HOOKS_DIR / hook_name
         if stdin_override is not None:
@@ -118,15 +137,29 @@ def hook_runner_raw():
             env["OSPREY_CONFIG"] = str(config_path)
             env["CONFIG_FILE"] = str(config_path)
 
-        result = subprocess.run(
-            [sys.executable, str(hook_script)],
-            input=stdin_data,
-            capture_output=True,
-            text=True,
-            env=env,
-            cwd=str(cwd) if cwd else None,
-        )
-        return result.returncode, result.stdout, result.stderr
+        # Write hook_config.json to a temp file for the subprocess
+        hc_file = None
+        if hook_config is not None:
+            hc_file = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", delete=False
+            )
+            json.dump(hook_config, hc_file)
+            hc_file.close()
+            env["OSPREY_HOOK_CONFIG"] = hc_file.name
+
+        try:
+            result = subprocess.run(
+                [sys.executable, str(hook_script)],
+                input=stdin_data,
+                capture_output=True,
+                text=True,
+                env=env,
+                cwd=str(cwd) if cwd else None,
+            )
+            return result.returncode, result.stdout, result.stderr
+        finally:
+            if hc_file is not None:
+                os.unlink(hc_file.name)
 
     return run
 

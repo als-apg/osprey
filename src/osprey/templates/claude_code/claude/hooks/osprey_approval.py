@@ -75,13 +75,7 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from osprey_hook_log import get_hook_input, get_project_dir, log_hook
-
-OSPREY_PREFIXES = (
-    "mcp__controls__",
-    "mcp__python__",
-    "mcp__workspace__",
-)
+from osprey_hook_log import get_hook_input, get_project_dir, load_hook_config, log_hook
 
 # Pattern detection: prefer framework module (regex-based, config-driven, 11+ patterns)
 # with graceful fallback to basic substring matching if osprey not installed
@@ -193,9 +187,10 @@ def main():
 
     tool_name = hook_input.get("tool_name", "")
 
-    # Only inspect OSPREY tools
+    # Only inspect OSPREY tools (prefixes loaded from hook_config.json)
+    _prefixes = load_hook_config().get("approval_prefixes", [])
     matched_prefix = None
-    for prefix in OSPREY_PREFIXES:
+    for prefix in _prefixes:
         if tool_name.startswith(prefix):
             matched_prefix = prefix
             break

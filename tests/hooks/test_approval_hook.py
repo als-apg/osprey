@@ -10,6 +10,12 @@ Also covers pre-execution notebook creation for execute (python) approval.
 
 import pytest
 
+# Default hook_config matching the original hard-coded OSPREY_PREFIXES
+DEFAULT_APPROVAL_CONFIG = {
+    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__"],
+    "approval_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__"],
+}
+
 
 def _is_allow(result) -> bool:
     """Check if hook result is an allow decision (None or explicit allow)."""
@@ -35,6 +41,7 @@ def test_approval_disabled_passes_all(tmp_path, hook_runner, make_config):
         {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
         config_path=config,
         cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
     assert _is_allow(result)  # All tools pass
@@ -59,6 +66,7 @@ def test_selective_mode_blocks_write(tmp_path, hook_runner, make_config):
         {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
         config_path=config,
         cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
     assert result is not None
@@ -84,6 +92,7 @@ def test_selective_mode_blocks_python_write(tmp_path, hook_runner, make_config):
         {"code": "caput('PV', 1.0)", "execution_mode": "write"},
         config_path=config,
         cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
     assert result is not None
@@ -109,6 +118,7 @@ def test_selective_mode_allows_readonly_python(tmp_path, hook_runner, make_confi
         {"code": "print(42)", "execution_mode": "readonly"},
         config_path=config,
         cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
     assert _is_allow(result)  # Readonly without write patterns passes
@@ -133,6 +143,7 @@ def test_selective_mode_allows_read(tmp_path, hook_runner, make_config):
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
     assert _is_allow(result)  # Read passes through in selective mode
@@ -155,6 +166,7 @@ def test_all_capabilities_mode_blocks_all(tmp_path, hook_runner, make_config):
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
     assert result is not None
@@ -178,6 +190,7 @@ def test_non_osprey_tools_pass_through(tmp_path, hook_runner, make_config):
         {"param": "value"},
         config_path=config,
         cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
     assert result is None  # Not an osprey tool
@@ -202,6 +215,7 @@ def test_approval_ask_includes_tool_info(tmp_path, hook_runner, make_config):
         {"operations": [{"channel": "TEST:PV", "value": 42.0}]},
         config_path=config,
         cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
     assert result is not None
@@ -229,6 +243,7 @@ def test_approval_python_write_creates_notebook(tmp_path, hook_runner, make_conf
         {"code": "caput('PV', 1.0)", "execution_mode": "write"},
         config_path=config,
         cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
     assert result is not None
@@ -257,6 +272,7 @@ def test_approval_notebook_failure_nonfatal(tmp_path, hook_runner, make_config):
         {"code": "epics.caput('PV', 5.0)", "execution_mode": "write"},
         config_path=config,
         cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
     assert result is not None
@@ -286,6 +302,7 @@ def test_framework_pattern_detection_tango_write(tmp_path, hook_runner, make_con
         {"code": "device.write_attribute('MOTOR:POS', 100)", "execution_mode": "readonly"},
         config_path=config,
         cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
     assert result is not None
@@ -309,6 +326,7 @@ def test_framework_pattern_detection_labview_write(tmp_path, hook_runner, make_c
         {"code": "labview.set_control('temperature', 350)", "execution_mode": "readonly"},
         config_path=config,
         cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
     assert result is not None
@@ -332,6 +350,7 @@ def test_framework_pattern_detection_set_value(tmp_path, hook_runner, make_confi
         {"code": "pv.set_value(42.0)", "execution_mode": "readonly"},
         config_path=config,
         cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
     assert result is not None
@@ -355,6 +374,7 @@ def test_framework_pattern_no_false_positive_dict(tmp_path, hook_runner, make_co
         {"code": "cache = {}\ncache['key'] = 'value'", "execution_mode": "readonly"},
         config_path=config,
         cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
     assert _is_allow(result)  # No approval needed
@@ -381,6 +401,7 @@ def test_framework_pattern_detection_import_fallback(
         {"code": "caput('TEST:PV', 1.0)", "execution_mode": "readonly"},
         config_path=config,
         cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
     assert result is not None
@@ -410,6 +431,7 @@ def test_framework_pattern_config_driven(tmp_path, hook_runner, make_config):
         {"code": "my_custom_write('DEVICE', 42)", "execution_mode": "readonly"},
         config_path=config,
         cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
     assert result is not None
@@ -441,6 +463,7 @@ def test_missing_approval_section_defaults_selective(tmp_path, hook_runner, make
         {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
         config_path=config,
         cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
     assert result is not None
@@ -450,11 +473,11 @@ def test_missing_approval_section_defaults_selective(tmp_path, hook_runner, make
 
 @pytest.mark.unit
 def test_invalid_approval_mode_passes_through(tmp_path, hook_runner, make_config):
-    """Unknown approval mode string does not match any branch → passes through.
+    """Unknown approval mode string does not match any branch -> passes through.
 
     The hook checks for 'disabled', 'all_capabilities', and 'selective' explicitly.
     An unknown mode falls through all conditionals, allowing the tool without approval.
-    This documents the current behavior — not necessarily desired, but important to know.
+    This documents the current behavior -- not necessarily desired, but important to know.
     """
     config = make_config(
         {
@@ -469,7 +492,42 @@ def test_invalid_approval_mode_passes_through(tmp_path, hook_runner, make_config
         {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
         config_path=config,
         cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
-    # Unknown mode falls through all branches → explicit allow
+    # Unknown mode falls through all branches -> explicit allow
     assert _is_allow(result)
+
+
+# ============================================================================
+# Dynamic prefix tests — custom server hooks
+# ============================================================================
+
+
+@pytest.mark.unit
+def test_custom_server_prefix_triggers_approval(tmp_path, hook_runner, make_config):
+    """Custom server prefix in hook_config triggers approval in all_capabilities mode."""
+    config = make_config(
+        {
+            "approval": {"global_mode": "all_capabilities"},
+        }
+    )
+
+    custom_config = {
+        "server_prefixes": ["mcp__controls__", "mcp__my_plc__"],
+        "approval_prefixes": ["mcp__controls__", "mcp__my_plc__"],
+    }
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__my_plc__set_output",
+        {"output": "valve_1", "value": True},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=custom_config,
+    )
+
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+    assert "set_output" in output["permissionDecisionReason"]

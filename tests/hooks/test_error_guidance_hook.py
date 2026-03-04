@@ -9,6 +9,21 @@ import json
 
 import pytest
 
+# Default hook_config matching the original hard-coded OSPREY_PREFIXES
+DEFAULT_ERROR_CONFIG = {
+    "server_prefixes": [
+        "mcp__controls__",
+        "mcp__python__",
+        "mcp__workspace__",
+        "mcp__ariel__",
+        "mcp__accelpapers__",
+        "mcp__matlab__",
+        "mcp__channel-finder__",
+        "mcp__confluence__",
+    ],
+    "approval_prefixes": [],
+}
+
 # -- Structured error envelope (matches common.make_error) --
 
 
@@ -40,6 +55,7 @@ def test_connection_error_injects_guidance(hook_runner, make_config):
             "connection_error",
             "Failed to connect to the control system: Connection refused",
         ),
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is not None
@@ -61,6 +77,7 @@ def test_timeout_error_injects_guidance(hook_runner, make_config):
             "timeout_error",
             "archiver_read timed out after 30s",
         ),
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is not None
@@ -81,6 +98,7 @@ def test_validation_error_injects_guidance(hook_runner, make_config):
             "validation_error",
             "Invalid content_type: application/octet-stream",
         ),
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is not None
@@ -101,6 +119,7 @@ def test_internal_error_injects_guidance(hook_runner, make_config):
             "internal_error",
             "Unexpected error during execute: ZeroDivisionError",
         ),
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is not None
@@ -121,6 +140,7 @@ def test_ariel_error_detected(hook_runner, make_config):
             "connection_error",
             "ARIEL service unreachable",
         ),
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is not None
@@ -128,7 +148,7 @@ def test_ariel_error_detected(hook_runner, make_config):
     assert "Connection" in ctx
 
 
-# -- Negative detection tests (no error → silent exit) --
+# -- Negative detection tests (no error -> silent exit) --
 
 
 @pytest.mark.unit
@@ -141,6 +161,7 @@ def test_success_response_no_output(hook_runner, make_config):
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         tool_response=json.dumps({"channels": [{"name": "SR:CURRENT:RB", "value": 500.1}]}),
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is None
@@ -156,6 +177,7 @@ def test_non_osprey_tool_no_output(hook_runner, make_config):
         {"param": "value"},
         config_path=config,
         tool_response=_make_error_response("internal_error", "kaboom"),
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is None
@@ -171,6 +193,7 @@ def test_no_tool_response_no_output(hook_runner, make_config):
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         # tool_response omitted
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is None
@@ -186,6 +209,7 @@ def test_non_json_success_no_output(hook_runner, make_config):
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         tool_response="Channel read successful: SR:CURRENT:RB = 500.1",
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is None
@@ -204,6 +228,7 @@ def test_non_json_error_string_detected(hook_runner, make_config):
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         tool_response="Error: Failed to connect to IOC at 192.168.1.100:5064",
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is not None
@@ -224,6 +249,7 @@ def test_unknown_error_type_defaults_to_internal(hook_runner, make_config):
             "some_new_error_type",
             "Something novel went wrong",
         ),
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is not None
@@ -244,6 +270,7 @@ def test_guidance_includes_anti_pattern_reminders(hook_runner, make_config):
             "connection_error",
             "Control system unreachable",
         ),
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is not None
@@ -258,7 +285,7 @@ def test_guidance_includes_anti_pattern_reminders(hook_runner, make_config):
 def test_dict_tool_response_detected(hook_runner, make_config):
     """Error detection works when tool_response is already a dict (not JSON string)."""
     config = make_config({})
-    # Pass dict directly — the hook should handle both str and dict
+    # Pass dict directly -- the hook should handle both str and dict
     result = hook_runner(
         "osprey_error_guidance.py",
         "mcp__controls__channel_read",
@@ -270,6 +297,7 @@ def test_dict_tool_response_detected(hook_runner, make_config):
             "error_message": "IOC offline",
             "suggestions": [],
         },
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is not None
@@ -297,11 +325,12 @@ def test_permission_error_injects_guidance(hook_runner, make_config):
             "permission_error",
             "Insufficient permissions to write to PROTECTED:PV",
         ),
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is not None
     ctx = result["hookSpecificOutput"]["additionalContext"]
-    # permission_error is not in ERROR_CLASS_MAP → defaults to Internal
+    # permission_error is not in ERROR_CLASS_MAP -> defaults to Internal
     assert "Internal" in ctx
     assert "error-handling" in ctx.lower()
 
@@ -319,6 +348,7 @@ def test_execution_error_injects_guidance(hook_runner, make_config):
             "execution_error",
             "ModuleNotFoundError: No module named 'nonexistent_module'",
         ),
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is not None
@@ -340,6 +370,7 @@ def test_data_not_found_injects_guidance(hook_runner, make_config):
             "not_found",
             "Channel NONEXISTENT:PV not found in the control system",
         ),
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is not None
@@ -361,6 +392,7 @@ def test_data_no_results_injects_guidance(hook_runner, make_config):
             "no_results",
             "No artifacts matched the query 'nonexistent artifact'",
         ),
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is not None
@@ -382,9 +414,43 @@ def test_limits_violation_error_injects_guidance(hook_runner, make_config):
             "limits_violation",
             "Value 999.0 exceeds max_value=100.0 for TEST:PV",
         ),
+        hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is not None
     ctx = result["hookSpecificOutput"]["additionalContext"]
     assert "Validation" in ctx
+    assert "error-handling" in ctx.lower()
+
+
+# ============================================================================
+# Dynamic prefix tests — custom server hooks
+# ============================================================================
+
+
+@pytest.mark.unit
+def test_custom_server_prefix_triggers_guidance(hook_runner, make_config):
+    """Custom server prefix in hook_config triggers error guidance."""
+    config = make_config({})
+
+    custom_config = {
+        "server_prefixes": ["mcp__controls__", "mcp__my_plc__"],
+        "approval_prefixes": [],
+    }
+
+    result = hook_runner(
+        "osprey_error_guidance.py",
+        "mcp__my_plc__read_sensor",
+        {"sensor": "temp_1"},
+        config_path=config,
+        tool_response=_make_error_response(
+            "connection_error",
+            "PLC at 10.0.1.50 unreachable",
+        ),
+        hook_config=custom_config,
+    )
+
+    assert result is not None
+    ctx = result["hookSpecificOutput"]["additionalContext"]
+    assert "Connection" in ctx
     assert "error-handling" in ctx.lower()

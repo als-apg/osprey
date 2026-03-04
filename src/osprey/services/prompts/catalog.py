@@ -215,6 +215,12 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             description="Shared hook logging utility",
         ),
         PromptArtifact(
+            canonical_name="hooks/hook-config",
+            template_path="claude/hooks/hook_config.json.j2",
+            output_path=".claude/hooks/hook_config.json",
+            description="Dynamic server prefix configuration for hooks",
+        ),
+        PromptArtifact(
             canonical_name="hooks/memory-guard",
             template_path="claude/hooks/osprey_memory_guard.py",
             output_path=".claude/hooks/osprey_memory_guard.py",

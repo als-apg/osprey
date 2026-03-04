@@ -1,0 +1,16 @@
+{%- set server_pfx = [] -%}
+{%- set approval_pfx = [] -%}
+{%- for s in servers if s.enabled -%}
+  {%- set _ = server_pfx.append("mcp__" ~ s.name ~ "__") -%}
+  {%- for rule in s.hooks_pre -%}
+    {%- for hook in rule.hooks -%}
+      {%- if 'osprey_approval.py' in hook.command -%}
+        {%- set _ = approval_pfx.append("mcp__" ~ s.name ~ "__") -%}
+      {%- endif -%}
+    {%- endfor -%}
+  {%- endfor -%}
+{%- endfor -%}
+{
+  "server_prefixes": {{ server_pfx | tojson }},
+  "approval_prefixes": {{ approval_pfx | tojson }}
+}

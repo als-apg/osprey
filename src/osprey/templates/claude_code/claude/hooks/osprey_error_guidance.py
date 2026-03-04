@@ -53,18 +53,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from osprey_hook_log import get_hook_input, log_hook
-
-OSPREY_PREFIXES = (
-    "mcp__controls__",
-    "mcp__python__",
-    "mcp__workspace__",
-    "mcp__ariel__",
-    "mcp__accelpapers__",
-    "mcp__matlab__",
-    "mcp__channel-finder__",
-    "mcp__confluence__",
-)
+from osprey_hook_log import get_hook_input, load_hook_config, log_hook
 
 # Map OSPREY error_type values to short human-readable classes.
 # Matches the taxonomy in .claude/rules/error-handling.md.
@@ -121,8 +110,9 @@ def main():
 
     tool_name = hook_input.get("tool_name", "")
 
-    # Only inspect OSPREY tools
-    if not any(tool_name.startswith(p) for p in OSPREY_PREFIXES):
+    # Only inspect OSPREY tools (prefixes loaded from hook_config.json)
+    _prefixes = load_hook_config().get("server_prefixes", [])
+    if not any(tool_name.startswith(p) for p in _prefixes):
         sys.exit(0)
 
     tool_response = hook_input.get("tool_response")
