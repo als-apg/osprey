@@ -52,12 +52,6 @@ Validates every channel write against min/max/step/writable constraints
 from the limits database. Supports both single-write and batch-write forms.
 If `LimitsValidator` is not importable or not configured, allows the write
 through (fail-open for environments without limits).
-
-PROMPT-PROVIDER: This hook contains facility-customizable static text:
-  - Limits violation denial message (section=limits_violation_message)
-  Future: source from FrameworkPromptProvider.get_limits_violation_message()
-  Facility-customizable: violation message wording, severity/tone,
-  additional instructions (e.g., "contact shift supervisor")
 """
 
 import json
@@ -122,9 +116,6 @@ def main():
 
     # Deny — limits violated
     log_hook("limits", hook_input, status="deny", detail=f"violations={len(violations)}")
-    # PROMPT-PROVIDER: section=limits_violation_message
-    # Future: source from FrameworkPromptProvider.get_limits_violation_message()
-    # Facility-customizable: header, detail format, footer instructions
     violation_text = "\n".join(violations)
     output = {
         "hookSpecificOutput": {

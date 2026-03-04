@@ -42,11 +42,6 @@ stdin ──► Parse JSON
 First gate in the PreToolUse chain. Checks `control_system.writes_enabled`
 in `config.yml`. When false, **all** channel writes and non-readonly Python
 executions are blocked before any other hook runs.
-
-PROMPT-PROVIDER: This hook contains facility-customizable static text:
-  - Writes-disabled denial message (section=writes_disabled_message)
-  Future: source from FrameworkPromptProvider.get_writes_disabled_message()
-  Facility-customizable: message wording, instructions for enabling writes
 """
 
 import json
@@ -54,21 +49,13 @@ import os
 import sys
 from pathlib import Path
 
-import yaml
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from osprey_hook_log import get_hook_input, get_project_dir, load_hook_config, log_hook
-
-
-def load_osprey_config(project_dir=""):
-    default = (
-        str(Path(project_dir) / "config.yml") if project_dir else str(Path.cwd() / "config.yml")
-    )
-    config_path = Path(os.path.expandvars(os.environ.get("OSPREY_CONFIG", default)))
-    if config_path.exists():
-        with open(config_path) as f:
-            return yaml.safe_load(f) or {}
-    return {}
+from osprey_hook_log import (
+    get_hook_input,
+    load_hook_config,
+    load_osprey_config,
+    log_hook,
+)
 
 
 _FALLBACK_WRITE_TOOLS = [
@@ -106,8 +93,7 @@ def main():
         if tool_input.get("execution_mode", "readonly") == "readonly":
             sys.exit(0)
 
-    project_dir = get_project_dir(hook_input)
-    config = load_osprey_config(project_dir)
+    config = load_osprey_config(hook_input)
     writes_enabled = config.get("control_system", {}).get("writes_enabled", False)
 
     if writes_enabled:
@@ -116,9 +102,6 @@ def main():
 
     # Deny — writes are disabled
     log_hook("writes-check", hook_input, status="deny")
-    # PROMPT-PROVIDER: section=writes_disabled_message
-    # Future: source from FrameworkPromptProvider.get_writes_disabled_message()
-    # Facility-customizable: header, instructions, who to contact
     output = {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",

@@ -43,11 +43,6 @@ denied silently — the agent never sees a user prompt for non-memory writes.
 This lets the agent use Claude Code's native memory system while preventing
 arbitrary file creation. The memory gallery frontend reads from the same
 directory, so saved memories appear in the UI automatically.
-
-PROMPT-PROVIDER: This hook contains facility-customizable static text:
-  - Denial message (section=write_denied_message)
-  Future: source from FrameworkPromptProvider.get_write_guard_messages()
-  Facility-customizable: allowed paths, denial message wording
 """
 
 import json
