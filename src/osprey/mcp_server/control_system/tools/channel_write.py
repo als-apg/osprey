@@ -19,7 +19,7 @@ async def channel_write(
     operations: list[dict],
     verification_level: str = "callback",
 ) -> str:
-    """Write values to one or more EPICS control-system channels.
+    """Write values to one or more control-system channels.
 
     Each operation is a dict with keys: channel (str), value (any), notes (str, optional).
     PreToolUse hooks handle human approval BEFORE this code runs.

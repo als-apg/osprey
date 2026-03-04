@@ -1,4 +1,4 @@
-"""MCP tool: archiver_read — retrieve historical data from the EPICS archiver."""
+"""MCP tool: archiver_read — retrieve historical data from the archiver."""
 
 import json
 import logging
@@ -50,7 +50,7 @@ async def archiver_read(
     processing: str = "raw",
     bin_size: int | None = None,
 ) -> str:
-    """Retrieve historical archived data for one or more EPICS channels.
+    """Retrieve historical archived data for one or more channels.
 
     Data is always saved to a workspace file and a compact summary is returned.
 
