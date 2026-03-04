@@ -78,11 +78,11 @@ artifact_server:
   auto_launch: true
 
 # Array example
-execution_control:
+scheduling:
   limits:
-    max_reclassifications: 1
-    max_planning_attempts: 2
-    max_execution_time_seconds: 300
+    max_concurrent: 5
+    timeout: 300
+    max_retries: 3
 """
 
 
@@ -214,11 +214,11 @@ class TestNumericUpdates:
         config_update_fields(
             config_file,
             {
-                "execution_control.limits.max_execution_time_seconds": 600,
+                "scheduling.limits.timeout": 600,
             },
         )
         data = config_read(config_file)
-        assert data["execution_control"]["limits"]["max_execution_time_seconds"] == 600
+        assert data["scheduling"]["limits"]["timeout"] == 600
 
 
 # ---------------------------------------------------------------------------
