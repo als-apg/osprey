@@ -130,7 +130,7 @@ def build_claude_code_context(
     # Claude Code server + agent resolution (data-driven registry)
     claude_code_config = config.get("claude_code", {})
 
-    from osprey.cli.server_catalog import resolve_agents, resolve_servers
+    from osprey.registry.mcp import resolve_agents, resolve_servers
 
     ctx["servers"] = resolve_servers(claude_code_config, ctx)
     ctx["agents"] = resolve_agents(claude_code_config, ctx, project_dir, ctx["servers"])
