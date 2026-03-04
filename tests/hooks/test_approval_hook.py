@@ -8,6 +8,9 @@ This hook implements the human-in-the-loop approval system. Based on config:
 Also covers pre-execution notebook creation for execute (python) approval.
 """
 
+import importlib.util
+from pathlib import Path
+
 import pytest
 
 # Default hook_config matching the original hard-coded OSPREY_PREFIXES
@@ -531,3 +534,46 @@ def test_custom_server_prefix_triggers_approval(tmp_path, hook_runner, make_conf
     output = result["hookSpecificOutput"]
     assert output["permissionDecision"] == "ask"
     assert "set_output" in output["permissionDecisionReason"]
+
+
+# ============================================================================
+# Pattern parity — fallback patterns must match framework patterns
+# ============================================================================
+
+
+@pytest.mark.unit
+def test_fallback_pattern_parity_with_framework():
+    """Fallback write patterns in the hook must match framework standard patterns.
+
+    This catches drift between the two pattern lists. If a pattern is added to
+    get_framework_standard_patterns()["write"] but not to _FALLBACK_WRITE_PATTERNS,
+    this test fails — preventing silent gaps in the fallback approval path.
+    """
+    from osprey.services.python_executor.analysis.pattern_detection import (
+        get_framework_standard_patterns,
+    )
+
+    # Load the hook module directly (it's a template file, not an importable package)
+    hook_path = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "osprey"
+        / "templates"
+        / "claude_code"
+        / "claude"
+        / "hooks"
+        / "osprey_approval.py"
+    )
+    spec = importlib.util.spec_from_file_location("osprey_approval", hook_path)
+    hook_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hook_module)
+
+    framework_patterns = get_framework_standard_patterns()["write"]
+    fallback_patterns = hook_module._FALLBACK_WRITE_PATTERNS
+
+    assert fallback_patterns == framework_patterns, (
+        f"Fallback patterns ({len(fallback_patterns)}) differ from "
+        f"framework patterns ({len(framework_patterns)}).\n"
+        f"Missing from fallback: {set(framework_patterns) - set(fallback_patterns)}\n"
+        f"Extra in fallback: {set(fallback_patterns) - set(framework_patterns)}"
+    )

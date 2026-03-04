@@ -69,6 +69,7 @@ PROMPT-PROVIDER: This hook contains facility-customizable static text:
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -77,23 +78,53 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import get_hook_input, get_project_dir, load_hook_config, log_hook
 
-# Pattern detection: prefer framework module (regex-based, config-driven, 11+ patterns)
-# with graceful fallback to basic substring matching if osprey not installed
+# Fallback write patterns: used when osprey is not importable (e.g., standalone hook).
+# Must stay in sync with get_framework_standard_patterns()["write"] (15 patterns).
+# The parity test in test_approval_hook.py enforces this.
+_FALLBACK_WRITE_PATTERNS = [
+    # osprey.runtime unified API
+    r"\bwrite_channel\s*\(",
+    r"\bwrite_channels\s*\(",
+    # EPICS (PyEPICS)
+    r"\bcaput\s*\(",
+    r"epics\.caput\(",
+    r"\.put\s*\(",
+    r"\.set_value\s*\(",
+    r"PV\([^)]*\)\.put",
+    r"epics\.PV\([^)]*\)\.put",
+    # Tango (PyTango)
+    r"DeviceProxy\([^)]*\)\.write_attribute\(",
+    r"\.write_attribute\s*\(",
+    r"\.write_attribute_asynch\s*\(",
+    r"tango\.DeviceProxy\([^)]*\)\.write",
+    # LabVIEW
+    r"labview\.set_control\(",
+    r"\.SetControlValue\(",
+    # Direct connector access
+    r"connector\.write_channel\(",
+]
+
+# Pattern detection: prefer framework module (regex-based, config-driven, 15 patterns)
+# with graceful fallback to regex matching against _FALLBACK_WRITE_PATTERNS
 try:
     from osprey.services.python_executor.analysis.pattern_detection import (
         detect_control_system_operations,
     )
 
-    def has_write_patterns(code: str) -> bool:
+    def has_write_patterns(code: str, config: dict | None = None) -> bool:
         """Check if code contains control system write patterns (framework detection)."""
         return detect_control_system_operations(code)["has_writes"]
 
 except ImportError:
-    _FALLBACK_WRITE_PATTERNS = ["caput(", "write_channel(", ".put("]
 
-    def has_write_patterns(code: str) -> bool:  # type: ignore[misc]
+    def has_write_patterns(code: str, config: dict | None = None) -> bool:  # type: ignore[misc]
         """Check if code contains control system write patterns (fallback)."""
-        return any(p in code for p in _FALLBACK_WRITE_PATTERNS)
+        patterns = _FALLBACK_WRITE_PATTERNS
+        if config:
+            custom = config.get("control_system", {}).get("patterns", {}).get("write")
+            if custom:
+                patterns = custom
+        return any(re.search(p, code) for p in patterns)
 
 
 def load_osprey_config(project_dir=""):
@@ -241,10 +272,10 @@ def main():
             exec_mode = tool_input.get("execution_mode", "")
             code = tool_input.get("code", "")
 
-            needs_approval = exec_mode == "write" or has_write_patterns(code)
+            needs_approval = exec_mode == "write" or has_write_patterns(code, config)
             if needs_approval:
                 reason_parts = [f"Python execution (mode: {exec_mode or 'unspecified'})"]
-                if has_write_patterns(code):
+                if has_write_patterns(code, config):
                     reason_parts.append("Code contains control system write patterns.")
 
                 # Create pre-execution notebook for review

@@ -189,15 +189,6 @@ def detect_control_system_operations(
                     if "write" in custom_patterns or "read" in custom_patterns:
                         patterns = custom_patterns
                         logger.info("Using custom patterns from config.yml")
-                    # Check if it's the old nested format: {'epics': {'write': [...], ...}, ...}
-                    elif control_system_type in custom_patterns:
-                        patterns = custom_patterns[control_system_type]
-                        logger.warning(
-                            f"DEPRECATED: config.yml uses old nested pattern format "
-                            f"(control_system.patterns.{control_system_type}). "
-                            f"Please migrate to flat format (control_system.patterns.write/read). "
-                            f"See documentation for details."
-                        )
                     else:
                         # Unknown format, use framework standard
                         logger.warning(

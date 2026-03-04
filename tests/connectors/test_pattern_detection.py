@@ -1,5 +1,7 @@
 """Tests for pattern detection module."""
 
+from unittest.mock import patch
+
 from osprey.services.python_executor.analysis.pattern_detection import (
     detect_control_system_operations,
     get_framework_standard_patterns,
@@ -107,3 +109,45 @@ if current < 400:
 
         assert result_epics["has_writes"] == result_mock["has_writes"]
         assert result_epics["has_writes"] is True
+
+    def test_deprecated_nested_format_uses_framework_standard(self):
+        """Old nested pattern format falls through to framework standard patterns.
+
+        After removing the deprecated nested format handler, configs using
+        {'epics': {'write': [...], 'read': [...]}} are treated as unrecognized
+        and fall through to framework standard patterns. EPICS writes are still
+        detected because framework standards include EPICS patterns.
+
+        The deprecated format handler was in the config-loading path
+        (patterns=None), so we mock get_config_value to return old-format
+        patterns and verify the fallthrough behavior.
+        """
+        code = "epics.caput('BEAM:CURRENT', 500.0)"
+        # Old nested format: keyed by control system type
+        old_format_patterns = {
+            "epics": {
+                "write": [r"\bcaput\s*\("],
+                "read": [r"\bcaget\s*\("],
+            }
+        }
+
+        def mock_config(key, default=None):
+            if key == "control_system.patterns":
+                return old_format_patterns
+            if key == "control_system.type":
+                return "epics"
+            return default
+
+        with patch(
+            "osprey.services.python_executor.analysis.pattern_detection.get_config_value",
+            side_effect=mock_config,
+            create=True,
+        ), patch(
+            "osprey.utils.config.get_config_value",
+            side_effect=mock_config,
+        ):
+            result = detect_control_system_operations(code, control_system_type="epics")
+
+        # The old nested format is now unrecognized, so framework standards are used.
+        # Framework standards include epics.caput, so the write IS detected.
+        assert result["has_writes"] is True
