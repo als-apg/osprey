@@ -47,7 +47,7 @@ class TestManifestGeneration:
             project_name="test-app",
             template_name="control_assistant",
             registry_style="extend",
-            context={"default_provider": "cborg"},
+            context={"default_provider": "anthropic"},
         )
 
         assert manifest["schema_version"] == MANIFEST_SCHEMA_VERSION
@@ -85,7 +85,7 @@ class TestManifestGeneration:
             "control_assistant",
             registry_style="extend",
             context={
-                "default_provider": "cborg",
+                "default_provider": "anthropic",
                 "default_model": "claude-haiku",
                 "channel_finder_mode": "all",
             },
@@ -97,7 +97,7 @@ class TestManifestGeneration:
             template_name="control_assistant",
             registry_style="extend",
             context={
-                "default_provider": "cborg",
+                "default_provider": "anthropic",
                 "default_model": "claude-haiku",
                 "channel_finder_mode": "all",
             },
@@ -108,7 +108,7 @@ class TestManifestGeneration:
         assert args["project_name"] == "test-app"
         assert args["template"] == "control_assistant"
         assert args["registry_style"] == "extend"
-        assert args["provider"] == "cborg"
+        assert args["provider"] == "anthropic"
         assert args["model"] == "claude-haiku"
         assert args["channel_finder_mode"] == "all"
 

@@ -211,7 +211,7 @@ def init(
         )
 
         manifest_context = {
-            "default_provider": context.get("default_provider", "cborg"),
+            "default_provider": context.get("default_provider", "anthropic"),
             "default_model": context.get("default_model", "haiku"),
         }
         if channel_finder_mode:

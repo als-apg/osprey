@@ -8,8 +8,8 @@
 ## Summary
 
 - Total items: 35
-- Completed: 2
-- Remaining: 33
+- Completed: 3
+- Remaining: 32
 - Critical (P0): 3 | High (P1): 7 | Medium (P2): 15 | Low (P3): 10
 
 ## Backlog
@@ -129,7 +129,7 @@ A Tango facility gets rules that don't mention Tango as prohibited — an agent 
 
 ---
 
-### [P1] GP-006: Default provider 'cborg' blocks non-LBNL deployment (pending)
+### [P1] GP-006: Default provider 'cborg' blocks non-LBNL deployment (done)
 
 **Severity**: GAP | **Categories**: portability
 **Files**: `src/osprey/cli/templates/manager.py`, `src/osprey/templates/project/config.yml.j2`, `src/osprey/cli/config_cmd.py`, `src/osprey/cli/project_actions.py`, `src/osprey/interfaces/artifacts/logbook.py`, `src/osprey/services/channel_finder/tools/llm_channel_namer.py`
@@ -141,12 +141,9 @@ A Tango facility gets rules that don't mention Tango as prohibited — an agent 
 2. Hit silent failures in internal services (logbook composition, LLM channel namer) that also default to `cborg`
 3. Must discover and change the provider system manually
 
-**Approach**:
-1. Change default provider to `anthropic` (universally accessible)
-2. Make all internal service defaults read from `config.yml` rather than hardcoding `cborg`
-3. Consider first-run provider selection that detects available API keys
+**Resolution**: Changed default provider from `cborg` to `anthropic` across 9 production files (11 occurrences) and 4 test files. LBNL users can still set `--provider cborg` or configure it in `config.yml`. The `cborg` provider implementation and all conditional logic remain intact.
 
-**Status**: pending
+**Status**: done
 
 ---
 

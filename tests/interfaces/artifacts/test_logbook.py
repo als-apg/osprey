@@ -63,7 +63,7 @@ _MOCK_PROVIDER_CONFIG = {
 
 # Default logbook.composition config returned by get_config_value
 _MOCK_COMPOSITION_CONFIG = {
-    "provider": "cborg",
+    "provider": "anthropic",
     "model_id": "anthropic/claude-haiku",
     "default_tier": "haiku",
 }
@@ -616,7 +616,7 @@ class TestComposeWithSteering:
 
         assert resp.status_code == 200
         call_args = mock_llm.call_args
-        assert call_args.kwargs["provider"] == "cborg"
+        assert call_args.kwargs["provider"] == "anthropic"
         assert call_args.kwargs["model_id"] == "anthropic/claude-sonnet"
 
     @pytest.mark.unit

@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from osprey.mcp_server.http import notify_panel_focus
 from osprey.mcp_server.session import gather_session_metadata
+from osprey.models.tiers import VALID_TIERS
 from osprey.utils.workspace import resolve_workspace_root
 
 logger = logging.getLogger("osprey.interfaces.artifacts.logbook")
@@ -331,11 +332,9 @@ def _clean_llm_json(text: str) -> str:
     return text
 
 
-from osprey.models.tiers import VALID_TIERS
-
 # Default composition config when logbook.composition is absent from config.yml
 _DEFAULT_COMPOSITION = {
-    "provider": "cborg",
+    "provider": "anthropic",
     "model_id": "haiku",
     "default_tier": "haiku",
 }
@@ -355,8 +354,8 @@ def _resolve_composition_model(
     Returns:
         (provider, model_id) tuple
     """
-    from osprey.utils.config import get_config_value
     from osprey.models.config import get_provider_config
+    from osprey.utils.config import get_config_value
 
     # Read logbook.composition section (or fall back to defaults)
     comp = get_config_value("logbook.composition", {})

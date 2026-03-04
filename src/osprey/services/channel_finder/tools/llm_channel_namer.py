@@ -28,7 +28,7 @@ class LLMChannelNamer:
 
     def __init__(
         self,
-        provider: str = "cborg",
+        provider: str = "anthropic",
         model_id: str = "google/gemini-flash",
         max_tokens: int = 1000,
         batch_size: int = 10,
@@ -341,7 +341,7 @@ def create_namer_from_config(config_path: str | None = None) -> LLMChannelNamer:
     name_gen_config = config.get("channel_finder", {}).get("channel_name_generation", {})
 
     llm_config = name_gen_config.get("llm_model", {})
-    provider = llm_config.get("provider", "cborg")
+    provider = llm_config.get("provider", "anthropic")
 
     api_config = config.get("api", {}).get("providers", {}).get(provider, {})
     base_url = api_config.get("base_url")

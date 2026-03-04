@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Hooks**: Deterministic project dir resolution via `hook_input["cwd"]` (replaces inconsistent env var fallback chains)
 
 ### Changed
+- **Config**: Default provider changed from `cborg` (LBNL-only) to `anthropic` (universally accessible) (GP-006)
 - **Stores**: Move `ArtifactStore`, `BaseStore`, `type_registry`, `notebook_renderer` from `mcp_server/` to new `osprey.stores/` package (RF-005)
 - **Textbooks**: Replace textbooks MCP server with native file access for faster lookups
 - **Init**: Config now uses tier names (haiku/sonnet/opus) instead of provider-specific model IDs; default tier changed to haiku
