@@ -141,6 +141,19 @@ _DANGEROUS_PATTERNS: list[tuple[str, str]] = [
     ("epics", "epics module"),
     ("caput", "caput()"),
     ("PV.put", "PV.put()"),
+    # Tango / control system
+    ("tango", "tango module"),
+    ("DeviceProxy", "Tango DeviceProxy"),
+    ("write_attribute", "Tango write_attribute()"),
+    # OPC-UA
+    ("opcua", "opcua module"),
+    ("set_value", "OPC-UA set_value()"),
+    # LabVIEW
+    ("labview", "labview module"),
+    ("SetControlValue", "LabVIEW SetControlValue()"),
+    # osprey.runtime write API
+    ("write_channel", "write_channel()"),
+    ("write_channels", "write_channels()"),
     # Low-level / dangerous
     ("ctypes", "ctypes module"),
     ("cffi", "cffi module"),

@@ -9,6 +9,7 @@ Also covers pre-execution notebook creation for execute (python) approval.
 """
 
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
@@ -440,6 +441,196 @@ def test_framework_pattern_config_driven(tmp_path, hook_runner, make_config):
     assert result is not None
     output = result["hookSpecificOutput"]
     assert output["permissionDecision"] == "ask"
+
+
+@pytest.mark.unit
+def test_has_write_patterns_passes_config_to_framework(tmp_path, hook_runner, make_config):
+    """Config patterns flow from hook config dict through to framework detection.
+
+    When custom patterns are in config AND the framework module is importable,
+    the hook must pass them to detect_control_system_operations() so they are
+    merged with framework standards — not silently ignored.
+    """
+    config = make_config(
+        {
+            "approval": {"global_mode": "selective"},
+            "control_system": {
+                "writes_enabled": True,
+                "patterns": {
+                    "write": [r"\bfacility_hw_write\s*\("],
+                    "read": [],
+                },
+            },
+        }
+    )
+
+    # Custom pattern should trigger approval
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__python__execute",
+        {"code": "facility_hw_write('MOTOR', 100)", "execution_mode": "readonly"},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+
+    # Framework EPICS pattern should ALSO still trigger approval (merged, not replaced)
+    result2 = hook_runner(
+        "osprey_approval.py",
+        "mcp__python__execute",
+        {"code": "epics.caput('PV', 1.0)", "execution_mode": "readonly"},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert result2 is not None
+    output2 = result2["hookSpecificOutput"]
+    assert output2["permissionDecision"] == "ask"
+
+
+@pytest.mark.unit
+def test_has_write_patterns_override_via_config(tmp_path, hook_runner, make_config):
+    """Config with mode: override replaces framework patterns in the hook subprocess.
+
+    When a facility sets mode: override, ONLY their custom patterns should be
+    used. Framework patterns (e.g., epics.caput) should NOT trigger approval.
+    """
+    config = make_config(
+        {
+            "approval": {"global_mode": "selective"},
+            "control_system": {
+                "writes_enabled": True,
+                "patterns": {
+                    "mode": "override",
+                    "write": [r"\bfacility_hw_write\s*\("],
+                    "read": [],
+                },
+            },
+        }
+    )
+
+    # Custom pattern should still trigger approval
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__python__execute",
+        {"code": "facility_hw_write('MOTOR', 100)", "execution_mode": "readonly"},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+
+    # Framework EPICS pattern should NOT trigger approval (override mode)
+    result2 = hook_runner(
+        "osprey_approval.py",
+        "mcp__python__execute",
+        {"code": "epics.caput('PV', 1.0)", "execution_mode": "readonly"},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert _is_allow(result2)
+
+
+@pytest.mark.unit
+def test_fallback_merges_custom_patterns(tmp_path, hook_runner, make_config):
+    """Fallback path merges custom patterns with _FALLBACK_WRITE_PATTERNS by default.
+
+    When osprey is not importable, the fallback regex path must merge
+    custom patterns (extend mode) instead of replacing the fallback list.
+    """
+    hook_path = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "osprey"
+        / "templates"
+        / "claude_code"
+        / "claude"
+        / "hooks"
+        / "osprey_approval.py"
+    )
+    spec = importlib.util.spec_from_file_location("osprey_approval_fb", hook_path)
+    hook_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hook_module)
+
+    fallback_patterns = hook_module._FALLBACK_WRITE_PATTERNS
+
+    # Simulate the fallback merge logic (extend mode, the default)
+    config = {
+        "control_system": {
+            "patterns": {
+                "write": [r"\bfacility_hw_write\s*\("],
+            }
+        }
+    }
+
+    pat_config = config.get("control_system", {}).get("patterns", {})
+    custom = pat_config.get("write")
+    mode = pat_config.get("mode", "extend")
+    patterns = list(fallback_patterns)
+    if custom:
+        if mode == "override":
+            patterns = list(custom)
+        else:
+            patterns.extend(p for p in custom if p not in patterns)
+
+    # Custom pattern present
+    assert any(re.search(p, "facility_hw_write('X', 1)") for p in patterns)
+    # Framework patterns still present (extend mode)
+    assert any(re.search(p, "caput('PV', 1.0)") for p in patterns)
+    assert len(patterns) == len(fallback_patterns) + 1
+
+
+@pytest.mark.unit
+def test_fallback_override_replaces_patterns(tmp_path, hook_runner, make_config):
+    """Fallback path with mode=override replaces _FALLBACK_WRITE_PATTERNS entirely."""
+    hook_path = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "osprey"
+        / "templates"
+        / "claude_code"
+        / "claude"
+        / "hooks"
+        / "osprey_approval.py"
+    )
+    spec = importlib.util.spec_from_file_location("osprey_approval_fb2", hook_path)
+    hook_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hook_module)
+
+    config = {
+        "control_system": {
+            "patterns": {
+                "mode": "override",
+                "write": [r"\bfacility_hw_write\s*\("],
+            }
+        }
+    }
+
+    pat_config = config.get("control_system", {}).get("patterns", {})
+    custom = pat_config.get("write")
+    mode = pat_config.get("mode", "extend")
+    patterns = list(hook_module._FALLBACK_WRITE_PATTERNS)
+    if custom:
+        if mode == "override":
+            patterns = list(custom)
+        else:
+            patterns.extend(p for p in custom if p not in patterns)
+
+    # Custom pattern present
+    assert any(re.search(p, "facility_hw_write('X', 1)") for p in patterns)
+    # Framework patterns NOT present (override mode)
+    assert not any(re.search(p, "caput('PV', 1.0)") for p in patterns)
+    assert len(patterns) == 1
 
 
 # -- Config edge cases (gap fill) --

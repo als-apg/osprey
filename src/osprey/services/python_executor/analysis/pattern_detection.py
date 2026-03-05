@@ -17,7 +17,6 @@ Related to Issue #18 - Control System Abstraction (Layer 1)
 
 import re
 
-from osprey.connectors.types import EPICS
 from osprey.utils.logger import get_logger
 
 logger = get_logger("pattern_detection")
@@ -116,8 +115,20 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
     }
 
 
+def _merge_patterns(
+    framework: dict[str, list[str]], custom: dict[str, list[str]]
+) -> dict[str, list[str]]:
+    """Merge custom patterns with framework standards (deduplicating)."""
+    write = framework["write"] + [p for p in custom.get("write", []) if p not in framework["write"]]
+    read = framework["read"] + [p for p in custom.get("read", []) if p not in framework["read"]]
+    return {"write": write, "read": read}
+
+
 def detect_control_system_operations(
-    code: str, patterns: dict[str, list[str]] | None = None, control_system_type: str | None = None
+    code: str,
+    patterns: dict[str, list[str]] | None = None,
+    control_system_type: str | None = None,
+    pattern_mode: str | None = None,
 ) -> dict[str, any]:
     """
     Detect control system operations using framework-standard or custom patterns.
@@ -134,6 +145,9 @@ def detect_control_system_operations(
         control_system_type: Control system type (for logging/metadata only).
                             If None, will attempt to load from config
                             Note: This does NOT affect which patterns are used!
+        pattern_mode: How custom patterns combine with framework standards.
+                     "extend" (default) — custom patterns are appended to framework standards
+                     "override" — custom patterns completely replace framework standards
 
     Returns:
         Dict with operation detection results:
@@ -170,44 +184,59 @@ def detect_control_system_operations(
         try:
             from osprey.utils.config import get_config_value
 
-            control_system_type = get_config_value("control_system.type", EPICS)
+            control_system_type = get_config_value("control_system.type", "unknown")
         except Exception:
-            control_system_type = EPICS  # Default for logging
+            control_system_type = "unknown"
 
-    # Get patterns: config override → framework standard
-    if patterns is None:
+    # Resolve pattern_mode: default to "extend" (safe)
+    if pattern_mode is None:
+        pattern_mode = "extend"
+
+    # Get patterns: extend or override framework standards
+    framework = get_framework_standard_patterns()
+
+    if patterns is not None:
+        # Patterns passed directly (e.g., from approval hook)
+        if pattern_mode == "override":
+            logger.info("Using override patterns (framework standards replaced)")
+        else:
+            patterns = _merge_patterns(framework, patterns)
+    else:
         try:
             from osprey.utils.config import get_config_value
 
-            # Try to load custom patterns from config (optional override)
             custom_patterns = get_config_value("control_system.patterns", None)
 
-            if custom_patterns is not None:
-                # User provided custom patterns in config
-                # Support both old nested format and new flat format for migration
-                if isinstance(custom_patterns, dict):
-                    # Check if it's the new flat format: {'write': [...], 'read': [...]}
-                    if "write" in custom_patterns or "read" in custom_patterns:
-                        patterns = custom_patterns
-                        logger.info("Using custom patterns from config.yml")
-                    else:
-                        # Unknown format, use framework standard
-                        logger.warning(
-                            "Unrecognized pattern format in config.yml. "
-                            "Using framework standard patterns."
-                        )
-                        patterns = get_framework_standard_patterns()
+            if (
+                custom_patterns is not None
+                and isinstance(custom_patterns, dict)
+                and ("write" in custom_patterns or "read" in custom_patterns)
+            ):
+                # Read mode from config if not explicitly passed
+                if pattern_mode == "extend":
+                    config_mode = custom_patterns.get("mode", "extend")
+                    if config_mode == "override":
+                        pattern_mode = "override"
+
+                if pattern_mode == "override":
+                    patterns = {
+                        "write": custom_patterns.get("write", []),
+                        "read": custom_patterns.get("read", []),
+                    }
+                    logger.info(
+                        "Using override patterns from config.yml (framework standards replaced)"
+                    )
                 else:
-                    patterns = get_framework_standard_patterns()
+                    patterns = _merge_patterns(framework, custom_patterns)
+                    logger.info("Merged custom patterns from config.yml with framework standards")
             else:
-                # No custom patterns in config, use framework standard
-                patterns = get_framework_standard_patterns()
+                patterns = framework
 
         except Exception as e:
             logger.debug(
                 f"Could not load patterns from config: {e}. Using framework standard patterns."
             )
-            patterns = get_framework_standard_patterns()
+            patterns = framework
 
     # Extract write and read patterns
     write_patterns = patterns.get("write", [])

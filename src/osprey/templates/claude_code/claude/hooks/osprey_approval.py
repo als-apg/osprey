@@ -108,17 +108,31 @@ try:
 
     def has_write_patterns(code: str, config: dict | None = None) -> bool:
         """Check if code contains control system write patterns (framework detection)."""
-        return detect_control_system_operations(code)["has_writes"]
+        patterns = None
+        pattern_mode = None
+        if config:
+            pat_config = config.get("control_system", {}).get("patterns")
+            if pat_config:
+                patterns = pat_config
+                pattern_mode = pat_config.get("mode")
+        return detect_control_system_operations(code, patterns=patterns, pattern_mode=pattern_mode)[
+            "has_writes"
+        ]
 
 except ImportError:
 
     def has_write_patterns(code: str, config: dict | None = None) -> bool:  # type: ignore[misc]
         """Check if code contains control system write patterns (fallback)."""
-        patterns = _FALLBACK_WRITE_PATTERNS
+        patterns = list(_FALLBACK_WRITE_PATTERNS)
         if config:
-            custom = config.get("control_system", {}).get("patterns", {}).get("write")
+            pat_config = config.get("control_system", {}).get("patterns", {})
+            custom = pat_config.get("write")
+            mode = pat_config.get("mode", "extend")
             if custom:
-                patterns = custom
+                if mode == "override":
+                    patterns = list(custom)
+                else:
+                    patterns.extend(p for p in custom if p not in patterns)
         return any(re.search(p, code) for p in patterns)
 
 
