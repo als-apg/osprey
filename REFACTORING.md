@@ -6,8 +6,8 @@
 ## Summary
 
 - Total items: 31
-- Completed: 2
-- Remaining: 29
+- Completed: 3
+- Remaining: 28
 - High priority (P0): 4 | Medium-high (P1): 11 | Medium (P2): 10 | Low (P3): 6
 
 ## Backlog
@@ -91,10 +91,10 @@
 
 ---
 
-### [P1] RF-005: cli/ariel.py is a 1059-line god-module with 12 fan-out imports (pending)
+### [P1] RF-005: cli/ariel.py is a 1059-line god-module with 12 fan-out imports (completed)
 
 **Severity**: high | **Category**: structure, dependency
-**Files**: `src/osprey/cli/ariel.py`
+**Files**: `src/osprey/cli/ariel.py`, `src/osprey/services/ariel_search/cli_operations.py`
 **Impact radius**: 12 osprey modules across 4 layers
 
 **Problem**: 12 Click command handlers with substantial inline business logic. The CLI module directly orchestrates 12 modules spanning interfaces, models, services, and utils layers. Each command (status, migrate, ingest, watch, enhance, models, search, reembed) contains 50-100 lines of orchestration that should live in the services layer.
@@ -104,9 +104,9 @@
 2. CLI handlers become thin wrappers: parse args, call service, format output
 3. Consider splitting CLI into `ariel_data_cmds.py` and `ariel_query_cmds.py`
 
-**Status**: pending
-**Completed date**:
-**Notes**:
+**Status**: completed
+**Completed date**: 2026-03-04
+**Notes**: Created `services/ariel_search/cli_operations.py` (493 lines) with 11 service functions and 6 result dataclasses. Reduced `cli/ariel.py` from 1059 → 456 lines. Used `progress: Callable[[str], None] | None` callback pattern to decouple from Click. Split purge into `get_purge_info()` + `execute_purge()`. All 3730 tests pass, 0 mock paths needed updating.
 
 ---
 
