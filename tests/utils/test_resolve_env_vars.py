@@ -9,13 +9,13 @@ class TestResolveEnvVars:
     def test_default_value_when_env_unset(self, monkeypatch):
         """${VAR:-default} resolves to default when VAR is not set."""
         monkeypatch.delenv("TZ", raising=False)
-        result = resolve_env_vars("${TZ:-America/Los_Angeles}")
-        assert result == "America/Los_Angeles"
+        result = resolve_env_vars("${TZ:-UTC}")
+        assert result == "UTC"
 
     def test_env_value_overrides_default(self, monkeypatch):
         """${VAR:-default} resolves to env value when VAR is set."""
         monkeypatch.setenv("TZ", "Europe/Berlin")
-        result = resolve_env_vars("${TZ:-America/Los_Angeles}")
+        result = resolve_env_vars("${TZ:-UTC}")
         assert result == "Europe/Berlin"
 
     def test_simple_env_var(self, monkeypatch):
@@ -33,9 +33,9 @@ class TestResolveEnvVars:
     def test_nested_dict(self, monkeypatch):
         """Resolves env vars in nested dicts."""
         monkeypatch.delenv("TZ", raising=False)
-        data = {"system": {"timezone": "${TZ:-America/Los_Angeles}", "name": "test"}}
+        data = {"system": {"timezone": "${TZ:-UTC}", "name": "test"}}
         result = resolve_env_vars(data)
-        assert result == {"system": {"timezone": "America/Los_Angeles", "name": "test"}}
+        assert result == {"system": {"timezone": "UTC", "name": "test"}}
 
     def test_list_values(self, monkeypatch):
         """Resolves env vars inside lists."""
@@ -70,8 +70,8 @@ class TestResolveEnvVars:
     def test_empty_string_with_default_uses_default(self, monkeypatch):
         """${VAR:-default} with VAR="" uses default (bash :- semantics)."""
         monkeypatch.setenv("TZ", "")
-        result = resolve_env_vars("${TZ:-America/Los_Angeles}")
-        assert result == "America/Los_Angeles"
+        result = resolve_env_vars("${TZ:-UTC}")
+        assert result == "UTC"
 
     def test_empty_string_without_default_returns_empty(self, monkeypatch):
         """${VAR} with VAR="" returns empty string (var is set, no default)."""

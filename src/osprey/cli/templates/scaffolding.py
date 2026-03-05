@@ -13,6 +13,38 @@ from osprey.cli.templates._rendering import render_template
 logger = logging.getLogger("osprey.cli.templates")
 
 
+def _detect_system_timezone() -> str | None:
+    """Detect the system IANA timezone name (e.g., 'America/New_York').
+
+    Uses /etc/localtime symlink (macOS/Linux) or /etc/timezone (Linux).
+    Returns None if detection fails.
+    """
+    import pathlib
+
+    # macOS / Linux: /etc/localtime is usually a symlink into zoneinfo
+    localtime = pathlib.Path("/etc/localtime")
+    if localtime.is_symlink():
+        target = str(localtime.resolve())
+        if "zoneinfo/" in target:
+            tz_name = target.split("zoneinfo/", 1)[1]
+            try:
+                from zoneinfo import ZoneInfo
+
+                ZoneInfo(tz_name)
+                return tz_name
+            except (KeyError, Exception):
+                pass
+
+    # Linux: /etc/timezone contains the IANA name directly
+    etc_tz = pathlib.Path("/etc/timezone")
+    if etc_tz.exists():
+        tz_name = etc_tz.read_text().strip()
+        if "/" in tz_name:
+            return tz_name
+
+    return None
+
+
 def detect_environment_variables() -> dict[str, str]:
     """Detect environment variables from the system for use in templates.
 
@@ -39,6 +71,12 @@ def detect_environment_variables() -> dict[str, str]:
         value = os.environ.get(var)
         if value:  # Only include if the variable is set and non-empty
             detected[var] = value
+
+    # If TZ not in environment, try to detect system timezone
+    if "TZ" not in detected:
+        detected_tz = _detect_system_timezone()
+        if detected_tz:
+            detected["TZ"] = detected_tz
 
     return detected
 

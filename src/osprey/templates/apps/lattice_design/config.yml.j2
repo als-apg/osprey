@@ -70,7 +70,7 @@ api:
 #   CBORG_API_KEY=your-cborg-key
 #   OPENAI_API_KEY=sk-...
 #   ANTHROPIC_API_KEY=sk-ant-...
-#   TZ=America/Los_Angeles
+#   TZ=UTC
 
 # ============================================================
 # EXECUTION INFRASTRUCTURE
@@ -86,7 +86,7 @@ execution:
 # ============================================================
 
 system:
-  timezone: ${TZ:-America/Los_Angeles}
+  timezone: ${TZ:-UTC}
 
 file_paths:
   agent_data_dir: _agent_data

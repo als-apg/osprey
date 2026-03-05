@@ -286,7 +286,7 @@ A fusion experiment or beamline has completely different systems, families, and 
 
 ---
 
-### [P2] GP-014: Timezone defaults to America/Los_Angeles (pending)
+### [P2] GP-014: Timezone defaults to America/Los_Angeles (done)
 
 **Severity**: IMPROVEMENT | **Categories**: hard_coded, portability
 **Files**: `src/osprey/templates/project/config.yml.j2`, `src/osprey/templates/project/env.j2`, `src/osprey/templates/project/env.example.j2`
@@ -295,11 +295,13 @@ A fusion experiment or beamline has completely different systems, families, and 
 
 **Problem**: Default timezone is `America/Los_Angeles` (Berkeley Lab). Facilities in Europe (CET), Japan (JST), etc. get wrong timestamps. The `timezone.md.j2` rule uses this for interpreting "today", "this morning" — logbook queries silently use wrong timezone. No setup validation warns about this.
 
-**Approach**:
-1. Default to UTC (universally correct) or detect system timezone during `osprey init`
-2. Add post-init validation warning if timezone is still the shipped default
+**Resolution**:
+1. Changed all template defaults from `America/Los_Angeles` to `UTC`
+2. Added `_detect_system_timezone()` to auto-detect IANA timezone from `/etc/localtime` symlink
+3. Wired detection into `detect_environment_variables()` so detected TZ flows into `.env`
+4. Added `_check_timezone()` health check warning when timezone is UTC
 
-**Status**: pending
+**Status**: done
 
 ---
 

@@ -18,7 +18,7 @@ class TestLoadConfigResolvesEnvVars:
             yaml.dump(
                 {
                     "facility": "${TEST_FACILITY:-default_facility}",
-                    "nested": {"tz": "${TEST_TZ:-America/Los_Angeles}"},
+                    "nested": {"tz": "${TEST_TZ:-UTC}"},
                 }
             ),
             encoding="utf-8",
@@ -31,5 +31,5 @@ class TestLoadConfigResolvesEnvVars:
 
         # TEST_FACILITY was set -> resolved to "ALS"
         assert result["facility"] == "ALS"
-        # TEST_TZ was not set -> resolved to default "America/Los_Angeles"
-        assert result["nested"]["tz"] == "America/Los_Angeles"
+        # TEST_TZ was not set -> resolved to default "UTC"
+        assert result["nested"]["tz"] == "UTC"

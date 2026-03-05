@@ -433,6 +433,62 @@ class TestHealthCommandIntegration:
             assert result.exit_code == 130
 
 
+class TestHealthCheckerTimezone:
+    """Test timezone checking functionality."""
+
+    def test_timezone_warning_when_utc(self):
+        """Timezone set to UTC produces a warning."""
+        checker = HealthChecker()
+        checker.config = {"system": {"timezone": "UTC"}}
+
+        with patch("osprey.cli.health_cmd.console"):
+            checker._check_timezone()
+
+        tz_results = [r for r in checker.results if r.name == "timezone"]
+        assert len(tz_results) == 1
+        assert tz_results[0].status == "warning"
+        assert "UTC" in tz_results[0].message
+
+    def test_timezone_ok_when_configured(self):
+        """Timezone set to a real timezone produces ok."""
+        checker = HealthChecker()
+        checker.config = {"system": {"timezone": "America/New_York"}}
+
+        with patch("osprey.cli.health_cmd.console"):
+            checker._check_timezone()
+
+        tz_results = [r for r in checker.results if r.name == "timezone"]
+        assert len(tz_results) == 1
+        assert tz_results[0].status == "ok"
+        assert "America/New_York" in tz_results[0].message
+
+    def test_timezone_warning_when_missing(self):
+        """Missing system.timezone defaults to UTC warning."""
+        checker = HealthChecker()
+        checker.config = {}
+
+        with patch("osprey.cli.health_cmd.console"):
+            checker._check_timezone()
+
+        tz_results = [r for r in checker.results if r.name == "timezone"]
+        assert len(tz_results) == 1
+        assert tz_results[0].status == "warning"
+
+    def test_timezone_resolves_env_var(self, monkeypatch):
+        """${TZ:-UTC} resolves via env var before checking."""
+        monkeypatch.setenv("TZ", "Europe/Berlin")
+        checker = HealthChecker()
+        checker.config = {"system": {"timezone": "${TZ:-UTC}"}}
+
+        with patch("osprey.cli.health_cmd.console"):
+            checker._check_timezone()
+
+        tz_results = [r for r in checker.results if r.name == "timezone"]
+        assert len(tz_results) == 1
+        assert tz_results[0].status == "ok"
+        assert "Europe/Berlin" in tz_results[0].message
+
+
 class TestHealthDisplayResults:
     """Test result display functionality."""
 

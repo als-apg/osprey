@@ -38,7 +38,7 @@ approval:
 
 system:
   # Timezone configuration for all containers and services
-  timezone: ${TZ:-America/Los_Angeles}
+  timezone: ${TZ:-UTC}
 
 # File paths - Data storage organization
 file_paths:
@@ -277,4 +277,4 @@ api:
 #   GOOGLE_API_KEY=...
 #   PROJECT_ROOT={{ project_root | default("/path/to/project") }}
 #   LOCAL_PYTHON_VENV=/path/to/venv/bin/python
-#   TZ=America/Los_Angeles
+#   TZ=UTC
