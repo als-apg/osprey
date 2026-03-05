@@ -158,9 +158,7 @@ def ingest_command(
         else:
             click.echo(f"\nIngestion complete: {result.count} entries stored")
             if result.enhancer_names:
-                click.echo(
-                    f"Enhancement complete: {result.enhanced_count} enhancements applied"
-                )
+                click.echo(f"Enhancement complete: {result.enhanced_count} enhancements applied")
     except DatabaseQueryError as e:
         _handle_missing_tables(e)
         raise
@@ -251,9 +249,7 @@ def enhance_command(module: str | None, force: bool, limit: int) -> None:
     from osprey.services.ariel_search.cli_operations import run_enhance
 
     config_dict = _load_ariel_config()
-    result = asyncio.run(
-        run_enhance(config_dict, module, force, limit, progress=click.echo)
-    )
+    result = asyncio.run(run_enhance(config_dict, module, force, limit, progress=click.echo))
     if result.entries_processed > 0:
         click.echo(f"\nEnhancement complete: {result.entries_processed} entries processed")
 

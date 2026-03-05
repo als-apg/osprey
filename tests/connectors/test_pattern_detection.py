@@ -138,13 +138,16 @@ if current < 400:
                 return "epics"
             return default
 
-        with patch(
-            "osprey.services.python_executor.analysis.pattern_detection.get_config_value",
-            side_effect=mock_config,
-            create=True,
-        ), patch(
-            "osprey.utils.config.get_config_value",
-            side_effect=mock_config,
+        with (
+            patch(
+                "osprey.services.python_executor.analysis.pattern_detection.get_config_value",
+                side_effect=mock_config,
+                create=True,
+            ),
+            patch(
+                "osprey.utils.config.get_config_value",
+                side_effect=mock_config,
+            ),
         ):
             result = detect_control_system_operations(code, control_system_type="epics")
 

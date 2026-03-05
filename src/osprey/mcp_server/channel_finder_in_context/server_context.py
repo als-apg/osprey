@@ -159,8 +159,7 @@ def get_cf_ic_context() -> ChannelFinderICContext:
     """
     if _registry is None:
         raise RuntimeError(
-            "Channel Finder IC MCP registry not initialized. "
-            "Call initialize_cf_ic_context() first."
+            "Channel Finder IC MCP registry not initialized. Call initialize_cf_ic_context() first."
         )
     return _registry
 

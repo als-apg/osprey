@@ -3,8 +3,8 @@
 import json
 import logging
 
-from osprey.mcp_server.channel_finder_middle_layer.server_context import get_cf_ml_context
 from osprey.mcp_server.channel_finder_middle_layer.server import make_error, mcp
+from osprey.mcp_server.channel_finder_middle_layer.server_context import get_cf_ml_context
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_middle_layer.tools.statistics")
 

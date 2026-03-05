@@ -47,7 +47,6 @@ executions are blocked before any other hook runs.
 import json
 import os
 import sys
-from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import (
@@ -56,7 +55,6 @@ from osprey_hook_log import (
     load_osprey_config,
     log_hook,
 )
-
 
 _FALLBACK_WRITE_TOOLS = [
     "mcp__controls__channel_write",

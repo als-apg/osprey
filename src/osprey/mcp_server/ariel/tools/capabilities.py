@@ -3,8 +3,8 @@
 import json
 import logging
 
-from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.ariel.server import make_error, mcp
+from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.services.ariel_search.models import SearchMode
 
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.capabilities")

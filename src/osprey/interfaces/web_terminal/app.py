@@ -199,7 +199,13 @@ def _launch_cui_server(app: FastAPI) -> None:
 # Panel classification constants
 UNIVERSAL_PANELS = {"artifacts", "session", "session-analytics"}
 BUILTIN_PANELS = {
-    "artifacts", "ariel", "tuning", "channel-finder", "session", "session-analytics", "lattice",
+    "artifacts",
+    "ariel",
+    "tuning",
+    "channel-finder",
+    "session",
+    "session-analytics",
+    "lattice",
 }
 
 

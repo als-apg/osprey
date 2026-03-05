@@ -307,7 +307,11 @@ class TestComputeLMA:
         n_refpts = 20
         dp_max = 0.05
         s, dpp, dpm = compute_lma(
-            ring, n_refpts=n_refpts, dp_max=dp_max, n_bisect=5, sector_length=100.0,
+            ring,
+            n_refpts=n_refpts,
+            dp_max=dp_max,
+            n_bisect=5,
+            sector_length=100.0,
         )
 
         assert len(s) == n_refpts

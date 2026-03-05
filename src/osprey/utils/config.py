@@ -17,6 +17,7 @@ import yaml
 # The short name 'CONFIG' enables easy filtering: quiet_logger(['registry', 'CONFIG'])
 logger = logging.getLogger("CONFIG")
 
+
 def resolve_env_vars(data: Any) -> Any:
     """Recursively resolve environment variables in configuration data.
 

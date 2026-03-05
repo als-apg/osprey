@@ -641,7 +641,9 @@ class TestCreateArtifact:
     def test_create_artifact_starter_content(self, service, project_dir):
         """Default content is category-appropriate starter content."""
         service.create_artifact("rules", "starter-test")
-        content = (project_dir / ".claude" / "rules" / "starter-test.md").read_text(encoding="utf-8")
+        content = (project_dir / ".claude" / "rules" / "starter-test.md").read_text(
+            encoding="utf-8"
+        )
         assert content.startswith("# Starter Test")
 
         svc = PromptGalleryService(project_dir)

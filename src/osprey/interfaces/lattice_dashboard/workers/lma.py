@@ -84,9 +84,7 @@ def compute_lma(
     dp_plus = np.zeros(len(refpts))
     dp_minus = np.zeros(len(refpts))
     for i, refpt in enumerate(refpts):
-        dp_plus[i], dp_minus[i] = find_ma_at_refpt(
-            ring, refpt, nturns, dp_max, n_bisect
-        )
+        dp_plus[i], dp_minus[i] = find_ma_at_refpt(ring, refpt, nturns, dp_max, n_bisect)
 
     s_pos = np.array([float(s_all[r]) for r in refpts])
     return s_pos, dp_plus, dp_minus
@@ -270,7 +268,9 @@ def build_figure(
         ),
     )
 
-    fig.update_yaxes(title_text="dp [%]", gridcolor="lightgray", zeroline=True, zerolinecolor="gray")
+    fig.update_yaxes(
+        title_text="dp [%]", gridcolor="lightgray", zeroline=True, zerolinecolor="gray"
+    )
     fig.update_xaxes(title_text="s [m]", gridcolor="lightgray")
 
     fig.update_layout(
@@ -301,8 +301,12 @@ def main() -> None:
     sector_length = circumference / n_sectors
 
     s_pos, dp_plus, dp_minus = compute_lma(
-        ring, n_refpts=n_refpts, nturns=nturns, dp_max=dp_max,
-        n_bisect=n_bisect, sector_length=sector_length,
+        ring,
+        n_refpts=n_refpts,
+        nturns=nturns,
+        dp_max=dp_max,
+        n_bisect=n_bisect,
+        sector_length=sector_length,
     )
     lattice_elements = extract_lattice_elements(ring, sector_length)
 
@@ -318,8 +322,12 @@ def main() -> None:
     baseline_ring = load_baseline_ring(state_path, state)
     if baseline_ring is not None:
         bs, bdp_p, bdp_m = compute_lma(
-            baseline_ring, n_refpts=n_refpts, nturns=nturns, dp_max=dp_max,
-            n_bisect=n_bisect, sector_length=sector_length,
+            baseline_ring,
+            n_refpts=n_refpts,
+            nturns=nturns,
+            dp_max=dp_max,
+            n_bisect=n_bisect,
+            sector_length=sector_length,
         )
         raw["baseline"] = {
             "s_pos": bs.tolist(),

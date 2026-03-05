@@ -167,7 +167,11 @@ def main() -> None:
     n_bisect = settings["n_bisect"]
 
     da_x, da_y, _, area_mm2 = compute_da(
-        ring, nturns=nturns, n_angles=n_angles, amp_max=amp_max, n_bisect=n_bisect,
+        ring,
+        nturns=nturns,
+        n_angles=n_angles,
+        amp_max=amp_max,
+        n_bisect=n_bisect,
     )
 
     raw: dict = {
@@ -181,7 +185,10 @@ def main() -> None:
     baseline_ring = load_baseline_ring(state_path, state)
     if baseline_ring is not None:
         bda_x, bda_y, _, barea = compute_da(
-            baseline_ring, nturns=nturns, n_angles=n_angles, amp_max=amp_max,
+            baseline_ring,
+            nturns=nturns,
+            n_angles=n_angles,
+            amp_max=amp_max,
             n_bisect=n_bisect,
         )
         raw["baseline"] = {

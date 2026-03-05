@@ -115,8 +115,7 @@ class HealthChecker:
                 "timezone",
                 "warning",
                 "Timezone is UTC (default)",
-                "Set TZ in .env to your facility timezone "
-                "(e.g., America/New_York, Europe/Berlin)",
+                "Set TZ in .env to your facility timezone (e.g., America/New_York, Europe/Berlin)",
             )
             console.print(
                 f"  {Messages.warning(' Timezone is UTC — set TZ in .env for your facility')}"

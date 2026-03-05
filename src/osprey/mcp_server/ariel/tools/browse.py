@@ -8,8 +8,8 @@ PROMPT-PROVIDER: Tool docstrings are static prompts visible to Claude Code.
 import json
 import logging
 
-from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.ariel.server import make_error, mcp, parse_date_filters, serialize_entry
+from osprey.mcp_server.ariel.server_context import get_ariel_context
 
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.browse")
 

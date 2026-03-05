@@ -534,9 +534,7 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
         archiver_type = questionary.select(
             "Also switch archiver to EPICS?",
             choices=[
-                Choice(
-                    "Yes - Use EPICS Archiver Appliance", value=types.EPICS_ARCHIVER
-                ),
+                Choice("Yes - Use EPICS Archiver Appliance", value=types.EPICS_ARCHIVER),
                 Choice("No - Keep mock archiver", value=types.MOCK_ARCHIVER),
             ],
             style=custom_style,

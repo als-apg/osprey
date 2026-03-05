@@ -4,7 +4,6 @@ Custom exceptions for channel finder.
 Provides specific exception types for better error handling and debugging.
 """
 
-
 from osprey.errors import ConfigurationError as _FrameworkConfigurationError
 
 

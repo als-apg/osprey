@@ -220,9 +220,7 @@ class ControlSystemContext:
             cs_type = cs.get("type")
             known = set(ConnectorFactory.list_control_systems())
             if cs_type and cs_type not in known and "." not in cs_type:
-                logger.warning(
-                    "Unknown control_system.type: %s (registered: %s)", cs_type, known
-                )
+                logger.warning("Unknown control_system.type: %s (registered: %s)", cs_type, known)
 
         arch = self.config.archiver
         if not arch:
@@ -231,9 +229,7 @@ class ControlSystemContext:
             arch_type = arch.get("type")
             known_arch = set(ConnectorFactory.list_archivers())
             if arch_type and arch_type not in known_arch and "." not in arch_type:
-                logger.warning(
-                    "Unknown archiver.type: %s (registered: %s)", arch_type, known_arch
-                )
+                logger.warning("Unknown archiver.type: %s (registered: %s)", arch_type, known_arch)
 
     async def shutdown(self) -> None:
         """Disconnect all connectors. Called on server shutdown."""

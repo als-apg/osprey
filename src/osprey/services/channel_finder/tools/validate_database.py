@@ -394,7 +394,11 @@ def run_validation(
         is_valid, errors, warnings = validate_json_structure(db_path)
         if not is_valid:
             print_validation_results(
-                False, errors, warnings, verbose=verbose, pipeline_type=pipeline_type,
+                False,
+                errors,
+                warnings,
+                verbose=verbose,
+                pipeline_type=pipeline_type,
                 console=console,
             )
             return 1
@@ -409,7 +413,12 @@ def run_validation(
     is_valid = is_valid and load_success
 
     print_validation_results(
-        is_valid, errors, warnings, stats, verbose=verbose, pipeline_type=pipeline_type,
+        is_valid,
+        errors,
+        warnings,
+        stats,
+        verbose=verbose,
+        pipeline_type=pipeline_type,
         console=console,
     )
 
