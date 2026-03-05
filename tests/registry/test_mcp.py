@@ -272,6 +272,96 @@ class TestResolveAgents:
         names = {a["name"]: a["enabled"] for a in agents}
         assert names["wiki-search"] is True
 
+    def test_custom_agent_from_config(self):
+        """Custom agent defined in config appears with correct fields."""
+        ctx = _base_ctx()
+        servers = resolve_servers({}, ctx)
+        agents = resolve_agents(
+            {"agents": {"my-db-agent": {"description": "Searches the facility DB."}}},
+            ctx,
+            resolved_servers=servers,
+        )
+        custom = [a for a in agents if a["name"] == "my-db-agent"]
+        assert len(custom) == 1
+        assert custom[0]["enabled"] is True
+        assert custom[0]["is_custom"] is True
+        assert custom[0]["description"] == "Searches the facility DB."
+
+    def test_custom_agent_with_condition_disabled(self):
+        """Custom agent with condition key not in ctx → disabled."""
+        ctx = _base_ctx()
+        servers = resolve_servers({}, ctx)
+        agents = resolve_agents(
+            {"agents": {"cond-agent": {"description": "Needs feature.", "condition": "my_feature"}}},
+            ctx,
+            resolved_servers=servers,
+        )
+        names = {a["name"]: a["enabled"] for a in agents}
+        assert names["cond-agent"] is False
+
+    def test_custom_agent_with_condition_enabled(self):
+        """Custom agent with condition key in ctx → enabled."""
+        ctx = _base_ctx(my_feature=True)
+        servers = resolve_servers({}, ctx)
+        agents = resolve_agents(
+            {"agents": {"cond-agent": {"description": "Needs feature.", "condition": "my_feature"}}},
+            ctx,
+            resolved_servers=servers,
+        )
+        names = {a["name"]: a["enabled"] for a in agents}
+        assert names["cond-agent"] is True
+
+    def test_custom_agent_with_server_dependency_disabled(self):
+        """Custom agent with server_dependency on inactive server → disabled."""
+        ctx = _base_ctx()
+        servers = resolve_servers({}, ctx)
+        agents = resolve_agents(
+            {
+                "agents": {
+                    "dep-agent": {
+                        "description": "Depends on missing server.",
+                        "server_dependency": "nonexistent-server",
+                    }
+                }
+            },
+            ctx,
+            resolved_servers=servers,
+        )
+        names = {a["name"]: a["enabled"] for a in agents}
+        assert names["dep-agent"] is False
+
+    def test_custom_agent_with_server_dependency_enabled(self):
+        """Custom agent with server_dependency on active server → enabled."""
+        ctx = _base_ctx()
+        servers = resolve_servers({}, ctx)
+        # "controls" is enabled by default
+        agents = resolve_agents(
+            {
+                "agents": {
+                    "dep-agent": {
+                        "description": "Depends on controls.",
+                        "server_dependency": "controls",
+                    }
+                }
+            },
+            ctx,
+            resolved_servers=servers,
+        )
+        names = {a["name"]: a["enabled"] for a in agents}
+        assert names["dep-agent"] is True
+
+    def test_custom_agent_explicitly_disabled(self):
+        """Custom agent with enabled: false in config → not created."""
+        ctx = _base_ctx()
+        servers = resolve_servers({}, ctx)
+        agents = resolve_agents(
+            {"agents": {"skip-agent": {"description": "Should not appear.", "enabled": False}}},
+            ctx,
+            resolved_servers=servers,
+        )
+        names = {a["name"] for a in agents}
+        assert "skip-agent" not in names
+
     def test_auto_discovery(self, tmp_path):
         """Custom agent .md file in .claude/agents/ appears in resolved list."""
         agents_dir = tmp_path / ".claude" / "agents"

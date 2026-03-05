@@ -562,14 +562,29 @@ def resolve_agents(
         if adef.server_dependency and adef.server_dependency not in enabled_servers:
             adef.default_enabled = False
 
-    # ── New-format overrides: claude_code.agents ──────────────
+    # ── Config overrides: claude_code.agents ─────────────────
     agent_overrides = claude_code_config.get("agents", {})
+    new_custom: list[AgentDefinition] = []
     for name, spec in agent_overrides.items():
+        if not isinstance(spec, dict):
+            continue
         if name in agents:
-            if isinstance(spec, dict) and spec.get("enabled") is False:
+            if spec.get("enabled") is False:
                 agents[name].default_enabled = False
-            elif isinstance(spec, dict) and spec.get("enabled") is True:
+            elif spec.get("enabled") is True:
                 agents[name].default_enabled = True
+        else:
+            if spec.get("enabled") is not False:
+                adef = _custom_agent_from_spec(name, spec)
+                agents[name] = adef
+                new_custom.append(adef)
+
+    # ── Evaluate conditions (config-defined custom agents) ────
+    for adef in new_custom:
+        if adef.condition and not ctx.get(adef.condition):
+            adef.default_enabled = False
+        if adef.server_dependency and adef.server_dependency not in enabled_servers:
+            adef.default_enabled = False
 
     # ── Auto-discover custom agents ───────────────────────────
     if project_dir:
@@ -596,6 +611,22 @@ def _agent_to_dict(adef: AgentDefinition) -> dict:
         "description": adef.description,
         "is_custom": adef.is_custom,
     }
+
+
+def _custom_agent_from_spec(name: str, spec: dict) -> AgentDefinition:
+    """Build an AgentDefinition from a config spec.
+
+    Mirrors ``_custom_server_from_spec()`` for servers.
+    """
+    return AgentDefinition(
+        name=name,
+        template_path=spec.get("template_path"),
+        condition=spec.get("condition"),
+        server_dependency=spec.get("server_dependency"),
+        default_enabled=spec.get("enabled", True),
+        description=spec.get("description", ""),
+        is_custom=True,
+    )
 
 
 def _parse_agent_frontmatter(path) -> str:
