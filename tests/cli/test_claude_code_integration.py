@@ -734,9 +734,7 @@ class TestGraphAnalystAgent:
 
         # Disable graph-analyst via new-format config and regen
         config = yaml.safe_load((project_dir / "config.yml").read_text())
-        config.setdefault("claude_code", {})["agents"] = {
-            "graph-analyst": {"enabled": False}
-        }
+        config.setdefault("claude_code", {})["agents"] = {"graph-analyst": {"enabled": False}}
         config["deplot"] = {"host": "127.0.0.1", "port": 8095}
         (project_dir / "config.yml").write_text(yaml.dump(config))
         manager.regenerate_claude_code(project_dir)
@@ -1256,6 +1254,79 @@ class TestGeneralizedRulesContent:
         assert "control system channel disconnected" in content
         assert "archiver service status" in content
         assert "direct hardware library" in content
+
+
+class TestFacilityPermissions:
+    """Test facility-configurable permissions in settings.json (GP-026)."""
+
+    DEFAULT_DENY = [
+        "Bash",
+        "Edit",
+        "WebFetch",
+        "WebSearch",
+        "mcp__plugin_playwright_playwright__*",
+        "mcp__plugin_context7_context7__*",
+    ]
+
+    def _settings(self, tmp_path, permissions_config):
+        """Create project, inject permissions config, regen, return parsed settings."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="perms-test",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config.setdefault("claude_code", {})["permissions"] = permissions_config
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        manager.regenerate_claude_code(project_dir)
+
+        return json.loads((project_dir / ".claude" / "settings.json").read_text())
+
+    def test_facility_extra_deny_appended(self, tmp_path):
+        """Extra deny entries from facility config are appended."""
+        data = self._settings(tmp_path, {"deny": ["mcp__custom__*"]})
+        deny = data["permissions"]["deny"]
+        assert "mcp__custom__*" in deny
+        # Framework defaults still present
+        for d in self.DEFAULT_DENY:
+            assert d in deny
+
+    def test_facility_remove_deny(self, tmp_path):
+        """remove_deny removes a tool from the default deny list."""
+        data = self._settings(tmp_path, {"remove_deny": ["Bash"]})
+        deny = data["permissions"]["deny"]
+        assert "Bash" not in deny
+        # Other defaults still present
+        assert "Edit" in deny
+        assert "WebFetch" in deny
+
+    def test_facility_extra_allow(self, tmp_path):
+        """Extra allow entries from facility config appear in allow list."""
+        data = self._settings(tmp_path, {"allow": ["Bash(echo *)"]})
+        allow = data["permissions"]["allow"]
+        assert "Bash(echo *)" in allow
+
+    def test_facility_extra_ask(self, tmp_path):
+        """Extra ask entries from facility config appear in ask list."""
+        data = self._settings(tmp_path, {"ask": ["Write"]})
+        ask = data["permissions"]["ask"]
+        assert "Write" in ask
+
+    def test_default_deny_unchanged_without_config(self, tmp_path):
+        """Without permissions config, deny list matches the 6 framework defaults."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="perms-default",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+        )
+
+        data = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        deny = data["permissions"]["deny"]
+        assert deny == self.DEFAULT_DENY
 
 
 if __name__ == "__main__":

@@ -9,10 +9,10 @@ from pathlib import Path
 
 import yaml
 
-from osprey.services.prompts.catalog import PromptCatalog
 from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates._rendering import render_template
+from osprey.services.prompts.catalog import PromptCatalog
 from osprey.utils.config import resolve_env_vars
 
 logger = logging.getLogger("osprey.cli.templates")
@@ -129,6 +129,7 @@ def build_claude_code_context(
 
     # Claude Code server + agent resolution (data-driven registry)
     claude_code_config = config.get("claude_code", {})
+    ctx["facility_permissions"] = claude_code_config.get("permissions", {})
 
     from osprey.registry.mcp import resolve_agents, resolve_servers
 
@@ -164,9 +165,7 @@ def build_claude_code_context(
     ctx["claude_code_model_spec"] = model_spec
 
     # Write tools blocked by the writes kill switch (for hook_config.json)
-    ctx["control_system_write_tools"] = (
-        config.get("control_system", {}).get("write_tools", [])
-    )
+    ctx["control_system_write_tools"] = config.get("control_system", {}).get("write_tools", [])
 
     # Control system type for protocol-aware safety rules
     ctx["control_system_type"] = config.get("control_system", {}).get("type", "mock")

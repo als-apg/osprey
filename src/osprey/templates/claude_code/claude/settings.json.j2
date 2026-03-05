@@ -9,7 +9,7 @@
   "model": "{{ claude_code_model_spec.tier_to_model[claude_code_model_spec.default_model_tier] }}",
 {%- endif %}
   "outputStyle": ".claude/output-styles/control-operator.md",
-  "_PROMPT_PROVIDER_NOTE": "PROMPT-PROVIDER: section=permissions_policy. Future: source from FrameworkPromptProvider.get_permissions_policy(). Facility-customizable: allow/deny/ask tool lists, file access paths, additional facility-specific tools or restrictions.",
+  "_PROMPT_PROVIDER_NOTE": "Permissions policy: allow/deny/ask lists. Framework defaults merged with facility overrides from claude_code.permissions config.",
   "permissions": {
     "allow": [
 {#- Build allow list from server registry -#}
@@ -38,16 +38,22 @@
 {%- for a in agents if a.enabled -%}
 {%- set _ = allow_entries.append('"Task(' ~ a.name ~ ')"') -%}
 {%- endfor -%}
+{%- for entry in facility_permissions.get('allow', []) -%}
+{%- set _ = allow_entries.append('"' ~ entry ~ '"') -%}
+{%- endfor -%}
 {% for entry in allow_entries %}      {{ entry }}{% if not loop.last %},{% endif %}
 {% endfor %}    ],
+{%- set deny_defaults = ["Bash", "Edit", "WebFetch", "WebSearch", "mcp__plugin_playwright_playwright__*", "mcp__plugin_context7_context7__*"] -%}
+{%- set deny_entries = [] -%}
+{%- for d in deny_defaults if d not in facility_permissions.get('remove_deny', []) -%}
+{%- set _ = deny_entries.append(d) -%}
+{%- endfor -%}
+{%- for d in facility_permissions.get('deny', []) -%}
+{%- set _ = deny_entries.append(d) -%}
+{%- endfor -%}
     "deny": [
-      "Bash",
-      "Edit",
-      "WebFetch",
-      "WebSearch",
-      "mcp__plugin_playwright_playwright__*",
-      "mcp__plugin_context7_context7__*"
-    ],
+{% for entry in deny_entries %}      "{{ entry }}"{% if not loop.last %},{% endif %}
+{% endfor %}    ],
     "ask": [
 {%- set ask_entries = [] -%}
 {%- for s in servers if s.enabled -%}
@@ -57,6 +63,9 @@
 {%- for entry in s.fixed_ask -%}
 {%- set _ = ask_entries.append('"' ~ entry ~ '"') -%}
 {%- endfor -%}
+{%- endfor -%}
+{%- for entry in facility_permissions.get('ask', []) -%}
+{%- set _ = ask_entries.append('"' ~ entry ~ '"') -%}
 {%- endfor -%}
 {% for entry in ask_entries %}      {{ entry }}{% if not loop.last %},{% endif %}
 {% endfor %}    ]
