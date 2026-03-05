@@ -8,15 +8,15 @@
 ## Summary
 
 - Total items: 28
-- Completed: 0
-- Remaining: 28
+- Completed: 1
+- Remaining: 27
 - Critical (P0): 3 | High (P1): 12 | Medium (P2): 8 | Low (P3): 5
 
 ---
 
 ## Backlog
 
-### [P0] GP-001: Write detection patterns not extensible for non-EPICS protocols (pending)
+### [P0] GP-001: Write detection patterns not extensible for non-EPICS protocols (done)
 
 **Severity**: GAP | **Categories**: hard_coded, config_flexibility, portability
 **Files**: `src/osprey/templates/claude_code/claude/hooks/osprey_approval.py`, `src/osprey/mcp_server/workspace/execution/sandbox_executor.py`
@@ -33,7 +33,7 @@
 3. Add protocol-specific dangerous patterns for Tango/OPC-UA/LabVIEW to the sandbox executor, loaded from config
 4. Remove the fallback branch — under zero-compat policy, hooks always run in the venv
 
-**Status**: pending
+**Status**: done (73cd286d)
 
 ---
 
