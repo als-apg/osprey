@@ -124,8 +124,10 @@ control_system:
   # Purpose: Detect ALL control system operations for approval workflows
   # Security: Catches approved API AND circumvention attempts (direct library calls)
   # Framework Default: Detects osprey.runtime API + EPICS/Tango/LabVIEW direct calls
-  # Advanced: Extend for custom control system libraries (rarely needed)
+  # Custom patterns EXTEND framework defaults by default.
+  # Set mode: override to replace framework patterns entirely.
   # patterns:
+  #   mode: extend    # extend (default) | override
   #   write: ['my_custom_cs_lib\.write\(']
   #   read: ['my_custom_cs_lib\.read\(']
 

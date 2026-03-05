@@ -65,6 +65,34 @@ class TestValidateSandboxCode:
         assert not is_safe
         assert any("epics" in v for v in violations)
 
+    def test_validate_blocks_tango(self):
+        """Tango DeviceProxy and write_attribute are blocked."""
+        code = "import tango\nd = tango.DeviceProxy('motor/1')\nd.write_attribute('position', 100)"
+        is_safe, violations = validate_sandbox_code(code)
+        assert not is_safe
+        assert any("tango" in v.lower() for v in violations)
+
+    def test_validate_blocks_opcua(self):
+        """OPC-UA module is blocked."""
+        code = "import opcua\nclient = opcua.Client('opc.tcp://localhost:4840')"
+        is_safe, violations = validate_sandbox_code(code)
+        assert not is_safe
+        assert any("opcua" in v.lower() for v in violations)
+
+    def test_validate_blocks_write_channel(self):
+        """osprey.runtime write_channel API is blocked in sandbox."""
+        code = "write_channel('BEAM:CURRENT', 500.0)"
+        is_safe, violations = validate_sandbox_code(code)
+        assert not is_safe
+        assert any("write_channel" in v for v in violations)
+
+    def test_validate_blocks_labview(self):
+        """LabVIEW patterns are blocked."""
+        code = "import labview\nlabview.SetControlValue('temperature', 350)"
+        is_safe, violations = validate_sandbox_code(code)
+        assert not is_safe
+        assert any("labview" in v.lower() or "LabVIEW" in v for v in violations)
+
     def test_validate_blocks_dunder_import(self):
         code = "__import__('os').system('ls')"
         is_safe, violations = validate_sandbox_code(code)
