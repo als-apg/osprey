@@ -8,8 +8,8 @@
 ## Summary
 
 - Total items: 35
-- Completed: 8
-- Remaining: 27
+- Completed: 10
+- Remaining: 25
 - Critical (P0): 3 | High (P1): 7 | Medium (P2): 15 | Low (P3): 10
 
 ## Backlog
@@ -186,7 +186,7 @@ A Tango facility gets rules that don't mention Tango as prohibited — an agent 
 
 ---
 
-### [P1] GP-009: Connector type strings scattered as literals throughout codebase (pending)
+### [P1] GP-009: Connector type strings scattered as literals throughout codebase (completed)
 
 **Severity**: GAP | **Categories**: hard_coded, portability
 **Files**: `src/osprey/connectors/factory.py`, `src/osprey/mcp_server/control_system/server_context.py`, `src/osprey/services/python_executor/analysis/pattern_detection.py`, `src/osprey/cli/config_cmd.py`, `src/osprey/cli/project_actions.py`
@@ -201,11 +201,12 @@ A Tango facility gets rules that don't mention Tango as prohibited — an agent 
 3. Build CLI `Choice` list dynamically from registered connectors
 4. Remove `server_context.py` validation (ConnectorFactory already raises clear errors)
 
-**Status**: pending
+**Status**: completed
+**Completed**: 2026-03-04 — commit 47844029 (centralized connector type strings)
 
 ---
 
-### [P1] GP-010: Channel-finder agent contains ALS-specific terminology (pending)
+### [P1] GP-010: Channel-finder agent contains ALS-specific terminology (completed)
 
 **Severity**: GAP | **Categories**: prompt_customizability, portability
 **Files**: `src/osprey/templates/claude_code/claude/agents/channel-finder.md.j2`, `src/osprey/templates/claude_code/claude/agents/_terminology/*.md.j2`, `src/osprey/templates/claude_code/claude/agents/direct-channel-finder.md.j2`
@@ -226,7 +227,8 @@ A fusion experiment or beamline has completely different systems, families, and 
 3. Keep ALS examples only when `facility.type == "als"` or provide generic defaults
 4. Allow section-level overrides instead of requiring ejection of the entire 222-line agent file
 
-**Status**: pending
+**Status**: completed
+**Completed**: 2026-03-04 — De-EPICS'd agent descriptions. ALS terminology retained as tutorial content — real facilities customize both DB and agent via eject.
 
 ---
 
