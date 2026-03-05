@@ -1,0 +1,93 @@
+{% set cs_type = control_system_type | default('mock') %}
+{% if cs_type == 'epics' %}
+{% set protocol_name = 'EPICS' %}
+{% set protocol_long = 'EPICS Channel Access' %}
+{% elif cs_type == 'tango' %}
+{% set protocol_name = 'Tango' %}
+{% set protocol_long = 'Tango Controls' %}
+{% elif cs_type == 'opcua' %}
+{% set protocol_name = 'OPC-UA' %}
+{% set protocol_long = 'OPC-UA' %}
+{% elif cs_type == 'labview' %}
+{% set protocol_name = 'LabVIEW' %}
+{% set protocol_long = 'LabVIEW' %}
+{% else %}
+{% set protocol_name = 'Control System' %}
+{% set protocol_long = 'Control System' %}
+{% endif %}
+# Control System Safety — {{ protocol_long }}
+
+When writing Python code that interacts with the control system, you MUST use
+the `osprey.runtime` API. Direct use of {{ protocol_name }} libraries is **prohibited** because
+it bypasses safety layers (limits checking, write verification, approval).
+
+### Allowed
+
+```python
+from osprey.runtime import read_channel, write_channel
+value = read_channel("SR:BPM01:XPosition")
+write_channel("SR:PS01:Current", 150.0)
+```
+
+### Prohibited
+
+{% if cs_type == 'epics' %}
+```python
+# DO NOT use these — they bypass safety controls
+import epics
+epics.caget("SR:BPM01:XPosition")   # Bypasses audit logging
+epics.caput("SR:PS01:Current", 150)  # Bypasses limits + approval
+from epics import PV
+pv = PV("SR:PS01:Current")
+pv.put(150)  # Bypasses all safety layers
+```
+{% elif cs_type == 'tango' %}
+```python
+# DO NOT use these — they bypass safety controls
+import tango
+device = tango.DeviceProxy("sys/tg_test/1")
+device.read_attribute("Position")     # Bypasses audit logging
+device.write_attribute("Current", 150)  # Bypasses limits + approval
+from PyTango import DeviceProxy
+dev = DeviceProxy("sys/tg_test/1")
+dev.write_attribute("Setpoint", 150)  # Bypasses all safety layers
+```
+{% elif cs_type == 'opcua' %}
+```python
+# DO NOT use these — they bypass safety controls
+from opcua import Client
+client = Client("opc.tcp://localhost:4840")
+client.connect()
+node = client.get_node("ns=2;i=2")
+node.get_value()     # Bypasses audit logging
+node.set_value(150)  # Bypasses limits + approval
+```
+{% elif cs_type == 'labview' %}
+```python
+# DO NOT use these — they bypass safety controls
+import labview
+labview.set_control("Current", 150)   # Bypasses limits + approval
+# Any direct LabVIEW library calls bypass all safety layers
+```
+{% else %}
+```python
+# DO NOT use any direct hardware library calls — they bypass safety controls
+# All reads and writes must go through osprey.runtime
+```
+{% endif %}
+
+### Why This Matters
+
+The `osprey.runtime` API enforces:
+1. **Channel limits** — prevents out-of-range writes (channel_limits.json)
+2. **Write verification** — confirms the control system accepted the value
+3. **Human approval** — routes writes through the approval workflow
+4. **Audit logging** — records all operations for traceability
+
+Direct {{ protocol_name }} calls skip all of these protections.
+
+## Write Operations
+
+For scripts that write to the control system, use the `execute` MCP tool directly
+with `execution_mode: "write"` —
+the `execute` tool defaults to readonly mode, which blocks write operations.

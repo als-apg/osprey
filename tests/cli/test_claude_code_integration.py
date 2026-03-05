@@ -1029,5 +1029,234 @@ class TestProviderEnvBlock:
         assert config["claude_code"].get("provider") == "als-apg"
 
 
+class TestProtocolAwareSafetyRules:
+    """Test that control-system-safety.md.j2 renders correctly for each protocol type."""
+
+    def test_epics_renders_epics_content(self, tmp_path):
+        """EPICS config produces EPICS-specific safety rules."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="safety-epics",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+        )
+
+        # Set control_system.type to epics and regenerate
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config.setdefault("control_system", {})["type"] = "epics"
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        from osprey.cli.templates import claude_code
+
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
+        claude_code.create_claude_code_integration(
+            manager.template_root, manager.jinja_env, project_dir, ctx
+        )
+
+        content = (project_dir / ".claude" / "rules" / "control-system-safety.md").read_text()
+        assert "EPICS Channel Access" in content
+        assert "import epics" in content
+        assert "epics.caget" in content
+        assert "epics.caput" in content
+        assert "osprey.runtime" in content
+        assert "read_channel" in content
+        assert "write_channel" in content
+
+    def test_tango_renders_tango_content(self, tmp_path):
+        """Tango config produces Tango-specific safety rules."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="safety-tango",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config.setdefault("control_system", {})["type"] = "tango"
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        from osprey.cli.templates import claude_code
+
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
+        claude_code.create_claude_code_integration(
+            manager.template_root, manager.jinja_env, project_dir, ctx
+        )
+
+        content = (project_dir / ".claude" / "rules" / "control-system-safety.md").read_text()
+        assert "Tango Controls" in content
+        assert "import tango" in content
+        assert "DeviceProxy" in content
+        assert "write_attribute" in content
+        assert "osprey.runtime" in content
+        assert "EPICS" not in content
+
+    def test_opcua_renders_opcua_content(self, tmp_path):
+        """OPC-UA config produces OPC-UA-specific safety rules."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="safety-opcua",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config.setdefault("control_system", {})["type"] = "opcua"
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        from osprey.cli.templates import claude_code
+
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
+        claude_code.create_claude_code_integration(
+            manager.template_root, manager.jinja_env, project_dir, ctx
+        )
+
+        content = (project_dir / ".claude" / "rules" / "control-system-safety.md").read_text()
+        assert "OPC-UA" in content
+        assert "opcua" in content
+        assert "set_value" in content
+        assert "osprey.runtime" in content
+        assert "EPICS" not in content
+
+    def test_mock_renders_generic_content(self, tmp_path):
+        """Mock/default config produces generic safety rules."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="safety-mock",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        # Default is mock — no explicit type needed, but verify
+        from osprey.cli.templates import claude_code
+
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
+        claude_code.create_claude_code_integration(
+            manager.template_root, manager.jinja_env, project_dir, ctx
+        )
+
+        content = (project_dir / ".claude" / "rules" / "control-system-safety.md").read_text()
+        assert "Control System" in content
+        assert "direct hardware library calls" in content
+        assert "osprey.runtime" in content
+        # Should not mention any specific protocol
+        assert "EPICS Channel Access" not in content
+        assert "Tango Controls" not in content
+
+    def test_all_protocols_include_runtime_api(self, tmp_path):
+        """All protocol variants include the osprey.runtime allowed section."""
+        manager = TemplateManager()
+        from osprey.cli.templates import claude_code
+
+        for protocol in ["epics", "tango", "opcua", "labview", "mock"]:
+            project_dir = manager.create_project(
+                project_name=f"safety-{protocol}",
+                output_dir=tmp_path / protocol,
+                template_name="control_assistant",
+            )
+            config = yaml.safe_load((project_dir / "config.yml").read_text())
+            config.setdefault("control_system", {})["type"] = protocol
+            (project_dir / "config.yml").write_text(yaml.dump(config))
+
+            ctx = claude_code.build_claude_code_context(
+                manager.template_root, manager.jinja_env, project_dir, config
+            )
+            claude_code.create_claude_code_integration(
+                manager.template_root, manager.jinja_env, project_dir, ctx
+            )
+
+            content = (project_dir / ".claude" / "rules" / "control-system-safety.md").read_text()
+            assert "osprey.runtime" in content, f"{protocol}: missing osprey.runtime"
+            assert "read_channel" in content, f"{protocol}: missing read_channel"
+            assert "write_channel" in content, f"{protocol}: missing write_channel"
+            assert content.strip(), f"{protocol}: rendered empty"
+
+
+class TestControlSystemTypeContext:
+    """Test that build_claude_code_context includes control_system_type."""
+
+    def test_control_system_type_from_config(self, tmp_path):
+        """control_system_type is read from config."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="ctx-cs-type",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config.setdefault("control_system", {})["type"] = "tango"
+
+        from osprey.cli.templates import claude_code
+
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
+        assert ctx["control_system_type"] == "tango"
+
+    def test_control_system_type_defaults_to_mock(self, tmp_path):
+        """control_system_type defaults to 'mock' when not in config."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="ctx-cs-default",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config.pop("control_system", None)
+
+        from osprey.cli.templates import claude_code
+
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
+        assert ctx["control_system_type"] == "mock"
+
+
+class TestGeneralizedRulesContent:
+    """Test that safety.md and error-handling.md use protocol-agnostic language."""
+
+    def test_safety_md_no_epics_patterns(self, tmp_path):
+        """safety.md does not reference EPICS-specific write patterns."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="gen-safety",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+        )
+
+        content = (project_dir / ".claude" / "rules" / "safety.md").read_text()
+        assert "caput" not in content
+        assert "pv.put" not in content
+        assert "write_channel" in content
+        assert "direct hardware library write call" in content
+
+    def test_error_handling_md_no_epics_references(self, tmp_path):
+        """error-handling.md does not reference EPICS-specific terminology."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="gen-errors",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+        )
+
+        content = (project_dir / ".claude" / "rules" / "error-handling.md").read_text()
+        assert "EPICS channel disconnected" not in content
+        assert "archiver appliance status" not in content
+        assert "pyepics" not in content
+        assert "control system channel disconnected" in content
+        assert "archiver service status" in content
+        assert "direct hardware library" in content
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

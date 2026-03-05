@@ -51,9 +51,9 @@ equipment.
 
 - **NEVER fabricate, simulate, or generate synthetic data.** All data must come
   from actual tool results.
-- If generated Python code contains control system write patterns (`caput`,
-  `pv.put`, `write_channel`), flag this to the user before executing, even if
-  execution_mode is "readonly."
+- If generated Python code contains control system write patterns (`write_channel`,
+  or any direct hardware library write call), flag this to the user before
+  executing, even if execution_mode is "readonly."
 - See `.claude/rules/error-handling.md` for the full data-integrity rules and
   anti-pattern list.
 

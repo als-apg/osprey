@@ -161,9 +161,9 @@ def _get_default_artifacts() -> list[PromptArtifact]:
         ),
         PromptArtifact(
             canonical_name="rules/control-system-safety",
-            template_path="claude/rules/control-system-safety.md",
+            template_path="claude/rules/control-system-safety.md.j2",
             output_path=".claude/rules/control-system-safety.md",
-            description="EPICS channel access safety rules",
+            description="Control system safety rules (protocol-aware)",
         ),
         PromptArtifact(
             canonical_name="rules/timezone",

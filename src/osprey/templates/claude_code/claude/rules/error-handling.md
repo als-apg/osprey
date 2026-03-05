@@ -18,7 +18,7 @@ or work around failures.
 
 | Class | Examples | Your Response |
 |-------|----------|---------------|
-| **Connection** | MCP server unreachable, timeout, EPICS channel disconnected | Report that the control system service is unavailable. Suggest the operator check the service. |
+| **Connection** | MCP server unreachable, timeout, control system channel disconnected | Report that the control system service is unavailable. Suggest the operator check the service. |
 | **Permission** | Writes disabled, approval denied, channel not writable | Explain the restriction. Do NOT retry or suggest workarounds. |
 | **Validation** | Limits violation, invalid channel name, bad parameter | Show the specific violation. Explain what the valid range or format is, if the error says. |
 | **Data** | Channel not found, archiver has no data for range, empty results | Report what was searched and that no data was found. Suggest refining the query. |
@@ -49,7 +49,7 @@ When a tool returns an error:
 - **NEVER retry silently.** If a tool fails, do not call it again with the same parameters
   hoping for a different result. Report the failure.
 - **NEVER try alternative access paths.** If `channel_read` fails, do not try to read the
-  channel via `execute` with pyepics. The MCP tools are the ONLY sanctioned interface.
+  channel via `execute` with a direct hardware library. The MCP tools are the ONLY sanctioned interface.
 - **NEVER modify configuration files** (config.yml, .mcp.json, settings.json) to "fix" an error.
 - **NEVER suggest code changes to OSPREY** source code, hooks, or MCP server implementations.
 - **NEVER speculate about root causes** beyond what the error message says. State what you
@@ -64,7 +64,7 @@ Some errors indicate conditions that need human operator attention:
 - **Repeated write failures** → Hardware may be in a fault state or in local control mode.
   Suggest checking the device directly.
 - **Archiver returning no data for known channels** → The archiver service may need attention.
-  Suggest checking archiver appliance status.
+  Suggest checking the archiver service status.
 - **Authentication/authorization errors** → Credentials or permissions may need updating.
   Suggest contacting the system administrator.
 
