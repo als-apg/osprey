@@ -156,10 +156,14 @@ claude_code:
   #       allow: [read_data, list_items]
   #       ask: [write_data]
   #
-  # Disable framework agents:
+  # Override framework agents or define custom agents:
   # agents:
   #   literature-search:
   #     enabled: false
+  #   my-custom-agent:
+  #     description: "Searches the facility's custom database."
+  #     condition: my_feature        # Only enabled when my_feature is truthy in config
+  #     server_dependency: my-server # Only enabled when my-server is active
   #
   # ── Model Provider ──────────────────────────────────────────
   # Which provider serves Claude models. Must support Anthropic Messages API.

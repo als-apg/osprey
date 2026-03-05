@@ -8,8 +8,8 @@
 ## Summary
 
 - Total items: 35
-- Completed: 10
-- Remaining: 25
+- Completed: 11
+- Remaining: 24
 - Critical (P0): 3 | High (P1): 7 | Medium (P2): 15 | Low (P3): 10
 
 ## Backlog
@@ -250,7 +250,7 @@ A fusion experiment or beamline has completely different systems, families, and 
 
 ---
 
-### [P2] GP-012: Framework agent catalog closed to config-driven additions (pending)
+### [P2] GP-012: Framework agent catalog closed to config-driven additions (done)
 
 **Severity**: IMPROVEMENT | **Categories**: extension_point
 **Files**: `src/osprey/registry/mcp.py`
@@ -263,7 +263,8 @@ A fusion experiment or beamline has completely different systems, families, and 
 1. Extend `claude_code.agents` config to support full `AgentDefinition` fields
 2. When a config entry names an agent not in `FRAMEWORK_AGENTS`, create an `AgentDefinition` from spec
 
-**Status**: pending
+**Status**: done
+**Completed**: 2026-03-04 — `_custom_agent_from_spec()` factory mirrors server pattern; conditions evaluated on custom agents after creation
 
 ---
 
