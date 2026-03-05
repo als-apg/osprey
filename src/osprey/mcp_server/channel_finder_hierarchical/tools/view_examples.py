@@ -7,8 +7,8 @@ shortcut hierarchy exploration for queries similar to previously verified ones.
 import json
 import logging
 
-from osprey.mcp_server.channel_finder_hierarchical.server_context import get_cf_hier_context
 from osprey.mcp_server.channel_finder_hierarchical.server import mcp
+from osprey.mcp_server.channel_finder_hierarchical.server_context import get_cf_hier_context
 from osprey.services.channel_finder.feedback.formatters import (
     format_failure,
     format_success,

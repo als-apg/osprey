@@ -199,8 +199,8 @@ You are exploring the {{ facility_name }} control system database.
 
 {% if channel_finder_mode == "in_context" %}
 **IMPORTANT — Address Resolution**: Channel names in this database are descriptive
-identifiers (e.g., `AcceleratingTubeBeginningGunPressureReadBack`). The actual PV
-addresses may differ (e.g., `GunPressure`). Before calling `submit_response`, you
+identifiers (e.g., `StorageRing_BeamCurrent_ReadBack`). The actual PV
+addresses may differ (e.g., `SR:DIAG:DCCT:MAIN:CURRENT:RB`). Before calling `submit_response`, you
 MUST call `resolve_addresses(channels)` to get the real PV addresses, then
 use those addresses (not the channel names) in the `entry_ids` field.
 
@@ -209,7 +209,7 @@ As your FINAL action, call `submit_response` to persist your findings:
 
 - `title`: Short descriptive title (e.g. "BPM Position Channels")
 - `content`: Your full synthesized response (markdown), including the channel list
-- `entry_ids`: All channel addresses found (e.g. ["SR:BPM:X:01", "SR:BPM:X:02"])
+- `entry_ids`: All channel addresses found (e.g. ["SR:DIAG:BPM:BPM01:POSITION:X", "SR:DIAG:BPM:BPM02:POSITION:X"])
 - `data_type`: "channel_addresses"
 - `source_agent`: "channel-finder"
 

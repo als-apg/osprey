@@ -84,7 +84,11 @@ def select_channel_finder_mode() -> str | None:
             value="hierarchical",
         ),
         Choice(
-            "all              - Include both pipelines (maximum flexibility, comparison)",
+            "middle_layer     - MML-structured database (system/family/device hierarchy)",
+            value="middle_layer",
+        ),
+        Choice(
+            "all              - All three pipelines (maximum flexibility, comparison)",
             value="all",
         ),
     ]

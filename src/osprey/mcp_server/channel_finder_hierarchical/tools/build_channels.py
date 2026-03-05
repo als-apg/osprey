@@ -8,8 +8,8 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
 import json
 import logging
 
-from osprey.mcp_server.channel_finder_hierarchical.server_context import get_cf_hier_context
 from osprey.mcp_server.channel_finder_hierarchical.server import make_error, mcp
+from osprey.mcp_server.channel_finder_hierarchical.server_context import get_cf_hier_context
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_hierarchical.tools.build_channels")
 
@@ -24,7 +24,8 @@ def build_channels(selections: dict) -> str:
     Args:
         selections: Dict mapping level names to selected values.
             Values can be strings or lists of strings for multi-select.
-            Example: {"system": "SR", "family": "BPM", "device": "01"}
+            Example: {"ring": "SR", "system": "MAG", "family": "DIPOLE", "device": "B05", "field": "CURRENT", "subfield": "SP"}
+            All levels from the hierarchy must be included — omitting a required level returns no channels.
 
     Returns:
         JSON with list of constructed channel addresses and total count.

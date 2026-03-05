@@ -73,7 +73,7 @@ def init_project(
     name: str,
     template: str = "control_assistant",
     provider: str = "anthropic",
-    model: str = "claude-haiku-4-5-20251001",
+    model: str = "haiku",
     channel_finder_mode: str | None = None,
 ) -> Path:
     """Create a project via ``osprey init`` CLI, return project_dir."""

@@ -32,7 +32,7 @@ handles most channel-finding tasks. Use this agent for:
 
 Search for PVs matching a glob pattern. Results are paginated.
 
-- `pattern`: Glob pattern (e.g., `SR:*:BPM:*`, `*DCCT*`, `SR:01:*`)
+- `pattern`: Glob pattern (e.g., `SR:DIAG:BPM:*`, `*DCCT*`, `SR:MAG:*`)
 - `record_type`: Filter by record type (`ai`, `ao`, etc.)
 - `ioc`: Filter by IOC name
 - `description_contains`: Filter by text in description
@@ -42,8 +42,8 @@ Search for PVs matching a glob pattern. Results are paginated.
 **Strategy**: Start broad, then narrow with filters:
 ```
 search_pvs("SR:*")              → see overall structure
-search_pvs("SR:*:BPM:*")       → find all BPMs
-search_pvs("SR:01:BPM:*")      → BPMs in sector 1
+search_pvs("SR:DIAG:BPM:*")    → find all BPMs
+search_pvs("SR:MAG:HCM:*")     → all horizontal correctors
 search_pvs("*", description_contains="beam current")  → search by description
 ```
 
@@ -88,14 +88,14 @@ As your FINAL action, call `submit_response` to persist your findings:
 
 - `title`: Short descriptive title (e.g., "BPM Position PVs")
 - `content`: Your full synthesized response (markdown), including the PV list
-- `entry_ids`: All PV addresses found (e.g., ["SR:01:BPM:01:X", "SR:01:BPM:01:Y"])
+- `entry_ids`: All PV addresses found (e.g., ["SR:DIAG:BPM:01:POSITION:X", "SR:DIAG:BPM:01:POSITION:Y"])
 - `data_type`: "channel_addresses"
 - `source_agent`: "direct-channel-finder"
 
 Include the returned `artifact_id` in your final answer:
 **PVs found** (artifact_id: 2):
-- SR:01:BPM:01:X
-- SR:01:BPM:01:Y
+- SR:DIAG:BPM:01:POSITION:X
+- SR:DIAG:BPM:01:POSITION:Y
 
 This allows the orchestrator to reference the artifact entry for downstream tools.
 {%- endif %}
