@@ -9,8 +9,8 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.init_cmd import init
-from osprey.services.prompts.catalog import PromptCatalog
 from osprey.interfaces.web_terminal.prompt_gallery_service import PromptGalleryService
+from osprey.services.prompts.catalog import PromptCatalog
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -563,6 +563,109 @@ class TestCustomArtifacts:
 # ===========================================================================
 # Unoverride framework restore
 # ===========================================================================
+
+
+# ===========================================================================
+# Create artifact
+# ===========================================================================
+
+
+class TestCreateArtifact:
+    """Tests for create_artifact — creating custom artifacts via the UI."""
+
+    def test_create_artifact_writes_file(self, service, project_dir):
+        """Creating an artifact writes a file at .claude/{cat}/{name}.md."""
+        result = service.create_artifact("rules", "my-rule")
+        assert result["status"] == "created"
+        assert result["output_path"] == ".claude/rules/my-rule.md"
+
+        fpath = project_dir / ".claude" / "rules" / "my-rule.md"
+        assert fpath.exists()
+        assert len(fpath.read_text(encoding="utf-8")) > 0
+
+    def test_create_artifact_registers_in_config(self, service, project_dir):
+        """Creating adds the canonical name to prompts.user_owned in config."""
+        service.create_artifact("agents", "my-agent")
+        user_owned = _get_user_owned(project_dir)
+        assert "agents/my-agent" in user_owned
+
+    def test_create_artifact_writes_manifest(self, service, project_dir):
+        """Creating writes a manifest entry with claimed_at and no framework_hash."""
+        import json
+
+        service.create_artifact("rules", "manifest-test")
+
+        manifest_path = project_dir / ".osprey-manifest.json"
+        assert manifest_path.exists()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        entry = manifest.get("user_owned", {}).get("rules/manifest-test")
+        assert entry is not None
+        assert "claimed_at" in entry
+        assert "framework_hash" not in entry
+
+    def test_create_artifact_invalid_category_raises(self, service):
+        """Invalid category raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid category"):
+            service.create_artifact("widgets", "bad-widget")
+
+    def test_create_artifact_conflict_with_framework_raises(self, service):
+        """Creating an artifact with a framework name raises ValueError."""
+        with pytest.raises(ValueError, match="framework artifact"):
+            service.create_artifact("rules", "safety")
+
+    def test_create_artifact_duplicate_raises(self, service, project_dir):
+        """Creating the same artifact twice raises FileExistsError."""
+        service.create_artifact("rules", "dupe-test")
+        svc = PromptGalleryService(project_dir)
+        with pytest.raises(FileExistsError, match="already exists"):
+            svc.create_artifact("rules", "dupe-test")
+
+    def test_create_artifact_hook_gets_py_extension(self, service, project_dir):
+        """Hook artifacts are created with .py extension, not .md."""
+        result = service.create_artifact("hooks", "my-hook")
+        assert result["output_path"] == ".claude/hooks/my-hook.py"
+
+        fpath = project_dir / ".claude" / "hooks" / "my-hook.py"
+        assert fpath.exists()
+        assert not (project_dir / ".claude" / "hooks" / "my-hook.md").exists()
+
+    def test_create_artifact_hook_executable(self, service, project_dir):
+        """Hook .py files get the execute permission bit."""
+        import stat
+
+        service.create_artifact("hooks", "exec-hook")
+        fpath = project_dir / ".claude" / "hooks" / "exec-hook.py"
+        mode = fpath.stat().st_mode
+        assert mode & stat.S_IXUSR
+
+    def test_create_artifact_starter_content(self, service, project_dir):
+        """Default content is category-appropriate starter content."""
+        service.create_artifact("rules", "starter-test")
+        content = (project_dir / ".claude" / "rules" / "starter-test.md").read_text(encoding="utf-8")
+        assert content.startswith("# Starter Test")
+
+        svc = PromptGalleryService(project_dir)
+        svc.create_artifact("skills", "starter-skill")
+        skill_content = (project_dir / ".claude" / "skills" / "starter-skill.md").read_text(
+            encoding="utf-8"
+        )
+        assert "name: starter-skill" in skill_content
+
+    def test_register_untracked_writes_manifest(self, service, project_dir):
+        """Regression: register_untracked also writes a manifest entry."""
+        import json
+
+        orphan = project_dir / ".claude" / "rules" / "manifest-reg.md"
+        orphan.parent.mkdir(parents=True, exist_ok=True)
+        orphan.write_text("# Manifest Reg\n", encoding="utf-8")
+
+        service.register_untracked("rules/manifest-reg")
+
+        manifest_path = project_dir / ".osprey-manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        entry = manifest.get("user_owned", {}).get("rules/manifest-reg")
+        assert entry is not None
+        assert "claimed_at" in entry
 
 
 class TestUnoverrideFrameworkRestore:

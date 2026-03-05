@@ -74,6 +74,24 @@ async def delete_untracked_prompt(name: str, request: Request):
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+class CreateArtifactRequest(BaseModel):
+    category: str
+    name: str
+    content: str = ""
+
+
+@router.post("/api/prompts/create")
+async def create_artifact(body: CreateArtifactRequest, request: Request):
+    """Create a new custom artifact."""
+    service = _prompt_service(request)
+    try:
+        return service.create_artifact(body.category, body.name, body.content)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except FileExistsError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+
+
 @router.get("/api/prompts/{name:path}/framework")
 async def get_prompt_framework(name: str, request: Request):
     """Get the framework-rendered content for an artifact."""

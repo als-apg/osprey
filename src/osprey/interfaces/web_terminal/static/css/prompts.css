@@ -879,6 +879,29 @@
   border-color: var(--color-accent);
 }
 
+.prompts-category-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--color-success);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: 4px;
+  transition: all var(--transition-fast);
+}
+
+.prompts-category-add:hover {
+  background: var(--color-success);
+  color: var(--bg-primary);
+}
+
 /* ---- Category Tooltip ---- */
 
 .prompts-category-tooltip {
