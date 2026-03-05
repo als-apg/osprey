@@ -29,7 +29,7 @@ Operators use domain language. Map their terms to channel name patterns:
 - Channel names in flat databases are often **descriptive identifiers**
   (e.g., `AcceleratingTubeBeginningGunPressureReadBack`)
 - The actual PV address may differ from the descriptive name — always call
-  `resolve_addresses()` to get the real EPICS PV
+  `resolve_addresses()` to get the real PV address
 - Use `statistics()` first to understand database size before choosing chunk-based
   or full retrieval
 - When descriptions are available, prefer matching on description content over name
