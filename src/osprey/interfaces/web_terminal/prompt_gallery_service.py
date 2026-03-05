@@ -14,6 +14,7 @@ from typing import Any
 
 import yaml
 
+from osprey.cli.templates.manager import TemplateManager
 from osprey.services.prompts.catalog import PromptArtifact, PromptCatalog
 from osprey.services.prompts.ownership import (
     get_user_owned,
@@ -22,7 +23,6 @@ from osprey.services.prompts.ownership import (
     update_manifest_add_user_owned,
     update_manifest_remove_user_owned,
 )
-from osprey.cli.templates.manager import TemplateManager
 from osprey.utils.config import resolve_env_vars
 
 # Language inference from file extension
@@ -244,6 +244,67 @@ class PromptGalleryService:
             "content": content,
         }
 
+    # ── Create ─────────────────────────────────────────────────────────
+
+    def create_artifact(self, category: str, name: str, content: str = "") -> dict[str, Any]:
+        """Create a new custom artifact file and register it."""
+        allowed = {"agents", "rules", "hooks", "skills", "commands", "output-styles"}
+        if category not in allowed:
+            raise ValueError(f"Invalid category '{category}'. Must be one of: {sorted(allowed)}")
+
+        canonical_name = f"{category}/{name}"
+        output_path = f".claude/{category}/{name}.md"
+        if category == "hooks":
+            output_path = f".claude/{category}/{name}.py"
+
+        if self._registry.get(canonical_name):
+            raise ValueError(f"'{canonical_name}' is a framework artifact — use claim instead")
+        if canonical_name in self._user_owned:
+            raise FileExistsError(f"'{canonical_name}' already exists")
+
+        full_path = self.project_dir / output_path
+        if full_path.exists():
+            raise FileExistsError(f"File already exists at {output_path}")
+
+        if not content:
+            content = self._starter_content(category, name)
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(content, encoding="utf-8")
+        if full_path.suffix == ".py":
+            full_path.chmod(full_path.stat().st_mode | 0o755)
+
+        # Register in config + manifest (reuse existing ownership infra)
+        update_config_add_user_owned(self.project_dir, canonical_name)
+        manager, ctx = self._ensure_template_context()
+        update_manifest_add_user_owned(self.project_dir, manager, ctx, canonical_name)
+
+        self._config = self._load_config()
+        self._user_owned = get_user_owned(self._config)
+
+        return {
+            "status": "created",
+            "canonical_name": canonical_name,
+            "output_path": output_path,
+            "content": content,
+        }
+
+    @staticmethod
+    def _starter_content(category: str, name: str) -> str:
+        """Return minimal starter content for a new artifact."""
+        display = name.replace("-", " ").replace("_", " ").title()
+        if category == "hooks":
+            return (
+                f'"""Hook: {display}."""\n\nimport sys\nimport json\n\n\n'
+                f"def main():\n    pass\n\n\n"
+                f'if __name__ == "__main__":\n    main()\n'
+            )
+        if category == "skills":
+            return (
+                f"---\nname: {name}\ndescription: {display}\n---\n\n"
+                f"# {display}\n\nDescribe this skill's purpose and workflow.\n"
+            )
+        return f"# {display}\n\nDescribe this {category.rstrip('s')} here.\n"
+
     # ── Save ──────────────────────────────────────────────────────────
 
     def save_override(self, name: str, content: str) -> dict[str, Any]:
@@ -357,6 +418,8 @@ class PromptGalleryService:
             raise FileExistsError(f"'{canonical_name}' is already registered")
 
         update_config_add_user_owned(self.project_dir, canonical_name)
+        manager, ctx = self._ensure_template_context()
+        update_manifest_add_user_owned(self.project_dir, manager, ctx, canonical_name)
 
         self._config = self._load_config()
         self._user_owned = get_user_owned(self._config)

@@ -553,6 +553,23 @@ class ArtifactGallery {
         header.appendChild(helpBtn);
       }
 
+      // "+" create button — use original category (not display-remapped)
+      const creatableCategories = new Set([
+        'agents', 'rules', 'hooks', 'skills', 'commands', 'output-styles'
+      ]);
+      const originalCat = groups[cat][0]?.category || cat;
+      if (creatableCategories.has(originalCat.toLowerCase())) {
+        const addBtn = document.createElement('button');
+        addBtn.className = 'prompts-category-add';
+        addBtn.textContent = '+';
+        addBtn.title = `Create new ${originalCat.toLowerCase().replace(/s$/, '')}`;
+        addBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.showCreateDialog(originalCat.toLowerCase());
+        });
+        header.appendChild(addBtn);
+      }
+
       section.appendChild(header);
 
       // Skills get special grouping
@@ -726,6 +743,39 @@ class ArtifactGallery {
     this.renderDetailHeader();
     this.renderDetailModes();
     this.renderDetailContent();
+  }
+
+  showCreateDialog(category) {
+    const name = prompt(`Name for new ${category.replace(/s$/, '')}:`);
+    if (!name) return;
+
+    const sanitized = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    if (!sanitized) {
+      alert('Invalid name. Use letters, numbers, and hyphens.');
+      return;
+    }
+
+    fetchJSON('/api/prompts/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category, name: sanitized }),
+    })
+      .then((result) => {
+        resetFetchCache();
+        this.load().then(() => {
+          const newArt = this.artifacts.find((a) => a.name === result.canonical_name);
+          if (newArt) {
+            this.openDetail(newArt);
+            // Switch to edit mode inline (no switchMode method exists)
+            this.detailMode = 'edit';
+            this.renderDetailModes();
+            this.renderDetailContent();
+          }
+        });
+      })
+      .catch((err) => {
+        alert(`Failed to create: ${err.message || err}`);
+      });
   }
 
   renderDetailHeader() {
