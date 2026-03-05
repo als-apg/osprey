@@ -13,6 +13,7 @@ from osprey.cli.styles import (
     console,
     get_questionary_style,
 )
+from osprey.connectors import types
 
 try:
     import questionary
@@ -514,8 +515,8 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
 
     # Show choices
     choices = [
-        Choice("Mock - Tutorial/Development mode (safe, no hardware)", value="mock"),
-        Choice("EPICS - Production mode (connects to real control system)", value="epics"),
+        Choice("Mock - Tutorial/Development mode (safe, no hardware)", value=types.MOCK),
+        Choice("EPICS - Production mode (connects to real control system)", value=types.EPICS),
         Choice("─" * 60, value=None, disabled=True),
         Choice("[←] Back - Return to config menu", value="back"),
     ]
@@ -528,18 +529,20 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
         return
 
     # Ask about archiver too
-    if control_type == "epics":
+    if control_type == types.EPICS:
         console.print("\n[bold]Archiver Configuration[/bold]\n")
         archiver_type = questionary.select(
             "Also switch archiver to EPICS?",
             choices=[
-                Choice("Yes - Use EPICS Archiver Appliance", value="epics_archiver"),
-                Choice("No - Keep mock archiver", value="mock_archiver"),
+                Choice(
+                    "Yes - Use EPICS Archiver Appliance", value=types.EPICS_ARCHIVER
+                ),
+                Choice("No - Keep mock archiver", value=types.MOCK_ARCHIVER),
             ],
             style=custom_style,
         ).ask()
     else:
-        archiver_type = "mock_archiver"
+        archiver_type = types.MOCK_ARCHIVER
 
     # Update configuration
     new_content, preview = set_control_system_type(config_path, control_type, archiver_type)
@@ -555,7 +558,7 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
         config_path.write_text(new_content, encoding="utf-8")
         console.print(f"\n{Messages.success('✓ Control system configuration updated!')}")
 
-        if control_type == "epics":
+        if control_type == types.EPICS:
             console.print("\n[dim]💡 Next steps:[/dim]")
             console.print("[dim]   1. Configure EPICS gateway: config → set-epics-gateway[/dim]")
             console.print("[dim]   2. Verify EPICS connection settings[/dim]")
@@ -707,7 +710,7 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
 
         # Check if mode is still 'mock' and offer to switch
         current_type = get_control_system_type(config_path)
-        if current_type in (None, "mock"):
+        if current_type in (None, types.MOCK):
             # None means missing config key, treat same as mock
             if questionary.confirm(
                 "\nYour control system is set to 'mock' mode. Switch to 'epics' to use this "
@@ -715,7 +718,7 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
                 default=True,
                 style=custom_style,
             ).ask():
-                type_content, _ = set_control_system_type(config_path, "epics")
+                type_content, _ = set_control_system_type(config_path, types.EPICS)
                 config_path.write_text(type_content, encoding="utf-8")
                 console.print(f"{Messages.success('✓ Switched to epics mode!')}")
             else:
@@ -723,7 +726,7 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
                     "\n[dim]Note: Gateway configured but mode is still 'mock'. "
                     "Use 'set-control-system' to switch when ready.[/dim]"
                 )
-        elif current_type == "epics":
+        elif current_type == types.EPICS:
             console.print("[dim]Control system already set to 'epics' mode.[/dim]")
         else:
             # Other types like 'tango', 'labview' - don't auto-switch

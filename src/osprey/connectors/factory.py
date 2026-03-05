@@ -10,6 +10,7 @@ system for unified component management and lazy loading.
 import importlib
 from typing import Any
 
+from osprey.connectors import types
 from osprey.connectors.archiver.base import ArchiverConnector
 from osprey.connectors.control_system.base import ControlSystemConnector
 from osprey.utils.logger import get_logger
@@ -105,7 +106,7 @@ class ConnectorFactory:
                 logger.warning(f"Could not load config: {e}, using defaults")
                 config = {}
 
-        connector_type = config.get("type", "epics")
+        connector_type = config.get("type", types.EPICS)
         connector_class = cls._control_system_connectors.get(connector_type)
 
         if not connector_class:
@@ -180,7 +181,7 @@ class ConnectorFactory:
                 logger.warning(f"Could not load config: {e}, using defaults")
                 config = {}
 
-        connector_type = config.get("type", "epics_archiver")
+        connector_type = config.get("type", types.EPICS_ARCHIVER)
         connector_class = cls._archiver_connectors.get(connector_type)
 
         if not connector_class:
@@ -241,7 +242,7 @@ def register_builtin_connectors() -> None:
     from osprey.connectors.control_system.epics_connector import EPICSConnector
     from osprey.connectors.control_system.mock_connector import MockConnector
 
-    ConnectorFactory.register_control_system("mock", MockConnector)
-    ConnectorFactory.register_control_system("epics", EPICSConnector)
-    ConnectorFactory.register_archiver("mock_archiver", MockArchiverConnector)
-    ConnectorFactory.register_archiver("epics_archiver", EPICSArchiverConnector)
+    ConnectorFactory.register_control_system(types.MOCK, MockConnector)
+    ConnectorFactory.register_control_system(types.EPICS, EPICSConnector)
+    ConnectorFactory.register_archiver(types.MOCK_ARCHIVER, MockArchiverConnector)
+    ConnectorFactory.register_archiver(types.EPICS_ARCHIVER, EPICSArchiverConnector)

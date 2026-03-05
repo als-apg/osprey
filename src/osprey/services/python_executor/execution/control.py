@@ -65,6 +65,7 @@ Examples:
 from dataclasses import dataclass
 from enum import Enum
 
+from osprey.connectors.types import EPICS
 from osprey.utils.logger import get_logger
 
 logger = get_logger("execution_control")
@@ -169,7 +170,7 @@ class ExecutionControlConfig:
     # Control system settings
     epics_writes_enabled: bool = False  # Deprecated - kept for backward compatibility
     control_system_writes_enabled: bool | None = None
-    control_system_type: str = "epics"  # Default for backward compatibility
+    control_system_type: str = EPICS  # Default for backward compatibility
 
     def __post_init__(self):
         """Handle backward compatibility for epics_writes_enabled."""
@@ -264,7 +265,7 @@ def get_execution_control_config() -> ExecutionControlConfig:
         writes_enabled = control_system_config.get("writes_enabled", False)
 
         # Get control system type for proper configuration
-        control_system_type = control_system_config.get("type", "epics")
+        control_system_type = control_system_config.get("type", EPICS)
 
         # Build typed config with defaults
         execution_control = ExecutionControlConfig(

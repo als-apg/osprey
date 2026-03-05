@@ -9,5 +9,6 @@ underlying control system.
 """
 
 from osprey.connectors.factory import ConnectorFactory
+from osprey.connectors.types import EPICS, EPICS_ARCHIVER, MOCK, MOCK_ARCHIVER
 
-__all__ = ["ConnectorFactory"]
+__all__ = ["ConnectorFactory", "EPICS", "EPICS_ARCHIVER", "MOCK", "MOCK_ARCHIVER"]
