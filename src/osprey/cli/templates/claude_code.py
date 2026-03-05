@@ -168,6 +168,9 @@ def build_claude_code_context(
         config.get("control_system", {}).get("write_tools", [])
     )
 
+    # Control system type for protocol-aware safety rules
+    ctx["control_system_type"] = config.get("control_system", {}).get("type", "mock")
+
     return ctx
 
 
