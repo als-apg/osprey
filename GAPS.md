@@ -8,8 +8,8 @@
 ## Summary
 
 - Total items: 35
-- Completed: 11
-- Remaining: 24
+- Completed: 12
+- Remaining: 23
 - Critical (P0): 3 | High (P1): 7 | Medium (P2): 15 | Low (P3): 10
 
 ## Backlog
@@ -498,7 +498,7 @@ A fusion experiment or beamline has completely different systems, families, and 
 
 ---
 
-### [P3] GP-026: settings.json permissions not facility-configurable (pending)
+### [P3] GP-026: settings.json permissions not facility-configurable (completed)
 
 **Severity**: UX | **Categories**: prompt_customizability
 **Files**: `src/osprey/templates/claude_code/claude/settings.json.j2`
@@ -511,7 +511,8 @@ A fusion experiment or beamline has completely different systems, families, and 
 1. Add `claude_code.permissions` config for additional allow/deny/ask entries
 2. Merge with framework defaults during template rendering
 
-**Status**: pending
+**Status**: completed
+**Completed**: 2026-03-05 — `facility_permissions` context variable passed from `claude_code.permissions` config; deny list converted from static JSON to computed Jinja loop with `remove_deny` support; allow/ask lists extended with facility overrides
 
 ---
 

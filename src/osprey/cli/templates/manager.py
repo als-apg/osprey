@@ -260,6 +260,7 @@ class TemplateManager:
         # are available to Claude Code templates (mcp.json.j2, CLAUDE.md.j2).
         config_file = project_dir / "config.yml"
         cc_cfg = {}
+        ctx.setdefault("facility_permissions", {})
         if config_file.exists():
             with open(config_file) as f:
                 rendered_config = yaml.safe_load(f) or {}
@@ -273,6 +274,7 @@ class TemplateManager:
             # Claude Code explicit overrides
             cc_config = rendered_config.get("claude_code", {})
             cc_cfg = cc_config
+            ctx["facility_permissions"] = cc_config.get("permissions", {})
             # Model provider resolution for init-time rendering
             from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
 

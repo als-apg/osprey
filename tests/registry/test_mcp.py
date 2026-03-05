@@ -292,7 +292,11 @@ class TestResolveAgents:
         ctx = _base_ctx()
         servers = resolve_servers({}, ctx)
         agents = resolve_agents(
-            {"agents": {"cond-agent": {"description": "Needs feature.", "condition": "my_feature"}}},
+            {
+                "agents": {
+                    "cond-agent": {"description": "Needs feature.", "condition": "my_feature"}
+                }
+            },
             ctx,
             resolved_servers=servers,
         )
@@ -304,7 +308,11 @@ class TestResolveAgents:
         ctx = _base_ctx(my_feature=True)
         servers = resolve_servers({}, ctx)
         agents = resolve_agents(
-            {"agents": {"cond-agent": {"description": "Needs feature.", "condition": "my_feature"}}},
+            {
+                "agents": {
+                    "cond-agent": {"description": "Needs feature.", "condition": "my_feature"}
+                }
+            },
             ctx,
             resolved_servers=servers,
         )
@@ -401,6 +409,7 @@ class TestTemplateRendering:
         """Build a context with servers and agents resolved."""
         ctx = _base_ctx(**overrides)
         claude_code_config = overrides.pop("_claude_code_config", {})
+        ctx.setdefault("facility_permissions", {})
         ctx["servers"] = resolve_servers(claude_code_config, ctx)
         ctx["agents"] = resolve_agents(claude_code_config, ctx, resolved_servers=ctx["servers"])
         ctx["enabled_servers"] = {s["name"] for s in ctx["servers"] if s["enabled"]}

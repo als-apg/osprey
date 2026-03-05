@@ -638,6 +638,12 @@ claude_code:
   # Custom proxy: any name defined under api.providers below
   #   (must have base_url set; uses ANTHROPIC_AUTH_TOKEN + provider model IDs)
   # When set, `osprey claude regen` injects env vars into .claude/settings.json.
+  # permissions:              # Override Claude Code permission policies
+  #   allow: []               # Additional tools to auto-allow
+  #   deny: []                # Additional tools to deny
+  #   ask: []                 # Additional tools requiring human approval
+  #   remove_deny:            # Remove tools from default deny list
+  #     - Bash                # Example: allow Bash for trusted facility
   provider: {{ default_provider | default("anthropic") }}
   default_model: {{ default_model | default("haiku") }}   # Options: haiku, sonnet, opus
   #
