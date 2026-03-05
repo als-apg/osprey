@@ -179,13 +179,6 @@ class TestRegistryProvider(RegistryConfigProvider):
         "registry_path": str(registry_file),
         "approval": {
             "global_mode": "selective",
-            "capabilities": {
-                "python_execution": {
-                    "enabled": False,  # Disable approval for tests
-                    "mode": "all_code",
-                },
-                "memory": {"enabled": False},  # Disable approval for tests
-            },
         },
         "control_system": {
             "type": "mock",  # Use mock for tests - default patterns include write_channel/read_channel
@@ -258,13 +251,6 @@ class TestRegistryProvider(RegistryConfigProvider):
         "registry_path": str(registry_file),
         "approval": {
             "global_mode": "selective",
-            "capabilities": {
-                "python_execution": {
-                    "enabled": True,  # ENABLED for approval tests
-                    "mode": "all_code",
-                },
-                "memory": {"enabled": True},
-            },
         },
         "control_system": {
             "type": "mock",  # Use mock for tests - default patterns include write_channel/read_channel

@@ -42,12 +42,6 @@ project_name: "my-test-project"
 # Approval workflow for sensitive operations
 approval:
   global_mode: "selective"   # Options: disabled | selective | all_capabilities
-  capabilities:
-    python_execution:
-      enabled: true
-      mode: "control_writes"   # Options: disabled | control_writes | all_code
-    memory:
-      enabled: true
 
 # ============================================================
 # CONTROL SYSTEM
@@ -162,9 +156,9 @@ class TestBooleanUpdates:
         assert data["control_system"]["writes_enabled"] is True
 
     def test_toggle_true_to_false(self, config_file):
-        config_update_fields(config_file, {"approval.capabilities.memory.enabled": False})
+        config_update_fields(config_file, {"artifact_server.auto_launch": False})
         data = config_read(config_file)
-        assert data["approval"]["capabilities"]["memory"]["enabled"] is False
+        assert data["artifact_server"]["auto_launch"] is False
 
     def test_nested_boolean(self, config_file):
         config_update_fields(

@@ -195,37 +195,6 @@ class ConfigBuilder:
 
         return copy.deepcopy(self._unexpanded_config)
 
-    def _get_approval_config(self) -> dict[str, Any]:
-        """Get approval configuration with sensible defaults.
-
-        Returns approval configuration from config.yml if present, otherwise provides
-        secure defaults suitable for tutorial and development environments.
-
-        Returns:
-            dict: Approval configuration with global_mode and capabilities sections
-        """
-        # Try to get approval config from file
-        approval_config = self.get("approval", None)
-
-        # If approval section exists and has content, use it
-        if approval_config:
-            return approval_config
-
-        # Otherwise, provide sensible defaults for tutorial/development mode
-        logger.warning("'approval' section missing from config.yml; using defaults")
-
-        # Sensible defaults for tutorial/development environments
-        return {
-            "global_mode": "selective",
-            "capabilities": {
-                "python_execution": {
-                    "enabled": True,
-                    "mode": "control_writes",  # Generic name for control-system-agnostic config
-                },
-                "memory": {"enabled": True},
-            },
-        }
-
     def _get_execution_config(self) -> dict[str, Any]:
         """Get execution configuration with sensible defaults.
 
@@ -317,7 +286,6 @@ class ConfigBuilder:
             "python_executor": self._get_python_executor_config(),
             "logging": self.get("logging", {}),
             "development": self.get("development", {}),
-            "approval_config": self._get_approval_config(),
             "project_root": self.get("project_root"),
             "applications": self.get("applications", []),
             "current_application": self._get_current_application(),

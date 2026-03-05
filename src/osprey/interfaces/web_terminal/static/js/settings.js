@@ -13,7 +13,7 @@ let agentPanel = null;
 
 // Known enum values for select dropdowns
 const ENUM_FIELDS = {
-  'approval.mode': ['disabled', 'selective', 'all_capabilities'],
+  'approval.global_mode': ['disabled', 'selective', 'all_capabilities'],
   'control_system.write_verification': ['none', 'callback', 'readback'],
 };
 
