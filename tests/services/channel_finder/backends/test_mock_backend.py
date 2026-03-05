@@ -19,7 +19,7 @@ def _run(coro):
 
 class TestMockPVInfoBackend:
     def test_total_pv_count(self, backend):
-        assert backend.total_pv_count > 400
+        assert backend.total_pv_count > 200
 
     def test_search_all(self, backend):
         result = _run(backend.search("*"))
@@ -28,19 +28,19 @@ class TestMockPVInfoBackend:
         assert result.page == 1
 
     def test_search_bpm_pattern(self, backend):
-        result = _run(backend.search("SR:*:BPM:*"))
+        result = _run(backend.search("SR:DIAG:BPM:*"))
         assert result.total_count > 0
         for rec in result.records:
             assert "BPM" in rec.name
 
-    def test_search_sector_pattern(self, backend):
-        result = _run(backend.search("SR:01:*"))
+    def test_search_subsystem_pattern(self, backend):
+        result = _run(backend.search("SR:MAG:*"))
         assert result.total_count > 0
         for rec in result.records:
-            assert rec.name.startswith("SR:01:")
+            assert ":MAG:" in rec.name
 
     def test_search_global_devices(self, backend):
-        result = _run(backend.search("SR:DCCT:*"))
+        result = _run(backend.search("SR:DIAG:DCCT:*"))
         assert result.total_count > 0
         for rec in result.records:
             assert "DCCT" in rec.name
@@ -52,10 +52,10 @@ class TestMockPVInfoBackend:
             assert rec.record_type == "ao"
 
     def test_filter_by_ioc(self, backend):
-        result = _run(backend.search("*", ioc="IOC:BPM:01"))
+        result = _run(backend.search("*", ioc="IOC:DIAG:BPM:01"))
         assert result.total_count > 0
         for rec in result.records:
-            assert rec.ioc == "IOC:BPM:01"
+            assert rec.ioc == "IOC:DIAG:BPM:01"
 
     def test_filter_by_description(self, backend):
         result = _run(backend.search("*", description_contains="beam current"))
@@ -90,7 +90,7 @@ class TestMockPVInfoBackend:
 
     def test_get_metadata(self, backend):
         # First find a PV name
-        search = _run(backend.search("SR:01:BPM:*", page_size=1))
+        search = _run(backend.search("SR:DIAG:BPM:*", page_size=1))
         pv_name = search.records[0].name
 
         records = _run(backend.get_metadata([pv_name]))
@@ -104,7 +104,7 @@ class TestMockPVInfoBackend:
         assert records == []
 
     def test_get_metadata_mixed(self, backend):
-        search = _run(backend.search("SR:01:BPM:*", page_size=1))
+        search = _run(backend.search("SR:DIAG:BPM:*", page_size=1))
         pv_name = search.records[0].name
 
         records = _run(backend.get_metadata([pv_name, "DOES:NOT:EXIST"]))
@@ -112,7 +112,7 @@ class TestMockPVInfoBackend:
         assert records[0].name == pv_name
 
     def test_pv_record_fields(self, backend):
-        search = _run(backend.search("SR:01:BPM:*", page_size=1))
+        search = _run(backend.search("SR:DIAG:BPM:*", page_size=1))
         rec = search.records[0]
         assert rec.name
         assert rec.record_type in ("ai", "ao")

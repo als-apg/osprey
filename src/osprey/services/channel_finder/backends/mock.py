@@ -1,4 +1,4 @@
-"""Mock PV info backend with synthetic ALS-style PVs for development and testing."""
+"""Mock PV info backend with synthetic synchrotron-style PVs for development and testing."""
 
 from __future__ import annotations
 
@@ -14,88 +14,97 @@ from osprey.services.channel_finder.backends.base import (
 # PV generation tables — deterministic, no randomness
 # ---------------------------------------------------------------------------
 
-_SECTORS = [f"{i:02d}" for i in range(1, 13)]
-
 _DEVICE_TYPES: dict[str, dict] = {
     "BPM": {
+        "subsystem": "DIAG",
         "description": "Beam Position Monitor",
-        "record_types": {"X": "ai", "Y": "ai", "S": "ai"},
-        "signals": {
-            "X": {"desc": "Horizontal position", "units": "mm"},
-            "Y": {"desc": "Vertical position", "units": "mm"},
-            "S": {"desc": "Beam intensity sum signal", "units": "counts"},
+        "record_types": {
+            "POSITION:X": "ai",
+            "POSITION:Y": "ai",
+            "SIGNAL:SUM": "ai",
         },
-        "per_sector": 6,
-        "ioc_prefix": "IOC:BPM",
+        "signals": {
+            "POSITION:X": {"desc": "Horizontal position", "units": "mm"},
+            "POSITION:Y": {"desc": "Vertical position", "units": "mm"},
+            "SIGNAL:SUM": {"desc": "Beam intensity sum signal", "units": "counts"},
+        },
+        "count": 20,
+        "ioc_prefix": "IOC:DIAG:BPM",
     },
     "HCM": {
+        "subsystem": "MAG",
         "description": "Horizontal Corrector Magnet",
-        "record_types": {"SP": "ao", "RB": "ai", "I": "ai"},
+        "record_types": {"CURRENT:SP": "ao", "CURRENT:RB": "ai", "CURRENT:MEAS": "ai"},
         "signals": {
-            "SP": {"desc": "Current setpoint", "units": "A"},
-            "RB": {"desc": "Current readback", "units": "A"},
-            "I": {"desc": "Measured current", "units": "A"},
+            "CURRENT:SP": {"desc": "Current setpoint", "units": "A"},
+            "CURRENT:RB": {"desc": "Current readback", "units": "A"},
+            "CURRENT:MEAS": {"desc": "Measured current", "units": "A"},
         },
-        "per_sector": 4,
-        "ioc_prefix": "IOC:COR",
+        "count": 20,
+        "ioc_prefix": "IOC:MAG:COR",
     },
     "VCM": {
+        "subsystem": "MAG",
         "description": "Vertical Corrector Magnet",
-        "record_types": {"SP": "ao", "RB": "ai", "I": "ai"},
+        "record_types": {"CURRENT:SP": "ao", "CURRENT:RB": "ai", "CURRENT:MEAS": "ai"},
         "signals": {
-            "SP": {"desc": "Current setpoint", "units": "A"},
-            "RB": {"desc": "Current readback", "units": "A"},
-            "I": {"desc": "Measured current", "units": "A"},
+            "CURRENT:SP": {"desc": "Current setpoint", "units": "A"},
+            "CURRENT:RB": {"desc": "Current readback", "units": "A"},
+            "CURRENT:MEAS": {"desc": "Measured current", "units": "A"},
         },
-        "per_sector": 4,
-        "ioc_prefix": "IOC:COR",
+        "count": 20,
+        "ioc_prefix": "IOC:MAG:COR",
     },
     "QF": {
+        "subsystem": "MAG",
         "description": "Focusing Quadrupole",
-        "record_types": {"SP": "ao", "RB": "ai"},
+        "record_types": {"CURRENT:SP": "ao", "CURRENT:RB": "ai"},
         "signals": {
-            "SP": {"desc": "Current setpoint", "units": "A"},
-            "RB": {"desc": "Current readback", "units": "A"},
+            "CURRENT:SP": {"desc": "Current setpoint", "units": "A"},
+            "CURRENT:RB": {"desc": "Current readback", "units": "A"},
         },
-        "per_sector": 2,
-        "ioc_prefix": "IOC:QUAD",
+        "count": 16,
+        "ioc_prefix": "IOC:MAG:QUAD",
     },
     "QD": {
+        "subsystem": "MAG",
         "description": "Defocusing Quadrupole",
-        "record_types": {"SP": "ao", "RB": "ai"},
+        "record_types": {"CURRENT:SP": "ao", "CURRENT:RB": "ai"},
         "signals": {
-            "SP": {"desc": "Current setpoint", "units": "A"},
-            "RB": {"desc": "Current readback", "units": "A"},
+            "CURRENT:SP": {"desc": "Current setpoint", "units": "A"},
+            "CURRENT:RB": {"desc": "Current readback", "units": "A"},
         },
-        "per_sector": 2,
-        "ioc_prefix": "IOC:QUAD",
+        "count": 16,
+        "ioc_prefix": "IOC:MAG:QUAD",
     },
     "DCCT": {
+        "subsystem": "DIAG",
         "description": "DC Current Transformer — Beam Current",
-        "record_types": {"CUR": "ai", "LIFETIME": "ai"},
+        "record_types": {"CURRENT:RB": "ai", "LIFETIME:RB": "ai"},
         "signals": {
-            "CUR": {"desc": "Stored beam current", "units": "mA"},
-            "LIFETIME": {"desc": "Beam lifetime", "units": "hours"},
+            "CURRENT:RB": {"desc": "Stored beam current", "units": "mA"},
+            "LIFETIME:RB": {"desc": "Beam lifetime", "units": "hours"},
         },
-        "per_sector": 0,  # global devices, not per-sector
-        "ioc_prefix": "IOC:DCCT",
+        "count": 0,  # global devices, not per-instance range
+        "ioc_prefix": "IOC:DIAG:DCCT",
         "global_instances": ["01", "02"],
     },
     "RF": {
+        "subsystem": "RF",
         "description": "Radio Frequency System",
-        "record_types": {"V": "ai", "P": "ai", "FREQ": "ai"},
+        "record_types": {"VOLTAGE:RB": "ai", "POWER:FWD": "ai", "FREQUENCY:RB": "ai"},
         "signals": {
-            "V": {"desc": "Cavity voltage", "units": "MV"},
-            "P": {"desc": "Forward power", "units": "kW"},
-            "FREQ": {"desc": "RF frequency", "units": "MHz"},
+            "VOLTAGE:RB": {"desc": "Cavity voltage", "units": "MV"},
+            "POWER:FWD": {"desc": "Forward power", "units": "kW"},
+            "FREQUENCY:RB": {"desc": "RF frequency", "units": "MHz"},
         },
-        "per_sector": 0,
+        "count": 0,
         "ioc_prefix": "IOC:RF",
         "global_instances": ["01"],
     },
 }
 
-_HOST = "als-srv01.lbl.gov"
+_HOST = "synth-srv01.example.org"
 
 
 def _generate_pvs() -> list[PVRecord]:
@@ -103,44 +112,46 @@ def _generate_pvs() -> list[PVRecord]:
     pvs: list[PVRecord] = []
 
     for dev_type, spec in _DEVICE_TYPES.items():
-        if spec["per_sector"] > 0:
-            # Per-sector devices
-            for sector in _SECTORS:
-                for idx in range(1, spec["per_sector"] + 1):
-                    dev_id = f"{idx:02d}"
-                    ioc = f"{spec['ioc_prefix']}:{sector}"
-                    for sig, sig_info in spec["signals"].items():
-                        name = f"SR:{sector}:{dev_type}:{dev_id}:{sig}"
-                        pvs.append(
-                            PVRecord(
-                                name=name,
-                                record_type=spec["record_types"][sig],
-                                description=f"{spec['description']} sector {sector} #{dev_id} — {sig_info['desc']}",
-                                host=_HOST,
-                                ioc=ioc,
-                                units=sig_info["units"],
-                                tags={
-                                    "sector": sector,
-                                    "device_type": dev_type,
-                                    "signal": sig,
-                                },
-                            )
+        subsystem = spec["subsystem"]
+
+        if spec["count"] > 0:
+            # Numbered devices
+            for idx in range(1, spec["count"] + 1):
+                dev_id = f"{idx:02d}"
+                ioc = f"{spec['ioc_prefix']}:{dev_id}"
+                for sig, sig_info in spec["signals"].items():
+                    name = f"SR:{subsystem}:{dev_type}:{dev_id}:{sig}"
+                    pvs.append(
+                        PVRecord(
+                            name=name,
+                            record_type=spec["record_types"][sig],
+                            description=(f"{spec['description']} #{dev_id} — {sig_info['desc']}"),
+                            host=_HOST,
+                            ioc=ioc,
+                            units=sig_info["units"],
+                            tags={
+                                "subsystem": subsystem,
+                                "device_type": dev_type,
+                                "signal": sig,
+                            },
                         )
+                    )
         else:
             # Global devices
             for inst in spec.get("global_instances", []):
                 ioc = f"{spec['ioc_prefix']}:{inst}"
                 for sig, sig_info in spec["signals"].items():
-                    name = f"SR:{dev_type}:{inst}:{sig}"
+                    name = f"SR:{subsystem}:{dev_type}:{inst}:{sig}"
                     pvs.append(
                         PVRecord(
                             name=name,
                             record_type=spec["record_types"][sig],
-                            description=f"{spec['description']} #{inst} — {sig_info['desc']}",
+                            description=(f"{spec['description']} #{inst} — {sig_info['desc']}"),
                             host=_HOST,
                             ioc=ioc,
                             units=sig_info["units"],
                             tags={
+                                "subsystem": subsystem,
                                 "device_type": dev_type,
                                 "signal": sig,
                             },
@@ -151,11 +162,12 @@ def _generate_pvs() -> list[PVRecord]:
 
 
 class MockPVInfoBackend(PVInfoBackend):
-    """In-memory PV info backend with synthetic ALS-style PVs.
+    """In-memory PV info backend with synthetic synchrotron-style PVs.
 
-    Generates ~500 deterministic PVs across 12 sectors with BPM, corrector,
-    quadrupole, DCCT, and RF device types. Supports glob-pattern matching
-    via ``fnmatch`` and filtering by record type, IOC, and description.
+    Generates ~250 deterministic PVs with BPM, corrector, quadrupole, DCCT,
+    and RF device types using unified ``SR:{system}:{family}:{device}:{field}:{subfield}``
+    naming. Supports glob-pattern matching via ``fnmatch`` and filtering by
+    record type, IOC, and description.
     """
 
     def __init__(self) -> None:

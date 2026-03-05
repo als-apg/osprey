@@ -8,8 +8,8 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
 import json
 import logging
 
-from osprey.mcp_server.channel_finder_hierarchical.server_context import get_cf_hier_context
 from osprey.mcp_server.channel_finder_hierarchical.server import make_error, mcp
+from osprey.mcp_server.channel_finder_hierarchical.server_context import get_cf_hier_context
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_hierarchical.tools.get_options")
 
@@ -22,9 +22,9 @@ def get_options(level: str, selections: dict | None = None) -> str:
     Then call this tool iteratively, passing previous selections to drill down.
 
     Args:
-        level: Hierarchy level name to get options for (e.g., "system", "device").
+        level: Hierarchy level name to get options for (e.g., "ring", "system", "family", "device", "field", "subfield").
         selections: Dict mapping previous level names to selected values.
-            Example: {"system": "SR"} when querying the "family" level.
+            Example: {"ring": "SR"} when querying the "system" level.
 
     Returns:
         JSON with level name, list of options (name + description), and total count.

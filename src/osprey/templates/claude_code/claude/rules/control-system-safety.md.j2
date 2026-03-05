@@ -25,8 +25,8 @@ it bypasses safety layers (limits checking, write verification, approval).
 
 ```python
 from osprey.runtime import read_channel, write_channel
-value = read_channel("SR:BPM01:XPosition")
-write_channel("SR:PS01:Current", 150.0)
+value = read_channel("SR:DIAG:BPM:01:POSITION:X")
+write_channel("SR:MAG:QF:01:CURRENT:SP", 150.0)
 ```
 
 ### Prohibited
@@ -35,10 +35,10 @@ write_channel("SR:PS01:Current", 150.0)
 ```python
 # DO NOT use these — they bypass safety controls
 import epics
-epics.caget("SR:BPM01:XPosition")   # Bypasses audit logging
-epics.caput("SR:PS01:Current", 150)  # Bypasses limits + approval
+epics.caget("SR:DIAG:BPM:01:POSITION:X")   # Bypasses audit logging
+epics.caput("SR:MAG:QF:01:CURRENT:SP", 150)  # Bypasses limits + approval
 from epics import PV
-pv = PV("SR:PS01:Current")
+pv = PV("SR:MAG:QF:01:CURRENT:SP")
 pv.put(150)  # Bypasses all safety layers
 ```
 {% elif cs_type == 'tango' %}

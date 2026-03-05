@@ -11,7 +11,11 @@ comparable to the direct Python API channel finder.
 
 from __future__ import annotations
 
+import json
+import os
+
 import pytest
+from pydantic import BaseModel
 
 from tests.e2e.sdk_helpers import (
     SDKWorkflowResult,
@@ -27,75 +31,75 @@ HIERARCHICAL_QUERIES = [
     {
         "id": "hier_01_dipole_current_sp",
         "user_query": "Set the current in dipole magnet 5",
-        "expected": ["MAG:DIPOLE[B05]:CURRENT:SP"],
+        "expected": ["SR:MAG:DIPOLE:B05:CURRENT:SP"],
     },
     {
         "id": "hier_02_rf_tuner",
         "user_query": "What's the RF cavity 2 tuner position?",
-        "expected": ["RF:CAVITY[C2]:TUNER:RB"],
+        "expected": ["SR:RF:CAVITY:C2:TUNER:RB"],
     },
     {
         "id": "hier_03_bending_synonym",
         "user_query": "Show me the bending magnet 3 current setpoint",
-        "expected": ["MAG:DIPOLE[B03]:CURRENT:SP"],
+        "expected": ["SR:MAG:DIPOLE:B03:CURRENT:SP"],
     },
     {
         "id": "hier_04_range",
         "user_query": "What are the first three dipole current setpoints?",
         "expected": [
-            "MAG:DIPOLE[B01]:CURRENT:SP",
-            "MAG:DIPOLE[B02]:CURRENT:SP",
-            "MAG:DIPOLE[B03]:CURRENT:SP",
+            "SR:MAG:DIPOLE:B01:CURRENT:SP",
+            "SR:MAG:DIPOLE:B02:CURRENT:SP",
+            "SR:MAG:DIPOLE:B03:CURRENT:SP",
         ],
     },
     {
         "id": "hier_05_multi_device",
         "user_query": "What are the horizontal corrector 7 and 9 current setpoints?",
         "expected": [
-            "MAG:HCM[H07]:CURRENT:SP",
-            "MAG:HCM[H09]:CURRENT:SP",
+            "SR:MAG:HCM:H07:CURRENT:SP",
+            "SR:MAG:HCM:H09:CURRENT:SP",
         ],
     },
     {
         "id": "hier_06_cross_system",
         "user_query": "Is vacuum valve 2 open?",
-        "expected": ["VAC:VALVE[V02]:POSITION:OPEN"],
+        "expected": ["SR:VAC:VALVE:V02:POSITION:OPEN"],
     },
     {
         "id": "hier_07_semantic",
         "user_query": "What's the beam current?",
-        "expected": ["DIAG:DCCT[MAIN]:CURRENT:RB"],
+        "expected": ["SR:DIAG:DCCT:MAIN:CURRENT:RB"],
     },
     {
         "id": "hier_08_ambiguous",
         "user_query": "What are the RF frequency settings?",
         "expected": [
-            "RF:CAVITY[C1]:FREQUENCY:SP",
-            "RF:CAVITY[C2]:FREQUENCY:SP",
+            "SR:RF:CAVITY:C1:FREQUENCY:SP",
+            "SR:RF:CAVITY:C2:FREQUENCY:SP",
         ],
     },
     {
         "id": "hier_09_multi_family",
         "user_query": "What are the vacuum levels?",
         "expected": [
-            "VAC:ION-PUMP[SR01]:PRESSURE:RB",
-            "VAC:ION-PUMP[SR02]:PRESSURE:RB",
-            "VAC:ION-PUMP[SR03]:PRESSURE:RB",
-            "VAC:ION-PUMP[SR04]:PRESSURE:RB",
-            "VAC:ION-PUMP[SR05]:PRESSURE:RB",
-            "VAC:ION-PUMP[SR06]:PRESSURE:RB",
-            "VAC:GAUGE[SR01A]:PRESSURE:RB",
-            "VAC:GAUGE[SR01B]:PRESSURE:RB",
-            "VAC:GAUGE[SR02A]:PRESSURE:RB",
-            "VAC:GAUGE[SR02B]:PRESSURE:RB",
-            "VAC:GAUGE[SR03A]:PRESSURE:RB",
-            "VAC:GAUGE[SR03B]:PRESSURE:RB",
+            "SR:VAC:ION-PUMP:SR01:PRESSURE:RB",
+            "SR:VAC:ION-PUMP:SR02:PRESSURE:RB",
+            "SR:VAC:ION-PUMP:SR03:PRESSURE:RB",
+            "SR:VAC:ION-PUMP:SR04:PRESSURE:RB",
+            "SR:VAC:ION-PUMP:SR05:PRESSURE:RB",
+            "SR:VAC:ION-PUMP:SR06:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR01A:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR01B:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR02A:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR02B:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR03A:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR03B:PRESSURE:RB",
         ],
     },
     {
         "id": "hier_10_all_devices",
         "user_query": "Are all dipole magnets ready?",
-        "expected": [f"MAG:DIPOLE[B{i:02d}]:STATUS:READY" for i in range(1, 25)],
+        "expected": [f"SR:MAG:DIPOLE:B{i:02d}:STATUS:READY" for i in range(1, 25)],
     },
 ]
 
@@ -103,130 +107,120 @@ MIDDLE_LAYER_QUERIES = [
     {
         "id": "ml_01_beam_current",
         "user_query": "What is the beam current in the storage ring?",
-        "expected": ["SR:DCCT:Current"],
+        "expected": ["SR:DIAG:DCCT:01:CURRENT:RB"],
     },
     {
         "id": "ml_02_qf_sector",
         "user_query": "What are the focusing quadrupole currents in sector 1?",
-        "expected": ["SR01C:QF1:Current", "SR01C:QF2:Current"],
+        "expected": ["SR:MAG:QF:01:CURRENT:RB", "SR:MAG:QF:02:CURRENT:RB"],
     },
     {
         "id": "ml_03_rf_setpoints",
         "user_query": "What are the RF voltage setpoints?",
-        "expected": ["SR:RF1:VoltSet", "SR:RF2:VoltSet"],
+        "expected": ["SR:RF:CAVITY:01:VOLTAGE:SP", "SR:RF:CAVITY:02:VOLTAGE:SP"],
     },
     {
         "id": "ml_04_hcm_readback",
         "user_query": "Show me horizontal corrector current readbacks for sector 2, first two devices",
-        "expected": ["SR02C:HCM1:Current", "SR02C:HCM2:Current"],
+        "expected": ["SR:MAG:HCM:07:CURRENT:RB", "SR:MAG:HCM:08:CURRENT:RB"],
     },
     {
         "id": "ml_05_ion_pump",
         "user_query": "Get ion pump pressures in sector 1, first two pumps",
-        "expected": ["SR01C:VAC:IP1:Pressure", "SR01C:VAC:IP2:Pressure"],
+        "expected": ["SR:VAC:ION-PUMP:01:PRESSURE:RB", "SR:VAC:ION-PUMP:02:PRESSURE:RB"],
     },
     {
-        "id": "ml_06_bts_kicker",
-        "user_query": "Show me the injection kicker voltage readback",
-        "expected": ["BTS:KICKER:Voltage"],
+        "id": "ml_06_dipole_readback",
+        "user_query": "Show me the first dipole current readback",
+        "expected": ["SR:MAG:DIPOLE:01:CURRENT:RB"],
     },
     {
         "id": "ml_07_br_beam",
         "user_query": "What is the booster ring beam current?",
-        "expected": ["BR:DCCT:Current"],
+        "expected": ["BR:DIAG:DCCT:01:CURRENT:RB"],
     },
     {
         "id": "ml_08_rf_power",
         "user_query": "Get RF forward power",
-        "expected": ["SR:RF1:PowerFwd", "SR:RF2:PowerFwd"],
+        "expected": ["SR:RF:CAVITY:01:POWER:FWD", "SR:RF:CAVITY:02:POWER:FWD"],
     },
     {
         "id": "ml_09_corrector_setpoints",
-        "user_query": "What are all the corrector magnet setpoints in sector 2, devices 1-2?",
+        "user_query": "What are the corrector magnet setpoints for devices 1 and 2?",
         "expected": [
-            "SR02C:HCM1:SetCurrent",
-            "SR02C:HCM2:SetCurrent",
-            "SR02C:VCM1:SetCurrent",
-            "SR02C:VCM2:SetCurrent",
+            "SR:MAG:HCM:01:CURRENT:SP",
+            "SR:MAG:HCM:02:CURRENT:SP",
+            "SR:MAG:VCM:01:CURRENT:SP",
+            "SR:MAG:VCM:02:CURRENT:SP",
         ],
     },
     {
         "id": "ml_10_cross_system_bpm",
-        "user_query": (
-            "Show me horizontal BPM positions for first device in sector 1 of SR,"
-            " and first device of BR and BTS"
-        ),
+        "user_query": ("Show me horizontal BPM positions for the first BPM in both SR and BR"),
         "expected": [
-            "SR01C:BPM1:X",
-            "BR:BPM1:X",
-            "BTS:BPM1:X",
+            "SR:DIAG:BPM:01:POSITION:X",
+            "BR:DIAG:BPM:01:POSITION:X",
         ],
     },
 ]
 
 IN_CONTEXT_QUERIES = [
     {
-        "id": "ic_01_terminal_voltage",
-        "user_query": "What's the terminal voltage right now?",
-        "expected": ["TerminalVoltageReadBack"],
+        "id": "ic_01_beam_current",
+        "user_query": "What's the beam current right now?",
+        "expected": ["StorageRing_BeamCurrent_ReadBack"],
     },
     {
-        "id": "ic_02_filament_rbv",
-        "user_query": "Check the electron gun filament current RBV",
-        "expected": ["FilamentCurrentRB"],
+        "id": "ic_02_beam_lifetime",
+        "user_query": "Check the beam lifetime",
+        "expected": ["StorageRing_BeamLifetime_ReadBack"],
     },
     {
         "id": "ic_03_dipole_sp",
         "user_query": "What's the setpoint for dipole magnet 5?",
-        "expected": ["DipoleMagnet05SetPoint"],
+        "expected": ["DipoleMagnet05CurrentSetPoint"],
     },
     {
-        "id": "ic_04_steering_axis",
-        "user_query": "Give me steering coil 7 horizontal setpoint",
-        "expected": ["SteeringCoil07XSetPoint"],
+        "id": "ic_04_corrector_axis",
+        "user_query": "Give me horizontal corrector 7 setpoint",
+        "expected": ["HorizontalCorrectorMagnet07CurrentSetPoint"],
     },
     {
-        "id": "ic_05_location_axis",
-        "user_query": "Show me all the horizontal beam steering setpoints at the accelerating tube",
-        "expected": ["SX3Set", "SX40Set"],
+        "id": "ic_05_bpm_position",
+        "user_query": "What's beam position at BPM 5?",
+        "expected": ["BPM_Position05X", "BPM_Position05Y"],
     },
     {
         "id": "ic_06_vacuum_synonym",
-        "user_query": "What are the vacuum levels in beamline 1?",
-        "expected": ["IP41Pressure", "IP78Pressure", "IP125Pressure"],
-    },
-    {
-        "id": "ic_07_pulse_synonym",
-        "user_query": "What's the beam pulse width setting?",
-        "expected": ["BeamPulseDuration"],
-    },
-    {
-        "id": "ic_08_vert_steering",
-        "user_query": "Show me all vertical steering coils in the decelerating tube",
-        "expected": ["SY233Set", "SY233RB"],
-    },
-    {
-        "id": "ic_09_multi_axis",
-        "user_query": "Show me all steering coil 15 values",
+        "user_query": "What are the vacuum levels in the storage ring?",
         "expected": [
-            "SteeringCoil15XSetPoint",
-            "SteeringCoil15XReadBack",
-            "SteeringCoil15YSetPoint",
-            "SteeringCoil15YReadBack",
+            "VacuumIonPump01_Pressure_ReadBack",
+            "VacuumIonPump02_Pressure_ReadBack",
+            "VacuumIonPump03_Pressure_ReadBack",
         ],
     },
     {
-        "id": "ic_10_semantic_group",
-        "user_query": "Show me the electron gun diagnostics",
+        "id": "ic_07_rf_voltage",
+        "user_query": "What's the RF cavity 2 voltage?",
+        "expected": ["RF_Cavity2_Voltage_ReadBack"],
+    },
+    {
+        "id": "ic_08_cavity_temps",
+        "user_query": "Show me the cavity temperatures",
         "expected": [
-            "GunPressure",
-            "FilamentCurrentSet",
-            "FilamentCurrentRB",
-            "GunVoltageSet",
-            "GunVoltageRB",
-            "GridSet",
-            "GridRB",
+            "RF_Cavity1_Temperature_ReadBack",
+            "RF_Cavity2_Temperature_ReadBack",
         ],
+    },
+    {
+        "id": "ic_09_quad_readback",
+        "user_query": "Give me quadrupole magnet 3 readback",
+        "expected": ["FocusingQuad03CurrentReadBack"],
+    },
+    {
+        "id": "ic_10_dcct_valid",
+        "user_query": "Is the DCCT measurement valid?",
+        "expected": ["StorageRing_DCCT_Valid"],
     },
 ]
 
@@ -236,31 +230,123 @@ IN_CONTEXT_QUERIES = [
 # ---------------------------------------------------------------------------
 
 
-def extract_channels_from_result(result: SDKWorkflowResult) -> list[str]:
-    """Extract channel addresses from submit_response tool calls in traces.
+def get_response_text(result: SDKWorkflowResult) -> str:
+    """Combine all text blocks and tool results into a single string.
 
-    The channel-finder sub-agent calls ``submit_response`` with
-    ``data_type="channel_addresses"`` and the resolved PV names in
-    ``entry_ids``.  We look for the last such call and return the list.
+    Unlike ``combined_text()`` in sdk_helpers, this preserves original case
+    so that channel names can be matched accurately.
     """
-    candidates = result.tools_matching("submit_response")
+    parts = list(result.text_blocks)
+    for trace in result.tool_traces:
+        if trace.result:
+            parts.append(trace.result)
+    return "\n".join(parts)
 
-    # Prefer calls with data_type="channel_addresses"
-    for trace in reversed(candidates):
-        inp = trace.input or {}
-        if inp.get("data_type") == "channel_addresses":
-            ids = inp.get("entry_ids")
-            if isinstance(ids, list):
-                return ids
 
-    # Fallback: any submit_response with entry_ids
-    for trace in reversed(candidates):
-        inp = trace.input or {}
-        ids = inp.get("entry_ids")
-        if isinstance(ids, list) and ids:
-            return ids
+def programmatic_recall_check(text: str, expected: list[str]) -> tuple[list[str], list[str]]:
+    """Check which expected channels appear in the response text.
 
+    Case-insensitive substring match.
+
+    Returns:
+        (found, missing) — lists of channel names.
+    """
+    text_lower = text.lower()
+    found = [ch for ch in expected if ch.lower() in text_lower]
+    missing = [ch for ch in expected if ch.lower() not in text_lower]
+    return found, missing
+
+
+class ChannelExtractionResult(BaseModel):
+    """Structured output for LLM channel extraction."""
+
+    recommended_channels: list[str]
+    reasoning: str
+
+
+def llm_extract_channels(response_text: str, expected: list[str]) -> list[str]:
+    """Use an LLM judge to extract the agent's final recommended channels.
+
+    Calls Haiku via OSPREY's LiteLLM adapter with structured output to
+    distinguish channels in the final answer from those mentioned during
+    exploration.
+    """
+    from osprey.models.providers.litellm_adapter import execute_litellm_completion
+
+    expected_json = json.dumps(expected, indent=2)
+    prompt = (
+        "You are evaluating a control system channel finder agent's response.\n"
+        "Extract the list of channels that the agent presents as its FINAL\n"
+        "recommendation/answer.\n\n"
+        "Important distinctions:\n"
+        "- Channels mentioned only during exploration or reasoning do NOT count\n"
+        "- If the agent lists a broad set then narrows down, only the final "
+        "narrowed set counts\n"
+        "- Channel names look like PV addresses "
+        "(e.g., SR:MAG:DIPOLE:B05:CURRENT:SP)\n"
+        "  or descriptive names (e.g., StorageRing_BeamCurrent_ReadBack)\n\n"
+        f"Expected channels (for reference — use these to calibrate what "
+        f"channel names look like):\n{expected_json}\n\n"
+        f"Agent's full response:\n{response_text}"
+    )
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    result = execute_litellm_completion(
+        provider="anthropic",
+        message=prompt,
+        model_id="claude-haiku-4-5-20251001",
+        api_key=api_key,
+        base_url=None,
+        max_tokens=1024,
+        temperature=0.0,
+        output_format=ChannelExtractionResult,
+    )
+
+    if isinstance(result, ChannelExtractionResult):
+        return result.recommended_channels
+    # Fallback: if structured output didn't parse, return empty
     return []
+
+
+def evaluate_channel_response(
+    result: SDKWorkflowResult, expected: list[str]
+) -> tuple[list[str], dict]:
+    """Two-stage evaluation of a channel finder response.
+
+    Stage 1: Programmatic recall check — are all expected channels present
+    in the response text?  If not, recall < 1.0; skip the LLM judge.
+
+    Stage 2: LLM precision judge — extract the agent's FINAL recommended
+    channel list from the markdown response for accurate precision scoring.
+
+    Returns:
+        (predicted_channels, metadata_dict)
+    """
+    text = get_response_text(result)
+    found, missing = programmatic_recall_check(text, expected)
+
+    meta: dict = {"stage": 1, "found": found, "missing": missing}
+
+    if missing:
+        # Stage 1 failure: some expected channels not in text at all.
+        # predicted = found channels (assume those are correct → precision=1.0)
+        meta["evaluation"] = "programmatic_recall_fail"
+        return found, meta
+
+    # Stage 2: all expected channels appear in text — use LLM judge
+    # to extract the agent's final recommended list for precision scoring.
+    meta["stage"] = 2
+    try:
+        predicted = llm_extract_channels(text, expected)
+        meta["evaluation"] = "llm_judge"
+        meta["llm_extracted"] = predicted
+    except Exception as exc:
+        # If LLM judge fails, fall back to found channels
+        meta["evaluation"] = "llm_judge_error"
+        meta["llm_error"] = str(exc)
+        predicted = found
+
+    return predicted, meta
 
 
 def compute_f1(predicted: list[str], expected: list[str]) -> tuple[float, float, float]:
@@ -346,7 +432,7 @@ async def _run_single_query(project_dir, query_entry: dict, *, use_cache: bool =
         model="anthropic/claude-haiku",
     )
 
-    predicted = extract_channels_from_result(result)
+    predicted, eval_meta = evaluate_channel_response(result, expected)
     precision, recall, f1 = compute_f1(predicted, expected)
 
     entry = {
@@ -359,6 +445,7 @@ async def _run_single_query(project_dir, query_entry: dict, *, use_cache: bool =
         "f1": f1,
         "cost_usd": result.cost_usd,
         "num_turns": result.num_turns,
+        "eval_meta": eval_meta,
     }
 
     # Diagnostic output

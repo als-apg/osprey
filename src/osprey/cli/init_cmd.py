@@ -86,7 +86,7 @@ def _clear_claude_code_project_state(project_path: Path) -> None:
 )
 @click.option(
     "--channel-finder-mode",
-    type=click.Choice(["in_context", "hierarchical", "all"], case_sensitive=False),
+    type=click.Choice(["in_context", "hierarchical", "middle_layer", "all"], case_sensitive=False),
     default=None,
     help="Channel finder pipeline mode (control_assistant template only)",
 )

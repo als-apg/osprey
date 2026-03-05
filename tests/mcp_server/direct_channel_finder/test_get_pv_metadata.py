@@ -47,7 +47,7 @@ def search_pvs_fn():
 class TestGetPvMetadata:
     def test_basic_metadata(self, mock_config, get_pv_metadata_fn, search_pvs_fn):
         # Find a PV name first
-        search = json.loads(search_pvs_fn("SR:01:BPM:*", page_size=1))
+        search = json.loads(search_pvs_fn("SR:DIAG:BPM:*", page_size=1))
         pv_name = search["records"][0]["name"]
 
         result = json.loads(get_pv_metadata_fn([pv_name]))
@@ -62,7 +62,7 @@ class TestGetPvMetadata:
         assert result["not_found"] == ["DOES:NOT:EXIST"]
 
     def test_mixed_found_and_missing(self, mock_config, get_pv_metadata_fn, search_pvs_fn):
-        search = json.loads(search_pvs_fn("SR:01:BPM:*", page_size=1))
+        search = json.loads(search_pvs_fn("SR:DIAG:BPM:*", page_size=1))
         pv_name = search["records"][0]["name"]
 
         result = json.loads(get_pv_metadata_fn([pv_name, "DOES:NOT:EXIST"]))
@@ -76,6 +76,6 @@ class TestGetPvMetadata:
         assert result["error_type"] == "too_many_pvs"
 
     def test_error_without_registry(self, get_pv_metadata_fn):
-        result = json.loads(get_pv_metadata_fn(["SR:01:BPM:01:X"]))
+        result = json.loads(get_pv_metadata_fn(["SR:DIAG:BPM:01:POSITION:X"]))
         assert result["error"] is True
         assert result["error_type"] == "backend_not_available"

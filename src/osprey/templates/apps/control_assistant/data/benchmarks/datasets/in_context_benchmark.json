@@ -1,151 +1,176 @@
 [
     {
-        "user_query": "What's the terminal voltage right now?",
-        "targeted_pv": ["TerminalVoltageReadBack"],
-        "details": "Testing colloquial language: 'actual...right now' should match readback value, not setpoint"
+        "user_query": "What's the beam current right now?",
+        "targeted_pv": ["StorageRing_BeamCurrent_ReadBack"],
+        "details": "Testing colloquial language: 'right now' should match readback value, not setpoint"
     },
     {
-        "user_query": "Show me all the horizontal beam steering setpoints at the accelerating tube",
-        "targeted_pv": ["SX3Set", "SX40Set"],
-        "details": "Testing understanding of: beam steering = steering coil, horizontal = X direction, accelerating tube location, and setpoint vs readback"
+        "user_query": "Show me all the horizontal BPM positions",
+        "targeted_pv": [
+            "BPM_Position01X", "BPM_Position02X", "BPM_Position03X", "BPM_Position04X",
+            "BPM_Position05X", "BPM_Position06X", "BPM_Position07X", "BPM_Position08X",
+            "BPM_Position09X", "BPM_Position10X", "BPM_Position11X", "BPM_Position12X",
+            "BPM_Position13X", "BPM_Position14X", "BPM_Position15X", "BPM_Position16X",
+            "BPM_Position17X", "BPM_Position18X", "BPM_Position19X", "BPM_Position20X"
+        ],
+        "details": "Testing aggregate query for all BPM horizontal positions from template expansion"
     },
     {
-        "user_query": "What are the vacuum levels in beamline 1?",
-        "targeted_pv": ["IP41Pressure", "IP78Pressure", "IP125Pressure"],
-        "details": "Testing synonym matching: 'vacuum levels' should match 'Pressure' readings. Also tests location understanding."
-    },    {
-        "user_query": "Give me the HFEL beamline vacuum readings",
-        "targeted_pv": ["IP149APressure", "IP186APressure"],
-        "details": "Testing location-based filtering (bline_hfel) and synonym matching (vacuum readings = pressure)"
+        "user_query": "What are the vacuum levels in the storage ring?",
+        "targeted_pv": ["VacuumIonPump01_Pressure_ReadBack", "VacuumIonPump02_Pressure_ReadBack", "VacuumIonPump03_Pressure_ReadBack"],
+        "details": "Testing synonym matching: 'vacuum levels' should match pressure readings"
     },
     {
-        "user_query": "What are the focusing element voltages in both tubes?",
-        "targeted_pv": ["L39Set", "L39RB", "L234Set", "L234RB"],
-        "details": "Testing understanding of: focusing elements = solenoids, both tubes = accelerating + decelerating tubes. May return both set and readback."
+        "user_query": "Give me the RF cavity 1 power levels",
+        "targeted_pv": ["RF_Cavity1_ForwardPower_ReadBack", "RF_Cavity1_ReflectedPower_ReadBack"],
+        "details": "Testing RF system query: 'power levels' should return both forward and reflected power"
     },
     {
-        "user_query": "Check the electron gun filament current RBV",
-        "targeted_pv": ["FilamentCurrentRB"],
-        "details": "Testing whether system understands 'check RBV' implies readback value"
+        "user_query": "What are the dipole magnet setpoints for the first three?",
+        "targeted_pv": ["DipoleMagnet01CurrentSetPoint", "DipoleMagnet02CurrentSetPoint", "DipoleMagnet03CurrentSetPoint"],
+        "details": "Testing range query understanding for template instances, setpoint selection"
     },
     {
-        "user_query": "What's the beam pulse width setting?",
-        "targeted_pv": ["BeamPulseDuration"],
-        "details": "Testing synonym: 'pulse width' = 'pulse duration', and understanding that 'setting' implies a control value"
+        "user_query": "Check the beam lifetime",
+        "targeted_pv": ["StorageRing_BeamLifetime_ReadBack"],
+        "details": "Testing semantic understanding: beam lifetime is from DCCT measurement"
     },
     {
-        "user_query": "Show me all vertical steering coils in the decelerating tube",
-        "targeted_pv": ["SY233Set", "SY233RB"],
-        "details": "Testing understanding: vertical = Y direction, steering corrections = steering coil, decelerating tube location"
+        "user_query": "What's the RF frequency setting?",
+        "targeted_pv": ["RF_Cavity1_Frequency_SetPoint"],
+        "details": "Testing synonym: 'setting' implies setpoint, RF frequency from cavity"
+    },
+    {
+        "user_query": "Show me all vertical BPM positions",
+        "targeted_pv": [
+            "BPM_Position01Y", "BPM_Position02Y", "BPM_Position03Y", "BPM_Position04Y",
+            "BPM_Position05Y", "BPM_Position06Y", "BPM_Position07Y", "BPM_Position08Y",
+            "BPM_Position09Y", "BPM_Position10Y", "BPM_Position11Y", "BPM_Position12Y",
+            "BPM_Position13Y", "BPM_Position14Y", "BPM_Position15Y", "BPM_Position16Y",
+            "BPM_Position17Y", "BPM_Position18Y", "BPM_Position19Y", "BPM_Position20Y"
+        ],
+        "details": "Testing axis selection: vertical = Y for template instances"
     },
     {
         "user_query": "What's the setpoint for dipole magnet 5?",
-        "targeted_pv": ["DipoleMagnet05SetPoint"],
-        "details": "Testing template instance recognition: specific numbered device from template with specific sub-channel"
+        "targeted_pv": ["DipoleMagnet05CurrentSetPoint"],
+        "details": "Testing template instance recognition: specific numbered device with setpoint"
     },
     {
         "user_query": "Give me quadrupole magnet 3 readback",
-        "targeted_pv": ["QuadrupoleMagnet03ReadBack"],
+        "targeted_pv": ["FocusingQuad03CurrentReadBack"],
         "details": "Testing template instance recognition with readback specification"
     },
     {
-        "user_query": "Show me all quadrupole magnet 10 values",
-        "targeted_pv": ["QuadrupoleMagnet10SetPoint", "QuadrupoleMagnet10ReadBack"],
+        "user_query": "Show me all focusing quad 4 values",
+        "targeted_pv": ["FocusingQuad04CurrentSetPoint", "FocusingQuad04CurrentReadBack"],
         "details": "Testing template instance query without specifying set/readback - should return both"
     },
     {
         "user_query": "What are the first three dipole magnet setpoints?",
-        "targeted_pv": ["DipoleMagnet01SetPoint", "DipoleMagnet02SetPoint", "DipoleMagnet03SetPoint"],
+        "targeted_pv": ["DipoleMagnet01CurrentSetPoint", "DipoleMagnet02CurrentSetPoint", "DipoleMagnet03CurrentSetPoint"],
         "details": "Testing range query understanding for template instances"
     },
     {
-        "user_query": "Give me steering coil 7 horizontal setpoint",
-        "targeted_pv": ["SteeringCoil07XSetPoint"],
-        "details": "Testing axis-specific query: horizontal = X axis, with both instance number and sub-channel type"
+        "user_query": "Give me horizontal corrector 7 setpoint",
+        "targeted_pv": ["HorizontalCorrectorMagnet07CurrentSetPoint"],
+        "details": "Testing horizontal corrector with both instance number and setpoint"
     },
     {
-        "user_query": "What's the vertical readback for steering coil 12?",
-        "targeted_pv": ["SteeringCoil12YReadBack"],
-        "details": "Testing axis-specific query: vertical = Y axis, with readback specification"
+        "user_query": "What's the readback for vertical corrector 3?",
+        "targeted_pv": ["VerticalCorrectorMagnet03CurrentReadBack"],
+        "details": "Testing vertical corrector with readback specification"
     },
     {
-        "user_query": "Show me all steering coil 15 values",
-        "targeted_pv": ["SteeringCoil15XSetPoint", "SteeringCoil15XReadBack", "SteeringCoil15YSetPoint", "SteeringCoil15YReadBack"],
-        "details": "Testing multi-axis aggregate: should return both X and Y, both Set and ReadBack for specified instance"
+        "user_query": "Show me all horizontal corrector 5 values",
+        "targeted_pv": ["HorizontalCorrectorMagnet05CurrentSetPoint", "HorizontalCorrectorMagnet05CurrentReadBack"],
+        "details": "Testing multi-field aggregate: should return both SetPoint and ReadBack for specified instance"
     },
     {
-        "user_query": "Give me the image from observation screen 8",
-        "targeted_pv": ["ObservationScreen08Image"],
-        "details": "Testing image data PV recognition from template instance"
+        "user_query": "Is the DCCT measurement valid?",
+        "targeted_pv": ["StorageRing_DCCT_Valid"],
+        "details": "Testing DCCT status query for measurement validity"
     },
     {
-        "user_query": "What is the current position readback of observation screen 14?",
-        "targeted_pv": ["ObservationScreen14MotorReadBack"],
-        "details": "Testing specific readback query - explicit request for position readback only"
+        "user_query": "What's the RF cavity 2 voltage?",
+        "targeted_pv": ["RF_Cavity2_Voltage_ReadBack"],
+        "details": "Testing specific cavity with voltage readback"
     },
     {
-        "user_query": "Give me the motor control channels for observation screens 1 through 4",
-        "targeted_pv": ["ObservationScreen01Motor", "ObservationScreen02Motor", "ObservationScreen03Motor", "ObservationScreen04Motor"],
-        "details": "Testing range query for motor control channels - explicit request for control, not readback"
+        "user_query": "Show me the cavity temperatures",
+        "targeted_pv": ["RF_Cavity1_Temperature_ReadBack", "RF_Cavity2_Temperature_ReadBack"],
+        "details": "Testing aggregate query across both cavities for temperature"
     },
     {
-        "user_query": "What's the beam current waveform at monitor 2?",
-        "targeted_pv": ["CurrentMonitor02Waveform"],
-        "details": "Testing waveform data recognition from current monitor template"
+        "user_query": "What are the vacuum gauge pressures?",
+        "targeted_pv": ["VacuumGauge_SR01A_Pressure_ReadBack", "VacuumGauge_SR01B_Pressure_ReadBack"],
+        "details": "Testing vacuum gauge pressure readback for all gauges"
     },
     {
-        "user_query": "Show me all current monitor readings",
-        "targeted_pv": ["CurrentMonitor01Waveform", "CurrentMonitor02Waveform", "CurrentMonitor03Waveform", "CurrentMonitor04Waveform", "CurrentMonitor05Waveform"],
-        "details": "Testing aggregate query across all instances of a template type"
+        "user_query": "Is vacuum valve 1 open?",
+        "targeted_pv": ["VacuumValve01_Position_Open"],
+        "details": "Testing valve position status query"
     },
     {
-        "user_query": "What are the last two dipole magnet readbacks?",
-        "targeted_pv": ["DipoleMagnet08ReadBack", "DipoleMagnet09ReadBack"],
-        "details": "Testing edge case: understanding 'last two' means highest numbered instances (8 and 9, since dipoles go 1-9)"
+        "user_query": "What's the neutron monitor alarm status?",
+        "targeted_pv": ["NeutronMonitor01_Alarm"],
+        "details": "Testing radiation monitor alarm status"
     },
     {
-        "user_query": "Give me quadrupole magnets 15 through 17",
-        "targeted_pv": ["QuadrupoleMagnet15SetPoint", "QuadrupoleMagnet15ReadBack", "QuadrupoleMagnet16SetPoint", "QuadrupoleMagnet16ReadBack", "QuadrupoleMagnet17SetPoint", "QuadrupoleMagnet17ReadBack"],
-        "details": "Testing explicit range query with boundary at maximum instance (17 is last quadrupole)"
+        "user_query": "Give me all the dipole magnet readbacks",
+        "targeted_pv": [
+            "DipoleMagnet01CurrentReadBack", "DipoleMagnet02CurrentReadBack", "DipoleMagnet03CurrentReadBack",
+            "DipoleMagnet04CurrentReadBack", "DipoleMagnet05CurrentReadBack", "DipoleMagnet06CurrentReadBack",
+            "DipoleMagnet07CurrentReadBack", "DipoleMagnet08CurrentReadBack", "DipoleMagnet09CurrentReadBack",
+            "DipoleMagnet10CurrentReadBack", "DipoleMagnet11CurrentReadBack", "DipoleMagnet12CurrentReadBack"
+        ],
+        "details": "Testing aggregate query across all dipole instances for readback"
     },
     {
-        "user_query": "What's the pressure in all FEL beamlines?",
-        "targeted_pv": ["IP149APressure", "IP186APressure", "IP149BPressure", "IP186B", "IP149CPressure", "IP186C"],
-        "details": "Testing aggregate location query: 'all FEL beamlines' = HFEL, FIR, and MM beamlines"
+        "user_query": "What are the klystron output powers?",
+        "targeted_pv": ["Klystron1_OutputPower_ReadBack", "Klystron2_OutputPower_ReadBack"],
+        "details": "Testing klystron power query across both klystrons"
     },
     {
-        "user_query": "Show me the electron gun diagnostics",
-        "targeted_pv": ["GunPressure", "FilamentCurrentSet", "FilamentCurrentRB", "GunVoltageSet", "GunVoltageRB", "GridSet", "GridRB"],
-        "details": "Testing semantic grouping: 'electron gun diagnostics' should include all gun-related measurements"
+        "user_query": "Show me the last two dipole magnet readbacks",
+        "targeted_pv": ["DipoleMagnet11CurrentReadBack", "DipoleMagnet12CurrentReadBack"],
+        "details": "Testing edge case: 'last two' means highest numbered instances (11 and 12, since dipoles go 1-12)"
     },
     {
-        "user_query": "What are the grading resistor currents?",
-        "targeted_pv": ["I_mtrs", "Acc_I"],
-        "details": "Testing understanding of technical component groups: both tubes' grading resistors"
+        "user_query": "Give me focusing quads 6 through 8",
+        "targeted_pv": [
+            "FocusingQuad06CurrentSetPoint", "FocusingQuad06CurrentReadBack",
+            "FocusingQuad07CurrentSetPoint", "FocusingQuad07CurrentReadBack",
+            "FocusingQuad08CurrentSetPoint", "FocusingQuad08CurrentReadBack"
+        ],
+        "details": "Testing explicit range query with both set and readback for each instance"
     },
     {
-        "user_query": "Give me the corona triode measurement values",
-        "targeted_pv": ["CoronaTriodCurrent", "CoronaTriodError"],
-        "details": "Testing component-based grouping: corona triode measurement values (excludes needle controls)"
+        "user_query": "Open vacuum valve 1",
+        "targeted_pv": ["VacuumValve01_Control_Open"],
+        "details": "Testing command intent: 'open' verb should map to control command, not position status"
     },
     {
-        "user_query": "What's the charging system status reading right now?",
-        "targeted_pv": ["ChargingVoltageTopRB", "ChargingCurrentBottomRB"],
-        "details": "Testing system-level query: pelletron charging system includes both terminal and bottom tank parameters"
+        "user_query": "Show me the RF cavity voltages",
+        "targeted_pv": ["RF_Cavity1_Voltage_ReadBack", "RF_Cavity2_Voltage_ReadBack"],
+        "details": "Testing aggregate query for all cavity voltage readbacks"
     },
     {
-        "user_query": "Show me terminal power and cooling",
-        "targeted_pv": ["ACPowerInTerminal", "FansVoltage"],
-        "details": "Testing functional grouping: power and cooling systems in terminal"
+        "user_query": "What's beam position at BPM 5?",
+        "targeted_pv": ["BPM_Position05X", "BPM_Position05Y"],
+        "details": "Testing BPM position query: both X and Y axes for specific instance"
     },
     {
-        "user_query": "What's the X-ray beamline pressure?",
-        "targeted_pv": ["IP130DPressure"],
-        "details": "Testing specific beamline location recognition (xray beamline)"
+        "user_query": "Show me all corrector magnet setpoints for the first 3",
+        "targeted_pv": [
+            "HorizontalCorrectorMagnet01CurrentSetPoint", "HorizontalCorrectorMagnet02CurrentSetPoint", "HorizontalCorrectorMagnet03CurrentSetPoint",
+            "VerticalCorrectorMagnet01CurrentSetPoint", "VerticalCorrectorMagnet02CurrentSetPoint", "VerticalCorrectorMagnet03CurrentSetPoint"
+        ],
+        "details": "Testing family group: correctors = HCM and VCM, setpoint = SetPoint"
     },
     {
-        "user_query": "Give me all the steering coils inside the tank",
-        "targeted_pv": ["SX3Set", "SX3RB", "SY3Set", "SY3RB", "SX40Set", "SX40RB", "SY40Set", "SY40RB", "SX233Set", "SX233RB", "SY233Set", "SY233RB"],
-        "details": "Testing location-based aggregate for non-template channels: all steering coils inside the tank (both accelerating and decelerating tubes)"
+        "user_query": "What are the gamma radiation levels?",
+        "targeted_pv": ["GammaMonitor01_DoseRate_Instantaneous"],
+        "details": "Testing radiation monitoring: gamma dose rate"
     }
 ]

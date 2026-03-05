@@ -1032,8 +1032,13 @@ class HierarchicalChannelDatabase(BaseDatabase):
                     # Optional level not provided - use empty string
                     values = [""]
                 else:
-                    # Required level missing - return empty list (invalid selections)
-                    return []
+                    # Required level missing - raise so the MCP tool can surface
+                    # which level is absent (silent [] confuses the agent)
+                    raise ValueError(
+                        f"Required level '{level}' is missing from selections. "
+                        f"All required levels must be provided: {pattern_levels}. "
+                        f"Received: {list(selections.keys())}"
+                    )
 
             selection_lists.append(values)
 
