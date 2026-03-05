@@ -8,8 +8,8 @@
 ## Summary
 
 - Total items: 35
-- Completed: 6
-- Remaining: 29
+- Completed: 8
+- Remaining: 27
 - Critical (P0): 3 | High (P1): 7 | Medium (P2): 15 | Low (P3): 10
 
 ## Backlog
@@ -127,7 +127,8 @@ A Tango facility gets rules that don't mention Tango as prohibited — an agent 
 3. Add prohibited patterns for all supported protocols
 4. Use generic example channel names or source from facility context
 
-**Status**: pending
+**Status**: completed
+**Completed**: 2026-03-04 — converted control-system-safety.md to .md.j2 with protocol branching (EPICS/Tango/OPC-UA/LabVIEW/generic), generalized safety.md and error-handling.md to protocol-agnostic language
 
 ---
 
@@ -166,7 +167,7 @@ A Tango facility gets rules that don't mention Tango as prohibited — an agent 
 
 ---
 
-### [P1] GP-008: approval.capabilities config exists but is never read (pending)
+### [P1] GP-008: approval.capabilities config exists but is never read (completed)
 
 **Severity**: GAP | **Categories**: config_flexibility
 **Files**: `src/osprey/templates/project/config.yml.j2`, `src/osprey/templates/claude_code/claude/hooks/osprey_approval.py`, `src/osprey/utils/config.py`
@@ -180,7 +181,8 @@ A Tango facility gets rules that don't mention Tango as prohibited — an agent 
 2. Or remove the capabilities sub-section from `config.yml.j2` to avoid misleading users
 3. Decide: is per-capability approval mode the right design, or is `global_mode` sufficient?
 
-**Status**: pending
+**Status**: completed
+**Completed**: 2026-03-04 — removed dead capabilities sub-section; global_mode with write-pattern detection is sufficient. Also fixed settings.js approval.mode → approval.global_mode bug.
 
 ---
 

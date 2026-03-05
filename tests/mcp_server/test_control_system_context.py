@@ -380,7 +380,6 @@ def test_mcp_server_config_properties(tmp_path, monkeypatch):
             "archiver": {"type": "mock_archiver"},
             "channel_finder": {"db_path": "/test"},
             "ariel": {"api_url": "https://ariel.test"},
-            "approval": {"mode": "selective"},
         },
     )
 
@@ -391,7 +390,6 @@ def test_mcp_server_config_properties(tmp_path, monkeypatch):
     assert cfg.archiver["type"] == "mock_archiver"
     assert cfg.channel_finder["db_path"] == "/test"
     assert cfg.ariel["api_url"] == "https://ariel.test"
-    assert cfg.approval["mode"] == "selective"
     assert cfg.writes_enabled is False
 
 

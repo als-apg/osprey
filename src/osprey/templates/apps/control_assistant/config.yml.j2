@@ -117,12 +117,6 @@ deployed_services:
 # Approval workflow for sensitive operations
 approval:
   global_mode: "selective"   # Options: disabled | selective | all_capabilities
-  capabilities:
-    python_execution:
-      enabled: true
-      mode: "control_writes"   # Options: disabled | control_writes | all_code
-    memory:
-      enabled: true
 
 # ── Hook observability ──────────────────────────────────────────────
 # Set debug: true to enable hook activity logging to stderr.

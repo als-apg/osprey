@@ -65,10 +65,6 @@ class MCPServerConfig:
         return self.raw.get("ariel", {})
 
     @property
-    def approval(self) -> dict[str, Any]:
-        return self.raw.get("approval", {})
-
-    @property
     def writes_enabled(self) -> bool:
         return self.control_system.get("writes_enabled", False)
 
