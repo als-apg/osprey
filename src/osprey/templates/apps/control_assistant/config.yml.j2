@@ -75,7 +75,7 @@ api:
 #   OPENAI_API_KEY=sk-...
 #   ANTHROPIC_API_KEY=sk-ant-...
 #   GOOGLE_API_KEY=...
-#   TZ=America/Los_Angeles
+#   TZ=UTC
 #
 # Optional (for advanced use cases):
 #   PROJECT_ROOT=/path/to/override  # Override project_root from config
@@ -408,7 +408,7 @@ cli:
 # ============================================================
 
 system:
-  timezone: ${TZ:-America/Los_Angeles}
+  timezone: ${TZ:-UTC}
 
 # File paths - Data storage organization
 file_paths:

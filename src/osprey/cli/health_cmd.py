@@ -104,6 +104,27 @@ class HealthChecker:
         errors = sum(1 for r in self.results if r.status == "error")
         return errors == 0
 
+    def _check_timezone(self):
+        """Check if timezone is configured (not left as UTC default)."""
+        from osprey.utils.config import resolve_env_vars
+
+        tz_raw = self.config.get("system", {}).get("timezone", "UTC")
+        tz = resolve_env_vars(tz_raw) if isinstance(tz_raw, str) else tz_raw
+        if tz == "UTC":
+            self.add_result(
+                "timezone",
+                "warning",
+                "Timezone is UTC (default)",
+                "Set TZ in .env to your facility timezone "
+                "(e.g., America/New_York, Europe/Berlin)",
+            )
+            console.print(
+                f"  {Messages.warning(' Timezone is UTC — set TZ in .env for your facility')}"
+            )
+        else:
+            self.add_result("timezone", "ok", f"Timezone: {tz}")
+            console.print(f"  {Messages.success(f'Timezone: {tz}')}")
+
     def check_configuration(self):
         """Check configuration file validity and structure."""
         console.print("[bold]Configuration[/bold]")
@@ -151,6 +172,9 @@ class HealthChecker:
 
             # Check environment variables
             self._check_environment_variables(config)
+
+            # Check timezone configuration
+            self._check_timezone()
 
         except yaml.YAMLError as e:
             self.add_result("yaml_valid", "error", f"YAML parsing error: {e}")

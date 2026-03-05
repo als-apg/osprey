@@ -165,7 +165,7 @@ class TestRegenerationCorrectness:
         assert "Task(wiki-search)" in settings["permissions"]["allow"]
 
     def test_regen_resolves_env_var_in_timezone(self, tmp_path, monkeypatch):
-        """${TZ:-America/Los_Angeles} in config.yml is resolved in timezone.md."""
+        """${TZ:-UTC} in config.yml is resolved in timezone.md."""
         monkeypatch.delenv("TZ", raising=False)
         manager = TemplateManager()
         project_dir = manager.create_project(
@@ -176,7 +176,7 @@ class TestRegenerationCorrectness:
 
         # Set timezone to an env-var pattern in config.yml
         config = yaml.safe_load((project_dir / "config.yml").read_text())
-        config.setdefault("system", {})["timezone"] = "${TZ:-America/Los_Angeles}"
+        config.setdefault("system", {})["timezone"] = "${TZ:-UTC}"
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
         manager.regenerate_claude_code(project_dir)
@@ -184,7 +184,7 @@ class TestRegenerationCorrectness:
         timezone_file = project_dir / ".claude" / "rules" / "timezone.md"
         assert timezone_file.exists(), "timezone.md should be created when timezone is set"
         content = timezone_file.read_text()
-        assert "America/Los_Angeles" in content
+        assert "UTC" in content
         assert "${TZ" not in content, "Env var pattern should be resolved, not literal"
 
     def test_regen_resolves_env_var_in_timezone_with_env_set(self, tmp_path, monkeypatch):
@@ -198,7 +198,7 @@ class TestRegenerationCorrectness:
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
-        config.setdefault("system", {})["timezone"] = "${TZ:-America/Los_Angeles}"
+        config.setdefault("system", {})["timezone"] = "${TZ:-UTC}"
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
         manager.regenerate_claude_code(project_dir)
