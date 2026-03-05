@@ -517,9 +517,9 @@ async def run_reembed(
                 progress("No entries to embed.")
             return ReembedResult(processed=0, skipped=0, errors=0, dry_run=False)
 
-        from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
+        from osprey.models.embeddings import get_embedding_provider
 
-        embedder = OllamaEmbeddingProvider()
+        embedder = get_embedding_provider(config.embedding.provider)
         base_url = getattr(config.embedding, "base_url", None) or embedder.default_base_url
 
         processed = 0
@@ -551,8 +551,15 @@ async def run_reembed(
 
                     if len(batch_texts) >= batch_size:
                         p, e = await _embed_batch(
-                            cur, embedder, batch_texts, batch_ids,
-                            model, base_url, table_name, force, progress,
+                            cur,
+                            embedder,
+                            batch_texts,
+                            batch_ids,
+                            model,
+                            base_url,
+                            table_name,
+                            force,
+                            progress,
                         )
                         processed += p
                         errors += e
@@ -561,8 +568,15 @@ async def run_reembed(
 
                 if batch_texts:
                     p, e = await _embed_batch(
-                        cur, embedder, batch_texts, batch_ids,
-                        model, base_url, table_name, force, progress,
+                        cur,
+                        embedder,
+                        batch_texts,
+                        batch_ids,
+                        model,
+                        base_url,
+                        table_name,
+                        force,
+                        progress,
                     )
                     processed += p
                     errors += e
@@ -696,9 +710,7 @@ async def run_quickstart(
                                         str(e),
                                     )
                                     failed_count += 1
-                                    logger.debug(
-                                        f"Enhancement failed for {entry['entry_id']}: {e}"
-                                    )
+                                    logger.debug(f"Enhancement failed for {entry['entry_id']}: {e}")
 
                 if progress:
                     progress(f"  Entries: {count} ingested")

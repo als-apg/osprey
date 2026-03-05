@@ -86,15 +86,9 @@ class ARIELSearchService:
             Configured embedding provider instance
         """
         if self._embedder is None:
-            provider_name = self.config.embedding.provider
-            if provider_name != "ollama":
-                logger.warning(
-                    f"Embedding provider '{provider_name}' not yet supported, "
-                    f"falling back to 'ollama'"
-                )
-            from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
+            from osprey.models.embeddings import get_embedding_provider
 
-            self._embedder = OllamaEmbeddingProvider()
+            self._embedder = get_embedding_provider(self.config.embedding.provider)
         return self._embedder
 
     @staticmethod

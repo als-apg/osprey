@@ -91,18 +91,9 @@ class TextEmbeddingModule(BaseEnhancementModule):
             Configured embedding provider instance based on provider_name
         """
         if self._provider is None:
-            if self._provider_name == "ollama":
-                from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
+            from osprey.models.embeddings import get_embedding_provider
 
-                self._provider = OllamaEmbeddingProvider()
-            else:
-                logger.warning(
-                    f"Embedding provider '{self._provider_name}' not yet supported, "
-                    f"falling back to 'ollama'"
-                )
-                from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
-
-                self._provider = OllamaEmbeddingProvider()
+            self._provider = get_embedding_provider(self._provider_name)
 
         return self._provider
 
