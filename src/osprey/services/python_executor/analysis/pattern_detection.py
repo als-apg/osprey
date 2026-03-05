@@ -17,6 +17,7 @@ Related to Issue #18 - Control System Abstraction (Layer 1)
 
 import re
 
+from osprey.connectors.types import EPICS
 from osprey.utils.logger import get_logger
 
 logger = get_logger("pattern_detection")
@@ -169,9 +170,9 @@ def detect_control_system_operations(
         try:
             from osprey.utils.config import get_config_value
 
-            control_system_type = get_config_value("control_system.type", "epics")
+            control_system_type = get_config_value("control_system.type", EPICS)
         except Exception:
-            control_system_type = "epics"  # Default for logging
+            control_system_type = EPICS  # Default for logging
 
     # Get patterns: config override → framework standard
     if patterns is None:

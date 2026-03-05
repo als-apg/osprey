@@ -6,6 +6,8 @@ that all Osprey applications build upon.
 .. seealso:: :class:`RegistryConfigProvider`, :class:`RegistryManager`
 """
 
+from osprey.connectors.types import EPICS, EPICS_ARCHIVER, MOCK, MOCK_ARCHIVER
+
 from .base import (
     ArielEnhancementModuleRegistration,
     ArielIngestionAdapterRegistration,
@@ -49,14 +51,14 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
             connectors=[
                 # Control system connectors
                 ConnectorRegistration(
-                    name="mock",
+                    name=MOCK,
                     connector_type="control_system",
                     module_path="osprey.connectors.control_system.mock_connector",
                     class_name="MockConnector",
                     description="Mock control system connector for development and testing",
                 ),
                 ConnectorRegistration(
-                    name="epics",
+                    name=EPICS,
                     connector_type="control_system",
                     module_path="osprey.connectors.control_system.epics_connector",
                     class_name="EPICSConnector",
@@ -64,14 +66,14 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                 ),
                 # Archiver connectors
                 ConnectorRegistration(
-                    name="mock_archiver",
+                    name=MOCK_ARCHIVER,
                     connector_type="archiver",
                     module_path="osprey.connectors.archiver.mock_archiver_connector",
                     class_name="MockArchiverConnector",
                     description="Mock archiver connector for development and testing",
                 ),
                 ConnectorRegistration(
-                    name="epics_archiver",
+                    name=EPICS_ARCHIVER,
                     connector_type="archiver",
                     module_path="osprey.connectors.archiver.epics_archiver_connector",
                     class_name="EPICSArchiverConnector",

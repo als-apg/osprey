@@ -9,6 +9,7 @@ from jinja2 import Template
 from rich.syntax import Syntax
 
 from osprey.cli.styles import Styles, console
+from osprey.connectors.types import CLI_CONTROL_SYSTEM_TYPES
 
 
 @click.group(name="config", invoke_without_command=True)
@@ -281,7 +282,8 @@ def export(output: str, format: str):
 
 @config.command(name="set-control-system")
 @click.argument(
-    "system_type", type=click.Choice(["mock", "epics", "tango", "labview"], case_sensitive=False)
+    "system_type",
+    type=click.Choice(CLI_CONTROL_SYSTEM_TYPES, case_sensitive=False),
 )
 @click.option(
     "--project",

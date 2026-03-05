@@ -211,23 +211,29 @@ class ControlSystemContext:
 
     def _validate(self) -> None:
         """Emit warnings for common misconfigurations."""
+        from osprey.connectors.factory import ConnectorFactory
+
         cs = self.config.control_system
         if not cs:
             logger.warning("No control_system section in config.yml")
         else:
             cs_type = cs.get("type")
-            if cs_type not in ("mock", "epics", None) and "." not in (cs_type or ""):
-                logger.warning("Unknown control_system.type: %s", cs_type)
+            known = set(ConnectorFactory.list_control_systems())
+            if cs_type and cs_type not in known and "." not in cs_type:
+                logger.warning(
+                    "Unknown control_system.type: %s (registered: %s)", cs_type, known
+                )
 
         arch = self.config.archiver
         if not arch:
             logger.warning("No archiver section in config.yml")
         else:
             arch_type = arch.get("type")
-            if arch_type not in ("mock_archiver", "epics_archiver", None) and "." not in (
-                arch_type or ""
-            ):
-                logger.warning("Unknown archiver.type: %s", arch_type)
+            known_arch = set(ConnectorFactory.list_archivers())
+            if arch_type and arch_type not in known_arch and "." not in arch_type:
+                logger.warning(
+                    "Unknown archiver.type: %s (registered: %s)", arch_type, known_arch
+                )
 
     async def shutdown(self) -> None:
         """Disconnect all connectors. Called on server shutdown."""
