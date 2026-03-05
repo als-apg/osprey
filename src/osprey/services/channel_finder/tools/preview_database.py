@@ -117,7 +117,10 @@ def preview_middle_layer(
 
     if "tree" in sections:
         _render_middle_layer_tree(
-            database, depth if not show_full else -1, max_items if not show_full else -1, focus,
+            database,
+            depth if not show_full else -1,
+            max_items if not show_full else -1,
+            focus,
             console=console,
         )
 
@@ -134,7 +137,9 @@ def preview_middle_layer(
     console.print()
 
 
-def _render_middle_layer_tree(database, depth, max_items, focus, *, console: Console | None = None) -> None:
+def _render_middle_layer_tree(
+    database, depth, max_items, focus, *, console: Console | None = None
+) -> None:
     """Render the middle layer hierarchy tree."""
     console = console or _default_console
     console.print()
@@ -370,7 +375,9 @@ def preview_hierarchical(
     console.print()
 
 
-def _render_tree_section(database, hierarchy_levels, depth, max_items, focus, *, console: Console | None = None):
+def _render_tree_section(
+    database, hierarchy_levels, depth, max_items, focus, *, console: Console | None = None
+):
     """Render the hierarchy tree section."""
     console = console or _default_console
     console.print()
@@ -720,8 +727,9 @@ def _count_channels_at_path(database, hierarchy_levels, path_values, current_lev
     return count
 
 
-def preview_in_context(db_path: str, presentation_mode: str, show_full: bool = False,
-                       console: Console | None = None):
+def preview_in_context(
+    db_path: str, presentation_mode: str, show_full: bool = False, console: Console | None = None
+):
     """Preview in-context database with formatted channel list."""
     console = console or _default_console
 
@@ -884,7 +892,11 @@ def preview_database(
 
     if pipeline_type == "hierarchical":
         preview_hierarchical(
-            db_path=db_path, depth=depth, max_items=max_items, sections=section_list, focus=focus,
+            db_path=db_path,
+            depth=depth,
+            max_items=max_items,
+            sections=section_list,
+            focus=focus,
             console=console,
         )
     elif pipeline_type == "middle_layer":

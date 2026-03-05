@@ -422,9 +422,7 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition:
             if hook:
                 resolved.append(hook)
             else:
-                logger.warning(
-                    "Unknown hook preset %r for server %r — skipping", preset, name
-                )
+                logger.warning("Unknown hook preset %r for server %r — skipping", preset, name)
         if resolved:
             hooks_pre = [HookRule(matcher=f"mcp__{name}__.*", hooks=resolved)]
 
@@ -442,7 +440,6 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition:
         if perms.get("allow") or perms.get("ask")
         else [],
     )
-
 
 
 def _server_to_dict(sdef: ServerDefinition, ctx: dict) -> dict:

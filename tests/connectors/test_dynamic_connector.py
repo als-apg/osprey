@@ -75,7 +75,10 @@ class TestControlSystemContextValidation:
 
     def test_validate_accepts_dotted_path(self, caplog):
         """Dotted path type does not produce a warning."""
-        from osprey.mcp_server.control_system.server_context import ControlSystemContext, MCPServerConfig
+        from osprey.mcp_server.control_system.server_context import (
+            ControlSystemContext,
+            MCPServerConfig,
+        )
 
         registry = ControlSystemContext()
         registry._config = MCPServerConfig(
@@ -84,14 +87,19 @@ class TestControlSystemContextValidation:
                 "archiver": {"type": "my.custom.Archiver"},
             }
         )
-        with caplog.at_level(logging.WARNING, logger="osprey.mcp_server.control_system.server_context"):
+        with caplog.at_level(
+            logging.WARNING, logger="osprey.mcp_server.control_system.server_context"
+        ):
             registry._validate()
         assert "Unknown control_system.type" not in caplog.text
         assert "Unknown archiver.type" not in caplog.text
 
     def test_validate_warns_unknown_simple_type(self, caplog):
         """Non-dotted unknown type still produces a warning."""
-        from osprey.mcp_server.control_system.server_context import ControlSystemContext, MCPServerConfig
+        from osprey.mcp_server.control_system.server_context import (
+            ControlSystemContext,
+            MCPServerConfig,
+        )
 
         registry = ControlSystemContext()
         registry._config = MCPServerConfig(
@@ -100,7 +108,9 @@ class TestControlSystemContextValidation:
                 "archiver": {"type": "custom_archiver"},
             }
         )
-        with caplog.at_level(logging.WARNING, logger="osprey.mcp_server.control_system.server_context"):
+        with caplog.at_level(
+            logging.WARNING, logger="osprey.mcp_server.control_system.server_context"
+        ):
             registry._validate()
         assert "Unknown control_system.type: tango" in caplog.text
         assert "Unknown archiver.type: custom_archiver" in caplog.text

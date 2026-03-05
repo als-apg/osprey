@@ -197,7 +197,8 @@ class LatticeState:
         energy_gev = float(ring.energy) / 1e9
         circumference = float(ring.get_s_pos(len(ring))[0])
         sect_count = sum(
-            1 for elem in ring
+            1
+            for elem in ring
             if getattr(elem, "FamName", "").startswith("SECT")
             and getattr(elem, "FamName", "")[4:].isdigit()
         )

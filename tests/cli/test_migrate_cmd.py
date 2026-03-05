@@ -11,6 +11,8 @@ from click.testing import CliRunner
 
 from osprey.cli.init_cmd import init
 from osprey.cli.migrate_cmd import migrate
+from osprey.cli.templates.manager import TemplateManager
+from osprey.cli.templates.manifest import MANIFEST_FILENAME, MANIFEST_SCHEMA_VERSION
 from osprey.services.migration import (
     FileCategory,
     calculate_file_hash,
@@ -18,8 +20,6 @@ from osprey.services.migration import (
     detect_project_settings,
     load_manifest,
 )
-from osprey.cli.templates.manager import TemplateManager
-from osprey.cli.templates.manifest import MANIFEST_FILENAME, MANIFEST_SCHEMA_VERSION
 
 
 class TestManifestGeneration:

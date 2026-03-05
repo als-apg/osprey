@@ -57,9 +57,7 @@ def hook_runner():
         # Write hook_config.json to a temp file for the subprocess
         hc_file = None
         if hook_config is not None:
-            hc_file = tempfile.NamedTemporaryFile(
-                mode="w", suffix=".json", delete=False
-            )
+            hc_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
             json.dump(hook_config, hc_file)
             hc_file.close()
             env["OSPREY_HOOK_CONFIG"] = hc_file.name
@@ -73,9 +71,9 @@ def hook_runner():
                 env=env,
                 cwd=str(cwd) if cwd else None,
             )
-            assert (
-                result.returncode == 0
-            ), f"Hook failed (exit {result.returncode}): {result.stderr}"
+            assert result.returncode == 0, (
+                f"Hook failed (exit {result.returncode}): {result.stderr}"
+            )
             stdout = result.stdout.strip()
             if not stdout:
                 return None  # Hook allowed (no output = pass through)
@@ -140,9 +138,7 @@ def hook_runner_raw():
         # Write hook_config.json to a temp file for the subprocess
         hc_file = None
         if hook_config is not None:
-            hc_file = tempfile.NamedTemporaryFile(
-                mode="w", suffix=".json", delete=False
-            )
+            hc_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
             json.dump(hook_config, hc_file)
             hc_file.close()
             env["OSPREY_HOOK_CONFIG"] = hc_file.name

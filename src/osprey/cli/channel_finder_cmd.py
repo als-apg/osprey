@@ -198,7 +198,9 @@ def validate(ctx, database: str | None, verbose: bool, pipeline: str | None):
 
     from osprey.services.channel_finder.tools.validate_database import run_validation
 
-    exit_code = run_validation(database=database, pipeline=pipeline, verbose=verbose, console=console)
+    exit_code = run_validation(
+        database=database, pipeline=pipeline, verbose=verbose, console=console
+    )
     if exit_code:
         raise SystemExit(exit_code)
 

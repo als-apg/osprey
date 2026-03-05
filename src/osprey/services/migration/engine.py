@@ -469,9 +469,7 @@ See `merge_required/` for detailed merge prompts.
         old_vanilla_content = (
             read_file_content(old_vanilla_dir / rel_path) if old_vanilla_dir else None
         )
-        new_vanilla_content = (
-            read_file_content(new_vanilla_dir / rel_path) or "[File not readable]"
-        )
+        new_vanilla_content = read_file_content(new_vanilla_dir / rel_path) or "[File not readable]"
 
         prompt = generate_merge_prompt(
             rel_path,

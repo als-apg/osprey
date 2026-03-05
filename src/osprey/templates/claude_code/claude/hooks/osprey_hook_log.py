@@ -6,7 +6,6 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-
 _hook_config_cache = None
 
 
@@ -60,9 +59,7 @@ def load_osprey_config(hook_input=None):
 
         project_dir = get_project_dir(hook_input) if hook_input else ""
         default = (
-            str(Path(project_dir) / "config.yml")
-            if project_dir
-            else str(Path.cwd() / "config.yml")
+            str(Path(project_dir) / "config.yml") if project_dir else str(Path.cwd() / "config.yml")
         )
         config_path = Path(os.path.expandvars(os.environ.get("OSPREY_CONFIG", default)))
         if config_path.exists():

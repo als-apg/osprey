@@ -14,7 +14,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import yaml
 
-from osprey.mcp_server.control_system.server_context import initialize_server_context, reset_server_context
+from osprey.mcp_server.control_system.server_context import (
+    initialize_server_context,
+    reset_server_context,
+)
 from osprey.mcp_server.workspace.tools.screen_capture_backends import reset_backend
 from osprey.stores.artifact_store import reset_artifact_store
 from osprey.utils.workspace import reset_config_cache

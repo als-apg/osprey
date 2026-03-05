@@ -30,7 +30,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.mcp_server.control_system.server_context import initialize_server_context, reset_server_context
+from osprey.mcp_server.control_system.server_context import (
+    initialize_server_context,
+    reset_server_context,
+)
 from osprey.stores.artifact_store import reset_artifact_store
 from osprey.utils.workspace import reset_config_cache
 
@@ -204,7 +207,11 @@ def _run_hook_chain(tool_name, tool_input, config_path, cwd):
     """Run the full write hook chain, stopping at first deny/ask."""
     for hook_name in WRITE_HOOK_CHAIN:
         result = _run_hook(
-            hook_name, tool_name, tool_input, config_path, cwd,
+            hook_name,
+            tool_name,
+            tool_input,
+            config_path,
+            cwd,
             hook_config=_SMOKE_HOOK_CONFIG,
         )
         if result is not None:

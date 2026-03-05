@@ -7,8 +7,8 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
 import json
 import logging
 
-from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.ariel.server import make_error, mcp
+from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.services.ariel_search.search.sql_query import (
     format_sql_result,
     validate_sql_query,

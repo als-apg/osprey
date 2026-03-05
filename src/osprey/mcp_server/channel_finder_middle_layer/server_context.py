@@ -138,8 +138,7 @@ def get_cf_ml_context() -> ChannelFinderMLContext:
     """
     if _registry is None:
         raise RuntimeError(
-            "Channel Finder ML MCP registry not initialized. "
-            "Call initialize_cf_ml_context() first."
+            "Channel Finder ML MCP registry not initialized. Call initialize_cf_ml_context() first."
         )
     return _registry
 

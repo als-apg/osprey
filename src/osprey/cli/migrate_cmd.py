@@ -20,7 +20,6 @@ from typing import Any
 import click
 
 from osprey.services.migration import (
-    FileCategory,
     detect_project_settings,
     generate_migration_directory,
     load_manifest,
