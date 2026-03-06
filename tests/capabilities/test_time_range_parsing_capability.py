@@ -438,7 +438,9 @@ class TestTimeRangeTimezoneHandling:
         await capability.execute()
 
         ctx = captured["context"]
-        assert ctx.start_date.tzinfo is not None, "start_date must be timezone-aware after conversion"
+        assert ctx.start_date.tzinfo is not None, (
+            "start_date must be timezone-aware after conversion"
+        )
         assert ctx.end_date.tzinfo is not None, "end_date must be timezone-aware after conversion"
         # Should have local timezone, not remain naive
         local_tzname = datetime.now().astimezone().tzname()

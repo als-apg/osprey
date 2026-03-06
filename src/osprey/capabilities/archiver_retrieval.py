@@ -60,7 +60,9 @@ class ArchiverDataContext(CapabilityContext):
         str, list[float]
     ]  # Channel name -> time series values (aligned with timestamps)
     available_channels: list[str]  # List of available channel names for intuitive filtering
-    timezone_name: str = ""  # Human-readable timezone name (e.g. "EST", "PST") copied from TIME_RANGE
+    timezone_name: str = (
+        ""  # Human-readable timezone name (e.g. "EST", "PST") copied from TIME_RANGE
+    )
 
     def get_access_details(self, key: str) -> dict[str, Any]:
         """Rich description of the archiver data structure."""
