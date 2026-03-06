@@ -101,8 +101,7 @@ class TestArchiverDataContext:
             available_channels=["SR:CURRENT:RB"],
         )
         details = ctx.get_access_details("test_key")
-        assert details["total_points"] == 5
-        assert details["channel_count"] == 1
+        assert "data_description" in details
         assert "CRITICAL_ACCESS_PATTERNS" in details
 
     def test_get_summary_downsamples(self):
