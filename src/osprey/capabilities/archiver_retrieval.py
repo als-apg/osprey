@@ -78,9 +78,8 @@ class ArchiverDataContext(CapabilityContext):
         duration = end_time - start_time
 
         return {
-            "total_points": total_points,
+            "data_description": f"Data set contains {total_points} total points for {len(self.available_channels)} channels (field not in ArchiverDataContext class).",
             "precision_ms": self.precision_ms,
-            "channel_count": len(self.available_channels),
             "available_channels": self.available_channels,
             "time_info": f"Data spans from {start_time} to {end_time} (duration: {duration})",
             "data_structure": "4 attributes: timestamps (list of datetime objects), precision_ms (int), time_series_data (dict of channel_name -> list of float values), available_channels (list of channel names)",
