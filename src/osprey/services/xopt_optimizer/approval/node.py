@@ -2,7 +2,7 @@
 
 This node handles human approval for XOpt configurations using the standard
 Osprey LangGraph interrupt pattern. The approval interrupt data is pre-created
-by the yaml_generation node, following the pattern from Python executor's
+by the config_generation node, following the pattern from Python executor's
 analyzer node.
 """
 
@@ -24,7 +24,7 @@ def create_approval_node():
     clean interrupt handler. The node is designed with single responsibility:
     processing LangGraph interrupts for user approval.
 
-    The approval interrupt data is pre-created by the yaml_generation node,
+    The approval interrupt data is pre-created by the config_generation node,
     following the pattern from Python executor's analyzer node.
 
     Returns:
@@ -38,12 +38,12 @@ def create_approval_node():
         node_logger = get_logger("xopt_optimizer", state=state)
         node_logger.status("Requesting human approval...")
 
-        # Get the pre-created interrupt data from yaml_generation node
+        # Get the pre-created interrupt data from config_generation node
         interrupt_data = state.get("approval_interrupt_data")
         if not interrupt_data:
             raise RuntimeError(
                 "No approval interrupt data found in state. "
-                "The yaml_generation node should create this data."
+                "The config_generation node should create this data."
             )
 
         node_logger.info("Requesting human approval for XOpt configuration")

@@ -7,7 +7,7 @@ reporting, and comprehensive debugging information.
 
 Error Categories:
     - MACHINE_STATE: Machine not ready - may retry after delay
-    - YAML_GENERATION: Code generation issues - retry with feedback
+    - CONFIG_GENERATION: Config generation issues - retry with feedback
     - EXECUTION: XOpt runtime errors
     - CONFIGURATION: Invalid configuration
     - WORKFLOW: Service-level workflow issues
@@ -21,7 +21,7 @@ class ErrorCategory(StrEnum):
     """Categorization of errors for retry logic."""
 
     MACHINE_STATE = "machine_state"  # Machine not ready - may retry after delay
-    YAML_GENERATION = "yaml_generation"  # Code generation issues - retry with feedback
+    CONFIG_GENERATION = "config_generation"  # Config generation issues - retry with feedback
     EXECUTION = "execution"  # XOpt runtime errors
     CONFIGURATION = "configuration"  # Invalid configuration
     WORKFLOW = "workflow"  # Service-level workflow issues
@@ -51,11 +51,11 @@ class XOptExecutorException(Exception):
 
     def is_retriable(self) -> bool:
         """Check if this error type typically warrants a retry."""
-        return self.category in (ErrorCategory.MACHINE_STATE, ErrorCategory.YAML_GENERATION)
+        return self.category in (ErrorCategory.MACHINE_STATE, ErrorCategory.CONFIG_GENERATION)
 
-    def should_retry_yaml_generation(self) -> bool:
-        """Check if YAML should be regenerated."""
-        return self.category == ErrorCategory.YAML_GENERATION
+    def should_retry_config_generation(self) -> bool:
+        """Check if config should be regenerated."""
+        return self.category == ErrorCategory.CONFIG_GENERATION
 
 
 class MachineStateAssessmentError(XOptExecutorException):
@@ -78,26 +78,26 @@ class MachineStateAssessmentError(XOptExecutorException):
         self.assessment_details = assessment_details or {}
 
 
-class YamlGenerationError(XOptExecutorException):
-    """Failed to generate valid XOpt YAML configuration.
+class ConfigGenerationError(XOptExecutorException):
+    """Failed to generate valid optimization configuration.
 
-    Raised when the YAML generation agent produces invalid configuration.
+    Raised when the config generation agent produces invalid configuration.
     Usually retryable with error feedback.
 
     :param message: Error description
-    :param generated_yaml: The invalid YAML that was generated
+    :param generated_config: The invalid config that was generated
     :param validation_errors: List of validation errors found
     """
 
     def __init__(
         self,
         message: str,
-        generated_yaml: str | None = None,
+        generated_config: dict | None = None,
         validation_errors: list[str] | None = None,
         **kwargs,
     ):
-        super().__init__(message, category=ErrorCategory.YAML_GENERATION, **kwargs)
-        self.generated_yaml = generated_yaml
+        super().__init__(message, category=ErrorCategory.CONFIG_GENERATION, **kwargs)
+        self.generated_config = generated_config
         self.validation_errors = validation_errors or []
 
 
@@ -107,19 +107,19 @@ class XOptExecutionError(XOptExecutorException):
     Raised when XOpt itself fails during execution.
 
     :param message: Error description
-    :param yaml_used: The YAML configuration that was used
+    :param config_used: The optimization config that was used
     :param xopt_error: The original XOpt error message
     """
 
     def __init__(
         self,
         message: str,
-        yaml_used: str | None = None,
+        config_used: dict | None = None,
         xopt_error: str | None = None,
         **kwargs,
     ):
         super().__init__(message, category=ErrorCategory.EXECUTION, **kwargs)
-        self.yaml_used = yaml_used
+        self.config_used = config_used
         self.xopt_error = xopt_error
 
 

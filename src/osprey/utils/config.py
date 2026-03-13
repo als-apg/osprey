@@ -833,8 +833,8 @@ def get_xopt_optimizer_config(config_path: str | None = None) -> dict[str, Any]:
             mock_files: true
           decision:
             mode: "llm"  # or "mock"
-          yaml_generation:
-            mode: "react"  # or "mock"
+          config_generation:
+            mode: "structured"  # or "mock"
 
     Args:
         config_path: Optional explicit path to configuration file

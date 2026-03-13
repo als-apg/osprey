@@ -107,7 +107,7 @@ class XOptError:
     Captures error context to help subsequent nodes understand what failed
     and potentially adjust their approach.
 
-    :param error_type: Category of error (state_assessment, yaml_generation, execution, analysis)
+    :param error_type: Category of error (state_assessment, config_generation, execution, analysis)
     :param error_message: Human-readable error message
     :param stage: Pipeline stage where error occurred
     :param attempt_number: Which attempt this error occurred in
@@ -188,7 +188,7 @@ class XOptServiceResult:
     On failure, the service raises appropriate exceptions.
 
     :param run_artifact: Optimization run output data
-    :param generated_yaml: XOpt YAML configuration used
+    :param optimization_config: Optimization config dict submitted to tuning_scripts
     :param strategy: Strategy used (exploration/optimization)
     :param total_iterations: Number of iterations completed
     :param analysis_summary: Summary of optimization analysis
@@ -196,7 +196,7 @@ class XOptServiceResult:
     """
 
     run_artifact: dict[str, Any]
-    generated_yaml: str
+    optimization_config: dict[str, Any]
     strategy: XOptStrategy
     total_iterations: int
     analysis_summary: dict[str, Any]
@@ -232,7 +232,7 @@ class XOptExecutionState(TypedDict):
 
     # Error tracking (matches Python executor pattern)
     error_chain: list[XOptError]
-    yaml_generation_attempt: int  # For YAML regeneration retries
+    config_generation_attempt: int  # For config regeneration retries
 
     # Machine state assessment
     machine_state: MachineState | None
@@ -242,9 +242,9 @@ class XOptExecutionState(TypedDict):
     selected_strategy: XOptStrategy | None
     decision_reasoning: str | None
 
-    # YAML configuration
-    generated_yaml: str | None
-    yaml_generation_failed: bool | None
+    # Optimization configuration
+    optimization_config: dict[str, Any] | None
+    config_generation_failed: bool | None
 
     # Approval state (standard Osprey pattern)
     requires_approval: bool | None
@@ -270,4 +270,4 @@ class XOptExecutionState(TypedDict):
     is_successful: bool
     is_failed: bool
     failure_reason: str | None
-    current_stage: str  # "state_id", "decision", "yaml_gen", "approval", "execution", "analysis", "complete", "failed"
+    current_stage: str  # "state_id", "decision", "config_gen", "approval", "execution", "analysis", "complete", "failed"

@@ -297,7 +297,7 @@ def create_decision_node():
             return {
                 "selected_strategy": decision.strategy,
                 "decision_reasoning": decision.reasoning,
-                "current_stage": "yaml_gen",
+                "current_stage": "config_gen",
             }
 
         except Exception as e:
@@ -322,7 +322,7 @@ def create_decision_node():
             return {
                 "selected_strategy": decision.strategy,
                 "decision_reasoning": f"Fallback: {decision.reasoning}",
-                "current_stage": "yaml_gen",
+                "current_stage": "config_gen",
             }
 
     return decision_node

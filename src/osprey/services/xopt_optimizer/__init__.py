@@ -23,13 +23,13 @@ Design Principles:
 """
 
 from .exceptions import (
+    ConfigGenerationError,
     ConfigurationError,
     ErrorCategory,
     MachineStateAssessmentError,
     MaxIterationsExceededError,
     XOptExecutionError,
     XOptExecutorException,
-    YamlGenerationError,
 )
 from .models import (
     MachineState,
@@ -55,7 +55,7 @@ __all__ = [
     "XOptExecutorException",
     "ErrorCategory",
     "MachineStateAssessmentError",
-    "YamlGenerationError",
+    "ConfigGenerationError",
     "XOptExecutionError",
     "MaxIterationsExceededError",
     "ConfigurationError",

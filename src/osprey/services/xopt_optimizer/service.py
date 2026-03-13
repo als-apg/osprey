@@ -7,7 +7,7 @@ for consistency across the Osprey framework.
 The service implements a multi-stage workflow:
 1. State Identification - Assess machine readiness
 2. Decision - Select optimization strategy
-3. YAML Generation - Create XOpt configuration
+3. Config Generation - Create optimization config dict
 4. Approval - Human approval of configuration
 5. Execution - Run XOpt optimization
 6. Analysis - Analyze results and decide continuation
@@ -30,6 +30,7 @@ from osprey.utils.logger import get_logger
 
 from .analysis import create_analysis_node
 from .approval import create_approval_node
+from .config_generation import create_config_generation_node
 from .decision import create_decision_node
 from .exceptions import XOptExecutionError
 from .execution import create_executor_node
@@ -40,7 +41,6 @@ from .models import (
     XOptStrategy,
 )
 from .state_identification import create_state_identification_node
-from .yaml_generation import create_yaml_generation_node
 
 logger = get_logger("xopt_optimizer")
 
@@ -92,6 +92,8 @@ class XOptOptimizerService:
             XOptExecutionError: If optimization fails
             TypeError: If input_data is not a supported type
         """
+        config = self._inject_application_config(config)
+
         if isinstance(input_data, Command):
             # This is a resume command (approval response)
             if hasattr(input_data, "resume") and input_data.resume:
@@ -149,16 +151,16 @@ class XOptOptimizerService:
             capability_context_data=request.capability_context_data,
             # Error tracking
             error_chain=[],
-            yaml_generation_attempt=0,
+            config_generation_attempt=0,
             # Machine state
             machine_state=None,
             machine_state_details=None,
             # Decision
             selected_strategy=None,
             decision_reasoning=None,
-            # YAML
-            generated_yaml=None,
-            yaml_generation_failed=None,
+            # Config
+            optimization_config=None,
+            config_generation_failed=None,
             # Approval
             requires_approval=None,
             approval_interrupt_data=None,
@@ -196,7 +198,7 @@ class XOptOptimizerService:
         # Add nodes
         workflow.add_node("state_identification", create_state_identification_node())
         workflow.add_node("decision", create_decision_node())
-        workflow.add_node("yaml_generation", create_yaml_generation_node())
+        workflow.add_node("config_generation", create_config_generation_node())
         workflow.add_node("approval", create_approval_node())
         workflow.add_node("execution", create_executor_node())
         workflow.add_node("analysis", create_analysis_node())
@@ -208,16 +210,16 @@ class XOptOptimizerService:
         workflow.add_conditional_edges(
             "decision",
             self._decision_router,
-            {"continue": "yaml_generation", "abort": "__end__"},
+            {"continue": "config_generation", "abort": "__end__"},
         )
 
         workflow.add_conditional_edges(
-            "yaml_generation",
-            self._yaml_generation_router,
+            "config_generation",
+            self._config_generation_router,
             {
                 "approve": "approval",
                 "execute": "execution",
-                "retry": "yaml_generation",
+                "retry": "config_generation",
                 "__end__": "__end__",
             },
         )
@@ -258,8 +260,8 @@ class XOptOptimizerService:
             return "abort"
         return "continue"
 
-    def _yaml_generation_router(self, state: XOptExecutionState) -> str:
-        """Route after YAML generation.
+    def _config_generation_router(self, state: XOptExecutionState) -> str:
+        """Route after config generation.
 
         Args:
             state: Current execution state
@@ -269,7 +271,7 @@ class XOptOptimizerService:
         """
         if state.get("is_failed"):
             return "__end__"
-        if state.get("yaml_generation_failed"):
+        if state.get("config_generation_failed"):
             return "retry"
         if state.get("requires_approval"):
             return "approve"
@@ -328,7 +330,7 @@ class XOptOptimizerService:
         recommendations = result.get("recommendations") or []
         return XOptServiceResult(
             run_artifact=result.get("run_artifact", {}),
-            generated_yaml=result.get("generated_yaml", ""),
+            optimization_config=result.get("optimization_config", {}),
             strategy=result.get("selected_strategy", XOptStrategy.EXPLORATION),
             total_iterations=result.get("iteration_count", 0),
             analysis_summary=result.get("analysis_result", {}),
@@ -359,6 +361,32 @@ class XOptOptimizerService:
             # Default to memory saver for R&D mode
             logger.info("XOpt optimizer service using in-memory checkpointer")
             return create_memory_checkpointer()
+
+    def _inject_application_config(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Inject application config into the LangGraph configurable.
+
+        LangGraph nodes access configuration via get_config(), which returns the
+        runtime configurable dict.  The caller typically only passes runtime keys
+        (thread_id, checkpoint_ns).  This method merges in the application config
+        sections that the XOpt nodes need (xopt_optimizer, model_configs, etc.),
+        following the same pattern used by the main Osprey pipeline.
+
+        Existing runtime keys are preserved and take precedence.
+        """
+        configurable = config.setdefault("configurable", {})
+
+        # Sections required by XOpt nodes (get_xopt_optimizer_config,
+        # get_model_config, get_provider_config, get_full_configuration)
+        for key in (
+            "xopt_optimizer",
+            "model_configs",
+            "provider_configs",
+            "project_root",
+        ):
+            if key not in configurable and key in self.config:
+                configurable[key] = self.config[key]
+
+        return config
 
     def _load_config(self) -> dict[str, Any]:
         """Load service configuration.
