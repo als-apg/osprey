@@ -111,6 +111,9 @@ class DefaultTimeRangeParsingPromptBuilder(FrameworkPromptBuilder):
         Keyword Args:
             user_query: The user's natural language query containing time references.
         """
+        # The prompt says to put everything into UTC if a user includes a timezone, otherwise keep it naive and assume
+        # it's localtime.  These first set of examples with relative time requests don't include timezone information,
+        # so we keep the examples naive.
         now = datetime.now()
         current_time_str = now.strftime("%Y-%m-%d %H:%M:%S")
         current_weekday = now.strftime("%A")
@@ -152,6 +155,7 @@ class DefaultTimeRangeParsingPromptBuilder(FrameworkPromptBuilder):
             - "past 2 weeks" → start_date: "{two_weeks_ago}", end_date: "{current_time_str}" """)
         )
 
+        # These examples showcase how to handle requests with timezones.  Always return answers in UTC.
         sections.append(
             textwrap.dedent("""\
             EXAMPLES of users requests optionally containing timezones with exact format expected:
@@ -159,7 +163,7 @@ class DefaultTimeRangeParsingPromptBuilder(FrameworkPromptBuilder):
             - "between 2025-07-01 21:35 PST and 2025-09-05 12:23 MST" → start_date: "2025-07-02 05:35:00 UTC", end_date: "2025-09-05 19:23:00 UTC"
             - "from 2026-01-15 01:35 to 2026-01-16 02:40" → start_date: "2026-01-15 01:35:00", end_date: "2026-01-16 02:40:00"
             - "between 2025-07-01 21:35 and 2025-09-05 12:23" → start_date: "2025-07-01 21:35:00", end_date: "2025-09-05 12:23:00"
-            - "2020-12-25 11PM EDT - 2025-09-05 12:23:55 EDT" → start_date: "2020-12-26 03:00:00 UTC", end_date: "2025-09-05 16:23:55 UTC"
+            - "2020-12-25 11PM EST - 2025-09-05 12:23:55 EDT" → start_date: "2020-12-26 04:00:00 UTC", end_date: "2025-09-05 16:23:55 UTC"
             - "2021-12-20 21:35 - 2025-09-05 10 AM" → start_date: "2021-12-20 21:35:00", end_date: "2025-09-05 10:00:00" """)
         )
 
