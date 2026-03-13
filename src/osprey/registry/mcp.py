@@ -110,7 +110,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "CONFIG_FILE": "{project_root}/config.yml",
             "EPICS_CA_ADDR_LIST": "${EPICS_CA_ADDR_LIST:-}",
         },
-        permissions_allow=[],
+        permissions_allow=["channel_limits"],
         permissions_ask=["channel_write"],
         hooks_pre=[
             HookRule(
@@ -182,6 +182,12 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "lattice_set_baseline",
         ],
         permissions_ask=["setup_patch"],
+        hooks_pre=[
+            HookRule(
+                matcher="mcp__workspace__setup_patch",
+                hooks=[_APPROVAL],
+            ),
+        ],
         hooks_post=[_post_error("mcp__workspace__.*")],
     ),
     "ariel": ServerDefinition(
@@ -203,6 +209,12 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "filter_options",
         ],
         permissions_ask=["entry_create"],
+        hooks_pre=[
+            HookRule(
+                matcher="mcp__ariel__entry_create",
+                hooks=[_APPROVAL],
+            ),
+        ],
         hooks_post=[_post_error("mcp__ariel__.*")],
     ),
     "accelpapers": ServerDefinition(

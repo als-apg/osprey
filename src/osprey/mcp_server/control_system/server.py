@@ -41,6 +41,7 @@ def create_server() -> FastMCP:
     with startup_timer("tool_imports"):
         from osprey.mcp_server.control_system.tools import (  # noqa: F401
             archiver_read,
+            channel_limits,
             channel_read,
             channel_write,
         )
