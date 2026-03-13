@@ -72,25 +72,25 @@ class TestXOptModels:
         error = XOptError(
             error_type="test_error",
             error_message="Test error message",
-            stage="yaml_generation",
+            stage="config_generation",
             attempt_number=1,
             details={"key": "value"},
         )
         assert error.error_type == "test_error"
         assert error.error_message == "Test error message"
-        assert error.stage == "yaml_generation"
+        assert error.stage == "config_generation"
         assert error.attempt_number == 1
 
         # Test prompt text formatting
         prompt_text = error.to_prompt_text()
-        assert "YAML_GENERATION FAILED" in prompt_text
+        assert "CONFIG_GENERATION FAILED" in prompt_text
         assert "Test error message" in prompt_text
 
     def test_xopt_service_result_creation(self):
         """XOptServiceResult should be creatable with all fields."""
         result = XOptServiceResult(
             run_artifact={"status": "completed"},
-            generated_yaml="test: yaml",
+            optimization_config={"algorithm": "random"},
             strategy=XOptStrategy.EXPLORATION,
             total_iterations=3,
             analysis_summary={"summary": "test"},
@@ -193,13 +193,13 @@ class TestStateIdentificationNode:
             ),
             capability_context_data=None,
             error_chain=[],
-            yaml_generation_attempt=0,
+            config_generation_attempt=0,
             machine_state=None,
             machine_state_details=None,
             selected_strategy=None,
             decision_reasoning=None,
-            generated_yaml=None,
-            yaml_generation_failed=None,
+            optimization_config=None,
+            config_generation_failed=None,
             requires_approval=None,
             approval_interrupt_data=None,
             approval_result=None,
@@ -229,8 +229,8 @@ class TestDecisionNode:
     """Test decision node."""
 
     @pytest.mark.asyncio
-    async def test_decision_routes_to_yaml_gen_when_ready(self, test_config):
-        """Decision node should route to yaml_gen when machine is READY."""
+    async def test_decision_routes_to_config_gen_when_ready(self, test_config):
+        """Decision node should route to config_gen when machine is READY."""
         os.environ["CONFIG_FILE"] = str(test_config)
 
         from osprey.services.xopt_optimizer.decision import create_decision_node
@@ -243,13 +243,13 @@ class TestDecisionNode:
             ),
             capability_context_data=None,
             error_chain=[],
-            yaml_generation_attempt=0,
+            config_generation_attempt=0,
             machine_state=MachineState.READY,
             machine_state_details={"assessment": "test"},
             selected_strategy=None,
             decision_reasoning=None,
-            generated_yaml=None,
-            yaml_generation_failed=None,
+            optimization_config=None,
+            config_generation_failed=None,
             requires_approval=None,
             approval_interrupt_data=None,
             approval_result=None,
@@ -271,7 +271,7 @@ class TestDecisionNode:
         result = await node(state)
 
         assert result["selected_strategy"] == XOptStrategy.EXPLORATION
-        assert result["current_stage"] == "yaml_gen"
+        assert result["current_stage"] == "config_gen"
         assert "decision_reasoning" in result
 
     @pytest.mark.asyncio
@@ -289,13 +289,13 @@ class TestDecisionNode:
             ),
             capability_context_data=None,
             error_chain=[],
-            yaml_generation_attempt=0,
+            config_generation_attempt=0,
             machine_state=MachineState.NOT_READY,
             machine_state_details={"reason": "Machine offline"},
             selected_strategy=None,
             decision_reasoning=None,
-            generated_yaml=None,
-            yaml_generation_failed=None,
+            optimization_config=None,
+            config_generation_failed=None,
             requires_approval=None,
             approval_interrupt_data=None,
             approval_result=None,
@@ -339,13 +339,13 @@ class TestAnalysisNode:
             ),
             capability_context_data=None,
             error_chain=[],
-            yaml_generation_attempt=0,
+            config_generation_attempt=0,
             machine_state=MachineState.READY,
             machine_state_details={},
             selected_strategy=XOptStrategy.EXPLORATION,
             decision_reasoning="test",
-            generated_yaml="test: yaml",
-            yaml_generation_failed=False,
+            optimization_config={"algorithm": "random"},
+            config_generation_failed=False,
             requires_approval=False,
             approval_interrupt_data=None,
             approval_result=None,
@@ -385,13 +385,13 @@ class TestAnalysisNode:
             ),
             capability_context_data=None,
             error_chain=[],
-            yaml_generation_attempt=0,
+            config_generation_attempt=0,
             machine_state=MachineState.READY,
             machine_state_details={},
             selected_strategy=XOptStrategy.EXPLORATION,
             decision_reasoning="test",
-            generated_yaml="test: yaml",
-            yaml_generation_failed=False,
+            optimization_config={"algorithm": "random"},
+            config_generation_failed=False,
             requires_approval=False,
             approval_interrupt_data=None,
             approval_result=None,

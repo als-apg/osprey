@@ -442,7 +442,7 @@ class TestRegistryProvider(RegistryConfigProvider):
         "models": {
             "orchestrator": {"provider": "openai", "model_id": "gpt-4"},
             "python_code_generator": {"provider": "openai", "model_id": "gpt-4"},
-            "xopt_yaml_generation": {"provider": "openai", "model_id": "gpt-4"},
+            "xopt_config_generation": {"provider": "openai", "model_id": "gpt-4"},
             "xopt_decision": {"provider": "openai", "model_id": "gpt-4"},
         },
         "xopt_optimizer": {
@@ -453,9 +453,13 @@ class TestRegistryProvider(RegistryConfigProvider):
                 "mode": "mock",  # Use mock for fast tests
                 "model_config_name": "xopt_decision",
             },
-            "yaml_generation": {
+            "config_generation": {
                 "mode": "mock",  # Use mock for fast tests
-                "model_config_name": "xopt_yaml_generation",
+                "model_config_name": "xopt_config_generation",
+                "default_environment": "test_environment",
+            },
+            "api": {
+                "base_url": "http://localhost:19876",  # Non-existent port to force placeholder fallback
             },
         },
     }
@@ -552,7 +556,7 @@ class TestRegistryProvider(RegistryConfigProvider):
         "models": {
             "orchestrator": {"provider": "openai", "model_id": "gpt-4"},
             "python_code_generator": {"provider": "openai", "model_id": "gpt-4"},
-            "xopt_yaml_generation": {"provider": "openai", "model_id": "gpt-4"},
+            "xopt_config_generation": {"provider": "openai", "model_id": "gpt-4"},
             "xopt_decision": {"provider": "openai", "model_id": "gpt-4"},
         },
         "xopt_optimizer": {
@@ -563,9 +567,13 @@ class TestRegistryProvider(RegistryConfigProvider):
                 "mode": "mock",  # Use mock for fast tests
                 "model_config_name": "xopt_decision",
             },
-            "yaml_generation": {
+            "config_generation": {
                 "mode": "mock",  # Use mock for fast tests
-                "model_config_name": "xopt_yaml_generation",
+                "model_config_name": "xopt_config_generation",
+                "default_environment": "test_environment",
+            },
+            "api": {
+                "base_url": "http://localhost:19876",  # Non-existent port to force placeholder fallback
             },
         },
     }

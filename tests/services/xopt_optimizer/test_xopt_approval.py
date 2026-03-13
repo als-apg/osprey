@@ -12,7 +12,7 @@ class TestCreateXOptApprovalInterrupt:
     def test_basic_interrupt_creation(self):
         """Should create interrupt data with required fields."""
         result = create_xopt_approval_interrupt(
-            yaml_config="xopt:\n  generator: random",
+            optimization_config={"algorithm": "upper_confidence_bound", "n_iterations": 20},
             strategy="exploration",
             objective="Maximize efficiency",
         )
@@ -24,12 +24,15 @@ class TestCreateXOptApprovalInterrupt:
         assert "HUMAN APPROVAL REQUIRED" in result["user_message"]
         assert "Maximize efficiency" in result["user_message"]
         assert "EXPLORATION" in result["user_message"]
-        assert "xopt:" in result["user_message"]
+        assert "algorithm" in result["user_message"]
 
         # Check resume payload
         payload = result["resume_payload"]
         assert payload["approval_type"] == "xopt_optimizer"
-        assert payload["yaml_config"] == "xopt:\n  generator: random"
+        assert payload["optimization_config"] == {
+            "algorithm": "upper_confidence_bound",
+            "n_iterations": 20,
+        }
         assert payload["strategy"] == "exploration"
         assert payload["objective"] == "Maximize efficiency"
 
@@ -41,7 +44,7 @@ class TestCreateXOptApprovalInterrupt:
         }
 
         result = create_xopt_approval_interrupt(
-            yaml_config="test: yaml",
+            optimization_config={"algorithm": "random"},
             strategy="optimization",
             objective="Test objective",
             machine_state_details=machine_details,
@@ -57,7 +60,7 @@ class TestCreateXOptApprovalInterrupt:
     def test_interrupt_with_custom_step_objective(self):
         """Should use custom step objective."""
         result = create_xopt_approval_interrupt(
-            yaml_config="test: yaml",
+            optimization_config={"algorithm": "random"},
             strategy="exploration",
             objective="Test",
             step_objective="Custom optimization task",
@@ -69,7 +72,7 @@ class TestCreateXOptApprovalInterrupt:
     def test_interrupt_contains_approval_instructions(self):
         """Should contain clear approval instructions."""
         result = create_xopt_approval_interrupt(
-            yaml_config="test: yaml",
+            optimization_config={"algorithm": "random"},
             strategy="exploration",
             objective="Test",
         )
@@ -79,21 +82,20 @@ class TestCreateXOptApprovalInterrupt:
         assert "no" in message.lower()
         assert "approve" in message.lower()
 
-    def test_interrupt_yaml_displayed_correctly(self):
-        """Should display YAML in code block."""
-        yaml_config = """xopt:
-  generator:
-    name: bayesian
-  vocs:
-    variables:
-      x1: [0, 10]
-"""
+    def test_interrupt_config_displayed_as_yaml(self):
+        """Should display config as YAML in code block."""
+        config = {
+            "algorithm": "expected_improvement",
+            "n_iterations": 30,
+            "environment_name": "test_env",
+        }
         result = create_xopt_approval_interrupt(
-            yaml_config=yaml_config,
+            optimization_config=config,
             strategy="optimization",
             objective="Test",
         )
 
-        # YAML should be in code block
+        # Config should be rendered in a yaml code block
         assert "```yaml" in result["user_message"]
-        assert yaml_config in result["user_message"]
+        assert "expected_improvement" in result["user_message"]
+        assert "n_iterations" in result["user_message"]

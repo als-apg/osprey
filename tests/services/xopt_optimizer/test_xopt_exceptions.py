@@ -4,13 +4,13 @@ This module tests the exception hierarchy for the XOpt optimizer service.
 """
 
 from osprey.services.xopt_optimizer.exceptions import (
+    ConfigGenerationError,
     ConfigurationError,
     ErrorCategory,
     MachineStateAssessmentError,
     MaxIterationsExceededError,
     XOptExecutionError,
     XOptExecutorException,
-    YamlGenerationError,
 )
 
 
@@ -20,7 +20,7 @@ class TestErrorCategory:
     def test_error_categories_exist(self):
         """All expected error categories should exist."""
         assert ErrorCategory.MACHINE_STATE.value == "machine_state"
-        assert ErrorCategory.YAML_GENERATION.value == "yaml_generation"
+        assert ErrorCategory.CONFIG_GENERATION.value == "config_generation"
         assert ErrorCategory.EXECUTION.value == "execution"
         assert ErrorCategory.CONFIGURATION.value == "configuration"
         assert ErrorCategory.WORKFLOW.value == "workflow"
@@ -44,20 +44,20 @@ class TestXOptExecutorException:
     def test_is_retriable(self):
         """is_retriable should return True for retriable categories."""
         machine_exc = XOptExecutorException("Test", category=ErrorCategory.MACHINE_STATE)
-        yaml_exc = XOptExecutorException("Test", category=ErrorCategory.YAML_GENERATION)
+        config_exc = XOptExecutorException("Test", category=ErrorCategory.CONFIG_GENERATION)
         workflow_exc = XOptExecutorException("Test", category=ErrorCategory.WORKFLOW)
 
         assert machine_exc.is_retriable() is True
-        assert yaml_exc.is_retriable() is True
+        assert config_exc.is_retriable() is True
         assert workflow_exc.is_retriable() is False
 
-    def test_should_retry_yaml_generation(self):
-        """should_retry_yaml_generation should return True for YAML errors."""
-        yaml_exc = XOptExecutorException("Test", category=ErrorCategory.YAML_GENERATION)
+    def test_should_retry_config_generation(self):
+        """should_retry_config_generation should return True for config gen errors."""
+        config_exc = XOptExecutorException("Test", category=ErrorCategory.CONFIG_GENERATION)
         other_exc = XOptExecutorException("Test", category=ErrorCategory.EXECUTION)
 
-        assert yaml_exc.should_retry_yaml_generation() is True
-        assert other_exc.should_retry_yaml_generation() is False
+        assert config_exc.should_retry_config_generation() is True
+        assert other_exc.should_retry_config_generation() is False
 
 
 class TestMachineStateAssessmentError:
@@ -79,25 +79,25 @@ class TestMachineStateAssessmentError:
         assert exc.is_retriable() is True
 
 
-class TestYamlGenerationError:
-    """Test YamlGenerationError."""
+class TestConfigGenerationError:
+    """Test ConfigGenerationError."""
 
     def test_creation(self):
-        """Should be creatable with message and yaml details."""
-        exc = YamlGenerationError(
-            "Invalid YAML",
-            generated_yaml="bad: yaml",
+        """Should be creatable with message and config details."""
+        exc = ConfigGenerationError(
+            "Invalid config",
+            generated_config={"bad": "config"},
             validation_errors=["Missing field X"],
         )
-        assert exc.message == "Invalid YAML"
-        assert exc.category == ErrorCategory.YAML_GENERATION
-        assert exc.generated_yaml == "bad: yaml"
+        assert exc.message == "Invalid config"
+        assert exc.category == ErrorCategory.CONFIG_GENERATION
+        assert exc.generated_config == {"bad": "config"}
         assert exc.validation_errors == ["Missing field X"]
 
-    def test_should_retry_yaml_generation(self):
-        """YAML generation errors should trigger retry."""
-        exc = YamlGenerationError("Test")
-        assert exc.should_retry_yaml_generation() is True
+    def test_should_retry_config_generation(self):
+        """Config generation errors should trigger retry."""
+        exc = ConfigGenerationError("Test")
+        assert exc.should_retry_config_generation() is True
 
 
 class TestXOptExecutionError:
@@ -107,12 +107,12 @@ class TestXOptExecutionError:
         """Should be creatable with message and execution details."""
         exc = XOptExecutionError(
             "XOpt failed",
-            yaml_used="test: yaml",
+            config_used={"algorithm": "random"},
             xopt_error="Runtime error",
         )
         assert exc.message == "XOpt failed"
         assert exc.category == ErrorCategory.EXECUTION
-        assert exc.yaml_used == "test: yaml"
+        assert exc.config_used == {"algorithm": "random"}
         assert exc.xopt_error == "Runtime error"
 
     def test_not_retriable(self):
