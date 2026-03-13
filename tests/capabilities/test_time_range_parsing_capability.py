@@ -259,14 +259,14 @@ class TestTimeRangeTimezoneHandling:
         naive_start = datetime(2026, 3, 1, 0, 0, 0)
         aware_end = datetime(2026, 3, 2, 0, 0, 0, tzinfo=UTC)
         ctx = TimeRangeContext(start_date=naive_start, end_date=aware_end)
-        assert ctx.start_date.tzname() == datetime.now().astimezone().tzname()
+        assert ctx.start_date.tzname() == naive_start.astimezone().tzname()
 
     def test_time_range_context_handles_naive_end_date(self):
         """validate_datetime must reject naive end_date, not silently pass it through."""
         aware_start = datetime(2026, 3, 1, 0, 0, 0, tzinfo=UTC)
         naive_end = datetime(2026, 3, 2, 0, 0, 0)
         ctx = TimeRangeContext(start_date=aware_start, end_date=naive_end)
-        assert ctx.end_date.tzname() == datetime.now().astimezone().tzname()
+        assert ctx.end_date.tzname() == naive_end.astimezone().tzname()
 
     def test_time_range_context_accepts_utc_aware_datetimes(self):
         """UTC-aware datetimes should be accepted and preserved without modification."""
@@ -402,9 +402,11 @@ class TestTimeRangeTimezoneHandling:
         )
 
         # Naive datetimes — no tzinfo, simulating an LLM that omits timezone
+        naive_start = datetime(2024, 1, 1, 0, 0, 0)
+        naive_end = datetime(2024, 1, 2, 0, 0, 0)
         mock_time_output = TimeRangeOutput(
-            start_date=datetime(2024, 1, 1, 0, 0, 0),
-            end_date=datetime(2024, 1, 2, 0, 0, 0),
+            start_date=naive_start,
+            end_date=naive_end,
             found=True,
         )
 
@@ -443,6 +445,6 @@ class TestTimeRangeTimezoneHandling:
         )
         assert ctx.end_date.tzinfo is not None, "end_date must be timezone-aware after conversion"
         # Should have local timezone, not remain naive
-        local_tzname = datetime.now().astimezone().tzname()
+        local_tzname = naive_start.astimezone().tzname()
         assert ctx.start_date.tzname() == local_tzname
         assert ctx.end_date.tzname() == local_tzname
