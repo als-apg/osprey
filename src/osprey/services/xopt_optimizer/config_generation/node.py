@@ -13,8 +13,6 @@ DO NOT add accelerator-specific parameters without operator input.
 
 from typing import Any
 
-from langgraph.types import interrupt
-
 from osprey.utils.config import get_model_config, get_xopt_optimizer_config
 from osprey.utils.logger import get_logger
 
@@ -168,36 +166,16 @@ async def _resolve_environment(
         node_logger.info(f"Auto-selected environment: {valid_envs[0]['name']}")
         return
 
-    # Multiple environments — ask the user
-    env_lines = []
-    for i, env in enumerate(valid_envs, 1):
-        source = f" [{env['source']}]" if env.get("source") else ""
-        desc = env.get("description", "")
-        env_lines.append(f"  {i}. **{env['name']}** — {desc}{source}")
-
-    prompt = (
-        "Multiple optimization environments are available. "
-        "Please select one by number or name:\n\n"
-        + "\n".join(env_lines)
+    # Multiple environments — auto-select the first valid one as fallback.
+    # (Environment selection is normally handled at the capability level via
+    # a question interrupt; this path runs only when the capability didn't
+    # resolve an environment ahead of time.)
+    first = valid_envs[0]
+    config["environment_name"] = first["name"]
+    node_logger.info(
+        f"Auto-selected first valid environment: {first['name']} "
+        f"(from {len(valid_envs)} available)"
     )
-
-    node_logger.info("Asking user to select optimization environment...")
-    user_choice = interrupt({"question": prompt, "environments": valid_envs})
-
-    # Parse the user's response
-    choice = str(user_choice).strip()
-    selected = _match_environment(choice, valid_envs)
-
-    if not selected:
-        raise ConfigGenerationError(
-            f"Could not match '{choice}' to an available environment. "
-            f"Valid options: {[e['name'] for e in valid_envs]}",
-            generated_config=config,
-            validation_errors=[f"Invalid environment selection: {choice}"],
-        )
-
-    config["environment_name"] = selected["name"]
-    node_logger.info(f"User selected environment: {selected['name']}")
 
 
 def _match_environment(
@@ -300,6 +278,10 @@ def create_config_generation_node():
             else:
                 optimization_config = _generate_placeholder_config(objective, strategy)
 
+            # Honor pre-resolved environment from capability (highest priority)
+            if request and request.environment_name and not optimization_config.get("environment_name"):
+                optimization_config["environment_name"] = request.environment_name
+
             # Apply defaults from config if not already set by the generator
             default_env = gen_config.get("default_environment")
             if default_env and not optimization_config.get("environment_name"):
@@ -354,11 +336,6 @@ def create_config_generation_node():
             raise
 
         except Exception as e:
-            # Re-raise GraphInterrupt — it's not an error, it's LangGraph
-            # pausing the graph to wait for user input (e.g. environment selection).
-            if e.__class__.__name__ == "GraphInterrupt":
-                raise
-
             node_logger.warning(f"Config generation failed: {e}")
 
             error = XOptError(

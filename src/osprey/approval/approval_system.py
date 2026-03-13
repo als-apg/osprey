@@ -525,8 +525,33 @@ def create_code_approval_interrupt(
     }
 
 
+def create_question_interrupt(
+    question: str,
+    options: list[str] | None = None,
+) -> dict[str, Any]:
+    """Create a question interrupt payload for non-approval user interactions.
+
+    Unlike approval interrupts (which expect yes/no), question interrupts pass
+    the user's free-text answer back via ``Command(resume=answer)``.  The
+    gateway detects the ``"type": "question"`` key and skips approval
+    classification.
+
+    :param question: The question to present to the user
+    :type question: str
+    :param options: Optional list of valid option strings for display
+    :type options: list[str] | None
+    :return: Interrupt payload dict with type, user_message, and options
+    :rtype: dict[str, Any]
+    """
+    return {
+        "type": "question",
+        "user_message": question,
+        "options": options or [],
+    }
+
+
 def create_xopt_approval_interrupt(
-    yaml_config: str,
+    optimization_config: dict[str, Any],
     strategy: str,
     objective: str,
     machine_state_details: dict[str, Any] | None = None,
@@ -536,11 +561,10 @@ def create_xopt_approval_interrupt(
 
     Generates LangGraph-compatible interrupt data for XOpt configurations that
     require human approval before execution. The interrupt provides comprehensive
-    context including the generated YAML, optimization strategy, and machine
-    state details.
+    context including the optimization config, strategy, and machine state details.
 
-    :param yaml_config: Generated XOpt YAML configuration
-    :type yaml_config: str
+    :param optimization_config: Generated optimization config dict
+    :type optimization_config: Dict[str, Any]
     :param strategy: Selected optimization strategy (exploration/optimization)
     :type strategy: str
     :param objective: Optimization objective description
@@ -556,7 +580,7 @@ def create_xopt_approval_interrupt(
         Basic XOpt approval::
 
             >>> interrupt_data = create_xopt_approval_interrupt(
-            ...     yaml_config="xopt:\\n  generator: random",
+            ...     optimization_config={"algorithm": "upper_confidence_bound"},
             ...     strategy="exploration",
             ...     objective="Maximize injection efficiency",
             ...     step_objective="Execute XOpt optimization"
@@ -568,6 +592,11 @@ def create_xopt_approval_interrupt(
        This function is used for security-critical approval decisions for
        optimization operations that may affect machine parameters.
     """
+    import yaml as _yaml
+
+    # Format config as YAML for human readability
+    config_display = _yaml.dump(optimization_config, default_flow_style=False, sort_keys=False)
+
     # Format machine state if available
     machine_state_section = ""
     if machine_state_details:
@@ -585,10 +614,9 @@ def create_xopt_approval_interrupt(
 **Optimization Objective:** {objective}
 **Strategy:** {strategy.upper()}
 {machine_state_section}
-**Generated XOpt Configuration:**
+**Optimization Configuration:**
 ```yaml
-{yaml_config}
-```
+{config_display}```
 
 **Review the configuration above carefully.**
 
@@ -602,7 +630,7 @@ def create_xopt_approval_interrupt(
         "resume_payload": {
             "approval_type": create_approval_type("xopt_optimizer"),
             "step_objective": step_objective,
-            "yaml_config": yaml_config,
+            "optimization_config": optimization_config,
             "strategy": strategy,
             "objective": objective,
             "machine_state_details": machine_state_details,

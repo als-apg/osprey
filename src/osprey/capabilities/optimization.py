@@ -33,12 +33,13 @@ Key architectural features:
 
 from typing import Any, ClassVar
 
-from langgraph.types import Command
+from langgraph.types import Command, interrupt
 from pydantic import Field
 
 from osprey.approval import (
     clear_approval_state,
     create_approval_type,
+    create_question_interrupt,
     get_approval_resume_data,
     handle_service_with_interrupts,
 )
@@ -50,6 +51,11 @@ from osprey.context.base import CapabilityContext
 from osprey.prompts.loader import get_framework_prompts
 from osprey.registry import get_registry
 from osprey.services.xopt_optimizer import XOptExecutionRequest, XOptServiceResult
+from osprey.services.xopt_optimizer.config_generation.node import (
+    _get_config_generation_config,
+    _match_environment,
+)
+from osprey.services.xopt_optimizer.execution.api_client import TuningScriptsClient
 from osprey.state import StateManager
 from osprey.utils.config import get_full_configuration
 from osprey.utils.logger import get_logger
@@ -81,8 +87,8 @@ class OptimizationResultContext(CapabilityContext):
     :type analysis_summary: Dict[str, Any]
     :param recommendations: List of recommendations from analysis
     :type recommendations: List[str]
-    :param generated_yaml: XOpt YAML configuration used
-    :type generated_yaml: str
+    :param optimization_config: Optimization config dict submitted to tuning_scripts
+    :type optimization_config: Dict[str, Any]
 
     .. note::
        The run_artifact contains the primary optimization outputs that
@@ -98,7 +104,7 @@ class OptimizationResultContext(CapabilityContext):
     total_iterations: int = 0
     analysis_summary: dict[str, Any] = Field(default_factory=dict)
     recommendations: list[str] = Field(default_factory=list)
-    generated_yaml: str = ""
+    optimization_config: dict[str, Any] = Field(default_factory=dict)
 
     CONTEXT_TYPE: ClassVar[str] = "OPTIMIZATION_RESULT"
     CONTEXT_CATEGORY: ClassVar[str] = "OPTIMIZATION_DATA"
@@ -122,7 +128,7 @@ class OptimizationResultContext(CapabilityContext):
             "total_iterations": f"Completed {self.total_iterations} iterations",
             "analysis_summary": "Summary of optimization analysis",
             "recommendations": "List of recommendations from analysis",
-            "generated_yaml": "XOpt YAML configuration used",
+            "optimization_config": "Optimization config dict used",
             "access_pattern": f"context.OPTIMIZATION_RESULT.{key}",
         }
 
@@ -158,7 +164,7 @@ def _create_optimization_context(service_result: XOptServiceResult) -> Optimizat
         total_iterations=service_result.total_iterations,
         analysis_summary=service_result.analysis_summary,
         recommendations=list(service_result.recommendations),
-        generated_yaml=service_result.generated_yaml,
+        optimization_config=service_result.optimization_config,
     )
 
 
@@ -370,6 +376,9 @@ class OptimizationCapability(BaseCapability):
         task_objective = self.get_task_objective(default="")
         capability_contexts = self._state.get("capability_context_data", {})
 
+        # Resolve environment before calling the service (avoids subgraph interrupt)
+        resolved_env = await self._resolve_environment_if_needed(cap_logger)
+
         # Create execution request
         execution_request = XOptExecutionRequest(
             user_query=user_query,
@@ -377,6 +386,7 @@ class OptimizationCapability(BaseCapability):
             capability_context_data=capability_contexts,
             require_approval=True,
             max_iterations=3,
+            environment_name=resolved_env,
         )
 
         cap_logger.status("Invoking XOpt optimizer service...")
@@ -408,6 +418,71 @@ class OptimizationCapability(BaseCapability):
         )
 
     # ========================================
+    # ENVIRONMENT RESOLUTION
+    # ========================================
+
+    async def _resolve_environment_if_needed(self, cap_logger) -> str | None:
+        """Resolve environment name before service invocation.
+
+        Checks config for a default, then queries the tuning_scripts API.
+        If multiple valid environments exist, interrupts with a question
+        so the user can pick one in the chat.
+
+        Returns:
+            Resolved environment name, or None if resolution is not possible.
+        """
+        gen_config = _get_config_generation_config()
+        default_env = gen_config.get("default_environment")
+        if default_env:
+            return default_env
+
+        # Query the tuning_scripts API
+        try:
+            client = TuningScriptsClient()
+            environments = await client.list_environments()
+        except Exception as e:
+            cap_logger.warning(f"Could not query environments from API: {e}")
+            return None
+
+        valid_envs = [env for env in environments if env.get("valid", False)]
+
+        if not valid_envs:
+            cap_logger.warning("No valid environments returned by API")
+            return None
+
+        # Single valid environment — auto-select
+        if len(valid_envs) == 1:
+            cap_logger.info(f"Auto-selected environment: {valid_envs[0]['name']}")
+            return valid_envs[0]["name"]
+
+        # Multiple environments — ask the user via question interrupt
+        env_lines = []
+        for i, env in enumerate(valid_envs, 1):
+            source = f" [{env['source']}]" if env.get("source") else ""
+            desc = env.get("description", "")
+            env_lines.append(f"  {i}. **{env['name']}** — {desc}{source}")
+
+        question = (
+            "Multiple optimization environments are available. "
+            "Please select one by number or name:\n\n" + "\n".join(env_lines)
+        )
+        option_names = [env["name"] for env in valid_envs]
+
+        cap_logger.info("Asking user to select optimization environment...")
+        user_choice = interrupt(create_question_interrupt(question, option_names))
+
+        # Parse the user's response
+        choice = str(user_choice).strip()
+        selected = _match_environment(choice, valid_envs)
+
+        if not selected:
+            cap_logger.warning(f"Could not match '{choice}' to an available environment")
+            return None
+
+        cap_logger.info(f"User selected environment: {selected['name']}")
+        return selected["name"]
+
+    # ========================================
     # ERROR CLASSIFICATION
     # ========================================
 
@@ -423,9 +498,9 @@ class OptimizationCapability(BaseCapability):
         :rtype: ErrorClassification
         """
         from osprey.services.xopt_optimizer.exceptions import (
+            ConfigGenerationError,
             MachineStateAssessmentError,
             XOptExecutionError,
-            YamlGenerationError,
         )
 
         if isinstance(exc, MachineStateAssessmentError):
@@ -438,7 +513,7 @@ class OptimizationCapability(BaseCapability):
                 },
             )
 
-        elif isinstance(exc, YamlGenerationError):
+        elif isinstance(exc, ConfigGenerationError):
             return ErrorClassification(
                 severity=ErrorSeverity.REPLANNING,
                 user_message=f"Failed to generate optimization configuration: {exc}",
