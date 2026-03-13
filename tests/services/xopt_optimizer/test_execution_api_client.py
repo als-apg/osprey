@@ -12,10 +12,10 @@ from osprey.services.xopt_optimizer.execution.api_client import (
     TuningScriptsClient,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_mock_response(status: int = 200, json_data: dict | None = None, text: str = ""):
     """Create a mock aiohttp response."""
@@ -67,7 +67,10 @@ class TestTuningScriptsClient:
         mock_resp = _make_mock_response(200, {"status": "ok"})
         mock_session = _mock_session_for(mock_resp, "get")
 
-        with patch("osprey.services.xopt_optimizer.execution.api_client.aiohttp.ClientSession", return_value=mock_session):
+        with patch(
+            "osprey.services.xopt_optimizer.execution.api_client.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
             result = await client.health_check()
 
         assert result == {"status": "ok"}
@@ -78,7 +81,10 @@ class TestTuningScriptsClient:
         mock_resp = _make_mock_response(503, {"detail": "unhealthy"})
         mock_session = _mock_session_for(mock_resp, "get")
 
-        with patch("osprey.services.xopt_optimizer.execution.api_client.aiohttp.ClientSession", return_value=mock_session):
+        with patch(
+            "osprey.services.xopt_optimizer.execution.api_client.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
             with pytest.raises(TuningScriptsAPIError) as exc_info:
                 await client.health_check()
 
@@ -90,7 +96,10 @@ class TestTuningScriptsClient:
         mock_resp = _make_mock_response(200, {"job_id": "abc-123", "status": "submitted"})
         mock_session = _mock_session_for(mock_resp, "post")
 
-        with patch("osprey.services.xopt_optimizer.execution.api_client.aiohttp.ClientSession", return_value=mock_session):
+        with patch(
+            "osprey.services.xopt_optimizer.execution.api_client.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
             job_id = await client.submit_config({"algorithm": "random", "n_iterations": 10})
 
         assert job_id == "abc-123"
@@ -101,7 +110,10 @@ class TestTuningScriptsClient:
         mock_resp = _make_mock_response(200, {"job_id": "abc-123", "status": "submitted"})
         mock_session = _mock_session_for(mock_resp, "post")
 
-        with patch("osprey.services.xopt_optimizer.execution.api_client.aiohttp.ClientSession", return_value=mock_session):
+        with patch(
+            "osprey.services.xopt_optimizer.execution.api_client.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
             job_id = await client.submit_yaml("generator:\n  name: random\n")
 
         assert job_id == "abc-123"
@@ -112,7 +124,10 @@ class TestTuningScriptsClient:
         mock_resp = _make_mock_response(200, {"job_id": "abc-123", "status": "submitted"})
         mock_session = _mock_session_for(mock_resp, "post")
 
-        with patch("osprey.services.xopt_optimizer.execution.api_client.aiohttp.ClientSession", return_value=mock_session):
+        with patch(
+            "osprey.services.xopt_optimizer.execution.api_client.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
             job_id = await client.submit_yaml("yaml: data\n", n_iterations=10)
 
         assert job_id == "abc-123"
@@ -123,7 +138,10 @@ class TestTuningScriptsClient:
         mock_resp = _make_mock_response(200, {"job_id": "abc", "status": "running"})
         mock_session = _mock_session_for(mock_resp, "get")
 
-        with patch("osprey.services.xopt_optimizer.execution.api_client.aiohttp.ClientSession", return_value=mock_session):
+        with patch(
+            "osprey.services.xopt_optimizer.execution.api_client.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
             result = await client.get_status("abc")
 
         assert result["status"] == "running"
@@ -141,7 +159,10 @@ class TestTuningScriptsClient:
         mock_resp = _make_mock_response(200, full_data)
         mock_session = _mock_session_for(mock_resp, "get")
 
-        with patch("osprey.services.xopt_optimizer.execution.api_client.aiohttp.ClientSession", return_value=mock_session):
+        with patch(
+            "osprey.services.xopt_optimizer.execution.api_client.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
             result = await client.get_full_state("abc")
 
         assert result["data"] == [{"x": 1.0, "f": 0.5}]
@@ -152,7 +173,10 @@ class TestTuningScriptsClient:
         mock_resp = _make_mock_response(200, {"status": "cancelled", "job_id": "abc"})
         mock_session = _mock_session_for(mock_resp, "post")
 
-        with patch("osprey.services.xopt_optimizer.execution.api_client.aiohttp.ClientSession", return_value=mock_session):
+        with patch(
+            "osprey.services.xopt_optimizer.execution.api_client.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
             result = await client.cancel("abc")
 
         assert result["status"] == "cancelled"

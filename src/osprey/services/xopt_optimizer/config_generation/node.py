@@ -23,12 +23,14 @@ from ..models import XOptError, XOptExecutionState, XOptStrategy
 logger = get_logger("xopt_optimizer")
 
 # Allowed algorithm values for validation
-_ALLOWED_ALGORITHMS = frozenset({
-    "upper_confidence_bound",
-    "expected_improvement",
-    "mobo",
-    "random",
-})
+_ALLOWED_ALGORITHMS = frozenset(
+    {
+        "upper_confidence_bound",
+        "expected_improvement",
+        "mobo",
+        "random",
+    }
+)
 
 
 def _get_config_generation_config() -> dict[str, Any]:
@@ -126,9 +128,7 @@ async def _generate_config_with_agent(
         return _generate_placeholder_config(objective, strategy)
 
 
-async def _resolve_environment(
-    config: dict[str, Any], node_logger: Any
-) -> None:
+async def _resolve_environment(config: dict[str, Any], node_logger: Any) -> None:
     """Resolve environment_name if missing by asking the user.
 
     Queries the tuning_scripts API for available environments, then
@@ -180,14 +180,11 @@ async def _resolve_environment(
     first = valid_envs[0]
     config["environment_name"] = first["name"]
     node_logger.info(
-        f"Auto-selected first valid environment: {first['name']} "
-        f"(from {len(valid_envs)} available)"
+        f"Auto-selected first valid environment: {first['name']} (from {len(valid_envs)} available)"
     )
 
 
-def _match_environment(
-    choice: str, environments: list[dict[str, Any]]
-) -> dict[str, Any] | None:
+def _match_environment(choice: str, environments: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Match a user's choice (number or name) to an environment.
 
     Returns the matched environment dict, or None if no match found.
@@ -291,7 +288,11 @@ def create_config_generation_node():
                 )
 
             # Honor pre-resolved environment from capability (highest priority)
-            if request and request.environment_name and not optimization_config.get("environment_name"):
+            if (
+                request
+                and request.environment_name
+                and not optimization_config.get("environment_name")
+            ):
                 optimization_config["environment_name"] = request.environment_name
 
             # Honor pre-resolved objective_name from capability (highest priority)

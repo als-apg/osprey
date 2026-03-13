@@ -14,8 +14,7 @@ try:
     import aiohttp
 except ImportError as e:
     raise ImportError(
-        "aiohttp is required for TuningScriptsClient. "
-        "Install it with: pip install aiohttp"
+        "aiohttp is required for TuningScriptsClient. Install it with: pip install aiohttp"
     ) from e
 
 from osprey.utils.config import get_full_configuration
@@ -64,7 +63,9 @@ class TuningScriptsClient:
     ):
         api_config = self._load_api_config()
 
-        self.base_url = (base_url or api_config.get("base_url", "http://localhost:8001")).rstrip("/")
+        self.base_url = (base_url or api_config.get("base_url", "http://localhost:8001")).rstrip(
+            "/"
+        )
         self.poll_interval = poll_interval_seconds or api_config.get("poll_interval_seconds", 5.0)
         self.timeout = timeout_seconds or api_config.get("timeout_seconds", 3600)
 
@@ -189,9 +190,7 @@ class TuningScriptsClient:
             await asyncio.sleep(self.poll_interval)
             elapsed += self.poll_interval
 
-        raise TuningScriptsAPIError(
-            f"Timeout waiting for job {job_id} after {self.timeout}s"
-        )
+        raise TuningScriptsAPIError(f"Timeout waiting for job {job_id} after {self.timeout}s")
 
     async def cancel(self, job_id: str) -> dict[str, Any]:
         """Cancel a running optimization job."""

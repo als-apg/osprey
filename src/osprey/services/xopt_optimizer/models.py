@@ -169,7 +169,9 @@ class XOptExecutionRequest(BaseModel):
 
     # Pre-resolved environment and objective (set by capability before service invocation)
     environment_name: str | None = Field(None, description="Pre-resolved environment name")
-    objective_name: str | None = Field(None, description="Pre-resolved objective name from environment")
+    objective_name: str | None = Field(
+        None, description="Pre-resolved objective name from environment"
+    )
 
     # Standard Osprey fields
     require_approval: bool = Field(default=True)
