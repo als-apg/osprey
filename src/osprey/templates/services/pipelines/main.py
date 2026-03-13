@@ -1048,9 +1048,16 @@ class Pipeline:
         accumulated_response = [""]  # Use list for closure access
         code_streaming_active = [False]  # Track if code fence is open
         code_start_buffer = [""]  # Buffer initial tokens for fence detection
+        code_hide_buffer = [[]]  # Buffer code tokens for hide mode (emitted as complete block)
         previous_code_attempt = [0]  # Track which attempt is being streamed
         current_generation_attempt = [1]  # Track retry attempts
         response_was_streamed = [False]  # Track if any response tokens arrived
+
+        # Streaming display mode configuration
+        from osprey.utils.config import get_streaming_mode
+
+        respond_streaming = get_streaming_mode("openwebui", "respond")
+        codegen_streaming = get_streaming_mode("openwebui", "python_code_generator")
 
         # Initialize instance variables for metadata
         self._last_response_was_streamed = False
@@ -1102,7 +1109,23 @@ class Pipeline:
                                     if code_streaming_active[0]:
                                         code_streaming_active[0] = False
                                         code_start_buffer[0] = ""
-                                        stream_queue.put(("response_token", "\n```\n\n"))
+                                        if codegen_streaming == "hide":
+                                            # Emit buffered code as complete <details> block
+                                            buffered_code = "".join(code_hide_buffer[0])
+                                            if buffered_code:
+                                                line_count = len(buffered_code.strip().split("\n"))
+                                                details_block = (
+                                                    "<details>\n"
+                                                    f"<summary>Generated Code ({line_count} lines)</summary>\n\n"
+                                                    f"```python\n{buffered_code}\n```\n"
+                                                    "</details>\n\n"
+                                                )
+                                                stream_queue.put(("response_token", details_block))
+                                                response_was_streamed[0] = True
+                                            code_hide_buffer[0] = []
+                                        elif codegen_streaming == "show":
+                                            stream_queue.put(("response_token", "\n```\n\n"))
+                                        # disabled: nothing to close
                                     current_generation_attempt[0] = event.attempt
 
                                 # Filter for displayable events
@@ -1150,10 +1173,29 @@ class Pipeline:
                                         and node_name != "python_code_generator"
                                     ):
                                         code_streaming_active[0] = False
-                                        stream_queue.put(("response_token", "\n```\n\n"))
+                                        if codegen_streaming == "hide":
+                                            # Emit buffered code as complete <details> block
+                                            buffered_code = "".join(code_hide_buffer[0])
+                                            if buffered_code:
+                                                line_count = len(buffered_code.strip().split("\n"))
+                                                details_block = (
+                                                    "<details>\n"
+                                                    f"<summary>Generated Code ({line_count} lines)</summary>\n\n"
+                                                    f"```python\n{buffered_code}\n```\n"
+                                                    "</details>\n\n"
+                                                )
+                                                stream_queue.put(("response_token", details_block))
+                                                response_was_streamed[0] = True
+                                            code_hide_buffer[0] = []
+                                        else:  # show (disabled never opens a fence)
+                                            stream_queue.put(("response_token", "\n```\n\n"))
 
                                     # Code generation tokens
                                     if node_name == "python_code_generator":
+                                        # Skip entirely if code streaming is disabled
+                                        if codegen_streaming == "disabled":
+                                            continue
+
                                         content = message_chunk.content
 
                                         # Buffer initial tokens to detect and strip LLM-added fence prefix
@@ -1183,10 +1225,16 @@ class Pipeline:
                                             code_streaming_active[0] = True
                                             previous_code_attempt[0] = current_generation_attempt[0]
                                             code_start_buffer[0] = ""
-                                            content = f"```python\n{stripped}"
 
-                                            response_was_streamed[0] = True
-                                            stream_queue.put(("response_token", content))
+                                            # Prefix depends on streaming mode
+                                            if codegen_streaming == "hide":
+                                                # Buffer tokens — emit as complete block later
+                                                if stripped:
+                                                    code_hide_buffer[0].append(stripped)
+                                            else:  # show
+                                                content = f"```python\n{stripped}"
+                                                response_was_streamed[0] = True
+                                                stream_queue.put(("response_token", content))
                                             continue
 
                                         # After buffer phase: strip mid-stream fence artifacts
@@ -1200,11 +1248,20 @@ class Pipeline:
                                         )
 
                                         if content:
-                                            response_was_streamed[0] = True
-                                            stream_queue.put(("response_token", content))
+                                            if codegen_streaming == "hide":
+                                                # Buffer tokens — emit as complete block later
+                                                code_hide_buffer[0].append(content)
+                                            else:  # show
+                                                response_was_streamed[0] = True
+                                                stream_queue.put(("response_token", content))
 
                                     # Response tokens from respond node
                                     elif node_name == "respond":
+                                        if respond_streaming == "disabled":
+                                            # Don't stream — fallback path will yield
+                                            # the full response from state after completion
+                                            continue
+
                                         # Stream response token directly (no manual fence markers)
                                         # Open WebUI handles markdown rendering automatically
                                         response_was_streamed[0] = True
@@ -1219,7 +1276,22 @@ class Pipeline:
                     # Close any trailing code fence
                     if code_streaming_active[0]:
                         code_streaming_active[0] = False
-                        stream_queue.put(("response_token", "\n```\n"))
+                        if codegen_streaming == "hide":
+                            # Emit buffered code as complete <details> block
+                            buffered_code = "".join(code_hide_buffer[0])
+                            if buffered_code:
+                                line_count = len(buffered_code.strip().split("\n"))
+                                details_block = (
+                                    "<details>\n"
+                                    f"<summary>Generated Code ({line_count} lines)</summary>\n\n"
+                                    f"```python\n{buffered_code}\n```\n"
+                                    "</details>\n\n"
+                                )
+                                stream_queue.put(("response_token", details_block))
+                                response_was_streamed[0] = True
+                            code_hide_buffer[0] = []
+                        else:  # show
+                            stream_queue.put(("response_token", "\n```\n"))
 
                     # Signal completion (both natural and cancelled paths)
                     stream_queue.put(("done", (response_was_streamed[0], accumulated_response[0])))
