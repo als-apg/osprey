@@ -138,7 +138,7 @@ export function createEventSource(url, { onMessage, onError } = {}) {
  * Fetch JSON from a URL.
  */
 export async function fetchJSON(url) {
-  const res = await fetch(url);
+  const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
   return res.json();
 }
