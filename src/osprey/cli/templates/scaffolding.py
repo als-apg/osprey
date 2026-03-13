@@ -229,17 +229,39 @@ def copy_services_selective(template_root: Path, project_dir: Path, service_name
                 shutil.copy(item, dst_services / item.name)
 
 
+def _copy_data_tree(src_dir: Path, dst_dir: Path, template_root: Path, jinja_env, ctx: dict):
+    """Copy a data directory, rendering .j2 files and copying the rest as-is.
+
+    Files ending in .j2 are rendered through Jinja2 (with the extension stripped).
+    All other files are copied verbatim.
+    """
+    for item in src_dir.iterdir():
+        if item.is_dir():
+            _copy_data_tree(item, dst_dir / item.name, template_root, jinja_env, ctx)
+        elif item.suffix == ".j2":
+            # Render through Jinja2 and strip the .j2 extension
+            dst_file = dst_dir / item.stem  # e.g. foo.json.j2 → foo.json
+            template_path = str(item.relative_to(template_root))
+            render_template(jinja_env, template_path, ctx, dst_file)
+        else:
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, dst_dir / item.name)
+
+
 def copy_template_data(
     template_root: Path,
     project_dir: Path,
     package_name: str,
     template_name: str,
     ctx: dict,
+    jinja_env=None,
 ):
     """Copy data files from template to project root (no src/ package).
 
     Data files (channel databases, channel_limits.json, logbook seeds,
-    benchmark datasets) are placed at project_dir/data/.
+    benchmark datasets) are placed at project_dir/data/.  Files with a
+    ``.j2`` extension are rendered through Jinja2 (extension stripped);
+    all other files are copied as-is.
 
     Args:
         template_root: Path to osprey's bundled templates directory
@@ -247,6 +269,7 @@ def copy_template_data(
         package_name: Python package name (used to locate template data dirs)
         template_name: Name of the application template
         ctx: Template context variables
+        jinja_env: Optional Jinja2 environment for rendering .j2 data files
     """
     app_template_dir = template_root / "apps" / template_name
 
@@ -254,7 +277,10 @@ def copy_template_data(
     template_data_dir = app_template_dir / "data"
     if template_data_dir.exists() and template_data_dir.is_dir():
         dst_data = project_dir / "data"
-        shutil.copytree(template_data_dir, dst_data, dirs_exist_ok=True)
+        if jinja_env is not None:
+            _copy_data_tree(template_data_dir, dst_data, template_root, jinja_env, ctx)
+        else:
+            shutil.copytree(template_data_dir, dst_data, dirs_exist_ok=True)
         console.print(
             f"  [success]✓[/success] Copied template data files to [path]{dst_data}[/path]"
         )
@@ -268,17 +294,20 @@ def copy_template_data(
         if template_file.name == "data":
             # Copy to project root data/ (flatten from template structure)
             dst_data = project_dir / "data"
-            if not dst_data.exists():
-                shutil.copytree(template_file, dst_data, dirs_exist_ok=True)
+            if jinja_env is not None:
+                _copy_data_tree(template_file, dst_data, template_root, jinja_env, ctx)
             else:
-                # Merge into existing data/
-                for item in template_file.iterdir():
-                    dst_item = dst_data / item.name
-                    if item.is_dir():
-                        shutil.copytree(item, dst_item, dirs_exist_ok=True)
-                    elif item.is_file():
-                        dst_item.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(item, dst_item)
+                if not dst_data.exists():
+                    shutil.copytree(template_file, dst_data, dirs_exist_ok=True)
+                else:
+                    # Merge into existing data/
+                    for item in template_file.iterdir():
+                        dst_item = dst_data / item.name
+                        if item.is_dir():
+                            shutil.copytree(item, dst_item, dirs_exist_ok=True)
+                        elif item.is_file():
+                            dst_item.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(item, dst_item)
             console.print(
                 f"  [success]✓[/success] Copied template data files to [path]{dst_data}[/path]"
             )
