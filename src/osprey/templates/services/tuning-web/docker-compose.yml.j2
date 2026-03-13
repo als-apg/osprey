@@ -1,0 +1,27 @@
+services:
+  tuning-web:
+    build:
+      context: {{ services.tuning_web.source_path }}
+      dockerfile: tuning_scripts_web/Dockerfile
+    container_name: tuning-web
+    labels:
+      osprey.project.name: "{{ osprey_labels.project_name }}"
+      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+    restart: unless-stopped
+    ports:
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.tuning_web.port_host | default(8050) }}:8050"
+    environment:
+      API_URL: http://tuning-api:8001
+      REDIS_URL: redis://tuning-redis:6379/0
+      TZ: {{ system.timezone }}
+    networks:
+      - osprey-network
+    depends_on:
+      tuning-redis:
+        condition: service_healthy
+      tuning-api:
+        condition: service_started
+
+networks:
+  osprey-network:

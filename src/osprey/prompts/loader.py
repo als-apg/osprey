@@ -398,6 +398,16 @@ class FrameworkPromptProvider:
 
         return DefaultMiddleLayerPromptBuilder()
 
+    def get_optimization_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for optimization capability guides.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific optimization guidance.
+        """
+        from osprey.prompts.defaults.optimization import DefaultOptimizationPromptBuilder
+
+        return DefaultOptimizationPromptBuilder()
+
     # =================================================================
     # ARIEL prompt builders (used by native ARIEL search service)
     # =================================================================

@@ -1,0 +1,26 @@
+services:
+  tuning-redis:
+    image: redis:7-alpine
+    container_name: tuning-redis
+    labels:
+      osprey.project.name: "{{ osprey_labels.project_name }}"
+      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+    restart: unless-stopped
+    environment:
+      TZ: {{ system.timezone }}
+    volumes:
+      - tuning_redis_data:/data
+    networks:
+      - osprey-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  tuning_redis_data:
+
+networks:
+  osprey-network:

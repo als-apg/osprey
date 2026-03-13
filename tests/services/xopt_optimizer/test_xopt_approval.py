@@ -1,0 +1,101 @@
+"""Unit Tests for XOpt Approval Interrupt Function.
+
+This module tests the create_xopt_approval_interrupt function.
+"""
+
+from osprey.approval import create_xopt_approval_interrupt
+
+
+class TestCreateXOptApprovalInterrupt:
+    """Test create_xopt_approval_interrupt function."""
+
+    def test_basic_interrupt_creation(self):
+        """Should create interrupt data with required fields."""
+        result = create_xopt_approval_interrupt(
+            optimization_config={"algorithm": "upper_confidence_bound", "n_iterations": 20},
+            strategy="exploration",
+            objective="Maximize efficiency",
+        )
+
+        assert "user_message" in result
+        assert "resume_payload" in result
+
+        # Check user message content
+        assert "HUMAN APPROVAL REQUIRED" in result["user_message"]
+        assert "Maximize efficiency" in result["user_message"]
+        assert "EXPLORATION" in result["user_message"]
+        assert "algorithm" in result["user_message"]
+
+        # Check resume payload
+        payload = result["resume_payload"]
+        assert payload["approval_type"] == "xopt_optimizer"
+        assert payload["optimization_config"] == {
+            "algorithm": "upper_confidence_bound",
+            "n_iterations": 20,
+        }
+        assert payload["strategy"] == "exploration"
+        assert payload["objective"] == "Maximize efficiency"
+
+    def test_interrupt_with_machine_state_details(self):
+        """Should include machine state details when provided."""
+        machine_details = {
+            "beam_current": 50.0,
+            "status": "ready",
+        }
+
+        result = create_xopt_approval_interrupt(
+            optimization_config={"algorithm": "random"},
+            strategy="optimization",
+            objective="Test objective",
+            machine_state_details=machine_details,
+        )
+
+        # Machine state should appear in message
+        assert "Machine State Assessment" in result["user_message"]
+        assert "beam_current" in result["user_message"]
+
+        # Should be in payload
+        assert result["resume_payload"]["machine_state_details"] == machine_details
+
+    def test_interrupt_with_custom_step_objective(self):
+        """Should use custom step objective."""
+        result = create_xopt_approval_interrupt(
+            optimization_config={"algorithm": "random"},
+            strategy="exploration",
+            objective="Test",
+            step_objective="Custom optimization task",
+        )
+
+        assert "Custom optimization task" in result["user_message"]
+        assert result["resume_payload"]["step_objective"] == "Custom optimization task"
+
+    def test_interrupt_contains_approval_instructions(self):
+        """Should contain clear approval instructions."""
+        result = create_xopt_approval_interrupt(
+            optimization_config={"algorithm": "random"},
+            strategy="exploration",
+            objective="Test",
+        )
+
+        message = result["user_message"]
+        assert "yes" in message.lower()
+        assert "no" in message.lower()
+        assert "approve" in message.lower()
+
+    def test_interrupt_config_displayed_as_yaml(self):
+        """Should display config as YAML in code block."""
+        config = {
+            "algorithm": "expected_improvement",
+            "n_iterations": 30,
+            "environment_name": "test_env",
+        }
+        result = create_xopt_approval_interrupt(
+            optimization_config=config,
+            strategy="optimization",
+            objective="Test",
+        )
+
+        # Config should be rendered in a yaml code block
+        assert "```yaml" in result["user_message"]
+        assert "expected_improvement" in result["user_message"]
+        assert "n_iterations" in result["user_message"]
