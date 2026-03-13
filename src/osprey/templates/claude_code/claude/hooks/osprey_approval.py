@@ -29,8 +29,8 @@ stdin ──► Parse JSON
   disabled  selective  all_capabilities
      │        │            │
      ▼        ▼            ▼
-   EXIT    channel_write?  ASK (approve
-  (allow)     │           every tool)
+   EXIT    channel_write?  ASK (approve every tool;
+  (allow)     │            + notebook if execute)
               ▼
           ──YES──► ASK (channel details)
               │
@@ -56,8 +56,8 @@ Supports three modes from `approval.global_mode` in config:
 - **selective** (default): only `channel_write` and write-mode `execute`
   need approval; includes pattern detection for EPICS write calls
 
-Creates a pre-execution notebook artifact for code review when approving
-`execute` with write patterns.
+Creates a pre-execution notebook artifact for code review whenever
+`execute` requires approval (write mode, write patterns, or all_capabilities).
 """
 
 import json
@@ -160,6 +160,26 @@ def build_allow_output() -> dict:
     }
 
 
+def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
+    """Fire-and-forget POST to bring an artifact into focus in the gallery.
+
+    Non-fatal: silently swallows errors so focus failures never block approval.
+    """
+    try:
+        import urllib.request
+
+        data = json.dumps({"artifact_id": artifact_id}).encode()
+        req = urllib.request.Request(
+            f"{gallery_base_url}/api/focus",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=2)
+    except Exception:
+        pass
+
+
 def _create_pre_execution_notebook(code: str, exec_mode: str, config: dict) -> str | None:
     """Create a pre-execution notebook artifact for code review.
 
@@ -187,7 +207,7 @@ def _create_pre_execution_notebook(code: str, exec_mode: str, config: dict) -> s
         nb_bytes = nbformat.writes(nb).encode()
 
         store = ArtifactStore()
-        store.save_file(
+        entry = store.save_file(
             file_content=nb_bytes,
             filename="pre_execution_review.ipynb",
             artifact_type="notebook",
@@ -197,11 +217,16 @@ def _create_pre_execution_notebook(code: str, exec_mode: str, config: dict) -> s
             tool_source="osprey_approval",
         )
 
-        # Build gallery URL
+        # Build gallery URL and bring the notebook into focus
         art_config = config.get("artifact_server", {})
         host = art_config.get("host", "127.0.0.1")
         port = art_config.get("port", 8086)
-        return f"http://{host}:{port}#focus"
+        base_url = f"http://{host}:{port}"
+
+        # Fire-and-forget POST to switch gallery focus to this notebook
+        _focus_artifact(base_url, entry.id)
+
+        return f"{base_url}#focus"
     except Exception:
         return None
 
@@ -238,7 +263,22 @@ def main():
 
     # All-capabilities — approve every OSPREY tool
     if mode == "all_capabilities":
-        reason = f"Tool: {short_name}\nApproval mode: all_capabilities\nAll OSPREY tool calls require approval."
+        reason_parts = [
+            f"Tool: {short_name}",
+            "Approval mode: all_capabilities",
+            "All OSPREY tool calls require approval.",
+        ]
+
+        # Create a review notebook when the tool carries code
+        if short_name == "execute":
+            code = tool_input.get("code", "")
+            exec_mode = tool_input.get("execution_mode", "")
+            if code.strip():
+                gallery_link = _create_pre_execution_notebook(code, exec_mode, config)
+                if gallery_link:
+                    reason_parts.append(f"\nReview notebook: {gallery_link}")
+
+        reason = "\n".join(reason_parts)
         log_hook(
             "approval", hook_input, status="ask", detail=f"mode=all_capabilities tool={short_name}"
         )
@@ -266,16 +306,18 @@ def main():
             exec_mode = tool_input.get("execution_mode", "")
             code = tool_input.get("code", "")
 
-            needs_approval = exec_mode == "write" or has_write_patterns(code, config)
+            writes_detected = has_write_patterns(code, config)
+            needs_approval = exec_mode == "write" or writes_detected
             if needs_approval:
                 reason_parts = [f"Python execution (mode: {exec_mode or 'unspecified'})"]
-                if has_write_patterns(code, config):
+                if writes_detected:
                     reason_parts.append("Code contains control system write patterns.")
 
-                # Create pre-execution notebook for review
-                gallery_link = _create_pre_execution_notebook(code, exec_mode, config)
-                if gallery_link:
-                    reason_parts.append(f"\nReview notebook: {gallery_link}")
+                # Create pre-execution notebook so reviewer can inspect the code
+                if code.strip():
+                    gallery_link = _create_pre_execution_notebook(code, exec_mode, config)
+                    if gallery_link:
+                        reason_parts.append(f"\nReview notebook: {gallery_link}")
 
                 reason = "\n".join(reason_parts)
                 log_hook("approval", hook_input, status="ask", detail="execute_write")
