@@ -13,12 +13,19 @@ let agentPanel = null;
 
 // Known enum values for select dropdowns
 const ENUM_FIELDS = {
-  'approval.global_mode': ['disabled', 'selective', 'all_capabilities'],
   'control_system.write_verification': ['none', 'callback', 'readback'],
+  'approval.default_policy': ['always', 'selective', 'skip'],
+  'approval.tools.channel_write': ['always', 'selective', 'skip'],
+  'approval.tools.channel_read': ['always', 'selective', 'skip'],
+  'approval.tools.archiver_read': ['always', 'selective', 'skip'],
+  'approval.tools.execute': ['always', 'selective', 'skip'],
+  'approval.tools.setup_patch': ['always', 'selective', 'skip'],
+  'approval.tools.entry_create': ['always', 'selective', 'skip'],
 };
 
 // Fields that should render as toggles (boolean)
 const BOOLEAN_FIELDS = new Set([
+  'approval.enabled',
   'control_system.writes_enabled',
   'control_system.read_only',
   'python_execution.enabled',
