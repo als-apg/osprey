@@ -508,9 +508,10 @@ class TestTemplateRendering:
         # Core servers should be in server_prefixes
         assert "mcp__controls__" in data["server_prefixes"]
         assert "mcp__workspace__" in data["server_prefixes"]
-        # Controls has approval hooks, workspace does not
+        # Controls, workspace, and ariel all have approval hooks
         assert "mcp__controls__" in data["approval_prefixes"]
-        assert "mcp__workspace__" not in data["approval_prefixes"]
+        assert "mcp__workspace__" in data["approval_prefixes"]
+        assert "mcp__ariel__" in data["approval_prefixes"]
 
     def test_render_hook_config_json_with_custom_server(self, template_manager):
         """Custom server with approval preset appears in both prefix lists."""

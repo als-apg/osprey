@@ -2,10 +2,10 @@
 """
 ---
 name: Human Approval Gate
-description: Requires human approval for dangerous operations based on config approval mode
+description: Requires human approval for dangerous operations based on per-tool policy
 summary: Requires human approval for dangerous operations
 event: PreToolUse
-tools: channel_write, execute
+tools: channel_write, execute, setup_patch, entry_create
 safety_layer: 2
 ---
 
@@ -21,43 +21,43 @@ stdin ──► Parse JSON
               │
               ▼
          Load config.yml
-         approval.global_mode
+         approval section
               │
               ▼
-     ┌────────┼────────────┐
-     │        │            │
-  disabled  selective  all_capabilities
-     │        │            │
-     ▼        ▼            ▼
-   EXIT    channel_write?  ASK (approve every tool;
-  (allow)     │            + notebook if execute)
-              ▼
-          ──YES──► ASK (channel details)
-              │
-             NO
-              │
-              ▼
-          execute?
-              │
-          ──YES──► write mode OR  ──YES──► ASK (with
-              │    write patterns?         notebook link)
-             NO         │
-              │        NO
-              ▼         │
-           EXIT ◄───────┘
-          (allow)
+     ┌── tools key? ──NO──► Legacy global_mode path
+     │
+    YES
+     │
+     ▼
+  enabled: false?  ──YES──► EXIT (allow)
+     │
+    NO
+     │
+     ▼
+  Look up policy for tool
+  (fallback: default_policy)
+     │
+     ├── skip ──────► EXIT (allow)
+     ├── selective ──► Content analysis (execute: write patterns)
+     └── always ────► ASK (with tool details)
 ```
 
 ## Details
 
-Supports three modes from `approval.global_mode` in config:
+**New path (tools dict):** Per-tool policies from config:
+- **skip**: tool allowed without prompt
+- **always**: every call requires approval
+- **selective**: content-aware (execute checks write patterns + exec mode)
+- **enabled: false**: global toggle disables all approval
+- **default_policy**: fail-closed default for unmapped tools
+
+**Legacy fallback (no tools key):** Three modes from `approval.global_mode`:
 - **disabled**: all tools allowed without prompt
 - **all_capabilities**: every OSPREY tool call requires approval
 - **selective** (default): only `channel_write` and write-mode `execute`
-  need approval; includes pattern detection for EPICS write calls
 
 Creates a pre-execution notebook artifact for code review whenever
-`execute` requires approval (write mode, write patterns, or all_capabilities).
+`execute` requires approval (write mode, write patterns, or always policy).
 """
 
 import json
@@ -253,6 +253,108 @@ def main():
 
     config = load_osprey_config(hook_input)
     approval_config = config.get("approval", {})
+
+    # ── New path: per-tool policy dispatch ───────────────────
+    if "tools" in approval_config:
+        # Global toggle — disabled means allow everything
+        if not approval_config.get("enabled", True):
+            log_hook("approval", hook_input, status="allow", detail="enabled=false")
+            json.dump(build_allow_output(), sys.stdout)
+            sys.exit(0)
+
+        default_policy = approval_config.get("default_policy", "always")
+        tool_policies = approval_config["tools"]
+        policy = tool_policies.get(short_name, default_policy)
+
+        # Skip policy — no approval needed
+        if policy == "skip":
+            log_hook("approval", hook_input, status="allow", detail=f"policy=skip tool={short_name}")
+            json.dump(build_allow_output(), sys.stdout)
+            sys.exit(0)
+
+        # Selective policy — content-aware analysis
+        if policy == "selective":
+            if short_name == "execute":
+                exec_mode = tool_input.get("execution_mode", "")
+                code = tool_input.get("code", "")
+
+                writes_detected = has_write_patterns(code, config)
+                needs_approval = exec_mode == "write" or writes_detected
+                if needs_approval:
+                    reason_parts = [f"Python execution (mode: {exec_mode or 'unspecified'})"]
+                    if writes_detected:
+                        reason_parts.append("Code contains control system write patterns.")
+                    if code.strip():
+                        gallery_link = _create_pre_execution_notebook(code, exec_mode, config)
+                        if gallery_link:
+                            reason_parts.append(f"\nReview notebook: {gallery_link}")
+                    reason = "\n".join(reason_parts)
+                    log_hook("approval", hook_input, status="ask", detail="execute_selective")
+                    json.dump(build_approval_output(reason), sys.stdout)
+                    sys.exit(0)
+
+                # Selective execute without write indicators — allow
+                log_hook(
+                    "approval", hook_input, status="allow", detail="execute_selective_readonly"
+                )
+                json.dump(build_allow_output(), sys.stdout)
+                sys.exit(0)
+
+            # For channel_write under selective, treat as always (conservative)
+            if short_name == "channel_write":
+                channels = tool_input.get("operations", [])
+                if not channels:
+                    ch = tool_input.get("channel")
+                    val = tool_input.get("value")
+                    if ch is not None:
+                        channels = [{"channel": ch, "value": val}]
+                channel_list = ", ".join(
+                    f"{op.get('channel')}={op.get('value')}" for op in channels
+                )
+                reason = f"Channel write: {channel_list or 'unknown'}"
+                log_hook("approval", hook_input, status="ask", detail="channel_write_selective")
+                json.dump(build_approval_output(reason), sys.stdout)
+                sys.exit(0)
+
+            # Other tools under selective: treat as always (conservative)
+            # Falls through to "always" handling below
+
+        # Always policy (explicit or fallback from selective for non-execute/write tools)
+        reason_parts = [
+            f"Tool: {short_name}",
+            f"Approval policy: {policy}",
+        ]
+        if short_name == "execute":
+            code = tool_input.get("code", "")
+            exec_mode = tool_input.get("execution_mode", "")
+            if code.strip():
+                gallery_link = _create_pre_execution_notebook(code, exec_mode, config)
+                if gallery_link:
+                    reason_parts.append(f"\nReview notebook: {gallery_link}")
+        elif short_name == "channel_write":
+            channels = tool_input.get("operations", [])
+            if not channels:
+                ch = tool_input.get("channel")
+                val = tool_input.get("value")
+                if ch is not None:
+                    channels = [{"channel": ch, "value": val}]
+            channel_list = ", ".join(
+                f"{op.get('channel')}={op.get('value')}" for op in channels
+            )
+            if channel_list:
+                reason_parts.append(f"Channels: {channel_list}")
+
+        reason = "\n".join(reason_parts)
+        log_hook(
+            "approval",
+            hook_input,
+            status="ask",
+            detail=f"policy={policy} tool={short_name}",
+        )
+        json.dump(build_approval_output(reason), sys.stdout)
+        sys.exit(0)
+
+    # ── Legacy fallback: global_mode-based dispatch ────────────
     mode = approval_config.get("global_mode", "selective")
 
     # Disabled — explicitly allow everything

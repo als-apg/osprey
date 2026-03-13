@@ -66,20 +66,43 @@ async def channel_write(
             try:
                 validator.validate(channel, value)
             except Exception as exc:
-                violations.append(
-                    {
-                        "channel": channel,
-                        "value": value,
-                        "violation": str(exc),
-                    }
-                )
+                violation = {
+                    "channel": channel,
+                    "attempted_value": value,
+                    "violation_type": getattr(exc, "violation_type", "unknown"),
+                    "reason": getattr(exc, "violation_reason", str(exc)),
+                }
+                if getattr(exc, "min_value", None) is not None:
+                    violation["min_value"] = exc.min_value
+                if getattr(exc, "max_value", None) is not None:
+                    violation["max_value"] = exc.max_value
+                if getattr(exc, "max_step", None) is not None:
+                    violation["max_step"] = exc.max_step
+                if getattr(exc, "current_value", None) is not None:
+                    violation["current_value"] = exc.current_value
+                violations.append(violation)
 
     if violations:
+        # Build a clear message with limits info for each violation
+        parts = []
+        for v in violations:
+            part = f"{v['channel']}={v['attempted_value']}: {v['reason']}"
+            if "min_value" in v or "max_value" in v:
+                part += f" (allowed range: [{v.get('min_value')}, {v.get('max_value')}])"
+            if "max_step" in v:
+                part += f" (max step: {v['max_step']})"
+            parts.append(part)
+
         return json.dumps(
             make_error(
                 "limits_violation",
-                f"Channel limits violated for {len(violations)} operation(s).",
-                [v["violation"] for v in violations],
+                f"Channel limits violated: {'; '.join(parts)}",
+                [
+                    "Do NOT attempt to work around this limit.",
+                    "Report the violation to the operator with the allowed range.",
+                    "The operator may adjust the limits database if the value is appropriate.",
+                ],
+                details=violations,
             )
         )
 

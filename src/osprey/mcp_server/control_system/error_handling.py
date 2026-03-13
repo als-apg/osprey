@@ -12,6 +12,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from osprey.errors import ChannelLimitsViolationError
 from osprey.mcp_server.errors import make_error
 
 logger = logging.getLogger("osprey.mcp_server.control_system.error_handling")
@@ -71,6 +72,39 @@ async def connector_error_handler(
                     "timeout_error",
                     f"{tool_name} timed out: {exc}",
                     ["Check network connectivity.", "Try a smaller request."],
+                )
+            )
+        ) from exc
+    except ChannelLimitsViolationError as exc:
+        violation = {
+            "channel": exc.channel_address,
+            "attempted_value": exc.attempted_value,
+            "violation_type": exc.violation_type,
+            "reason": exc.violation_reason,
+        }
+        if exc.min_value is not None:
+            violation["min_value"] = exc.min_value
+        if exc.max_value is not None:
+            violation["max_value"] = exc.max_value
+        if exc.max_step is not None:
+            violation["max_step"] = exc.max_step
+        if exc.current_value is not None:
+            violation["current_value"] = exc.current_value
+
+        msg = f"Channel limits violated during {tool_name}: {exc.violation_reason}"
+        if exc.min_value is not None or exc.max_value is not None:
+            msg += f" (allowed range: [{exc.min_value}, {exc.max_value}])"
+
+        raise ToolError(
+            json.dumps(
+                make_error(
+                    "limits_violation",
+                    msg,
+                    [
+                        "Do NOT attempt to work around this limit.",
+                        "Report the violation to the operator with the allowed range.",
+                    ],
+                    details=violation,
                 )
             )
         ) from exc

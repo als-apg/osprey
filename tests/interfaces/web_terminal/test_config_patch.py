@@ -31,7 +31,7 @@ control_system:
     on_violation: "skip"
 
 approval:
-  global_mode: "selective"
+  enabled: true
 
 artifact_server:
   host: "127.0.0.1"
@@ -102,7 +102,7 @@ class TestPatchEndpoint:
                     "control_system.writes_enabled": True,
                     "control_system.type": "epics",
                     "artifact_server.port": 7777,
-                    "approval.global_mode": "disabled",
+                    "approval.enabled": False,
                 }
             },
         )
@@ -113,7 +113,7 @@ class TestPatchEndpoint:
         assert data["control_system"]["writes_enabled"] is True
         assert data["control_system"]["type"] == "epics"
         assert data["artifact_server"]["port"] == 7777
-        assert data["approval"]["global_mode"] == "disabled"
+        assert data["approval"]["enabled"] is False
 
     def test_patch_preserves_comments(self, client, project_dir):
         client.patch(
