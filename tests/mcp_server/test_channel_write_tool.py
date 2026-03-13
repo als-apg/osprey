@@ -108,12 +108,21 @@ async def test_channel_write_with_readback(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 async def test_channel_write_limits_violation(tmp_path, monkeypatch):
-    """Write exceeding channel limits (via inline validator) returns error."""
+    """Write exceeding channel limits (via inline validator) returns structured error."""
+    from osprey.errors import ChannelLimitsViolationError
+
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
 
     mock_validator = MagicMock()
-    mock_validator.validate.side_effect = ValueError("Value 9999.0 exceeds max limit 100.0")
+    mock_validator.validate.side_effect = ChannelLimitsViolationError(
+        channel_address="TEST:PV",
+        value=9999.0,
+        violation_type="MAX_EXCEEDED",
+        violation_reason="Value 9999.0 above maximum 100.0",
+        min_value=0.0,
+        max_value=100.0,
+    )
 
     with patch(
         "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
@@ -125,6 +134,19 @@ async def test_channel_write_limits_violation(tmp_path, monkeypatch):
     data = json.loads(result)
     assert data["error"] is True
     assert data["error_type"] == "limits_violation"
+    # Error message includes the channel, value, reason, and allowed range
+    assert "TEST:PV" in data["error_message"]
+    assert "9999.0" in data["error_message"]
+    assert "100.0" in data["error_message"]
+    # Structured details include machine-readable limits
+    assert "details" in data
+    details = data["details"]
+    assert details[0]["channel"] == "TEST:PV"
+    assert details[0]["min_value"] == 0.0
+    assert details[0]["max_value"] == 100.0
+    assert details[0]["violation_type"] == "MAX_EXCEEDED"
+    # Suggestions are actionable guidance, not the violation banner
+    assert any("Do NOT" in s for s in data["suggestions"])
 
 
 @pytest.mark.unit
@@ -195,6 +217,52 @@ async def test_channel_write_multiple_operations(tmp_path, monkeypatch):
     assert data["status"] == "success"
     assert data["summary"]["total_writes"] == 2
     assert data["summary"]["failed"] == 0
+
+
+@pytest.mark.unit
+async def test_channel_write_connector_limits_violation(tmp_path, monkeypatch):
+    """ChannelLimitsViolationError from connector is classified as limits_violation with structured details."""
+    from osprey.errors import ChannelLimitsViolationError
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    initialize_server_context()
+
+    mock_connector = AsyncMock()
+    mock_connector.write_channel.side_effect = ChannelLimitsViolationError(
+        channel_address="TEST:PV",
+        value=999.0,
+        violation_type="MAX_EXCEEDED",
+        violation_reason="Value 999.0 above maximum 100.0",
+        min_value=0.0,
+        max_value=100.0,
+    )
+
+    with (
+        patch(
+            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+            new_callable=AsyncMock,
+            return_value=mock_connector,
+        ),
+        patch(
+            "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+            return_value=None,
+        ),
+    ):
+        fn = _get_channel_write()
+        result = await fn(operations=[{"channel": "TEST:PV", "value": 999.0}])
+
+    data = json.loads(result)
+    assert data["error"] is True
+    assert data["error_type"] == "limits_violation", (
+        f"Expected limits_violation but got {data['error_type']} — "
+        "ChannelLimitsViolationError from connector must not be misclassified as internal_error"
+    )
+    # Connector-level catch should also provide structured details
+    assert "100.0" in data["error_message"]
+    assert "details" in data
+    assert data["details"]["channel"] == "TEST:PV"
+    assert data["details"]["max_value"] == 100.0
 
 
 @pytest.mark.unit

@@ -16,8 +16,27 @@ import pytest
 
 # Default hook_config matching the original hard-coded OSPREY_PREFIXES
 DEFAULT_APPROVAL_CONFIG = {
-    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__"],
-    "approval_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__"],
+    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__", "mcp__ariel__"],
+    "approval_prefixes": [
+        "mcp__controls__",
+        "mcp__python__",
+        "mcp__workspace__",
+        "mcp__ariel__",
+    ],
+}
+
+# Per-tool approval config for new tests
+DEFAULT_TOOLS_CONFIG = {
+    "enabled": True,
+    "default_policy": "always",
+    "tools": {
+        "channel_write": "always",
+        "channel_read": "skip",
+        "archiver_read": "skip",
+        "execute": "selective",
+        "setup_patch": "always",
+        "entry_create": "always",
+    },
 }
 
 
@@ -725,6 +744,183 @@ def test_custom_server_prefix_triggers_approval(tmp_path, hook_runner, make_conf
     output = result["hookSpecificOutput"]
     assert output["permissionDecision"] == "ask"
     assert "set_output" in output["permissionDecisionReason"]
+
+
+# ============================================================================
+# Per-tool approval tests (new config format)
+# ============================================================================
+
+
+@pytest.mark.unit
+def test_approval_enabled_false_allows_all(tmp_path, hook_runner, make_config):
+    """When approval.enabled is false, all tools pass through."""
+    tools_config = {**DEFAULT_TOOLS_CONFIG, "enabled": False}
+    config = make_config({"approval": tools_config})
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert _is_allow(result)
+
+
+@pytest.mark.unit
+def test_tool_policy_always_asks(tmp_path, hook_runner, make_config):
+    """Tool mapped to 'always' policy always requires approval."""
+    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+
+
+@pytest.mark.unit
+def test_tool_policy_skip_allows(tmp_path, hook_runner, make_config):
+    """Tool mapped to 'skip' policy is allowed without approval."""
+    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__controls__channel_read",
+        {"channels": ["SR:CURRENT:RB"]},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert _is_allow(result)
+
+
+@pytest.mark.unit
+def test_tool_policy_selective_execute_write_mode_asks(tmp_path, hook_runner, make_config):
+    """Selective policy for execute blocks write-mode execution."""
+    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__python__execute",
+        {"code": "print(42)", "execution_mode": "write"},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+
+
+@pytest.mark.unit
+def test_tool_policy_selective_execute_readonly_allows(tmp_path, hook_runner, make_config):
+    """Selective policy for execute allows readonly code without write patterns."""
+    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__python__execute",
+        {"code": "print(42)", "execution_mode": "readonly"},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert _is_allow(result)
+
+
+@pytest.mark.unit
+def test_tool_policy_selective_execute_write_patterns_asks(tmp_path, hook_runner, make_config):
+    """Selective policy for execute blocks code with write patterns."""
+    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__python__execute",
+        {"code": "caput('PV', 1.0)", "execution_mode": "readonly"},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+
+
+@pytest.mark.unit
+def test_unknown_tool_defaults_to_always(tmp_path, hook_runner, make_config):
+    """Tools not in the tools map fall back to default_policy (always)."""
+    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
+
+    # Use a custom hook_config with a novel server prefix
+    custom_config = {
+        "server_prefixes": ["mcp__controls__", "mcp__my_plc__"],
+        "approval_prefixes": ["mcp__controls__", "mcp__my_plc__"],
+    }
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__my_plc__unknown_tool",
+        {"param": "value"},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=custom_config,
+    )
+
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+
+
+@pytest.mark.unit
+def test_setup_patch_always_asks(tmp_path, hook_runner, make_config):
+    """Workspace setup_patch tool requires approval through the hook."""
+    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__workspace__setup_patch",
+        {"path": "control_system.writes_enabled", "value": True},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+
+
+@pytest.mark.unit
+def test_entry_create_always_asks(tmp_path, hook_runner, make_config):
+    """ARIEL entry_create tool requires approval through the hook."""
+    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__ariel__entry_create",
+        {"title": "Test entry", "content": "Test content"},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
 
 
 # ============================================================================

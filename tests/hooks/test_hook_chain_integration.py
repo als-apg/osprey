@@ -26,8 +26,13 @@ WRITE_HOOK_CHAIN = [
 
 # Default hook_config for chain tests (approval hook needs approval_prefixes)
 DEFAULT_CHAIN_CONFIG = {
-    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__"],
-    "approval_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__"],
+    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__", "mcp__ariel__"],
+    "approval_prefixes": [
+        "mcp__controls__",
+        "mcp__python__",
+        "mcp__workspace__",
+        "mcp__ariel__",
+    ],
 }
 
 # Default hook_config for error guidance tests
@@ -263,6 +268,75 @@ def test_python_execute_chain_with_framework_patterns(tmp_path, hook_runner):
     assert result is not None
     assert blocked_by == "osprey_approval.py"
     assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+
+
+@pytest.mark.integration
+def test_per_tool_chain_write_always(tmp_path, hook_runner):
+    """Full hook chain with per-tool config asks approval for channel_write."""
+    config_dict = {
+        "control_system": {
+            "type": "mock",
+            "writes_enabled": True,
+            "limits_checking": {"enabled": False},
+        },
+        "approval": {
+            "enabled": True,
+            "default_policy": "always",
+            "tools": {
+                "channel_write": "always",
+                "channel_read": "skip",
+            },
+        },
+    }
+    config_path = tmp_path / "config.yml"
+    config_path.write_text(yaml.dump(config_dict))
+
+    result, blocked_by = run_hook_chain(
+        hook_runner,
+        WRITE_HOOK_CHAIN,
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 50.0}]},
+        config_path=config_path,
+        cwd=tmp_path,
+    )
+
+    assert result is not None
+    assert blocked_by == "osprey_approval.py"
+    assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+
+
+@pytest.mark.integration
+def test_per_tool_chain_read_skip(tmp_path, hook_runner):
+    """Full hook chain with per-tool config allows channel_read with skip policy."""
+    config_dict = {
+        "control_system": {
+            "type": "mock",
+            "writes_enabled": True,
+            "limits_checking": {"enabled": False},
+        },
+        "approval": {
+            "enabled": True,
+            "default_policy": "always",
+            "tools": {
+                "channel_write": "always",
+                "channel_read": "skip",
+            },
+        },
+    }
+    config_path = tmp_path / "config.yml"
+    config_path.write_text(yaml.dump(config_dict))
+
+    result, blocked_by = run_hook_chain(
+        hook_runner,
+        WRITE_HOOK_CHAIN,
+        "mcp__controls__channel_read",
+        {"channels": ["SR:CURRENT:RB"]},
+        config_path=config_path,
+        cwd=tmp_path,
+    )
+
+    assert result is None  # Skip policy allows through
+    assert blocked_by is None
 
 
 # ============================================================================

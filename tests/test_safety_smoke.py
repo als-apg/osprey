@@ -114,7 +114,18 @@ def smoke_env(tmp_path):
             },
         },
         "archiver": {"type": "mock_archiver"},
-        "approval": {"global_mode": "selective"},
+        "approval": {
+            "enabled": True,
+            "default_policy": "always",
+            "tools": {
+                "channel_write": "always",
+                "channel_read": "skip",
+                "archiver_read": "skip",
+                "execute": "selective",
+                "setup_patch": "always",
+                "entry_create": "always",
+            },
+        },
     }
     config_path = tmp_path / "config.yml"
     config_path.write_text(yaml.dump(config))
@@ -148,8 +159,13 @@ def smoke_env(tmp_path):
 
 # Default hook_config for smoke tests (approval + error guidance prefixes)
 _SMOKE_HOOK_CONFIG = {
-    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__"],
-    "approval_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__"],
+    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__", "mcp__ariel__"],
+    "approval_prefixes": [
+        "mcp__controls__",
+        "mcp__python__",
+        "mcp__workspace__",
+        "mcp__ariel__",
+    ],
     "write_tools": ["mcp__controls__channel_write", "mcp__python__execute"],
 }
 
