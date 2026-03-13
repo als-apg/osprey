@@ -72,7 +72,11 @@ def _get_config_generation_config() -> dict[str, Any]:
     }
 
 
-def _generate_placeholder_config(objective: str, strategy: XOptStrategy) -> dict[str, Any]:
+def _generate_placeholder_config(
+    objective: str,
+    strategy: XOptStrategy,
+    objective_name: str | None = None,
+) -> dict[str, Any]:
     """Generate a placeholder optimization config dict.
 
     Used when config_generation.mode is "mock".
@@ -80,7 +84,7 @@ def _generate_placeholder_config(objective: str, strategy: XOptStrategy) -> dict
     DO NOT add accelerator-specific parameters without operator input.
     """
     algorithm = "random" if strategy == XOptStrategy.EXPLORATION else "upper_confidence_bound"
-    return {
+    config: dict[str, Any] = {
         "algorithm": algorithm,
         "n_iterations": 20,
         "note": (
@@ -88,6 +92,9 @@ def _generate_placeholder_config(objective: str, strategy: XOptStrategy) -> dict
             "Set config_generation.mode: 'structured' to use the LLM agent."
         ),
     }
+    if objective_name:
+        config["objective_name"] = objective_name
+    return config
 
 
 async def _generate_config_with_agent(
@@ -268,6 +275,9 @@ def create_config_generation_node():
         objective = request.optimization_objective if request else "Unknown objective"
 
         try:
+            # Extract pre-resolved objective_name from request
+            objective_name = request.objective_name if request else None
+
             # Generate config based on mode
             if mode == "structured":
                 optimization_config = await _generate_config_with_agent(
@@ -276,11 +286,17 @@ def create_config_generation_node():
                     model_config=gen_config.get("model_config"),
                 )
             else:
-                optimization_config = _generate_placeholder_config(objective, strategy)
+                optimization_config = _generate_placeholder_config(
+                    objective, strategy, objective_name=objective_name
+                )
 
             # Honor pre-resolved environment from capability (highest priority)
             if request and request.environment_name and not optimization_config.get("environment_name"):
                 optimization_config["environment_name"] = request.environment_name
+
+            # Honor pre-resolved objective_name from capability (highest priority)
+            if objective_name and not optimization_config.get("objective_name"):
+                optimization_config["objective_name"] = objective_name
 
             # Apply defaults from config if not already set by the generator
             default_env = gen_config.get("default_environment")

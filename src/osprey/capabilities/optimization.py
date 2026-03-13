@@ -330,40 +330,18 @@ class OptimizationCapability(BaseCapability):
             except Exception as e:
                 # Import here to avoid circular imports
                 from langgraph.errors import GraphInterrupt
-                from langgraph.types import interrupt
 
                 # Check if this is a GraphInterrupt (service looped and needs approval for next iteration)
                 if isinstance(e, GraphInterrupt):
                     cap_logger.info(
                         "XOptOptimizer: Service completed iteration and requests approval for next"
                     )
-
-                    try:
-                        # Extract interrupt data from GraphInterrupt
-                        interrupt_data = e.args[0][0].value
-                        cap_logger.debug(
-                            f"XOptOptimizer: Extracted interrupt data with keys: {list(interrupt_data.keys())}"
-                        )
-
-                        # Re-raise interrupt in main graph context for next iteration
-                        cap_logger.info(
-                            "⏸️  XOptOptimizer: Creating approval interrupt for next iteration"
-                        )
-                        interrupt(interrupt_data)
-
-                        # This line should never be reached
-                        cap_logger.error(
-                            "UNEXPECTED: interrupt() returned instead of pausing execution"
-                        )
-                        raise RuntimeError("Interrupt mechanism failed in XOptOptimizer")
-
-                    except (IndexError, KeyError, AttributeError) as extract_error:
-                        cap_logger.error(
-                            f"XOptOptimizer: Failed to extract interrupt data: {extract_error}"
-                        )
-                        raise RuntimeError(
-                            f"XOptOptimizer: Failed to handle service interrupt: {extract_error}"
-                        ) from extract_error
+                    # Re-raise the GraphInterrupt directly so the main graph
+                    # pauses and presents the approval to the user.
+                    # NOTE: Do NOT use interrupt() here — it has context-dependent
+                    # behavior and may return instead of raising inside an
+                    # exception handler, breaking the interrupt mechanism.
+                    raise
                 else:
                     # Re-raise non-interrupt exceptions
                     raise
@@ -379,6 +357,9 @@ class OptimizationCapability(BaseCapability):
         # Resolve environment before calling the service (avoids subgraph interrupt)
         resolved_env = await self._resolve_environment_if_needed(cap_logger)
 
+        # Resolve objective from the environment's available objectives
+        resolved_objective = await self._resolve_objective_if_needed(resolved_env, cap_logger)
+
         # Create execution request
         execution_request = XOptExecutionRequest(
             user_query=user_query,
@@ -387,6 +368,7 @@ class OptimizationCapability(BaseCapability):
             require_approval=True,
             max_iterations=3,
             environment_name=resolved_env,
+            objective_name=resolved_objective,
         )
 
         cap_logger.status("Invoking XOpt optimizer service...")
@@ -416,6 +398,103 @@ class OptimizationCapability(BaseCapability):
             step.get("context_key"),
             results_context,
         )
+
+    # ========================================
+    # OBJECTIVE RESOLUTION
+    # ========================================
+
+    async def _resolve_objective_if_needed(
+        self, environment_name: str | None, cap_logger
+    ) -> str | None:
+        """Resolve the objective_name from the environment's available objectives.
+
+        Queries ``GET /environments/{name}`` for available objectives, then:
+        - Auto-selects if there is a default or only one objective
+        - Asks the user to pick if there are multiple
+
+        Returns:
+            Selected objective name, or None if resolution is not possible.
+        """
+        if not environment_name:
+            return None
+
+        try:
+            client = TuningScriptsClient()
+            env_details = await client.get_environment_details(environment_name)
+        except Exception as e:
+            cap_logger.warning(f"Could not query environment details from API: {e}")
+            return None
+
+        available = env_details.get("available_objectives", [])
+        default = env_details.get("default_objective")
+        metadata = env_details.get("observables_metadata", {})
+
+        if not available:
+            cap_logger.warning(f"No available objectives for environment '{environment_name}'")
+            return None
+
+        # Single objective — auto-select
+        if len(available) == 1:
+            cap_logger.info(f"Auto-selected objective: {available[0]}")
+            return available[0]
+
+        # Default exists and is in the available list — auto-select
+        if default and default in available:
+            cap_logger.info(f"Auto-selected default objective: {default}")
+            return default
+
+        # Multiple objectives, no default — ask the user
+        obj_lines = []
+        for i, obj_name in enumerate(available, 1):
+            meta = metadata.get(obj_name, {})
+            desc = meta.get("description", "")
+            units = meta.get("units", "")
+            direction = meta.get("direction", "")
+            detail_parts = [p for p in [desc, units, direction] if p]
+            detail = f" — {', '.join(detail_parts)}" if detail_parts else ""
+            obj_lines.append(f"  {i}. **{obj_name}**{detail}")
+
+        question = (
+            f"Multiple optimization objectives are available for environment "
+            f"'{environment_name}'. Please select one:\n\n" + "\n".join(obj_lines)
+        )
+
+        cap_logger.info("Asking user to select optimization objective...")
+        user_choice = interrupt(create_question_interrupt(question, available))
+
+        choice = str(user_choice).strip()
+
+        # Match by number or name
+        selected = self._match_objective(choice, available)
+        if not selected:
+            cap_logger.warning(f"Could not match '{choice}' to an available objective")
+            return None
+
+        cap_logger.info(f"User selected objective: {selected}")
+        return selected
+
+    @staticmethod
+    def _match_objective(choice: str, available: list[str]) -> str | None:
+        """Match a user's choice (number or name) to an available objective."""
+        # Try as a 1-based index
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(available):
+                return available[idx]
+        except ValueError:
+            pass
+
+        # Try exact match
+        if choice in available:
+            return choice
+
+        # Try case-insensitive prefix match
+        lower = choice.lower()
+        for obj in available:
+            if obj.lower().startswith(lower):
+                return obj
+
+        return None
 
     # ========================================
     # ENVIRONMENT RESOLUTION

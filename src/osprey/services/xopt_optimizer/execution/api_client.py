@@ -95,6 +95,18 @@ class TuningScriptsClient:
         """
         return await self._get("/environments")
 
+    async def get_environment_details(self, name: str) -> dict[str, Any]:
+        """Get detailed info for a specific environment (variables, objectives).
+
+        Returns:
+            Environment details dict with ``available_objectives``,
+            ``default_objective``, ``observables_metadata``, etc.
+
+        Raises:
+            TuningScriptsAPIError: If the API is unreachable or env not found.
+        """
+        return await self._get(f"/environments/{name}")
+
     async def submit_config(self, config: dict[str, Any]) -> str:
         """Submit an OptimizationConfig dict to start an optimization.
 
