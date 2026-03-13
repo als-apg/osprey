@@ -160,7 +160,9 @@ body.drawer-resizing {
   display: none;
   flex-direction: column;
   flex: 1;
-  overflow: hidden;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .drawer-tab-panel.active {
