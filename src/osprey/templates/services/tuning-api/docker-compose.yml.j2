@@ -1,0 +1,33 @@
+services:
+  tuning-api:
+    build:
+      context: {{ services.tuning_api.source_path }}
+      dockerfile: tuning_scripts_app/Dockerfile
+    container_name: tuning-api
+    labels:
+      osprey.project.name: "{{ osprey_labels.project_name }}"
+      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+    restart: unless-stopped
+    ports:
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.tuning_api.port_host | default(8001) }}:8000"
+    environment:
+      REDIS_URL: redis://tuning-redis:6379/0
+      EPICS_CA_NAME_SERVERS: "{{ services.tuning_api.epics_ca_name_servers | default('') }}"
+      EPICS_CA_AUTO_ADDR_LIST: "NO"
+      TZ: {{ system.timezone }}
+    volumes:
+      - tuning_results:/app/results
+      - tuning_cache:/app/.cache
+    networks:
+      - osprey-network
+    depends_on:
+      tuning-redis:
+        condition: service_healthy
+
+volumes:
+  tuning_results:
+  tuning_cache:
+
+networks:
+  osprey-network:

@@ -29,27 +29,19 @@ class DefaultOptimizationPromptBuilder(FrameworkPromptBuilder):
     Override Points:
         - get_instructions(): Domain-specific optimization guidance
         - get_machine_state_definitions(): Facility-specific machine states
-        - get_yaml_generation_guidance(): Historical patterns and templates
+        - get_config_generation_guidance(): Historical patterns and templates
         - get_strategy_selection_guidance(): Strategy selection criteria
     """
 
     PROMPT_TYPE = "optimization"
 
-    def get_role_definition(self) -> str:
+    def get_role(self) -> str:
         """Get the role definition for optimization.
 
         :return: Role definition string
         :rtype: str
         """
         return "You are an expert optimization assistant helping to configure and execute autonomous machine optimization using XOpt."
-
-    def get_task_definition(self) -> str:
-        """Get the task definition for optimization.
-
-        :return: Task definition or None if task is provided externally
-        :rtype: Optional[str]
-        """
-        return None  # Task is provided via request
 
     def get_instructions(self) -> str:
         """Get domain-specific optimization instructions.
@@ -70,7 +62,7 @@ class DefaultOptimizationPromptBuilder(FrameworkPromptBuilder):
             When implementing actual optimization:
             1. Assess machine readiness before proceeding
             2. Use appropriate optimization strategy (exploration vs optimization)
-            3. Generate valid XOpt YAML configuration
+            3. Generate optimization configuration
             4. Request human approval before execution
             5. Analyze results and provide recommendations
 
@@ -92,24 +84,24 @@ class DefaultOptimizationPromptBuilder(FrameworkPromptBuilder):
             "unknown": "Machine state assessment inconclusive",
         }
 
-    def get_yaml_generation_guidance(self) -> str:
-        """Get guidance for XOpt YAML configuration generation.
+    def get_config_generation_guidance(self) -> str:
+        """Get guidance for optimization config generation.
 
-        :return: Domain-specific YAML generation guidance
+        :return: Domain-specific config generation guidance
         :rtype: str
         """
         # Placeholder - facilities override with facility-specific templates
         return textwrap.dedent(
             """
-            YAML Generation Guidance (Placeholder):
+            Config Generation Guidance (Placeholder):
 
-            When generating XOpt YAML configurations:
-            - Use valid XOpt schema structure
-            - Define appropriate variables, objectives, and constraints
-            - Select suitable generator and evaluator
+            When generating optimization configurations:
+            - Select appropriate algorithm (upper_confidence_bound, expected_improvement, mobo, random)
+            - Set iteration count based on task scope
+            - Specify environment name if known
 
-            NOTE: Actual YAML templates and parameter definitions will be
-            provided based on facility-specific requirements and historical examples.
+            NOTE: Actual config parameters and constraints will be defined
+            based on facility-specific requirements.
             """
         ).strip()
 

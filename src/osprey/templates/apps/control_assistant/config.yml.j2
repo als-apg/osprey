@@ -57,10 +57,10 @@ models:
     provider: {{ default_provider }}
     model_id: {{ default_model }}
     max_tokens: 4096  # For channel finder semantic search
-  xopt_yaml_generation:
+  xopt_config_generation:
     provider: {{ default_provider }}
     model_id: {{ default_model }}
-    max_tokens: 4096  # For XOpt YAML configuration generation
+    max_tokens: 4096  # For XOpt optimization config generation
   xopt_decision:
     provider: {{ default_provider }}
     model_id: {{ default_model }}
@@ -552,12 +552,13 @@ xopt_optimizer:
     mode: "llm"  # "llm" (LLM-based with structured output) or "mock" (defaults to exploration)
     model_config_name: "xopt_decision"  # Reference to models section
 
-  # YAML Generation Agent
-  # Generates XOpt configuration files using ReAct pattern
-  yaml_generation:
-    mode: "react"  # "react" (agent-based, default) or "mock" (fast placeholder)
-    # examples_path: "_agent_data/xopt_examples/yaml_templates"  # Optional - agent adapts if missing
-    model_config_name: "xopt_yaml_generation"  # Reference to models section
+  # Config Generation
+  # Generates optimization config dicts for the tuning_scripts API
+  config_generation:
+    mode: "structured"  # "structured" (LLM structured output) or "mock" (fast placeholder)
+    model_config_name: "xopt_config_generation"  # Reference to models section
+    default_algorithm: "upper_confidence_bound"
+    default_environment: null
 
   # Analysis Agent (placeholder for future implementation)
   # Analyzes optimization results and decides continuation
