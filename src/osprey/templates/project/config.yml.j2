@@ -29,8 +29,18 @@ container_runtime: auto
 # ============================================================
 
 # Approval workflow for sensitive operations
+# Policies: always (prompt every time), selective (content-aware), skip (no approval)
 approval:
-  global_mode: "selective"   # Options: disabled | selective | all_capabilities
+  enabled: true
+  default_policy: "always"        # Fail-closed: unknown tools require approval
+  tools:
+    channel_write: always          # Always prompt for hardware writes
+    channel_read: skip             # Read-only, no approval needed
+    channel_limits: skip           # Read-only safety metadata, no approval needed
+    archiver_read: skip            # Historical data, no approval needed
+    execute: selective             # Content-aware: checks write patterns + exec mode
+    setup_patch: always            # Config mutation needs approval
+    entry_create: always           # ARIEL logbook write
 
 # ============================================================
 # SYSTEM CONFIGURATION
