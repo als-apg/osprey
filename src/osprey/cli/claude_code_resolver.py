@@ -68,8 +68,8 @@ AGENT_DEFAULT_TIERS: dict[str, str] = {
 
 from osprey.models.tiers import VALID_TIERS
 
-# Env vars that settings.json controls — scrubbed from shell before execvp
-# so the per-project env block is authoritative.
+# Env vars that settings.json controls — scrubbed from shell before launch
+# so runtime-injected provider vars are authoritative.
 MANAGED_ENV_VARS = frozenset(
     {
         "ANTHROPIC_API_KEY",
@@ -81,6 +81,35 @@ MANAGED_ENV_VARS = frozenset(
         "ANTHROPIC_DEFAULT_OPUS_MODEL",
     }
 )
+
+
+def inject_provider_env(
+    environ: dict[str, str],
+    spec: ClaudeCodeModelSpec,
+) -> list[str]:
+    """Scrub managed vars, inject provider env block and auth into environ.
+
+    Mutates environ in-place. Returns list of injected var names for logging.
+    """
+    # Read auth secret BEFORE scrubbing — auth_secret_env may be in MANAGED_ENV_VARS
+    # (e.g. ANTHROPIC_API_KEY for the anthropic provider)
+    secret = None
+    if spec.auth_secret_env:
+        secret = environ.get(spec.auth_secret_env)
+
+    # Scrub all managed vars
+    for var in MANAGED_ENV_VARS:
+        environ.pop(var, None)
+
+    # Inject provider env block
+    for key, value in spec.env_block.items():
+        environ[key] = value
+
+    # Inject auth
+    if spec.auth_secret_env and secret:
+        environ[spec.auth_env_var] = secret
+
+    return sorted(spec.env_block.keys())
 
 
 @dataclass(frozen=True)

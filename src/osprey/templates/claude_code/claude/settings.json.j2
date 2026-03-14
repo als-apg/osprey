@@ -1,13 +1,5 @@
 {%- set ns = namespace() -%}
 {
-{%- if claude_code_model_spec is defined and claude_code_model_spec is not none %}
-  "env": {
-{%- for key, value in claude_code_model_spec.env_block.items() %}
-    "{{ key }}": "{{ value }}"{% if not loop.last %},{% endif %}
-{%- endfor %}
-  },
-  "model": "{{ claude_code_model_spec.tier_to_model[claude_code_model_spec.default_model_tier] }}",
-{%- endif %}
   "outputStyle": ".claude/output-styles/control-operator.md",
   "_PROMPT_PROVIDER_NOTE": "Permissions policy: allow/deny/ask lists. Framework defaults merged with facility overrides from claude_code.permissions config.",
   "permissions": {

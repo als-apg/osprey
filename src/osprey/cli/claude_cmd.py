@@ -727,8 +727,12 @@ def chat_claude(project, resume, print_mode):
         console.print(f"[error]Error:[/error] {e}", style="red")
         raise SystemExit(1) from e
 
-    # ── Provider isolation: wire auth token, scrub managed vars ──
-    from osprey.cli.claude_code_resolver import MANAGED_ENV_VARS, ClaudeCodeModelResolver
+    # ── Provider isolation: inject env block + auth, scrub managed vars ──
+    from osprey.cli.claude_code_resolver import (
+        MANAGED_ENV_VARS,
+        ClaudeCodeModelResolver,
+        inject_provider_env,
+    )
 
     config_path = project_dir / "config.yml"
     if config_path.exists():
@@ -736,24 +740,19 @@ def chat_claude(project, resume, print_mode):
         cc_config = config.get("claude_code", {})
         api_providers = config.get("api", {}).get("providers", {})
         spec = ClaudeCodeModelResolver.resolve(cc_config, api_providers)
-        if spec and spec.auth_secret_env:
-            secret = os.environ.get(spec.auth_secret_env)
-            if secret:
-                os.environ[spec.auth_env_var] = secret
-                console.print(f"[dim]Set ${spec.auth_env_var} from ${spec.auth_secret_env}[/dim]")
-            else:
+        if spec:
+            if spec.auth_secret_env and not os.environ.get(spec.auth_secret_env):
                 console.print(
                     f"[warning]⚠ ${spec.auth_secret_env} not found in environment — "
                     f"provider '{spec.provider}' may not authenticate[/warning]"
                 )
-            # Scrub managed vars so settings.json env block is authoritative
-            scrubbed = []
-            for var in sorted(MANAGED_ENV_VARS):
-                if var in os.environ and var != spec.auth_env_var:
-                    del os.environ[var]
-                    scrubbed.append(var)
-            if scrubbed:
-                console.print(f"[dim]Scrubbed: {', '.join(scrubbed)}[/dim]")
+            injected = inject_provider_env(os.environ, spec)
+            if injected:
+                console.print(f"[dim]Injected: {', '.join(injected)}[/dim]")
+            if spec.auth_secret_env and os.environ.get(spec.auth_env_var):
+                console.print(
+                    f"[dim]Set ${spec.auth_env_var} from ${spec.auth_secret_env}[/dim]"
+                )
 
     # Build claude CLI args
     args = ["claude", "--project-dir", str(project_dir)]

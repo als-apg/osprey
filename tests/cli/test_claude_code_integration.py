@@ -923,91 +923,46 @@ class TestUserOwnedSkipBehavior:
 
 
 class TestProviderEnvBlock:
-    """settings.json must contain an env block for any configured provider.
+    """settings.json must NOT contain env or model — these are runtime-injected.
 
-    Regression: control_assistant/config.yml.j2 had a guard that silently
-    commented out the claude_code: section for providers other than 'cborg'
-    and 'anthropic', leaving settings.json without an env block.
+    Provider env vars (ANTHROPIC_BASE_URL, ANTHROPIC_MODEL, etc.) and the model
+    ID are injected at runtime by inject_provider_env() in chat_claude() and the
+    web terminal lifespan.  This keeps settings.json provider-neutral so `claude`
+    runs clean when invoked directly (e.g. with a Pro subscription).
     """
 
     @pytest.mark.parametrize("provider", ["cborg", "anthropic", "als-apg"])
-    def test_settings_json_has_env_block_for_provider(self, tmp_path, provider):
-        """settings.json has an env block for every supported provider."""
+    def test_settings_json_has_no_env_block(self, tmp_path, provider):
+        """settings.json must not have an 'env' block (runtime-injected now)."""
         manager = TemplateManager()
         project_dir = manager.create_project(
-            project_name=f"env-block-{provider}",
+            project_name=f"no-env-{provider}",
             output_dir=tmp_path,
             template_name="control_assistant",
             context={"default_provider": provider},
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
-        assert "env" in data, (
-            f"settings.json has no 'env' block for provider '{provider}'. "
-            f"Keys present: {list(data.keys())}"
+        assert "env" not in data, (
+            f"settings.json still has 'env' block for provider '{provider}' — "
+            f"env vars should be runtime-injected, not baked into settings.json"
         )
-        assert "ANTHROPIC_DEFAULT_OPUS_MODEL" in data["env"]
-        assert "ANTHROPIC_DEFAULT_SONNET_MODEL" in data["env"]
-        assert "ANTHROPIC_DEFAULT_HAIKU_MODEL" in data["env"]
-
-    @pytest.mark.parametrize("provider", ["cborg", "als-apg"])
-    def test_settings_json_has_base_url_for_proxy_provider(self, tmp_path, provider):
-        """Proxy providers always inject ANTHROPIC_BASE_URL into settings.json."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name=f"base-url-{provider}",
-            output_dir=tmp_path,
-            template_name="control_assistant",
-            context={"default_provider": provider},
-        )
-
-        data = json.loads((project_dir / ".claude" / "settings.json").read_text())
-        assert "env" in data
-        assert "ANTHROPIC_BASE_URL" in data["env"], (
-            f"ANTHROPIC_BASE_URL missing from settings.json for provider '{provider}'"
-        )
-
-    def test_als_apg_base_url_is_correct(self, tmp_path):
-        """als-apg provider injects the correct base URL."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="als-apg-url-test",
-            output_dir=tmp_path,
-            template_name="control_assistant",
-            context={"default_provider": "als-apg"},
-        )
-
-        data = json.loads((project_dir / ".claude" / "settings.json").read_text())
-        assert data["env"]["ANTHROPIC_BASE_URL"] == "https://llm.gianlucamartino.com"
 
     @pytest.mark.parametrize("provider", ["cborg", "anthropic", "als-apg"])
-    def test_settings_json_model_is_concrete_id_not_tier_alias(self, tmp_path, provider):
-        """settings.json 'model' field must be a concrete model ID, not a tier alias.
-
-        Regression: when 'model' was set to 'opus' (a tier alias), Claude Code had to
-        resolve it via ANTHROPIC_DEFAULT_OPUS_MODEL.  If the env block was applied after
-        model selection, the tier alias reached the proxy unresolved, causing a 401.
-        Using a concrete ID removes the dependency on resolution order.
-        """
+    def test_settings_json_has_no_model_key(self, tmp_path, provider):
+        """settings.json must not have a 'model' key (runtime-injected now)."""
         manager = TemplateManager()
         project_dir = manager.create_project(
-            project_name=f"concrete-model-{provider}",
+            project_name=f"no-model-{provider}",
             output_dir=tmp_path,
             template_name="control_assistant",
             context={"default_provider": provider},
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
-        assert "model" in data, "settings.json missing 'model' field"
-        model_value = data["model"]
-        # Must NOT be a bare tier alias
-        assert model_value not in {"opus", "sonnet", "haiku"}, (
-            f"settings.json 'model' is a tier alias '{model_value}' — must be a concrete "
-            f"model ID (e.g. 'claude-opus-4-6') so Claude Code doesn't need to resolve it."
-        )
-        # Must look like a real model ID (contains a hyphen or slash)
-        assert "-" in model_value or "/" in model_value, (
-            f"settings.json 'model' value '{model_value}' doesn't look like a model ID"
+        assert "model" not in data, (
+            f"settings.json still has 'model' key for provider '{provider}' — "
+            f"model should be runtime-injected via ANTHROPIC_MODEL env var"
         )
 
     def test_config_yml_has_claude_code_provider_for_als_apg(self, tmp_path):

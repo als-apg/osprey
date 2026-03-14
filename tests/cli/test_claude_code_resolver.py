@@ -5,9 +5,11 @@ import pytest
 from osprey.cli.claude_code_resolver import (
     AGENT_DEFAULT_TIERS,
     CLAUDE_CODE_PROVIDERS,
+    MANAGED_ENV_VARS,
     VALID_TIERS,
     ClaudeCodeModelResolver,
     ClaudeCodeModelSpec,
+    inject_provider_env,
 )
 
 
@@ -526,3 +528,58 @@ class TestModelSpecFrozen:
         spec = ClaudeCodeModelSpec(provider="test")
         with pytest.raises(AttributeError):
             spec.provider = "other"
+
+
+class TestInjectProviderEnv:
+    """inject_provider_env() scrubs, injects env block, and wires auth."""
+
+    def test_scrubs_managed_vars(self):
+        env = {"ANTHROPIC_BASE_URL": "stale", "ANTHROPIC_MODEL": "stale", "HOME": "/home"}
+        spec = ClaudeCodeModelSpec(provider="test", env_block={})
+        inject_provider_env(env, spec)
+        assert "ANTHROPIC_BASE_URL" not in env
+        assert "ANTHROPIC_MODEL" not in env
+        assert env["HOME"] == "/home"
+
+    def test_injects_env_block(self):
+        env = {}
+        spec = ClaudeCodeModelSpec(
+            provider="test",
+            env_block={"ANTHROPIC_BASE_URL": "https://proxy.example.com", "ANTHROPIC_MODEL": "m"},
+        )
+        inject_provider_env(env, spec)
+        assert env["ANTHROPIC_BASE_URL"] == "https://proxy.example.com"
+        assert env["ANTHROPIC_MODEL"] == "m"
+
+    def test_injects_auth(self):
+        env = {"CBORG_API_KEY": "secret-123"}
+        spec = ClaudeCodeModelSpec(
+            provider="cborg",
+            env_block={},
+            auth_env_var="ANTHROPIC_AUTH_TOKEN",
+            auth_secret_env="CBORG_API_KEY",
+        )
+        inject_provider_env(env, spec)
+        assert env["ANTHROPIC_AUTH_TOKEN"] == "secret-123"
+
+    def test_reads_auth_before_scrub(self):
+        """Anthropic provider: auth_secret_env == ANTHROPIC_API_KEY (a managed var)."""
+        env = {"ANTHROPIC_API_KEY": "my-key"}
+        spec = ClaudeCodeModelSpec(
+            provider="anthropic",
+            env_block={},
+            auth_env_var="ANTHROPIC_API_KEY",
+            auth_secret_env="ANTHROPIC_API_KEY",
+        )
+        inject_provider_env(env, spec)
+        # Key should survive: read before scrub, then re-injected as auth
+        assert env["ANTHROPIC_API_KEY"] == "my-key"
+
+    def test_returns_injected_keys(self):
+        env = {}
+        spec = ClaudeCodeModelSpec(
+            provider="test",
+            env_block={"ANTHROPIC_MODEL": "m", "ANTHROPIC_BASE_URL": "u"},
+        )
+        result = inject_provider_env(env, spec)
+        assert result == ["ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL"]

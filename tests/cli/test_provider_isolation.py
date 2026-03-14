@@ -157,7 +157,7 @@ class TestChatProviderIsolation:
 
     @patch("osprey.cli.claude_cmd.os.execvp")
     def test_chat_scrubs_managed_vars(self, mock_execvp, cli_runner, cborg_project):
-        """Managed vars (except auth_env_var) are removed before exec."""
+        """Managed vars are scrubbed then re-injected from provider env block."""
         captured_env = {}
 
         def capture_env(*_args):
@@ -175,12 +175,38 @@ class TestChatProviderIsolation:
         with patch.dict(os.environ, env, clear=True):
             cli_runner.invoke(chat_claude, ["--project", str(cborg_project)])
 
-        # ANTHROPIC_AUTH_TOKEN should still be set (it's the auth var for cborg)
+        # ANTHROPIC_AUTH_TOKEN should be set (auth injected from CBORG_API_KEY)
         assert "ANTHROPIC_AUTH_TOKEN" in captured_env
-        # Other managed vars should be scrubbed
-        assert "ANTHROPIC_BASE_URL" not in captured_env
-        assert "ANTHROPIC_MODEL" not in captured_env
+        # ANTHROPIC_BASE_URL should be present with CBORG value (scrubbed then re-injected)
+        assert captured_env.get("ANTHROPIC_BASE_URL") == "https://api.cborg.lbl.gov"
+        # ANTHROPIC_MODEL should be present with CBORG model ID
+        assert "ANTHROPIC_MODEL" in captured_env
+        # ANTHROPIC_API_KEY should still be scrubbed (not in cborg env block)
         assert "ANTHROPIC_API_KEY" not in captured_env
+
+    @patch("osprey.cli.claude_cmd.os.execvp")
+    def test_chat_injects_full_env_block(self, mock_execvp, cli_runner, cborg_project):
+        """All env_block keys are present with correct values after chat setup."""
+        captured_env = {}
+
+        def capture_env(*_args):
+            captured_env.update(os.environ)
+
+        mock_execvp.side_effect = capture_env
+
+        env = {
+            "CBORG_API_KEY": "test-secret-123",
+            "PATH": os.environ.get("PATH", ""),
+        }
+        with patch.dict(os.environ, env, clear=True):
+            cli_runner.invoke(chat_claude, ["--project", str(cborg_project)])
+
+        # All tier model vars should be injected
+        assert "ANTHROPIC_DEFAULT_HAIKU_MODEL" in captured_env
+        assert "ANTHROPIC_DEFAULT_SONNET_MODEL" in captured_env
+        assert "ANTHROPIC_DEFAULT_OPUS_MODEL" in captured_env
+        # Base URL should be the CBORG proxy
+        assert captured_env.get("ANTHROPIC_BASE_URL") == "https://api.cborg.lbl.gov"
 
     @patch("osprey.cli.claude_cmd.os.execvp")
     def test_chat_warns_missing_secret(self, mock_execvp, cli_runner, cborg_project):

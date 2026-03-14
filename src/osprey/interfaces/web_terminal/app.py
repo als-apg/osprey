@@ -309,6 +309,17 @@ def _create_lifespan(
                 break
         app.state.config_path = resolved_config_path
 
+        # ── Provider env injection ──
+        from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver, inject_provider_env
+
+        if app.state.config_path:
+            _cfg = yaml.safe_load(Path(app.state.config_path).read_text()) or {}
+            _cc = _cfg.get("claude_code", {})
+            _api = _cfg.get("api", {}).get("providers", {})
+            _spec = ClaudeCodeModelResolver.resolve(_cc, _api)
+            if _spec:
+                inject_provider_env(os.environ, _spec)
+
         workspace_dir = Path(config.get("watch_dir") or "./osprey-workspace").resolve()
         app.state.workspace_dir = workspace_dir  # base path (file watcher watches all sessions)
         app.state.workspace_base = workspace_dir  # alias for clarity
