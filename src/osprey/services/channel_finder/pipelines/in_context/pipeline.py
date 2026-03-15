@@ -330,7 +330,15 @@ class InContextPipeline(BasePipeline):
                 else:
                     logger.debug("    [dim]No matches[/dim]")
             except Exception as e:
-                # Log error but continue processing other queries
+                # Re-raise rate limit errors so callers can retry the whole query
+                error_str = str(e)
+                if (
+                    "RateLimitError" in error_str
+                    or "rate limit" in error_str.lower()
+                    or "Error code: 429" in error_str
+                ):
+                    raise
+                # Log other errors but continue processing remaining queries
                 logger.warning(f"[yellow]⚠[/yellow] Query failed: {query} - {e}")
                 continue
 

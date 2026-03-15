@@ -5,6 +5,16 @@ All notable changes to the Osprey Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.11.5] - 2026-03-13
+
+### Fixed
+- **Timezone**: Normalize all datetimes to local timezone with human-readable `timezone_name` field throughout the pipeline — fixes UTC/local confusion in responses, plots, and time range queries (#189, #187)
+- **Open WebUI**: Fix artifacts not showing up in Open WebUI interface (#179)
+- **Benchmarks**: Fix channel finder benchmark rate limit handling — make OpenAI retry budget dynamic with `retry_budget_override()` context manager, add agent-level retry in middle layer pipeline, and query-level retry with backoff in benchmark runner
+- **Config**: `.env` file now overrides existing environment variables (`load_dotenv(override=True)`) so `.env` is the source of truth for API keys
+
 ## [0.11.4] - 2026-02-23
 
 ### Added

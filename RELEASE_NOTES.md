@@ -1,23 +1,17 @@
-# Osprey Framework - Latest Release (v0.11.4)
+# Osprey Framework - Latest Release (v0.11.5)
 
-**ARIEL Write Support, Machine State Reader & Google Sheets Integration**
+**Timezone Support & Open WebUI Fix**
 
-## What's New in v0.11.4
+## What's New in v0.11.5
 
 ### Highlights
 
-- **ARIEL bidirectional facility adapters** - `FacilityAdapter` interface now supports writes with `supports_write` and `create_entry()`. `GenericJSONAdapter` provides atomic local JSON append; `ALSLogbookAdapter` posts via olog RPC XML with retry. `ARIELSearchService.create_entry()` orchestrates facility-first writes with optimistic local upsert and re-ingestion sync.
-- **Machine state reader** - New `MachineStateReader` service for bulk channel snapshots from the control system connector. Pipeline-aware Jinja2 template selects demo channels matching the active channel finder pipeline.
-- **Google Sheets channel database** - `GoogleSheetsChannelDatabase` reads/writes channel data from Google Sheets via `gspread`, integrating with the `in_context` pipeline via `source: google_sheets` config option.
-
-### Added
-- **ARIEL**: Bidirectional facility adapter write support with new models (`FacilityEntryCreateRequest`, `FacilityEntryCreateResult`, `SyncStatus`, `WriteConfig`) (#174)
-- **Machine State**: `MachineStateReader` service with pipeline-aware channel templates (#173)
-- **Channel Finder**: Google Sheets channel database backend with `gspread` integration (#171)
+- **Timezone-aware datetime pipeline** - All datetimes are now normalized to the system's local timezone with a human-readable `timezone_name` field (e.g. "EST", "PST"). This fixes UTC/local confusion in responses, generated code, and plots. The `timezone_name` propagates from `TimeRangeContext` through `ArchiverDataContext` to the respond node, ensuring consistent timezone labels throughout.
+- **Open WebUI artifacts fix** - Artifacts now display correctly in the Open WebUI interface.
 
 ### Fixed
-- **CI**: Make E2E test failures non-blocking in gate job
-- **Tests**: Mark flaky caproto test as `xfail` on macOS CI
+- **Timezone**: Normalize all datetimes to local timezone with `timezone_name` field, fixing UTC offset confusion in LLM responses and generated plots (#189, #187)
+- **Open WebUI**: Fix artifacts not showing up in Open WebUI interface (#179)
 
 ---
 

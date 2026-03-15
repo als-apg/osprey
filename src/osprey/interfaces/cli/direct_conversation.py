@@ -50,7 +50,7 @@ from osprey.utils.logger import get_logger
 
 # Load environment variables from current directory only (not parent directories)
 # This prevents python-dotenv from parsing shell config files like ~/.env
-load_dotenv(find_dotenv(usecwd=True))
+load_dotenv(find_dotenv(usecwd=True), override=True)
 
 logger = get_logger("cli")
 

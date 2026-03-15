@@ -7,6 +7,7 @@ Handles execution of benchmark queries, metric calculation, and result aggregati
 import asyncio
 import json
 import logging
+import random
 import time
 from dataclasses import asdict
 from datetime import datetime
@@ -116,31 +117,59 @@ class BenchmarkRunner:
             return entries
 
     async def run_query_once(self, query: str, run_number: int) -> QueryRunResult:
-        """Run a single query once and return results."""
+        """Run a single query once and return results.
+
+        Automatically retries on rate limit errors with capped exponential
+        backoff and jitter to prevent retry storms.
+        """
+        max_retries = self.benchmark_config.get("execution", {}).get(
+            "max_retries_on_rate_limit", 10
+        )
+        base_delay = 5.0
+        max_delay = 30.0  # Cap delay to avoid excessive waits
+
         start_time = asyncio.get_event_loop().time()
 
-        try:
-            result = await self.service.find_channels(query)
-            execution_time = asyncio.get_event_loop().time() - start_time
+        for attempt in range(max_retries + 1):
+            try:
+                result = await self.service.find_channels(query)
+                execution_time = asyncio.get_event_loop().time() - start_time
 
-            found_pvs = [ch.address for ch in result.channels]
+                found_pvs = [ch.address for ch in result.channels]
 
-            return QueryRunResult(
-                run_number=run_number,
-                found_pvs=found_pvs,
-                success=True,
-                execution_time_seconds=execution_time,
-            )
-        except Exception as e:
-            execution_time = asyncio.get_event_loop().time() - start_time
-            logger.error(f"Query failed: {e}")
-            return QueryRunResult(
-                run_number=run_number,
-                found_pvs=[],
-                success=False,
-                error=str(e),
-                execution_time_seconds=execution_time,
-            )
+                return QueryRunResult(
+                    run_number=run_number,
+                    found_pvs=found_pvs,
+                    success=True,
+                    execution_time_seconds=execution_time,
+                )
+            except Exception as e:
+                error_str = str(e)
+                is_rate_limit = (
+                    "RateLimitError" in error_str
+                    or "rate limit" in error_str.lower()
+                    or "Error code: 429" in error_str
+                )
+
+                if is_rate_limit and attempt < max_retries:
+                    # Capped exponential backoff with jitter to prevent retry storms
+                    delay = min(base_delay * (2**attempt), max_delay) + random.uniform(1, 5)
+                    logger.warning(
+                        f"Rate limit hit (attempt {attempt + 1}/{max_retries + 1}), "
+                        f"retrying in {delay:.1f}s..."
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+
+                execution_time = asyncio.get_event_loop().time() - start_time
+                logger.error(f"Query failed: {e}")
+                return QueryRunResult(
+                    run_number=run_number,
+                    found_pvs=[],
+                    success=False,
+                    error=error_str,
+                    execution_time_seconds=execution_time,
+                )
 
     async def run_query_multiple_times(self, query: str, num_runs: int) -> list[QueryRunResult]:
         """Run a query multiple times for statistical analysis."""

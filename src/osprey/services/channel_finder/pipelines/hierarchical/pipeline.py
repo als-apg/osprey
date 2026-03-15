@@ -229,6 +229,14 @@ class HierarchicalPipeline(BasePipeline):
                 logger.warning(f"  [yellow]⚠[/yellow] Navigation failed: {e}")
                 continue
             except Exception as e:
+                # Re-raise rate limit errors so callers can retry
+                error_str = str(e)
+                if (
+                    "RateLimitError" in error_str
+                    or "rate limit" in error_str.lower()
+                    or "Error code: 429" in error_str
+                ):
+                    raise
                 logger.error(f"  [red]✗[/red] Error processing query: {e}")
                 continue
 

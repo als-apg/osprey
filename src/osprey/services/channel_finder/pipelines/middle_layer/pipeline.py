@@ -19,6 +19,7 @@ production at facilities like ALS, ESRF, and others.
 
 import asyncio
 import logging
+import random
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -526,6 +527,14 @@ Example workflow:
                 logger.info(f"  → Found {len(result['channels'])} channel(s)")
                 logger.info(f"  [dim]→ {result['description']}[/dim]")
             except Exception as e:
+                # Re-raise rate limit errors so callers can retry
+                error_str = str(e)
+                if (
+                    "RateLimitError" in error_str
+                    or "rate limit" in error_str.lower()
+                    or "Error code: 429" in error_str
+                ):
+                    raise
                 logger.error(f"  [red]✗[/red] Error processing query: {e}")
                 continue
 
@@ -580,8 +589,30 @@ Example workflow:
         system_prompt = self._get_system_prompt()
         full_query = f"{system_prompt}\n\nUser Query: {query}"
 
-        # Run LangGraph agent (no stdout suppression needed - we extract from tool call)
-        response = await agent.ainvoke({"messages": [{"role": "user", "content": full_query}]})
+        # Run LangGraph agent with rate-limit retry
+        max_retries = 3
+        base_delay = 15.0
+        for attempt in range(max_retries + 1):
+            try:
+                response = await agent.ainvoke(
+                    {"messages": [{"role": "user", "content": full_query}]}
+                )
+                break
+            except Exception as e:
+                error_str = str(e)
+                is_rate_limit = (
+                    "RateLimitError" in error_str
+                    or "rate limit" in error_str.lower()
+                    or "Error code: 429" in error_str
+                )
+                if not is_rate_limit or attempt == max_retries:
+                    raise
+                delay = base_delay * (2**attempt) + random.uniform(0, 5)
+                logger.warning(
+                    f"Rate limit hit during agent invocation (attempt {attempt + 1}/{max_retries}), "
+                    f"retrying in {delay:.1f}s..."
+                )
+                await asyncio.sleep(delay)
 
         # Extract structured result from report_results tool call in messages
         # This is thread-safe and works with concurrent queries
