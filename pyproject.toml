@@ -178,6 +178,12 @@ sheets = [
     "gspread>=6.0.0",
 ]
 
+# Claude Code Karma analytics dashboard
+# Not yet on PyPI — install from local path or git:
+#   pip install /path/to/claude-code-karma
+#   pip install git+https://github.com/.../claude-code-karma.git
+# karma = ["claude-code-karma"]  # Uncomment after installing from local path
+
 # Lattice physics (Accelerator Toolbox for lattice_design template)
 lattice = [
     "accelerator-toolbox[plot]",

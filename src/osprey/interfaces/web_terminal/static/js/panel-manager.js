@@ -45,17 +45,10 @@ const PANELS = [
     statusBarId: null,
   },
   {
-    id: 'session',
-    label: 'ACTIVITY',
-    configEndpoint: '/api/session-server',
-    healthEndpoint: null,    // same-origin, skip health polling
-    statusBarId: null,
-  },
-  {
-    id: 'session-analytics',
-    label: 'SESSION ANALYTICS',
-    configEndpoint: '/api/agentsview-server',
-    healthEndpoint: null,    // backend verifies health before advertising URL
+    id: 'karma',
+    label: 'ANALYTICS',
+    configEndpoint: '/api/karma-server',
+    healthEndpoint: null,
     statusBarId: null,
   },
 ];
@@ -199,7 +192,7 @@ async function initPanel(panel) {
     if (config.url && (config.available === undefined || config.available)) {
       state.url = config.url;
     }
-    // agentsview may return a project name for session filtering
+    // Some panels return a project name for session filtering
     if (config.project) {
       state.project = config.project;
     }
