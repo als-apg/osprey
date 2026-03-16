@@ -82,6 +82,9 @@ def _build_ariel_mock_registry():
     ]
     registry.get_ariel_enhancement_module.side_effect = _enhancement_modules.get
 
+    # Provide config.ariel_enhancement_modules for the factory (sorted by execution_order)
+    registry.config.ariel_enhancement_modules = [sp_reg, te_reg]
+
     # --- Pipelines ---
     from osprey.services.ariel_search.pipelines import get_pipeline_descriptor
 

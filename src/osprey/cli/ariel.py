@@ -463,7 +463,19 @@ def enhance_command(module: str | None, force: bool, limit: int) -> None:
             enhancers = [e for e in enhancers if e.name == module]
 
         if not enhancers:
-            click.echo("No enhancement modules enabled or selected")
+            if module:
+                click.echo(
+                    f"Enhancement module '{module}' is not enabled. "
+                    f"Enable it in config.yml under ariel.enhancement_modules.{module}.enabled",
+                    err=True,
+                )
+            else:
+                click.echo(
+                    "No enhancement modules enabled. "
+                    "Enable modules in config.yml under ariel.enhancement_modules "
+                    "(e.g., text_embedding.enabled: true)",
+                    err=True,
+                )
             return
 
         click.echo(f"Enhancement modules: {[e.name for e in enhancers]}")
