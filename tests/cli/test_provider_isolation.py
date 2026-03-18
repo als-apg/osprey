@@ -136,6 +136,12 @@ def cborg_project(tmp_path):
 class TestChatProviderIsolation:
     """chat_claude() wires auth and scrubs managed vars."""
 
+    @pytest.fixture(autouse=True)
+    def _no_dotenv(self):
+        """Prevent inject_provider_env from loading the scaffolded .env file."""
+        with patch("dotenv.dotenv_values", return_value={}):
+            yield
+
     @patch("osprey.cli.claude_cmd.os.execvp")
     def test_chat_sets_auth_token(self, mock_execvp, cli_runner, cborg_project):
         """Auth token is set from secret env var before exec."""
