@@ -52,6 +52,13 @@ def detect_environment_variables() -> dict[str, str]:
     needed in .env files (API keys, paths, etc.) and returns those that are
     currently set in the system.
 
+    Sources are checked in priority order (highest priority last, so it wins):
+    1. Shell environment (os.environ)
+    2. Project root .env file (if running from within an osprey project)
+
+    The .env file takes precedence because it represents the user's explicitly
+    configured project values, which may be more current than stale shell exports.
+
     Returns:
         Dictionary of detected environment variables with their values.
         Only includes variables that are actually set (non-empty).
@@ -66,11 +73,27 @@ def detect_environment_variables() -> dict[str, str]:
         "TZ",
     ]
 
+    # Load .env file from current directory if it exists (project root values
+    # take precedence over shell environment for API keys)
+    dotenv_values = {}
+    env_file = Path.cwd() / ".env"
+    if env_file.is_file():
+        try:
+            from dotenv import dotenv_values as _dotenv_values
+
+            dotenv_values = _dotenv_values(env_file)
+        except ImportError:
+            pass
+
     detected = {}
     for var in env_vars_to_check:
+        # Shell environment first, then .env file overrides
         value = os.environ.get(var)
-        if value:  # Only include if the variable is set and non-empty
+        if value:
             detected[var] = value
+        env_file_value = dotenv_values.get(var)
+        if env_file_value:
+            detected[var] = env_file_value
 
     # If TZ not in environment, try to detect system timezone
     if "TZ" not in detected:

@@ -746,7 +746,7 @@ def chat_claude(project, resume, print_mode):
                     f"[warning]⚠ ${spec.auth_secret_env} not found in environment — "
                     f"provider '{spec.provider}' may not authenticate[/warning]"
                 )
-            injected = inject_provider_env(os.environ, spec)
+            injected = inject_provider_env(os.environ, spec, project_dir=project_dir)
             if injected:
                 console.print(f"[dim]Injected: {', '.join(injected)}[/dim]")
             if spec.auth_secret_env and os.environ.get(spec.auth_env_var):

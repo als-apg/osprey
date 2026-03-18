@@ -14,6 +14,7 @@ design.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
     "anthropic": {
@@ -86,11 +87,33 @@ MANAGED_ENV_VARS = frozenset(
 def inject_provider_env(
     environ: dict[str, str],
     spec: ClaudeCodeModelSpec,
+    project_dir: Path | None = None,
 ) -> list[str]:
     """Scrub managed vars, inject provider env block and auth into environ.
 
     Mutates environ in-place. Returns list of injected var names for logging.
+
+    Args:
+        environ: Environment dict to mutate (typically os.environ).
+        spec: Resolved provider specification.
+        project_dir: Project directory containing .env file. If provided,
+            loads .env values into environ before reading the auth secret,
+            so project-level API keys take precedence over stale shell exports.
     """
+    # Load project .env so API keys configured there override shell env.
+    # This is critical: users update .env but may have stale shell exports.
+    if project_dir is not None:
+        env_file = Path(project_dir) / ".env"
+        if env_file.is_file():
+            try:
+                from dotenv import dotenv_values
+
+                for key, value in dotenv_values(env_file).items():
+                    if value is not None:
+                        environ[key] = value
+            except ImportError:
+                pass
+
     # Read auth secret BEFORE scrubbing — auth_secret_env may be in MANAGED_ENV_VARS
     # (e.g. ANTHROPIC_API_KEY for the anthropic provider)
     secret = None
