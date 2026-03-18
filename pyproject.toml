@@ -126,6 +126,9 @@ dependencies = [
 
     # Typesense search engine (AccelPapers hybrid BM25 + vector search)
     "typesense>=2.0.0",
+
+    # Lattice physics (Accelerator Toolbox for lattice dashboard)
+    "accelerator-toolbox[plot]",
 ]
 
 [project.optional-dependencies]
@@ -184,11 +187,6 @@ sheets = [
 #   pip install git+https://github.com/.../claude-code-karma.git
 # karma = ["claude-code-karma"]  # Uncomment after installing from local path
 
-# Lattice physics (Accelerator Toolbox for lattice_design template)
-lattice = [
-    "accelerator-toolbox[plot]",
-]
-
 # Graph data extraction (DePlot service + comparison tools)
 graph = [
     "opencv-python-headless>=4.8.0",
@@ -205,7 +203,7 @@ screen-capture-linux = [
 
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,storage,ariel,sheets,lattice,graph,screen-capture-linux]"
+    "osprey-framework[docs,dev,ariel,sheets,graph,screen-capture-linux]"
 ]
 
 [project.urls]
