@@ -174,18 +174,18 @@ class TestPanelFocus:
         assert data["status"] == "ok"
         assert data["active_panel"] == "artifacts"
 
-    def test_set_panel_focus_session(self, client):
+    def test_set_panel_focus_karma(self, client):
         resp = client.post(
             "/api/panel-focus",
-            json={"panel": "session"},
+            json={"panel": "karma"},
         )
         assert resp.status_code == 200
-        assert resp.json()["active_panel"] == "session"
+        assert resp.json()["active_panel"] == "karma"
 
     def test_get_reflects_set(self, client):
-        client.post("/api/panel-focus", json={"panel": "session"})
+        client.post("/api/panel-focus", json={"panel": "karma"})
         resp = client.get("/api/panel-focus")
-        assert resp.json()["active_panel"] == "session"
+        assert resp.json()["active_panel"] == "karma"
 
     def test_set_unknown_panel_422(self, client):
         resp = client.post(

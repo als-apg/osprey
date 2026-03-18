@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 
 from fastapi import APIRouter, HTTPException, Request
@@ -90,42 +89,12 @@ async def wiki_url(request: Request):
     return {"url": None, "available": False}
 
 
-@router.get("/api/cui-server")
-async def cui_server_config(request: Request):
-    """Return the CUI server URL, live health status, and auth token."""
-    import urllib.request as _urllib
 
-    url = getattr(request.app.state, "cui_server_url", None)
-    healthy = False
-    auth_token = None
-    if url:
-        try:
-            req = _urllib.Request(f"{url}/health", method="GET")
-            with _urllib.urlopen(req, timeout=1) as resp:
-                healthy = resp.status == 200
-        except Exception:
-            pass
-        # Fetch the auth token from CUI's config so the iframe can auto-authenticate
-        if healthy:
-            try:
-                req = _urllib.Request(f"{url}/api/config", method="GET")
-                with _urllib.urlopen(req, timeout=1) as resp:
-                    data = json.loads(resp.read())
-                    auth_token = data.get("authToken")
-            except Exception:
-                pass
-    return {"url": url, "available": healthy, "authToken": auth_token}
-
-
-@router.get("/api/agentsview-server")
-async def agentsview_server_config(request: Request):
-    """Return the agentsview session analytics server URL for iframe embedding."""
-    url = getattr(request.app.state, "agentsview_server_url", None)
-    project = getattr(request.app.state, "agentsview_project", None)
-    result: dict = {"url": url, "available": url is not None}
-    if project:
-        result["project"] = project
-    return result
+@router.get("/api/karma-server")
+async def karma_server_config(request: Request):
+    """Return the Karma analytics server URL for iframe embedding."""
+    url = getattr(request.app.state, "karma_server_url", None)
+    return {"url": url, "available": url is not None}
 
 
 @router.get("/api/panels")

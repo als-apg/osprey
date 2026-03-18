@@ -36,7 +36,6 @@
   <link rel="stylesheet" href="/static/css/terminal.css">
   <link rel="stylesheet" href="/static/css/files.css">
   <link rel="stylesheet" href="/static/css/operator.css">
-  <link rel="stylesheet" href="/static/css/cui.css">
   <link rel="stylesheet" href="/static/css/md-rendered.css">
   <link rel="stylesheet" href="/static/css/drawer.css">
   <link rel="stylesheet" href="/static/css/sessions.css">
@@ -77,12 +76,10 @@
         <span class="terminal-label" id="terminal-label">Session</span>
         <div class="session-selector" id="session-selector"></div>
         <button class="new-session-btn" id="new-session-btn" title="New Session">+ New</button>
-        <button class="mode-toggle-btn" id="mode-toggle" title="Switch to CUI">CUI</button>
       </div>
       <div class="terminal-body" id="terminal-body">
         <div id="terminal-container"></div>
         <div id="operator-container" class="operator-container"></div>
-        <div id="cui-container" class="cui-container" style="display: none;"></div>
         <div class="terminal-bezel"></div>
       </div>
     </div>
@@ -110,9 +107,6 @@
       </div>
       <div class="status-item" id="operator-status" style="display: none;">
         <span class="status-dot" id="operator-dot"></span><span>OP</span>
-      </div>
-      <div class="status-item" id="cui-status" style="display: none;">
-        <span class="status-dot" id="cui-dot"></span><span>CUI</span>
       </div>
       <div class="status-item" id="ariel-status" style="display: none;">
         <span class="status-dot" id="ariel-dot"></span><span>ARIEL</span>

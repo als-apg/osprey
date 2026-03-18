@@ -11,9 +11,6 @@ import { initHookDebug } from './hook-debug.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
 import { initTheme } from './theme.js';
 
-let currentMode = 'terminal';
-let cuiIframeCreated = false;
-
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   initTerminal('terminal-container');
@@ -22,7 +19,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initStatusBar();
   initResizeHandle();
   initKeyboardShortcuts();
-  initModeToggle();
   initNewSessionButton();
   initDrawers();
   initSettings();
@@ -37,128 +33,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // Welcome modal (once per server session)
   initWelcomeModal();
 });
-
-/* ---- Mode Toggle ---- */
-
-function initModeToggle() {
-  const btn = document.getElementById('mode-toggle');
-  if (!btn) return;
-
-  btn.addEventListener('click', () => {
-    if (currentMode === 'terminal') {
-      switchToCUIMode();
-    } else {
-      switchToTerminalMode();
-    }
-  });
-}
-
-async function switchToCUIMode() {
-  currentMode = 'cui';
-  stopTerminal();
-
-  const termContainer = document.getElementById('terminal-container');
-  const cuiContainer = document.getElementById('cui-container');
-  const toggleBtn = document.getElementById('mode-toggle');
-  const label = document.getElementById('terminal-label');
-  const cuiStatus = document.getElementById('cui-status');
-
-  if (termContainer) termContainer.style.display = 'none';
-  if (cuiContainer) cuiContainer.style.display = '';
-  if (toggleBtn) toggleBtn.textContent = 'Terminal';
-  if (label) label.textContent = 'CUI';
-  if (cuiStatus) cuiStatus.style.display = '';
-
-  // Immediate health LED update
-  updateCUIHealth();
-
-  // Lazy-create iframe (created once, cached to preserve conversation state)
-  if (!cuiIframeCreated && cuiContainer) {
-    // Show loading message while we check
-    const loading = document.createElement('div');
-    loading.className = 'cui-unavailable';
-    loading.textContent = 'Connecting to CUI server\u2026';
-    cuiContainer.appendChild(loading);
-
-    try {
-      // Poll until the CUI server is ready (npx may need to download first)
-      let data = null;
-      for (let i = 0; i < 30; i++) {
-        data = await fetchJSON('/api/cui-server');
-        if (data.available) break;
-        await new Promise(r => setTimeout(r, 1000));
-      }
-
-      cuiContainer.removeChild(loading);
-
-      if (data && data.available) {
-        // Use same-origin proxy (/cui/) which constrains sessions to this
-        // project and eliminates cross-origin auth issues.
-        //
-        // Set the CUI auth cookie directly (same-origin, so it's shared
-        // with the iframe).  This avoids a React timing issue in CUI where
-        // useAuth() runs in useEffect (after first render) but getAuthToken()
-        // reads the cookie during render — the fragment-based approach left
-        // the cookie unset on the first render, showing the login page.
-        const proxyBase = '/cui/';
-        if (data.authToken) {
-          const expires = new Date();
-          expires.setDate(expires.getDate() + 7);
-          document.cookie = `cui-auth-token=${encodeURIComponent(data.authToken)}; expires=${expires.toUTCString()}; path=/; SameSite=Strict`;
-        }
-        const iframe = document.createElement('iframe');
-        iframe.className = 'cui-iframe';
-        iframe.src = proxyBase;
-        cuiContainer.appendChild(iframe);
-        updateCUIHealth();
-      } else {
-        const msg = document.createElement('div');
-        msg.className = 'cui-unavailable';
-        msg.textContent = 'CUI server not available — install with: npm install -g cui-server';
-        cuiContainer.appendChild(msg);
-      }
-    } catch (err) {
-      console.error('Failed to load CUI server config:', err);
-      if (loading.parentNode) cuiContainer.removeChild(loading);
-      const msg = document.createElement('div');
-      msg.className = 'cui-unavailable';
-      msg.textContent = 'CUI server not available';
-      cuiContainer.appendChild(msg);
-    }
-    cuiIframeCreated = true;
-  }
-}
-
-async function updateCUIHealth() {
-  const cuiDot = document.getElementById('cui-dot');
-  if (!cuiDot) return;
-  try {
-    const data = await fetchJSON('/api/cui-server');
-    cuiDot.className = 'status-dot' + (data.available ? ' live' : ' error');
-  } catch {
-    cuiDot.className = 'status-dot error';
-  }
-}
-
-function switchToTerminalMode() {
-  currentMode = 'terminal';
-
-  const termContainer = document.getElementById('terminal-container');
-  const cuiContainer = document.getElementById('cui-container');
-  const toggleBtn = document.getElementById('mode-toggle');
-  const label = document.getElementById('terminal-label');
-  const cuiStatus = document.getElementById('cui-status');
-
-  if (cuiContainer) cuiContainer.style.display = 'none';
-  if (termContainer) termContainer.style.display = '';
-  if (toggleBtn) toggleBtn.textContent = 'CUI';
-  if (label) label.textContent = 'Session';
-  if (cuiStatus) cuiStatus.style.display = 'none';
-
-  startTerminal();
-  fitTerminal();
-  focusTerminal();
-}
 
 /* ---- New Session Button ---- */
 
@@ -189,13 +63,6 @@ function initStatusBar() {
       wsDot.className = 'status-dot' + (ws === 'connected' ? ' live' : ws === 'disconnected' ? ' error' : '');
     }
   });
-
-  // CUI health poll (every 10s when CUI status is visible)
-  setInterval(() => {
-    const cuiStatus = document.getElementById('cui-status');
-    if (!cuiStatus || cuiStatus.style.display === 'none') return;
-    updateCUIHealth();
-  }, 10000);
 
   // Update terminal dimensions display
   setInterval(() => {
@@ -466,13 +333,10 @@ async function initWelcomeModal() {
 
 function initKeyboardShortcuts() {
   document.addEventListener('keydown', (e) => {
-    // Ctrl+` — focus active mode input
+    // Ctrl+` — focus terminal
     if (e.ctrlKey && e.key === '`') {
       e.preventDefault();
-      if (currentMode === 'terminal') {
-        focusTerminal();
-      }
-      // CUI mode: no-op (can't focus cross-origin iframe)
+      focusTerminal();
     }
   });
 }

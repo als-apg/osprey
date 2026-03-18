@@ -131,27 +131,23 @@ def _launch_channel_finder_server(app: FastAPI) -> None:
         app.state.channel_finder_server_url = None
 
 
-def _launch_agentsview_server(app: FastAPI) -> None:
-    """Auto-launch the agentsview session analytics server if configured."""
+def _launch_karma_server(app: FastAPI) -> None:
+    """Auto-launch the Karma analytics server if configured."""
     try:
+        from osprey.infrastructure.server_launcher import ensure_karma_server
         from osprey.utils.workspace import load_osprey_config
 
         config = load_osprey_config()
-        av_config = config.get("agentsview", {})
-        host = av_config.get("host", "127.0.0.1")
-        port = av_config.get("port", 8096)
+        karma = config.get("karma", {})
+        host = karma.get("host", "127.0.0.1")
+        port = karma.get("port", 8741)
 
-        app.state.agentsview_server_url = f"http://{host}:{port}"
-        app.state.agentsview_project = av_config.get("project")
-
-        from osprey.interfaces.agentsview.launcher import ensure_agentsview
-
-        ensure_agentsview()
-        logger.info("agentsview available at %s", app.state.agentsview_server_url)
+        app.state.karma_server_url = f"http://{host}:{port}"
+        ensure_karma_server()
+        logger.info("Karma available at %s", app.state.karma_server_url)
     except Exception:
-        logger.warning("Could not auto-launch agentsview", exc_info=True)
-        app.state.agentsview_server_url = None
-        app.state.agentsview_project = None
+        logger.warning("Could not auto-launch Karma", exc_info=True)
+        app.state.karma_server_url = None
 
 
 def _launch_lattice_dashboard_server(app: FastAPI) -> None:
@@ -175,36 +171,15 @@ def _launch_lattice_dashboard_server(app: FastAPI) -> None:
         app.state.lattice_dashboard_server_url = None
 
 
-def _launch_cui_server(app: FastAPI) -> None:
-    """Auto-launch the CUI server subprocess if configured."""
-    try:
-        from osprey.utils.workspace import load_osprey_config
-
-        config = load_osprey_config()
-        cui_config = config.get("cui_server", {})
-        host = cui_config.get("host", "127.0.0.1")
-        port = cui_config.get("port", 3001)
-
-        app.state.cui_server_url = f"http://{host}:{port}"
-
-        from osprey.interfaces.cui.launcher import ensure_cui_server
-
-        ensure_cui_server(cwd=getattr(app.state, "project_cwd", None))
-        logger.info("CUI server available at %s", app.state.cui_server_url)
-    except Exception:
-        logger.warning("Could not auto-launch CUI server", exc_info=True)
-        app.state.cui_server_url = None
-
 
 # Panel classification constants
-UNIVERSAL_PANELS = {"artifacts", "session", "session-analytics"}
+UNIVERSAL_PANELS = {"artifacts", "karma"}
 BUILTIN_PANELS = {
     "artifacts",
     "ariel",
     "tuning",
     "channel-finder",
-    "session",
-    "session-analytics",
+    "karma",
     "lattice",
 }
 
@@ -318,7 +293,8 @@ def _create_lifespan(
             _api = _cfg.get("api", {}).get("providers", {})
             _spec = ClaudeCodeModelResolver.resolve(_cc, _api)
             if _spec:
-                inject_provider_env(os.environ, _spec)
+                _project_dir = Path(app.state.config_path).parent
+                inject_provider_env(os.environ, _spec, project_dir=_project_dir)
 
         workspace_dir = Path(config.get("watch_dir") or "./osprey-workspace").resolve()
         app.state.workspace_dir = workspace_dir  # base path (file watcher watches all sessions)
@@ -333,8 +309,7 @@ def _create_lifespan(
 
         # Universal servers — always launched
         _launch_artifact_server(app)
-        _launch_cui_server(app)
-        _launch_agentsview_server(app)
+        _launch_karma_server(app)
 
         # Domain servers — template-controlled
         if "ariel" in enabled_panels:
@@ -358,22 +333,6 @@ def _create_lifespan(
         app.state.watcher.stop()
         app.state.pty_registry.cleanup_all()
         await app.state.operator_registry.cleanup_all()
-
-        # Stop CUI subprocess (not a daemon thread — must be explicitly stopped)
-        try:
-            from osprey.interfaces.cui.launcher import stop_cui_server
-
-            stop_cui_server()
-        except Exception:
-            pass
-
-        # Stop agentsview subprocess
-        try:
-            from osprey.interfaces.agentsview.launcher import stop_agentsview
-
-            stop_agentsview()
-        except Exception:
-            pass
 
     return lifespan
 
@@ -412,14 +371,6 @@ def create_app(
     app.add_middleware(NoCacheStaticMiddleware)
 
     app.include_router(router)
-
-    # Mount CUI reverse proxy (constrains sessions to this project)
-    try:
-        from osprey.interfaces.cui.proxy import create_cui_proxy_mount
-
-        app.routes.append(create_cui_proxy_mount())
-    except Exception:
-        logger.warning("Could not mount CUI proxy", exc_info=True)
 
     @app.get("/")
     async def root():
