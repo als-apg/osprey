@@ -62,7 +62,7 @@ def get_version_from_git():
 
 
 project = "Osprey Framework"
-copyright = "2025, Osprey Developer Team"
+copyright = "2026, Osprey Developer Team"
 author = "Osprey Developer Team"
 release = get_version_from_git()
 
@@ -149,8 +149,6 @@ html_domain_indices = True
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_css_files = ["custom.css"]
 
-# Add JavaScript files for execution plan viewer
-html_js_files = ["js/execution_plan_viewer.js"]
 
 # -- Autodoc configuration --------------------------------------------------
 
@@ -190,12 +188,6 @@ autodoc_mock_imports = [
     "psycopg",
     "psycopg.rows",
     "psycopg_pool",
-    "langgraph.checkpoint.postgres",
-    # Specialized infrastructure - interfaces documented, implementations mocked
-    "langgraph",
-    "langchain",
-    "langchain_core",
-    "langchain_core.messages",
     # Container and deployment tools - not needed for documentation
     "docker",
     "podman",
@@ -216,19 +208,6 @@ autodoc_mock_imports = [
     # Network and async libraries - interfaces documented, implementations mocked
     "aiohttp",
     "websockets",
-    # Framework services that depend on complex infrastructure
-    # Note: The services themselves can now import, but their dependencies are mocked above
-    # Internal modules that have import issues during docs build
-    "container_manager",
-    "loader",
-    # Framework modules that fail due to registry/config dependencies
-    "framework.infrastructure.task_extraction_node",
-    "framework.infrastructure.orchestration_node",
-    "framework.infrastructure.error_node.ErrorType",
-    "framework.services.python_executor.PythonExecutorConfig",
-    # Capability error classes that depend on registry
-    "framework.capabilities.memory",
-    "framework.capabilities.time_range_parsing",
 ]
 
 # IMPORTANT: If you see import errors for modules NOT in the above list,

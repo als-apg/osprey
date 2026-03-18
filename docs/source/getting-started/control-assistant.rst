@@ -2,7 +2,7 @@
 Production Control Systems Tutorial
 ===================================
 
-This tutorial demonstrates **production-grade patterns for control system integration** through an accelerator physics application based on the deployed :doc:`ALS Accelerator Assistant <../example-applications/als-assistant>`. Unlike the Hello World tutorial's simple mock API and workflow, you'll work with scalable patterns for scientific facility integration. The tutorial provides **two alternative semantic channel finding implementations**—in-context search and hierarchical navigation—allowing you to choose the approach that best fits your facility's needs. You'll implement a service layer architecture with supporting tools including a standalone CLI, database utilities, and benchmark runners.
+This tutorial demonstrates **production-grade patterns for control system integration** through an accelerator physics application based on the deployed ALS Accelerator Assistant. Unlike the Hello World tutorial's simple mock API and workflow, you'll work with scalable patterns for scientific facility integration. The tutorial provides **two alternative semantic channel finding implementations**—in-context search and hierarchical navigation—allowing you to choose the approach that best fits your facility's needs. You'll implement a service layer architecture with supporting tools including a standalone CLI, database utilities, and benchmark runners.
 
 What You'll Build
 =================
@@ -45,7 +45,7 @@ An accelerator control system assistant that finds control system addresses (lik
       - **Complex operations** requiring rapid diagnosis and response
       - **Safety-critical** decisions based on correct channel identification
 
-      This tutorial's patterns scale from small control systems :doc:`to facilities of this scale and complexity <../example-applications/als-assistant>`.
+      This tutorial's patterns scale from small control systems to facilities of this scale and complexity.
 
 Tutorial Structure
 ==================
