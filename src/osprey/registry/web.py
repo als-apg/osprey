@@ -95,4 +95,15 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         pass_workspace=True,
         require_section=True,
     ),
+    "karma": WebServerDefinition(
+        name="Karma analytics",
+        factory_path="claude_code_karma.app:create_app",
+        config_key="karma",
+        port_default=8741,
+        require_section=False,
+        import_error_message=(
+            "Claude Code Karma not installed. "
+            "Install with: pip install claude-code-karma"
+        ),
+    ),
 }

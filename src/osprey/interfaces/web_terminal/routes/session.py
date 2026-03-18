@@ -22,13 +22,6 @@ async def list_sessions(request: Request):
     return {"sessions": [asdict(s) for s in sessions]}
 
 
-@router.get("/api/session-server")
-async def session_server_config(request: Request):
-    """Return the session diagnostics page URL for iframe embedding."""
-    base = str(request.base_url).rstrip("/")
-    return {"url": f"{base}/static/session.html"}
-
-
 def _read_session_events(request: Request, reader) -> list[dict]:
     """Read session events, scoped to a session_id if provided."""
     session_id = request.query_params.get("session_id")
