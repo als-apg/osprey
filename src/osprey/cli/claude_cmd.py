@@ -692,7 +692,13 @@ def status(project):
 )
 @click.option("--resume", default=None, help="Resume a previous Claude Code session")
 @click.option("--print", "print_mode", is_flag=True, help="Use print mode (non-interactive)")
-def chat_claude(project, resume, print_mode):
+@click.option(
+    "--effort",
+    type=click.Choice(["low", "medium", "high", "max"]),
+    default=None,
+    help="Claude Code effort level",
+)
+def chat_claude(project, resume, print_mode, effort):
     """Launch Claude Code with regenerated artifacts.
 
     Regenerates Claude Code integration files from config.yml,
@@ -738,6 +744,8 @@ def chat_claude(project, resume, print_mode):
     if config_path.exists():
         config = yaml.safe_load(config_path.read_text()) or {}
         cc_config = config.get("claude_code", {})
+        if not effort:
+            effort = cc_config.get("effort")
         api_providers = config.get("api", {}).get("providers", {})
         spec = ClaudeCodeModelResolver.resolve(cc_config, api_providers)
         if spec:
@@ -760,6 +768,8 @@ def chat_claude(project, resume, print_mode):
         args.extend(["--resume", resume])
     if print_mode:
         args.append("--print")
+    if effort:
+        args.extend(["--effort", effort])
 
     # Replace current process with claude CLI
     console.print(f"[dim]Launching Claude Code in {project_dir}...[/dim]\n")

@@ -21,6 +21,7 @@ router = APIRouter()
 _AGENT_CONFIG_SECTIONS = [
     "control_system",
     "approval",
+    "claude_code",
     "channel_finder",
     "ariel",
     "python_execution",

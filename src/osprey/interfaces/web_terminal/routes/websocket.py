@@ -7,7 +7,9 @@ import json
 import logging
 import re
 import uuid
+from pathlib import Path
 
+import yaml
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from osprey.interfaces.web_terminal.operator_session import build_clean_env
@@ -18,6 +20,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _UUID_RE = re.compile(r"^[a-f0-9-]{36}$")
+
+
+def _read_effort_level(config_path: Path | None) -> str | None:
+    """Read claude_code.effort from config.yml."""
+    if not config_path or not Path(config_path).exists():
+        return None
+    try:
+        config = yaml.safe_load(Path(config_path).read_text()) or {}
+        return config.get("claude_code", {}).get("effort")
+    except Exception:
+        return None
 
 
 async def _run_output_loop(
@@ -102,13 +115,18 @@ async def terminal_ws(websocket: WebSocket):
     req_session_id = websocket.query_params.get("session_id")
     mode = websocket.query_params.get("mode", "new")
 
+    effort = _read_effort_level(websocket.app.state.config_path)
+
     # Build the command and determine the initial session key
     if mode == "resume" and req_session_id:
         command: str | list[str] = [base_shell_command, "--resume", req_session_id]
         claude_session_id: str | None = req_session_id
     else:
-        command = base_shell_command
+        command = [base_shell_command]
         claude_session_id = None
+
+    if effort:
+        command.extend(["--effort", effort])
 
     # Use claude_session_id as pool key for resumes, temp key for new sessions
     current_key = claude_session_id or f"terminal-{uuid.uuid4().hex[:8]}"
@@ -223,6 +241,8 @@ async def terminal_ws(websocket: WebSocket):
                                 "--resume",
                                 target_id,
                             ]
+                            if effort:
+                                target_cmd.extend(["--effort", effort])
                             target_env = _build_extra_env(websocket, target_id)
 
                             # 4. Get or create target session

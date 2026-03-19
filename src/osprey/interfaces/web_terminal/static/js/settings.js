@@ -2,7 +2,7 @@
 
 import { fetchJSON } from './api.js';
 import { closeDrawer } from './drawer.js';
-import { restartTerminal } from './terminal.js';
+import { restartTerminal, startTerminal } from './terminal.js';
 
 let currentConfig = null;  // { sections, raw, path }
 let isDirty = false;
@@ -13,6 +13,7 @@ let agentPanel = null;
 
 // Known enum values for select dropdowns
 const ENUM_FIELDS = {
+  'claude_code.effort': ['low', 'medium', 'high', 'max'],
   'control_system.write_verification': ['none', 'callback', 'readback'],
   'approval.default_policy': ['always', 'selective', 'skip'],
   'approval.tools.channel_write': ['always', 'selective', 'skip'],
@@ -382,6 +383,7 @@ async function applySettings() {
 
     closeDrawer();
     await restartTerminal();
+    startTerminal();
   } catch (e) {
     const prefix = configSaved ? 'Config saved, but: ' : '';
     if (status) status.textContent = `${prefix}${e.message}`;
