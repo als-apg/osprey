@@ -64,7 +64,6 @@ class TestLazyGroup:
             "deploy",
             "migrate",
             "health",
-            "tasks",
             "channel-finder",
             "claude",
             "eject",

@@ -76,8 +76,6 @@ def handle_project_selection(project_path: Path):
             from osprey.cli.registry_cmd import handle_registry_action
 
             handle_registry_action(project_path=project_path)
-        elif action == "tasks":
-            handle_tasks_action()
         elif action == "init_interactive":
             # Save current directory before init flow
             original_dir = Path.cwd()
@@ -325,16 +323,6 @@ def handle_health_action(project_path: Path | None = None):
                 console.print(f"\n{Messages.warning(f'Could not restore directory: {e}')}")
 
     input("\nPress ENTER to continue...")
-
-
-def handle_tasks_action():
-    """Handle tasks browsing action from interactive menu.
-
-    Launches the interactive task browser for selecting and managing tasks.
-    """
-    from osprey.cli.tasks_cmd import interactive_task_browser
-
-    interactive_task_browser()
 
 
 def handle_export_action(project_path: Path | None = None):

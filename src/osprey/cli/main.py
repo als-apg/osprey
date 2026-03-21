@@ -48,7 +48,6 @@ class LazyGroup(click.Group):
             "config": "osprey.cli.config_cmd",
             "health": "osprey.cli.health_cmd",
             "migrate": "osprey.cli.migrate_cmd",
-            "tasks": "osprey.cli.tasks_cmd",
             "claude": "osprey.cli.claude_cmd",
             "eject": "osprey.cli.eject_cmd",
             "channel-finder": "osprey.cli.channel_finder_cmd",
@@ -91,7 +90,6 @@ class LazyGroup(click.Group):
             "deploy",
             "migrate",
             "health",
-            "tasks",
             "channel-finder",
             "claude",
             "eject",
@@ -120,10 +118,9 @@ def cli(ctx):
       osprey init my-project          Create new project
       osprey config                   Manage configuration (show, export, set)
       osprey deploy up                Start services
-      osprey claude install <task>    Install Claude Code skill
+      osprey claude regen             Regenerate Claude Code artifacts
       osprey web                      Launch web terminal
       osprey health                   Check system health
-      osprey tasks                    Browse AI assistant tasks
       osprey channel-finder           Interactive channel search
     """
     from .styles import initialize_theme_from_config

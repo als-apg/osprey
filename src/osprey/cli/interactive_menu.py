@@ -53,7 +53,6 @@ from osprey.cli.project_actions import (  # noqa: F401
     handle_set_control_system,
     handle_set_epics_gateway,
     handle_set_models,
-    handle_tasks_action,
     show_config_menu,
 )
 from osprey.cli.styles import (
@@ -468,7 +467,6 @@ def get_project_menu_choices(exit_action: str = "exit") -> list[Choice]:
         Choice("[>] health      - Run system health check", value="health"),
         Choice("[>] config      - Configuration settings", value="config"),
         Choice("[>] registry    - Show registry contents", value="registry"),
-        Choice("[>] tasks       - Browse AI assistant tasks", value="tasks"),
         Choice("─" * 60, value=None, disabled=True),
         Choice("[+] init        - Create new project", value="init_interactive"),
         Choice("[?] help        - Show all commands", value="help"),
@@ -527,7 +525,6 @@ def show_main_menu() -> str | None:
         choices.extend(
             [
                 Choice("[+] Create new project (interactive)", value="init_interactive"),
-                Choice("[>] Browse AI assistant tasks", value="tasks"),
                 Choice("[?] Help", value="help"),
                 Choice("[x] Exit", value="exit"),
             ]
@@ -746,8 +743,6 @@ def navigation_loop():
             from osprey.cli.registry_cmd import handle_registry_action
 
             handle_registry_action()
-        elif action == "tasks":
-            handle_tasks_action()
         elif action == "help":
             # Show contextual help based on whether we're in a project or not
             if is_project_initialized():

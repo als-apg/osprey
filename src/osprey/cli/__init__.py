@@ -11,8 +11,6 @@ Commands:
     - web: Launch web terminal interface
     - health: Check system health
     - channel-finder: Interactive channel search
-    - tasks: Browse AI assistant tasks
-
 Architecture:
     Uses Click for command-line parsing with a group-based structure.
     Each command is implemented in its own module for maintainability.
