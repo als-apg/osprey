@@ -147,6 +147,10 @@ def build(
                 style=Styles.SUCCESS,
             )
 
+        # 11. Generate .env.template
+        if build_profile.env.required or build_profile.env.defaults:
+            _generate_env_template(project_path, build_profile.env)
+
         # 13. Generate manifest
         manifest_context = {
             "default_provider": build_profile.provider or "anthropic",
@@ -273,6 +277,30 @@ def _run_lifecycle_phase(
                 raise BuildProfileError(msg)
             else:
                 console.print(f"  ⚠️  {msg}", style=Styles.WARNING)
+
+
+def _generate_env_template(project_path: Path, env_config: Any) -> None:
+    """Generate a .env.template file from the profile's env configuration."""
+    lines: list[str] = []
+    if env_config.required:
+        lines.append("# Required")
+        for var in env_config.required:
+            lines.append(f"{var}=")
+    if env_config.defaults:
+        if lines:
+            lines.append("")
+        lines.append("# Defaults")
+        for var, value in env_config.defaults.items():
+            lines.append(f"{var}={value}")
+    lines.append("")  # Trailing newline
+
+    env_path = project_path / ".env.template"
+    env_path.write_text("\n".join(lines), encoding="utf-8")
+    console.print("  ✓ Generated .env.template", style=Styles.SUCCESS)
+    console.print(
+        "  💡 Copy .env.template to .env and fill in required values",
+        style=Styles.DIM,
+    )
 
 
 def _apply_config_overrides(project_path: Path, config_dict: dict[str, Any]) -> None:

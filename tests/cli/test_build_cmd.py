@@ -473,6 +473,57 @@ class TestBuildHelpers:
 
 
 # ---------------------------------------------------------------------------
+# Environment Template
+# ---------------------------------------------------------------------------
+
+
+class TestEnvTemplate:
+    """Tests for _generate_env_template()."""
+
+    def test_generates_required_vars(self, tmp_path: Path):
+        from osprey.cli.build_cmd import _generate_env_template
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        env = EnvConfig(required=["API_KEY", "DB_HOST"])
+        _generate_env_template(project_path, env)
+
+        content = (project_path / ".env.template").read_text()
+        assert "# Required" in content
+        assert "API_KEY=" in content
+        assert "DB_HOST=" in content
+
+    def test_generates_defaults(self, tmp_path: Path):
+        from osprey.cli.build_cmd import _generate_env_template
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        env = EnvConfig(defaults={"LOG_LEVEL": "info", "PORT": "8080"})
+        _generate_env_template(project_path, env)
+
+        content = (project_path / ".env.template").read_text()
+        assert "# Defaults" in content
+        assert "LOG_LEVEL=info" in content
+        assert "PORT=8080" in content
+
+    def test_generates_both_sections(self, tmp_path: Path):
+        from osprey.cli.build_cmd import _generate_env_template
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        env = EnvConfig(required=["API_KEY"], defaults={"PORT": "8080"})
+        _generate_env_template(project_path, env)
+
+        content = (project_path / ".env.template").read_text()
+        assert "# Required" in content
+        assert "API_KEY=" in content
+        assert "# Defaults" in content
+        assert "PORT=8080" in content
+        # Required section comes before defaults
+        assert content.index("# Required") < content.index("# Defaults")
+
+
+# ---------------------------------------------------------------------------
 # Lifecycle Phase Runner
 # ---------------------------------------------------------------------------
 
