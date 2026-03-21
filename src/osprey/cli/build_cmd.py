@@ -151,6 +151,10 @@ def build(
         if build_profile.env.required or build_profile.env.defaults:
             _generate_env_template(project_path, build_profile.env)
 
+        # 12. Append to requirements.txt
+        if build_profile.dependencies:
+            _append_requirements(project_path, build_profile.dependencies)
+
         # 13. Generate manifest
         manifest_context = {
             "default_provider": build_profile.provider or "anthropic",
@@ -299,6 +303,26 @@ def _generate_env_template(project_path: Path, env_config: Any) -> None:
     console.print("  ✓ Generated .env.template", style=Styles.SUCCESS)
     console.print(
         "  💡 Copy .env.template to .env and fill in required values",
+        style=Styles.DIM,
+    )
+
+
+def _append_requirements(project_path: Path, dependencies: list[str]) -> None:
+    """Append profile dependencies to requirements.txt."""
+    req_path = project_path / "requirements.txt"
+    lines = ["\n", "# Profile dependencies\n"]
+    for dep in dependencies:
+        lines.append(f"{dep}\n")
+
+    with open(req_path, "a", encoding="utf-8") as f:
+        f.writelines(lines)
+
+    console.print(
+        f"  ✓ Added {len(dependencies)} profile dependency/ies to requirements.txt",
+        style=Styles.SUCCESS,
+    )
+    console.print(
+        "  💡 Run 'pip install -r requirements.txt' to install",
         style=Styles.DIM,
     )
 

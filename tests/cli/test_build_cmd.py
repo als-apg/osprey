@@ -524,6 +524,60 @@ class TestEnvTemplate:
 
 
 # ---------------------------------------------------------------------------
+# Dependencies
+# ---------------------------------------------------------------------------
+
+
+class TestAppendRequirements:
+    """Tests for _append_requirements()."""
+
+    def test_appends_to_existing(self, tmp_path: Path):
+        from osprey.cli.build_cmd import _append_requirements
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        req_path = project_path / "requirements.txt"
+        req_path.write_text("osprey>=0.1.0\n")
+
+        _append_requirements(project_path, ["numpy>=1.24", "pandas"])
+
+        content = req_path.read_text()
+        assert "osprey>=0.1.0" in content
+        assert "# Profile dependencies" in content
+        assert "numpy>=1.24" in content
+        assert "pandas" in content
+
+    def test_creates_file_if_missing(self, tmp_path: Path):
+        from osprey.cli.build_cmd import _append_requirements
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+
+        _append_requirements(project_path, ["scipy~=1.11"])
+
+        content = (project_path / "requirements.txt").read_text()
+        assert "# Profile dependencies" in content
+        assert "scipy~=1.11" in content
+
+    def test_does_not_overwrite(self, tmp_path: Path):
+        """Calling twice should append, not replace."""
+        from osprey.cli.build_cmd import _append_requirements
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        req_path = project_path / "requirements.txt"
+        req_path.write_text("osprey>=0.1.0\n")
+
+        _append_requirements(project_path, ["numpy"])
+        _append_requirements(project_path, ["pandas"])
+
+        content = req_path.read_text()
+        assert "osprey>=0.1.0" in content
+        assert "numpy" in content
+        assert "pandas" in content
+
+
+# ---------------------------------------------------------------------------
 # Lifecycle Phase Runner
 # ---------------------------------------------------------------------------
 
