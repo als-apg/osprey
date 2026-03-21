@@ -11,6 +11,9 @@ import yaml
 
 from osprey.cli.build_profile import (
     BuildProfile,
+    EnvConfig,
+    LifecycleConfig,
+    LifecycleStep,
     McpServerDef,
     load_profile,
 )
@@ -125,6 +128,52 @@ class TestProfileLoading:
         assert profile.config == {}
         assert profile.overlay == {}
         assert profile.mcp_servers == {}
+        assert profile.lifecycle == LifecycleConfig()
+        assert profile.env == EnvConfig()
+        assert profile.dependencies == []
+
+    def test_load_profile_lifecycle_parsed(self, tmp_path: Path):
+        profile_data = {
+            "name": "Lifecycle Test",
+            "lifecycle": {
+                "pre_build": [{"name": "check deps", "run": "pip check"}],
+                "post_build": [{"name": "build index", "run": "python index.py", "cwd": "data"}],
+                "validate": [{"name": "smoke test", "run": "python -c 'print(1)'"}],
+            },
+        }
+        path = tmp_path / "lc.yml"
+        path.write_text(yaml.dump(profile_data, default_flow_style=False))
+        profile = load_profile(path)
+        assert len(profile.lifecycle.pre_build) == 1
+        assert profile.lifecycle.pre_build[0].name == "check deps"
+        assert profile.lifecycle.pre_build[0].run == "pip check"
+        assert len(profile.lifecycle.post_build) == 1
+        assert profile.lifecycle.post_build[0].cwd == "data"
+        assert len(profile.lifecycle.validate) == 1
+
+    def test_load_profile_env_parsed(self, tmp_path: Path):
+        profile_data = {
+            "name": "Env Test",
+            "env": {
+                "required": ["API_KEY", "DB_HOST"],
+                "defaults": {"LOG_LEVEL": "info", "PORT": "8080"},
+            },
+        }
+        path = tmp_path / "env.yml"
+        path.write_text(yaml.dump(profile_data, default_flow_style=False))
+        profile = load_profile(path)
+        assert profile.env.required == ["API_KEY", "DB_HOST"]
+        assert profile.env.defaults == {"LOG_LEVEL": "info", "PORT": "8080"}
+
+    def test_load_profile_dependencies_parsed(self, tmp_path: Path):
+        profile_data = {
+            "name": "Deps Test",
+            "dependencies": ["numpy>=1.24", "pandas", "scipy~=1.11"],
+        }
+        path = tmp_path / "deps.yml"
+        path.write_text(yaml.dump(profile_data, default_flow_style=False))
+        profile = load_profile(path)
+        assert profile.dependencies == ["numpy>=1.24", "pandas", "scipy~=1.11"]
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +225,62 @@ class TestValidation:
     def test_missing_name_reported(self, tmp_path: Path):
         profile = BuildProfile(name="")
         with pytest.raises(BuildProfileError, match="'name' is required"):
+            profile.validate(tmp_path)
+
+    def test_lifecycle_step_missing_name(self, tmp_path: Path):
+        profile = BuildProfile(
+            name="Test",
+            lifecycle=LifecycleConfig(
+                pre_build=[LifecycleStep(name="", run="echo hello")],
+            ),
+        )
+        with pytest.raises(BuildProfileError, match="missing 'name'"):
+            profile.validate(tmp_path)
+
+    def test_lifecycle_step_missing_run(self, tmp_path: Path):
+        profile = BuildProfile(
+            name="Test",
+            lifecycle=LifecycleConfig(
+                post_build=[LifecycleStep(name="broken", run="")],
+            ),
+        )
+        with pytest.raises(BuildProfileError, match="missing 'run'"):
+            profile.validate(tmp_path)
+
+    def test_lifecycle_step_absolute_cwd_blocked(self, tmp_path: Path):
+        profile = BuildProfile(
+            name="Test",
+            lifecycle=LifecycleConfig(
+                pre_build=[LifecycleStep(name="bad", run="echo", cwd="/tmp/evil")],
+            ),
+        )
+        with pytest.raises(BuildProfileError, match="cwd must be relative without"):
+            profile.validate(tmp_path)
+
+    def test_lifecycle_step_traversal_cwd_blocked(self, tmp_path: Path):
+        profile = BuildProfile(
+            name="Test",
+            lifecycle=LifecycleConfig(
+                pre_build=[LifecycleStep(name="bad", run="echo", cwd="../escape")],
+            ),
+        )
+        with pytest.raises(BuildProfileError, match="cwd must be relative without"):
+            profile.validate(tmp_path)
+
+    def test_invalid_env_var_name(self, tmp_path: Path):
+        profile = BuildProfile(
+            name="Test",
+            env=EnvConfig(required=["lowercase_bad"]),
+        )
+        with pytest.raises(BuildProfileError, match="Invalid env var name"):
+            profile.validate(tmp_path)
+
+    def test_empty_dependency_rejected(self, tmp_path: Path):
+        profile = BuildProfile(
+            name="Test",
+            dependencies=["numpy", ""],
+        )
+        with pytest.raises(BuildProfileError, match="non-empty string"):
             profile.validate(tmp_path)
 
     def test_valid_profile_passes(self, profile_dir: Path, minimal_profile_yaml: Path):

@@ -7,6 +7,7 @@ overlay files, config overrides, and MCP server definitions.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,35 @@ class McpServerDef:
 
 
 @dataclass
+class LifecycleStep:
+    """A single command to run during a lifecycle phase."""
+
+    name: str
+    run: str
+    cwd: str | None = None
+
+
+@dataclass
+class LifecycleConfig:
+    """Lifecycle commands run before/after build and for validation."""
+
+    pre_build: list[LifecycleStep] = field(default_factory=list)
+    post_build: list[LifecycleStep] = field(default_factory=list)
+    validate: list[LifecycleStep] = field(default_factory=list)
+
+
+@dataclass
+class EnvConfig:
+    """Environment variable template configuration."""
+
+    required: list[str] = field(default_factory=list)
+    defaults: dict[str, str] = field(default_factory=dict)
+
+
+_ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+
+
+@dataclass
 class BuildProfile:
     """Complete build profile parsed from YAML."""
 
@@ -39,6 +69,9 @@ class BuildProfile:
     config: dict[str, Any] = field(default_factory=dict)
     overlay: dict[str, str] = field(default_factory=dict)
     mcp_servers: dict[str, McpServerDef] = field(default_factory=dict)
+    lifecycle: LifecycleConfig = field(default_factory=LifecycleConfig)
+    env: EnvConfig = field(default_factory=EnvConfig)
+    dependencies: list[str] = field(default_factory=list)
 
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
@@ -63,6 +96,31 @@ class BuildProfile:
         for name, server in self.mcp_servers.items():
             if not server.command:
                 errors.append(f"MCP server '{name}' missing 'command'")
+
+        # Validate lifecycle steps
+        for phase_name in ("pre_build", "post_build", "validate"):
+            for step in getattr(self.lifecycle, phase_name):
+                if not step.name:
+                    errors.append(f"Lifecycle {phase_name} step missing 'name'")
+                if not step.run:
+                    errors.append(f"Lifecycle {phase_name} step missing 'run'")
+                if step.cwd:
+                    cwd_path = Path(step.cwd)
+                    if cwd_path.is_absolute() or ".." in cwd_path.parts:
+                        errors.append(
+                            f"Lifecycle {phase_name} step '{step.name}' cwd must be"
+                            f" relative without '..': {step.cwd}"
+                        )
+
+        # Validate env var names
+        for var in self.env.required:
+            if not _ENV_VAR_RE.match(var):
+                errors.append(f"Invalid env var name: {var}")
+
+        # Validate dependencies
+        for dep in self.dependencies:
+            if not isinstance(dep, str) or not dep.strip():
+                errors.append(f"Dependency must be a non-empty string: {dep!r}")
 
         if errors:
             raise BuildProfileError(
@@ -117,6 +175,21 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             },
         )
 
+    lifecycle_raw = raw.get("lifecycle", {})
+    lifecycle = LifecycleConfig(
+        pre_build=[LifecycleStep(**s) for s in lifecycle_raw.get("pre_build", [])],
+        post_build=[LifecycleStep(**s) for s in lifecycle_raw.get("post_build", [])],
+        validate=[LifecycleStep(**s) for s in lifecycle_raw.get("validate", [])],
+    )
+
+    env_raw = raw.get("env", {})
+    env = EnvConfig(
+        required=env_raw.get("required", []),
+        defaults=env_raw.get("defaults", {}),
+    )
+
+    dependencies = raw.get("dependencies", [])
+
     return BuildProfile(
         name=raw.get("name", ""),
         base_template=raw.get("base_template", "control_assistant"),
@@ -126,4 +199,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         config=raw.get("config", {}),
         overlay=raw.get("overlay", {}),
         mcp_servers=mcp_servers,
+        lifecycle=lifecycle,
+        env=env,
+        dependencies=dependencies,
     )
