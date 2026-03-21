@@ -1,1 +1,0 @@
-"""AccelPapers MCP tools."""

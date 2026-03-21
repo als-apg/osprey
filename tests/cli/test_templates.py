@@ -829,8 +829,6 @@ class TestTemplateManifest:
         agent_files = sorted(f.name for f in agents_dir.iterdir() if f.suffix == ".md")
         assert agent_files == [
             "data-visualizer.md",
-            "literature-search.md",
-            "textbook-expert.md",
         ]
 
     def test_control_assistant_has_all_hooks(self, tmp_path):

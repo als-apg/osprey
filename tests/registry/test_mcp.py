@@ -38,16 +38,16 @@ class TestResolveServers:
         disabled = {s["name"] for s in servers if not s["enabled"]}
 
         # Core servers always on
-        assert {"controls", "workspace", "ariel", "accelpapers"} <= enabled
+        assert {"controls", "workspace", "ariel"} <= enabled
         # Conditional servers off (conditions not in ctx)
-        assert {"matlab", "channel-finder", "confluence", "direct-channel-finder"} <= disabled
+        assert {"channel-finder", "direct-channel-finder"} <= disabled
 
     def test_resolve_disable_framework_server(self):
-        """New format: servers: {accelpapers: {enabled: false}}."""
+        """New format: servers: {ariel: {enabled: false}}."""
         ctx = _base_ctx()
-        servers = resolve_servers({"servers": {"accelpapers": {"enabled": False}}}, ctx)
+        servers = resolve_servers({"servers": {"ariel": {"enabled": False}}}, ctx)
         names = {s["name"]: s["enabled"] for s in servers}
-        assert names["accelpapers"] is False
+        assert names["ariel"] is False
         # Other core servers still enabled
         assert names["controls"] is True
 
@@ -77,18 +77,18 @@ class TestResolveServers:
         assert s["is_custom"] is True
 
     def test_resolve_conditional_server_enabled(self):
-        """matlab in ctx → matlab server enabled."""
-        ctx = _base_ctx(matlab={"path": "/opt/matlab"})
+        """channel_finder_pipeline in ctx → channel-finder server enabled."""
+        ctx = _base_ctx(channel_finder_pipeline="hierarchical")
         servers = resolve_servers({}, ctx)
         names = {s["name"]: s["enabled"] for s in servers}
-        assert names["matlab"] is True
+        assert names["channel-finder"] is True
 
     def test_resolve_conditional_server_disabled(self):
-        """matlab not in ctx → matlab server disabled."""
+        """channel_finder_pipeline not in ctx → channel-finder server disabled."""
         ctx = _base_ctx()
         servers = resolve_servers({}, ctx)
         names = {s["name"]: s["enabled"] for s in servers}
-        assert names["matlab"] is False
+        assert names["channel-finder"] is False
 
     def test_env_resolution(self):
         """Placeholder {project_root} in env values is resolved."""
@@ -111,16 +111,6 @@ class TestResolveServers:
         # channel_write has 3 hooks
         cw = [r for r in controls["hooks_pre"] if r["matcher"] == "mcp__controls__channel_write"][0]
         assert len(cw["hooks"]) == 3
-
-    def test_confluence_env_resolution(self):
-        """Confluence server resolves {confluence_url} from ctx."""
-        ctx = _base_ctx(confluence={"url": "https://wiki.example.com"})
-        servers = resolve_servers({}, ctx)
-        conf = [s for s in servers if s["name"] == "confluence"][0]
-        assert conf["enabled"] is True
-        assert conf["env"]["CONFLUENCE_URL"] == "https://wiki.example.com"
-        assert conf["command"] == "uvx"
-        assert conf["args"] == ["--python=3.12", "mcp-atlassian"]
 
     def test_direct_channel_finder_resolution(self):
         """direct_channel_finder in ctx → direct-channel-finder server enabled."""
@@ -242,10 +232,8 @@ class TestResolveAgents:
         enabled = {a["name"] for a in agents if a["enabled"]}
         disabled = {a["name"] for a in agents if not a["enabled"]}
 
-        assert {"logbook-search", "logbook-deep-research", "literature-search"} <= enabled
+        assert {"logbook-search", "logbook-deep-research"} <= enabled
         assert {
-            "wiki-search",
-            "matlab-search",
             "channel-finder",
             "direct-channel-finder",
         } <= disabled
@@ -262,14 +250,6 @@ class TestResolveAgents:
         )
         names = {a["name"]: a["enabled"] for a in agents}
         assert names["logbook-search"] is False
-
-    def test_conditional_agent(self):
-        """confluence in ctx → wiki-search enabled."""
-        ctx = _base_ctx(confluence={"url": "https://wiki.example.com"})
-        servers = resolve_servers({}, ctx)
-        agents = resolve_agents({}, ctx, resolved_servers=servers)
-        names = {a["name"]: a["enabled"] for a in agents}
-        assert names["wiki-search"] is True
 
     def test_custom_agent_from_config(self):
         """Custom agent defined in config appears with correct fields."""
@@ -424,20 +404,16 @@ class TestTemplateRendering:
         assert "controls" in data["mcpServers"]
         assert "workspace" in data["mcpServers"]
         # Conditional servers not present
-        assert "matlab" not in data["mcpServers"]
-        assert "confluence" not in data["mcpServers"]
+        assert "channel-finder" not in data["mcpServers"]
 
     def test_render_mcp_json_with_conditional(self, template_manager):
         """Conditional servers appear when conditions are met."""
         ctx = self._full_ctx(
-            matlab={"path": "/opt"},
-            confluence={"url": "https://wiki.example.com"},
+            channel_finder_pipeline="hierarchical",
         )
         rendered = self._render(template_manager, "claude_code/mcp.json.j2", ctx)
         data = json.loads(rendered)
-        assert "matlab" in data["mcpServers"]
-        assert "confluence" in data["mcpServers"]
-        assert data["mcpServers"]["confluence"]["command"] == "uvx"
+        assert "channel-finder" in data["mcpServers"]
 
     def test_render_settings_json(self, template_manager):
         """Rendered settings.json is valid JSON with permissions and hooks."""
@@ -479,21 +455,8 @@ class TestTemplateRendering:
         rendered = self._render(template_manager, "claude_code/CLAUDE.md.j2", ctx)
         assert "logbook-search" in rendered
         assert "logbook-deep-research" in rendered
-        assert "literature-search" in rendered
         # Logbook guidance sentence should appear
         assert "simple lookups" in rendered
-        # Conditional agents not present
-        assert "wiki-search" not in rendered
-        assert "matlab-search" not in rendered
-
-    def test_render_claude_md_with_conditionals(self, template_manager):
-        """Conditional agents appear in CLAUDE.md when enabled."""
-        ctx = self._full_ctx(
-            facility_name="Test Facility",
-            confluence={"url": "https://wiki.example.com"},
-        )
-        rendered = self._render(template_manager, "claude_code/CLAUDE.md.j2", ctx)
-        assert "wiki-search" in rendered
 
     def test_render_hook_config_json(self, template_manager):
         """hook_config.json.j2 renders valid JSON with server/approval prefixes."""

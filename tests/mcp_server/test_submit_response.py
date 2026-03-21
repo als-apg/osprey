@@ -191,10 +191,10 @@ class TestSubmitResponse:
     async def test_artifact_is_markdown_file(self, workspace):
         """The auto-created artifact should be a markdown file on disk."""
         raw = await _fn(
-            title="BPM Calibration Literature Review",
-            content="## Summary\n\nFound 5 relevant papers.",
-            data_type="literature_research",
-            source_agent="literature-search",
+            title="BPM Calibration Logbook Review",
+            content="## Summary\n\nFound 5 relevant entries.",
+            data_type="logbook_research",
+            source_agent="logbook-search",
         )
         data = json.loads(raw)
         artifact_id = data["artifact_id"]
@@ -204,33 +204,33 @@ class TestSubmitResponse:
         assert entry is not None
         assert entry.artifact_type == "markdown"
         assert entry.mime_type == "text/markdown"
-        assert entry.title == "BPM Calibration Literature Review"
+        assert entry.title == "BPM Calibration Logbook Review"
         assert entry.tool_source == "submit_response"
 
         # Verify file content matches
         file_path = store.get_file_path(artifact_id)
         assert file_path.exists()
-        assert file_path.read_text() == "## Summary\n\nFound 5 relevant papers."
+        assert file_path.read_text() == "## Summary\n\nFound 5 relevant entries."
 
     @pytest.mark.asyncio
     async def test_artifact_metadata_has_source_agent_and_entry_ids(self, workspace):
         """Artifact metadata should carry source_agent and entry_ids."""
         raw = await _fn(
-            title="Orbit Correction Functions",
-            content="Found 12 MML functions.",
-            data_type="mml_research",
-            source_agent="matlab-search",
-            entry_ids=["getbpmresp", "setorbit"],
+            title="BPM Channel Addresses",
+            content="Found 12 BPM channels.",
+            data_type="channel_addresses",
+            source_agent="channel-finder",
+            entry_ids=["SR:BPM:01", "SR:BPM:02"],
         )
         data = json.loads(raw)
 
         entry = get_artifact_store().get_entry(data["artifact_id"])
         assert entry is not None
-        assert entry.metadata["data_type"] == "mml_research"
-        assert entry.metadata["source_agent"] == "matlab-search"
-        assert entry.metadata["entry_ids"] == ["getbpmresp", "setorbit"]
+        assert entry.metadata["data_type"] == "channel_addresses"
+        assert entry.metadata["source_agent"] == "channel-finder"
+        assert entry.metadata["entry_ids"] == ["SR:BPM:01", "SR:BPM:02"]
         # source_agent is also a top-level field on the entry
-        assert entry.source_agent == "matlab-search"
+        assert entry.source_agent == "channel-finder"
 
     @pytest.mark.asyncio
     async def test_artifact_not_created_on_validation_error(self, workspace):

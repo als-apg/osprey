@@ -58,45 +58,6 @@ class TestBuildClaudeCodeContext:
         assert "channel_finder_pipeline" in ctx
         assert "channel_finder_mode" in ctx
 
-    def test_config_with_confluence(self, tmp_path):
-        """Config with confluence section passes dict to context."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="ctx-confluence",
-            output_dir=tmp_path,
-            template_name="control_assistant",
-        )
-
-        # Add confluence to config
-        config = yaml.safe_load((project_dir / "config.yml").read_text())
-        config["confluence"] = {"url": "https://wiki.example.com"}
-        (project_dir / "config.yml").write_text(yaml.dump(config))
-
-        ctx = claude_code.build_claude_code_context(
-            manager.template_root, manager.jinja_env, project_dir, config
-        )
-        assert "confluence" in ctx
-        assert ctx["confluence"]["url"] == "https://wiki.example.com"
-
-    def test_config_with_matlab(self, tmp_path):
-        """Config with matlab section passes dict to context."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="ctx-matlab",
-            output_dir=tmp_path,
-            template_name="control_assistant",
-        )
-
-        config = yaml.safe_load((project_dir / "config.yml").read_text())
-        config["matlab"] = {"db_path": "~/.matlab-mml/mml.db"}
-        (project_dir / "config.yml").write_text(yaml.dump(config))
-
-        ctx = claude_code.build_claude_code_context(
-            manager.template_root, manager.jinja_env, project_dir, config
-        )
-        assert "matlab" in ctx
-        assert ctx["matlab"]["db_path"] == "~/.matlab-mml/mml.db"
-
     def test_uses_manifest_template(self, tmp_path):
         """When manifest exists, template_name is read from it."""
         manager = TemplateManager()
@@ -144,26 +105,6 @@ class TestRegenerationCorrectness:
             assert (project_dir / f).read_text() == original_content, f"{f} changed unexpectedly"
         assert f in result["unchanged"] or not result["changed"]
 
-    def test_regen_updates_settings_json_when_confluence_added(self, tmp_path):
-        """Adding confluence → settings.json gets confluence permissions."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="regen-settings",
-            output_dir=tmp_path,
-            template_name="control_assistant",
-        )
-
-        # Add confluence
-        config = yaml.safe_load((project_dir / "config.yml").read_text())
-        config["confluence"] = {"url": "https://wiki.example.com"}
-        (project_dir / "config.yml").write_text(yaml.dump(config))
-
-        manager.regenerate_claude_code(project_dir)
-
-        settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
-        assert "mcp__confluence" in settings["permissions"]["allow"]
-        assert "Task(wiki-search)" in settings["permissions"]["allow"]
-
     def test_regen_resolves_env_var_in_timezone(self, tmp_path, monkeypatch):
         """${TZ:-UTC} in config.yml is resolved in timezone.md."""
         monkeypatch.delenv("TZ", raising=False)
@@ -207,32 +148,6 @@ class TestRegenerationCorrectness:
         assert timezone_file.exists()
         content = timezone_file.read_text()
         assert "Europe/Berlin" in content
-
-    def test_regen_removes_features_when_config_section_removed(self, tmp_path):
-        """Init with confluence → remove section → regen → confluence gone."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="regen-remove",
-            output_dir=tmp_path,
-            template_name="control_assistant",
-            context={"confluence": {"url": "https://wiki.example.com"}},
-        )
-
-        # Confluence should be present
-        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
-        assert "confluence" in mcp_data["mcpServers"]
-
-        # Remove confluence from config.yml
-        config = yaml.safe_load((project_dir / "config.yml").read_text())
-        config.pop("confluence", None)
-        (project_dir / "config.yml").write_text(yaml.dump(config))
-
-        manager.regenerate_claude_code(project_dir)
-
-        # Confluence should be gone
-        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
-        assert "confluence" not in mcp_data["mcpServers"]
-
 
 class TestSafetyPreservation:
     """Test that regeneration always preserves safety layers."""
@@ -368,9 +283,9 @@ class TestErrorHandling:
             template_name="control_assistant",
         )
 
-        # Add confluence to config (will cause .mcp.json to change)
+        # Disable a core server in config (will cause .mcp.json to change)
         config = yaml.safe_load((project_dir / "config.yml").read_text())
-        config["confluence"] = {"url": "https://wiki.example.com"}
+        config["claude_code"] = {"servers": {"ariel": {"enabled": False}}}
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
         result = manager.regenerate_claude_code(project_dir, dry_run=True)
@@ -443,57 +358,55 @@ class TestDisableServers:
         return project_dir, result
 
     def test_disable_server_removes_from_mcp_json(self, tmp_path):
-        """Disabling accelpapers removes it from .mcp.json."""
-        project_dir, _ = self._create_and_regen(tmp_path, disable_servers=["accelpapers"])
+        """Disabling ariel removes it from .mcp.json."""
+        project_dir, _ = self._create_and_regen(tmp_path, disable_servers=["ariel"])
 
         mcp_data = json.loads((project_dir / ".mcp.json").read_text())
-        assert "accelpapers" not in mcp_data["mcpServers"]
+        assert "ariel" not in mcp_data["mcpServers"]
         # Core servers should still be present
         assert "controls" in mcp_data["mcpServers"]
 
     def test_disable_server_removes_from_settings_allow(self, tmp_path):
-        """Disabling accelpapers removes its tools from settings allow list."""
-        project_dir, _ = self._create_and_regen(tmp_path, disable_servers=["accelpapers"])
+        """Disabling ariel removes its tools from settings allow list."""
+        project_dir, _ = self._create_and_regen(tmp_path, disable_servers=["ariel"])
 
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
         allow = settings["permissions"]["allow"]
         for entry in allow:
-            assert "accelpapers" not in entry, f"accelpapers found in allow: {entry}"
+            assert "ariel" not in entry, f"ariel found in allow: {entry}"
 
     def test_disable_server_removes_from_claude_md(self, tmp_path):
-        """Disabling accelpapers removes accelpapers row from CLAUDE.md tool table."""
-        project_dir, _ = self._create_and_regen(tmp_path, disable_servers=["accelpapers"])
+        """Disabling ariel removes ariel row from CLAUDE.md tool table."""
+        project_dir, _ = self._create_and_regen(tmp_path, disable_servers=["ariel"])
 
         content = (project_dir / "CLAUDE.md").read_text()
-        assert "accelpapers" not in content.lower() or "accelpapers" not in content
+        assert "ariel" not in content.lower() or "ariel" not in content
 
     def test_disable_agent_removes_agent_file(self, tmp_path):
-        """Disabling literature-search produces an empty agent file."""
-        project_dir, _ = self._create_and_regen(tmp_path, disable_agents=["literature-search"])
+        """Disabling logbook-search produces an empty agent file."""
+        project_dir, _ = self._create_and_regen(tmp_path, disable_agents=["logbook-search"])
 
-        agent_file = project_dir / ".claude" / "agents" / "literature-search.md"
+        agent_file = project_dir / ".claude" / "agents" / "logbook-search.md"
         if agent_file.exists():
             content = agent_file.read_text().strip()
             # Disabled agents render to empty (or whitespace-only) files
             assert content == "", f"Expected empty file, got: {content[:100]}"
 
     def test_disable_agent_removes_task_from_settings(self, tmp_path):
-        """Disabling literature-search removes Task(literature-search) from allow."""
-        project_dir, _ = self._create_and_regen(tmp_path, disable_agents=["literature-search"])
+        """Disabling logbook-search removes Task(logbook-search) from allow."""
+        project_dir, _ = self._create_and_regen(tmp_path, disable_agents=["logbook-search"])
 
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
         allow = settings["permissions"]["allow"]
-        assert "Task(literature-search)" not in allow
+        assert "Task(logbook-search)" not in allow
 
     def test_disable_agent_removes_from_claude_md(self, tmp_path):
-        """Disabling literature-search removes its delegation section from CLAUDE.md."""
-        project_dir, _ = self._create_and_regen(tmp_path, disable_agents=["literature-search"])
+        """Disabling logbook-search removes its delegation section from CLAUDE.md."""
+        project_dir, _ = self._create_and_regen(tmp_path, disable_agents=["logbook-search"])
 
         content = (project_dir / "CLAUDE.md").read_text()
         # The delegation section should be gone
-        assert "literature-search` sub-agent" not in content
-        # The usage pattern section should be gone
-        assert "### Literature search" not in content
+        assert "logbook-search` sub-agent" not in content
 
     def test_extra_server_added_to_mcp_json(self, tmp_path):
         """Custom server appears in .mcp.json."""
@@ -525,7 +438,7 @@ class TestDisableServers:
 
     def test_disable_does_not_remove_safety_hooks(self, tmp_path):
         """Disabling a server doesn't remove hook script files."""
-        project_dir, _ = self._create_and_regen(tmp_path, disable_servers=["accelpapers"])
+        project_dir, _ = self._create_and_regen(tmp_path, disable_servers=["ariel"])
 
         hooks_dir = project_dir / ".claude" / "hooks"
         assert hooks_dir.exists()
@@ -538,14 +451,14 @@ class TestDisableServers:
 
     def test_regen_summary_includes_active_lists(self, tmp_path):
         """Result dict contains active/disabled lists."""
-        _, result = self._create_and_regen(tmp_path, disable_servers=["accelpapers"])
+        _, result = self._create_and_regen(tmp_path, disable_servers=["ariel"])
 
         assert "active_servers" in result
         assert "disabled_servers" in result
         assert "active_agents" in result
         assert "disabled_agents" in result
-        assert "accelpapers" not in result["active_servers"]
-        assert "accelpapers" in result["disabled_servers"]
+        assert "ariel" not in result["active_servers"]
+        assert "ariel" in result["disabled_servers"]
         assert "controls" in result["active_servers"]
 
     def test_disable_core_server_allowed(self, tmp_path):
@@ -567,19 +480,19 @@ class TestDisableServers:
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
         config["claude_code"] = {
-            "servers": {"accelpapers": {"enabled": False}, "my-srv": {"command": "echo"}},
-            "agents": {"literature-search": {"enabled": False}},
+            "servers": {"ariel": {"enabled": False}, "my-srv": {"command": "echo"}},
+            "agents": {"logbook-search": {"enabled": False}},
         }
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
         ctx = claude_code.build_claude_code_context(
             manager.template_root, manager.jinja_env, project_dir, config
         )
-        assert "accelpapers" not in ctx["enabled_servers"]
-        assert "literature-search" not in ctx["enabled_agents"]
+        assert "ariel" not in ctx["enabled_servers"]
+        assert "logbook-search" not in ctx["enabled_agents"]
         # Data-driven lists
         assert any(s["name"] == "my-srv" and s["enabled"] for s in ctx["servers"])
-        assert any(s["name"] == "accelpapers" and not s["enabled"] for s in ctx["servers"])
+        assert any(s["name"] == "ariel" and not s["enabled"] for s in ctx["servers"])
 
     def test_defaults_empty_when_no_claude_code_section(self, tmp_path):
         """Without claude_code section, core servers are enabled."""
@@ -595,7 +508,7 @@ class TestDisableServers:
             manager.template_root, manager.jinja_env, project_dir, config
         )
         # Core servers should all be enabled
-        assert {"controls", "workspace", "ariel", "accelpapers"} <= ctx["enabled_servers"]
+        assert {"controls", "workspace", "ariel"} <= ctx["enabled_servers"]
 
 
 class TestFacilityMd:
@@ -788,10 +701,9 @@ class TestSettingsJsonValidity:
             (["controls"], "controls-disabled"),
             (["ariel"], "ariel-disabled"),
             (["workspace"], "workspace-disabled"),
-            (["accelpapers"], "accelpapers-disabled"),
             (["controls", "workspace"], "controls-and-workspace-disabled"),
             (
-                ["controls", "workspace", "ariel", "accelpapers"],
+                ["controls", "workspace", "ariel"],
                 "all-core-disabled",
             ),
         ],
@@ -819,15 +731,15 @@ class TestSettingsJsonValidity:
         assert "hooks" in data
 
     def test_all_optional_features_enabled(self, tmp_path):
-        """Valid JSON when all optional features (confluence, matlab) are enabled."""
+        """Valid JSON when all optional features (channel-finder, direct-channel-finder) are on."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="json-all-features",
             output_dir=tmp_path,
             template_name="control_assistant",
             context={
-                "confluence": {"url": "https://wiki.example.com"},
-                "matlab": {"db_path": "~/.matlab-mml/mml.db"},
+                "channel_finder_pipeline": "hierarchical",
+                "direct_channel_finder": True,
             },
         )
         settings_path = project_dir / ".claude" / "settings.json"

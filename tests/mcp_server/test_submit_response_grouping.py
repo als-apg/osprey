@@ -69,18 +69,18 @@ class TestSubmitResponseGrouping:
 
     @pytest.mark.asyncio
     async def test_artifact_filename_uses_agent_name(self, workspace):
-        """Artifact file should be named with agent, e.g. {id}_wiki-search.md."""
+        """Artifact file should be named with agent, e.g. {id}_logbook-search.md."""
         raw = await _fn(
-            title="Wiki Result",
-            content="Found wiki pages.",
-            source_agent="wiki-search",
+            title="Logbook Result",
+            content="Found logbook entries.",
+            source_agent="logbook-search",
         )
         data = json.loads(raw)
 
         store = get_artifact_store()
         entry = store.get_entry(data["artifact_id"])
         assert entry is not None
-        assert "wiki-search" in entry.filename
+        assert "logbook-search" in entry.filename
         assert "submit_response" not in entry.filename
 
     @pytest.mark.asyncio
@@ -93,9 +93,9 @@ class TestSubmitResponseGrouping:
             data_type="logbook_research",
         )
         await _fn(
-            title="Wiki Result",
-            content="Wiki findings.",
-            source_agent="wiki-search",
+            title="Deep Research Result",
+            content="Deep research findings.",
+            source_agent="logbook-deep-research",
             data_type="search_results",
         )
         await _fn(
@@ -111,7 +111,7 @@ class TestSubmitResponseGrouping:
 
         # Each agent should have its own source_agent value
         assert "logbook-search" in agents
-        assert "wiki-search" in agents
+        assert "logbook-deep-research" in agents
         assert "channel-finder" in agents
 
     @pytest.mark.asyncio
@@ -123,9 +123,9 @@ class TestSubmitResponseGrouping:
             source_agent="logbook-search",
         )
         await _fn(
-            title="Wiki Result",
-            content="Wiki findings.",
-            source_agent="wiki-search",
+            title="Deep Research Result",
+            content="Deep research findings.",
+            source_agent="logbook-deep-research",
         )
 
         store = get_artifact_store()

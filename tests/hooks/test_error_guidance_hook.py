@@ -16,10 +16,7 @@ DEFAULT_ERROR_CONFIG = {
         "mcp__python__",
         "mcp__workspace__",
         "mcp__ariel__",
-        "mcp__accelpapers__",
-        "mcp__matlab__",
         "mcp__channel-finder__",
-        "mcp__confluence__",
     ],
     "approval_prefixes": [],
 }

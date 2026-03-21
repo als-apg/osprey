@@ -59,10 +59,7 @@ AGENT_DEFAULT_TIERS: dict[str, str] = {
     "channel-finder": "haiku",
     "logbook-search": "sonnet",
     "logbook-deep-research": "opus",
-    "literature-search": "sonnet",
     "data-visualizer": "sonnet",
-    "wiki-search": "sonnet",
-    "matlab-search": "sonnet",
     "direct-channel-finder": "sonnet",
 }
 

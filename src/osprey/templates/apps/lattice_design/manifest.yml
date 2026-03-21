@@ -28,8 +28,6 @@ artifacts:
     - lattice-evaluation  # references only (SKILL.md.j2 replaced by dashboard)
   agents:
     - data-visualizer
-    - literature-search
-    - textbook-expert
   output_styles:
     - control-operator
 

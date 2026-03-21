@@ -69,18 +69,6 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             description="Data visualization sub-agent",
         ),
         PromptArtifact(
-            canonical_name="agents/literature-search",
-            template_path="claude/agents/literature-search.md.j2",
-            output_path=".claude/agents/literature-search.md",
-            description="Literature search sub-agent",
-        ),
-        PromptArtifact(
-            canonical_name="agents/textbook-expert",
-            template_path="claude/agents/textbook-expert.md.j2",
-            output_path=".claude/agents/textbook-expert.md",
-            description="Accelerator physics textbook expert sub-agent",
-        ),
-        PromptArtifact(
             canonical_name="agents/logbook-search",
             template_path="claude/agents/logbook-search.md.j2",
             output_path=".claude/agents/logbook-search.md",
@@ -91,18 +79,6 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             template_path="claude/agents/logbook-deep-research.md.j2",
             output_path=".claude/agents/logbook-deep-research.md",
             description="Logbook deep-research sub-agent",
-        ),
-        PromptArtifact(
-            canonical_name="agents/matlab-search",
-            template_path="claude/agents/matlab-search.md.j2",
-            output_path=".claude/agents/matlab-search.md",
-            description="MATLAB MML search sub-agent",
-        ),
-        PromptArtifact(
-            canonical_name="agents/wiki-search",
-            template_path="claude/agents/wiki-search.md.j2",
-            output_path=".claude/agents/wiki-search.md",
-            description="Wiki search sub-agent",
         ),
         PromptArtifact(
             canonical_name="agents/direct-channel-finder",

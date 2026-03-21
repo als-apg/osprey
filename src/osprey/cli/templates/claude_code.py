@@ -119,11 +119,6 @@ def build_claude_code_context(
                     exc_info=True,
                 )
 
-    # Pass through optional config sections
-    if "confluence" in config:
-        ctx["confluence"] = config["confluence"]
-    if "matlab" in config:
-        ctx["matlab"] = config["matlab"]
     # Claude Code server + agent resolution (data-driven registry)
     claude_code_config = config.get("claude_code", {})
     ctx["facility_permissions"] = claude_code_config.get("permissions", {})

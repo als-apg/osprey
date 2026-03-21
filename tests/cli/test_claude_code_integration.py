@@ -587,66 +587,6 @@ class TestLogbookDeepResearchAgent:
         assert "complex" in content.lower() or "investigation" in content.lower()
 
 
-class TestWikiSearchAgent:
-    """Test wiki-search agent generation."""
-
-    def test_agent_file_generated(self, tmp_path):
-        """Agent file exists when confluence is defined."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="wiki-test",
-            output_dir=tmp_path,
-            template_name="control_assistant",
-            context={"confluence": {"url": "https://wiki.example.com"}},
-        )
-        agent_path = project_dir / ".claude" / "agents" / "wiki-search.md"
-        assert agent_path.exists()
-        content = agent_path.read_text()
-        assert len(content.strip()) > 0
-
-    def test_agent_has_correct_frontmatter(self, tmp_path):
-        """Agent file has YAML frontmatter with name, model, disallowedTools."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="wiki-fm-test",
-            output_dir=tmp_path,
-            template_name="control_assistant",
-            context={"confluence": {"url": "https://wiki.example.com"}},
-        )
-        content = (project_dir / ".claude" / "agents" / "wiki-search.md").read_text()
-        assert "name: wiki-search" in content
-        assert "model: sonnet" in content or "model: anthropic/claude-sonnet" in content
-        assert "description:" in content
-        assert "disallowedTools:" in content
-        assert "mcpServers" not in content  # project-level, not inline
-
-    def test_agent_has_submit_response_instructions(self, tmp_path):
-        """Agent prompt includes submit_response and Submitting Results section."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="wiki-submit-test",
-            output_dir=tmp_path,
-            template_name="control_assistant",
-            context={"confluence": {"url": "https://wiki.example.com"}},
-        )
-        content = (project_dir / ".claude" / "agents" / "wiki-search.md").read_text()
-        assert "submit_response" in content
-        assert "Submitting Results" in content
-
-    def test_task_allowed_in_settings(self, tmp_path):
-        """Task(wiki-search) and mcp__confluence are in settings.json allow list."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="wiki-perm-test",
-            output_dir=tmp_path,
-            template_name="control_assistant",
-            context={"confluence": {"url": "https://wiki.example.com"}},
-        )
-        data = json.loads((project_dir / ".claude" / "settings.json").read_text())
-        assert "Task(wiki-search)" in data["permissions"]["allow"]
-        assert "mcp__confluence" in data["permissions"]["allow"]
-
-
 class TestNeverFabricateDataRule:
     """Test that the Never Fabricate Data rule is present."""
 

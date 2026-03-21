@@ -266,10 +266,6 @@ class TemplateManager:
             with open(config_file) as f:
                 rendered_config = yaml.safe_load(f) or {}
             rendered_config = resolve_env_vars(rendered_config)  # Match regen path
-            if "confluence" in rendered_config:
-                ctx["confluence"] = rendered_config["confluence"]
-            if "matlab" in rendered_config:
-                ctx["matlab"] = rendered_config["matlab"]
             # Claude Code explicit overrides
             cc_config = rendered_config.get("claude_code", {})
             cc_cfg = cc_config

@@ -214,45 +214,6 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         ],
         hooks_post=[_post_error("mcp__ariel__.*")],
     ),
-    "accelpapers": ServerDefinition(
-        name="accelpapers",
-        module="osprey.mcp_server.accelpapers",
-        args_extra=["serve"],
-        env={
-            "ACCELPAPERS_TYPESENSE_HOST": "${ACCELPAPERS_TYPESENSE_HOST:-localhost}",
-            "ACCELPAPERS_TYPESENSE_PORT": "${ACCELPAPERS_TYPESENSE_PORT:-8108}",
-            "ACCELPAPERS_TYPESENSE_API_KEY": "${ACCELPAPERS_TYPESENSE_API_KEY:-accelpapers-dev}",
-            "ACCELPAPERS_OLLAMA_URL": "${ACCELPAPERS_OLLAMA_URL:-http://localhost:11434}",
-        },
-        permissions_allow=[
-            "papers_search",
-            "papers_get",
-            "papers_browse",
-            "papers_list_conferences",
-            "papers_search_author",
-            "papers_stats",
-        ],
-        hooks_post=[_post_error("mcp__accelpapers__.*")],
-    ),
-    "matlab": ServerDefinition(
-        name="matlab",
-        module="osprey.mcp_server.matlab",
-        args_extra=["serve"],
-        env={
-            "MATLAB_MML_DB": "${MATLAB_MML_DB:-}",
-        },
-        condition="matlab",
-        permissions_allow=[
-            "mml_search",
-            "mml_get",
-            "mml_browse",
-            "mml_dependencies",
-            "mml_path",
-            "mml_list_groups",
-            "mml_stats",
-        ],
-        hooks_post=[_post_error("mcp__matlab__.*")],
-    ),
     "channel-finder": ServerDefinition(
         name="channel-finder",
         module="osprey.mcp_server.channel_finder_{channel_finder_pipeline}",
@@ -277,20 +238,6 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         condition="direct_channel_finder",
         fixed_allow=["mcp__direct-channel-finder"],
         hooks_post=[_post_error("mcp__direct-channel-finder__.*")],
-    ),
-    "confluence": ServerDefinition(
-        name="confluence",
-        module="",  # external — not a Python module
-        env={
-            "CONFLUENCE_URL": "{confluence_url}",
-            "CONFLUENCE_PERSONAL_TOKEN": "${CONFLUENCE_ACCESS_TOKEN:-}",
-        },
-        condition="confluence",
-        fixed_allow=["mcp__confluence"],
-        is_external=True,
-        external_command="uvx",
-        external_args=["--python=3.12", "mcp-atlassian"],
-        hooks_post=[_post_error("mcp__confluence__.*")],
     ),
 }
 
@@ -327,20 +274,6 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
         name="logbook-deep-research",
         description="Complex multi-step logbook investigations.",
     ),
-    "literature-search": AgentDefinition(
-        name="literature-search",
-        description="Searches the accelerator physics literature database.",
-    ),
-    "wiki-search": AgentDefinition(
-        name="wiki-search",
-        condition="confluence",
-        description="Searches the facility wiki for documentation and procedures.",
-    ),
-    "matlab-search": AgentDefinition(
-        name="matlab-search",
-        condition="matlab",
-        description="Searches the MATLAB Middle Layer codebase database.",
-    ),
     "data-visualizer": AgentDefinition(
         name="data-visualizer",
         server_dependency="python",
@@ -357,10 +290,6 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
             "Searches live PV databases. "
             "Use ONLY when explicitly asked to find PVs via direct query."
         ),
-    ),
-    "textbook-expert": AgentDefinition(
-        name="textbook-expert",
-        description="Looks up concepts, equations, and derivations in accelerator physics textbooks.",
     ),
 }
 
@@ -500,16 +429,8 @@ def _resolve_placeholder(value: str, ctx: dict) -> str:
     - ``{project_root}`` → ctx["project_root"]
     - ``{current_python_env}`` → ctx["current_python_env"]
     - ``{channel_finder_pipeline}`` → ctx["channel_finder_pipeline"]
-    - ``{confluence_url}`` → ctx.get("confluence", {}).get("url", "")
     - ``${...}`` env-var references are left untouched (resolved at runtime)
     """
-    if "{confluence_url}" in value:
-        confluence_url = ""
-        confluence = ctx.get("confluence")
-        if isinstance(confluence, dict):
-            confluence_url = confluence.get("url", "")
-        value = value.replace("{confluence_url}", confluence_url)
-
     if "{channel_finder_pipeline}" in value:
         value = value.replace(
             "{channel_finder_pipeline}",

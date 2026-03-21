@@ -31,11 +31,8 @@ artifacts:
     - channel-finder
     - direct-channel-finder
     - data-visualizer
-    - literature-search
     - logbook-search
     - logbook-deep-research
-    - matlab-search
-    - wiki-search
   output_styles:
     - control-operator
 

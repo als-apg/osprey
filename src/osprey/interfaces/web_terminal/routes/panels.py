@@ -69,27 +69,6 @@ async def lattice_server_config(request: Request):
     return {"url": url, "available": url is not None}
 
 
-@router.get("/api/wiki-url")
-async def wiki_url(request: Request):
-    """Return the external wiki URL for the header link button."""
-    try:
-        from osprey.utils.workspace import load_osprey_config
-
-        config = load_osprey_config()
-        confluence = config.get("confluence", {})
-        base_url = confluence.get("url")
-        if base_url:
-            default_page = confluence.get("default_page", "")
-            full_url = (
-                f"{base_url.rstrip('/')}/{default_page.lstrip('/')}" if default_page else base_url
-            )
-            return {"url": full_url, "available": True}
-    except Exception:
-        pass
-    return {"url": None, "available": False}
-
-
-
 @router.get("/api/karma-server")
 async def karma_server_config(request: Request):
     """Return the Karma analytics server URL for iframe embedding."""

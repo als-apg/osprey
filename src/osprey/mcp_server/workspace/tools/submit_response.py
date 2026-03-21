@@ -19,9 +19,6 @@ _AGENT_CATEGORY_MAP: dict[str, str] = {
     "channel-finder": "channel_finder",
     "logbook-search": "logbook_research",
     "logbook-deep-research": "logbook_research",
-    "literature-search": "literature_research",
-    "wiki-search": "wiki_research",
-    "matlab-search": "mml_research",
     "direct-channel-finder": "channel_finder",
 }
 

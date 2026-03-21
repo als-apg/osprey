@@ -872,10 +872,7 @@ class TestAllPrefixes:
             ("mcp__python__", "execute", "python"),
             ("mcp__workspace__", "session_log", "workspace"),
             ("mcp__ariel__", "keyword_search", "ariel"),
-            ("mcp__accelpapers__", "papers_search", "accelpapers"),
-            ("mcp__matlab__", "mml_search", "matlab"),
             ("mcp__channel-finder__", "channel_find", "channel-finder"),
-            ("mcp__confluence__", "confluence_search", "confluence"),
         ],
     )
     def test_prefix_recognized(self, tmp_path, prefix, tool_suffix, expected_server):
