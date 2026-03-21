@@ -19,7 +19,6 @@ from osprey.cli.build_profile import (
 )
 from osprey.errors import BuildProfileError
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -604,9 +603,7 @@ class TestLifecyclePhaseRunner:
 
         steps = [LifecycleStep(name="bad validate", run="false")]
         # Should not raise
-        _run_lifecycle_phase(
-            "validate", steps, tmp_path, tmp_path, abort_on_failure=False
-        )
+        _run_lifecycle_phase("validate", steps, tmp_path, tmp_path, abort_on_failure=False)
 
     def test_step_with_cwd(self, tmp_path: Path):
         from osprey.cli.build_cmd import _run_lifecycle_phase

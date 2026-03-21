@@ -15,7 +15,7 @@ custom MCP servers) from **what OSPREY provides** (agents, rules, hooks, safety 
    - Writing build profile YAML files for your facility
    - Overlaying facility data onto OSPREY templates
    - Injecting custom MCP servers into the built project
-   - Using config overrides and named variants
+   - Using config overrides, lifecycle commands, and environment templates
    - Structuring a facility profiles repository
 
    **Prerequisites:** A working OSPREY installation (``uv sync``).
@@ -32,7 +32,9 @@ project. The profile declares:
 - **Config overrides** for the generated ``config.yml`` (dot-notation)
 - **File overlays** that copy facility data into the project
 - **MCP server definitions** to inject custom tools
-- **Variants** for environment-specific configuration (dev, prod)
+- **Lifecycle commands** to run before/after the build
+- **Environment templates** for required variables and defaults
+- **Dependencies** to append to ``requirements.txt``
 
 .. mermaid::
 
@@ -116,10 +118,18 @@ Profile YAML Schema
      - mapping
      - ``{}``
      - MCP server definitions to inject.
-   * - ``variants``
+   * - ``lifecycle``
      - mapping
      - ``{}``
-     - Named variant groups for ``--variant``.
+     - Commands to run at build phases (``pre_build``, ``post_build``, ``validate``).
+   * - ``env``
+     - mapping
+     - ``{}``
+     - Environment variable template (``required`` list + ``defaults`` mapping).
+   * - ``dependencies``
+     - list
+     - ``[]``
+     - Python packages to append to ``requirements.txt``.
 
 
 Configuration Overrides
@@ -258,45 +268,86 @@ The recommended pattern for facility MCP servers:
          allow: ["phoebus_launch"]
 
 
-Named Variants
-==============
+Lifecycle Commands
+==================
 
-Variants define environment-specific config overrides applied with ``--variant``.
-Variant config is deep-merged onto the base profile (variant wins on conflicts).
+Lifecycle commands run shell commands at three phases of the build pipeline:
+
+- **pre_build** — runs before template rendering (cwd defaults to profile directory)
+- **post_build** — runs after git init (cwd defaults to project directory)
+- **validate** — advisory checks that warn but don't abort (cwd defaults to project directory)
 
 .. code-block:: yaml
 
-   name: "My Facility"
-   base_template: control_assistant
+   lifecycle:
+     pre_build:
+       - name: "Check dependencies"
+         run: "pip check"
+     post_build:
+       - name: "Build search index"
+         run: "python scripts/build_index.py"
+         cwd: "data"
+       - name: "Install project deps"
+         run: "pip install -r {project_root}/requirements.txt"
+     validate:
+       - name: "Smoke test"
+         run: "python -c 'import osprey; print(osprey.__version__)'"
 
-   config:
-     system.timezone: America/Chicago
-     channel_finder.pipeline_mode: middle_layer
+Each step requires ``name`` and ``run``. The optional ``cwd`` is resolved relative to
+the phase default directory. The ``{project_root}`` placeholder is replaced with the
+built project's absolute path.
 
-   variants:
-     dev:
-       config:
-         control_system.type: mock
-         control_system.writes_enabled: false
-     prod:
-       config:
-         control_system.type: epics
-         control_system.writes_enabled: true
-         container_runtime: podman
+Shell metacharacters (``|``, ``&&``, ``||``, ``$(``, backticks) trigger shell execution;
+simple commands use ``shlex.split()`` for safer argument handling. All commands have a
+120-second timeout.
 
-.. code-block:: bash
 
-   # Build with dev variant
-   osprey build my-facility profile.yml --variant dev -o /tmp --force
+Environment Templates
+=====================
 
-   # Build with prod variant
-   osprey build my-facility profile.yml --variant prod -o /tmp --force
+The ``env`` section generates a ``.env.template`` file in the built project, reminding
+users which environment variables to set.
 
-.. tip::
+.. code-block:: yaml
 
-   For simple setups, separate profile files (``facility-dev.yml``,
-   ``facility-prod.yml``) are clearer than variants. Variants shine when
-   you have many shared settings with small per-environment differences.
+   env:
+     required:
+       - API_KEY
+       - DB_HOST
+     defaults:
+       LOG_LEVEL: info
+       PORT: "8080"
+
+This produces a ``.env.template`` with:
+
+.. code-block:: text
+
+   # Required
+   API_KEY=
+   DB_HOST=
+
+   # Defaults
+   LOG_LEVEL=info
+   PORT=8080
+
+Required variable names must match ``^[A-Z_][A-Z0-9_]*$``.
+
+
+Dependencies
+============
+
+The ``dependencies`` list appends Python package specifiers to the built project's
+``requirements.txt``. This ensures facility-specific packages are tracked alongside
+framework dependencies.
+
+.. code-block:: yaml
+
+   dependencies:
+     - numpy>=1.24
+     - pandas
+     - scipy~=1.11
+
+After building, install with ``pip install -r requirements.txt``.
 
 
 Repository Structure
@@ -348,8 +399,6 @@ CLI Reference
 .. list-table::
    :widths: 25 75
 
-   * - ``--variant, -v``
-     - Apply a named variant from the profile
    * - ``--output-dir, -o``
      - Output directory (default: current directory)
    * - ``--force, -f``
@@ -362,9 +411,6 @@ CLI Reference
    # Basic build
    osprey build als-test ~/als-profiles/als-dev.yml -o /tmp --force
 
-   # Build with variant
-   osprey build als-prod ~/als-profiles/base.yml --variant prod --force
-
    # Build to current directory
    osprey build my-assistant profile.yml
 
@@ -376,14 +422,19 @@ When ``osprey build`` runs, it executes these steps in order:
 
 1. **Load and validate** the YAML profile (schema check, path existence)
 2. **Resolve output path** and handle ``--force`` (remove existing directory)
-3. **Clear Claude Code state** for the target directory
-4. **Build context** from profile fields (provider, model, channel finder mode)
-5. **Render base template** via ``TemplateManager.create_project()``
-6. **Apply config overrides** using dot-notation → nested key updates
-7. **Copy overlay files** from the profile directory into the project
-8. **Inject MCP servers** into ``.mcp.json`` and ``.claude/settings.json``
-9. **Generate manifest** (``.osprey-manifest.json``) for migration tracking
-10. **Initialize git** and create an initial commit
+3. **Run pre_build commands** (cwd: profile directory)
+4. **Clear Claude Code state** for the target directory
+5. **Build context** from profile fields (provider, model, channel finder mode)
+6. **Render base template** via ``TemplateManager.create_project()``
+7. **Apply config overrides** using dot-notation → nested key updates
+8. **Copy overlay files** from the profile directory into the project
+9. **Inject MCP servers** into ``.mcp.json`` and ``.claude/settings.json``
+10. **Generate .env.template** from env config
+11. **Append dependencies** to ``requirements.txt``
+12. **Generate manifest** (``.osprey-manifest.json``) for migration tracking
+13. **Initialize git** and create an initial commit
+14. **Run post_build commands** (cwd: project directory)
+15. **Run validate commands** (advisory, cwd: project directory)
 
 The generated project contains everything Claude Code needs to run — no dependency on
 the profiles repository at runtime.
