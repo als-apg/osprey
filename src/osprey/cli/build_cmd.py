@@ -6,7 +6,7 @@ project directory (wipe-and-rebuild safe).
 
 Usage:
     osprey build my-assistant profile.yml
-    osprey build my-assistant profile.yml --variant prod --force
+    osprey build my-assistant profile.yml --force
 """
 
 from __future__ import annotations
@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 @click.command()
 @click.argument("project_name")
 @click.argument("profile", type=click.Path(exists=True, dir_okay=False))
-@click.option("--variant", "-v", default=None, help="Profile variant to apply (e.g., prod, test)")
 @click.option(
     "--output-dir",
     "-o",
@@ -40,7 +39,6 @@ logger = logging.getLogger(__name__)
 def build(
     project_name: str,
     profile: str,
-    variant: str | None,
     output_dir: str,
     force: bool,
 ) -> None:
@@ -59,9 +57,6 @@ def build(
       # Build from profile
       $ osprey build als-test ~/profiles/als-dev.yml
 
-      # Build with variant
-      $ osprey build als-prod ~/profiles/als-dev.yml --variant prod
-
       # Force overwrite
       $ osprey build als-test ~/profiles/als-dev.yml --force
     """
@@ -74,12 +69,10 @@ def build(
         # 1. Load and validate profile
         profile_path = Path(profile).resolve()
         profile_dir = profile_path.parent
-        build_profile = load_profile(profile_path, variant=variant)
+        build_profile = load_profile(profile_path)
 
         console.print(f"  📋 Profile: [accent]{build_profile.name}[/accent]")
         console.print(f"  📦 Template: [accent]{build_profile.base_template}[/accent]")
-        if variant:
-            console.print(f"  🔀 Variant: [accent]{variant}[/accent]")
 
         # 2. Resolve output path
         output_path = Path(output_dir).resolve()

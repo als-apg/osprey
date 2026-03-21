@@ -7,7 +7,6 @@ overlay files, config overrides, and MCP server definitions.
 
 from __future__ import annotations
 
-import copy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -29,14 +28,6 @@ class McpServerDef:
 
 
 @dataclass
-class BuildVariant:
-    """Named variant that overrides base profile config."""
-
-    name: str
-    config: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
 class BuildProfile:
     """Complete build profile parsed from YAML."""
 
@@ -48,19 +39,6 @@ class BuildProfile:
     config: dict[str, Any] = field(default_factory=dict)
     overlay: dict[str, str] = field(default_factory=dict)
     mcp_servers: dict[str, McpServerDef] = field(default_factory=dict)
-    variants: dict[str, BuildVariant] = field(default_factory=dict)
-
-    def with_variant(self, name: str) -> BuildProfile:
-        """Return a new profile with variant config merged onto base."""
-        if name not in self.variants:
-            raise BuildProfileError(
-                f"Unknown variant '{name}'. Available: {list(self.variants.keys())}"
-            )
-        variant = self.variants[name]
-        merged = copy.deepcopy(self)
-        merged.config = _deep_merge(merged.config, variant.config)
-        merged.variants = {}  # Prevent double-application
-        return merged
 
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
@@ -92,12 +70,11 @@ class BuildProfile:
             )
 
 
-def load_profile(path: Path, variant: str | None = None) -> BuildProfile:
-    """Load a build profile from YAML, optionally applying a variant.
+def load_profile(path: Path) -> BuildProfile:
+    """Load a build profile from YAML.
 
     Args:
         path: Path to the profile YAML file.
-        variant: Optional variant name to merge onto the base config.
 
     Returns:
         Parsed and validated BuildProfile.
@@ -118,9 +95,6 @@ def load_profile(path: Path, variant: str | None = None) -> BuildProfile:
 
     profile = _parse_profile(raw)
     profile_dir = path.parent
-
-    if variant:
-        profile = profile.with_variant(variant)
 
     profile.validate(profile_dir)
     return profile
@@ -143,12 +117,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             },
         )
 
-    variants: dict[str, BuildVariant] = {}
-    for vname, vdef in raw.get("variants", {}).items():
-        if not isinstance(vdef, dict):
-            raise BuildProfileError(f"Variant '{vname}' must be a mapping")
-        variants[vname] = BuildVariant(name=vname, config=vdef.get("config", {}))
-
     return BuildProfile(
         name=raw.get("name", ""),
         base_template=raw.get("base_template", "control_assistant"),
@@ -158,16 +126,4 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         config=raw.get("config", {}),
         overlay=raw.get("overlay", {}),
         mcp_servers=mcp_servers,
-        variants=variants,
     )
-
-
-def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    """Recursively merge override into base (override wins)."""
-    result = copy.deepcopy(base)
-    for key, value in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = _deep_merge(result[key], value)
-        else:
-            result[key] = copy.deepcopy(value)
-    return result

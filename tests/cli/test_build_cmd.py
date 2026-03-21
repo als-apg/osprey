@@ -11,9 +11,7 @@ import yaml
 
 from osprey.cli.build_profile import (
     BuildProfile,
-    BuildVariant,
     McpServerDef,
-    _deep_merge,
     load_profile,
 )
 from osprey.errors import BuildProfileError
@@ -67,18 +65,6 @@ def minimal_profile_yaml(profile_dir: Path) -> Path:
                 },
             },
         },
-        "variants": {
-            "prod": {
-                "config": {
-                    "control_system.type": "epics",
-                },
-            },
-            "test": {
-                "config": {
-                    "control_system.type": "mock",
-                },
-            },
-        },
     }
     path = profile_dir / "test-profile.yml"
     path.write_text(yaml.dump(profile, default_flow_style=False))
@@ -129,12 +115,6 @@ class TestProfileLoading:
         assert server.env == {"CONFIG": "{project_root}/config.yml"}
         assert server.permissions == {"allow": ["test_tool"], "ask": ["dangerous_tool"]}
 
-    def test_load_profile_variants_parsed(self, minimal_profile_yaml: Path):
-        profile = load_profile(minimal_profile_yaml)
-        assert "prod" in profile.variants
-        assert "test" in profile.variants
-        assert profile.variants["prod"].config["control_system.type"] == "epics"
-
     def test_load_profile_defaults(self, tmp_path: Path):
         """Profile with only name should use defaults."""
         simple = tmp_path / "simple.yml"
@@ -145,40 +125,6 @@ class TestProfileLoading:
         assert profile.config == {}
         assert profile.overlay == {}
         assert profile.mcp_servers == {}
-
-
-# ---------------------------------------------------------------------------
-# Variant Merging
-# ---------------------------------------------------------------------------
-
-
-class TestVariantMerging:
-    """Tests for BuildProfile.with_variant()."""
-
-    def test_variant_overrides_config(self, minimal_profile_yaml: Path):
-        profile = load_profile(minimal_profile_yaml)
-        merged = profile.with_variant("prod")
-        assert merged.config["control_system.type"] == "epics"
-
-    def test_variant_preserves_other_config(self, minimal_profile_yaml: Path):
-        """Variant should not remove config keys not in the variant."""
-        profile = load_profile(minimal_profile_yaml)
-        # Add extra config that variant doesn't touch
-        profile.config["extra.key"] = "value"
-        merged = profile.with_variant("prod")
-        assert merged.config["extra.key"] == "value"
-        assert merged.config["control_system.type"] == "epics"
-
-    def test_unknown_variant_raises(self, minimal_profile_yaml: Path):
-        profile = load_profile(minimal_profile_yaml)
-        with pytest.raises(BuildProfileError, match="Unknown variant 'nonexistent'"):
-            profile.with_variant("nonexistent")
-
-    def test_variant_clears_variants_dict(self, minimal_profile_yaml: Path):
-        """After applying a variant, variants dict is emptied to prevent double-apply."""
-        profile = load_profile(minimal_profile_yaml)
-        merged = profile.with_variant("prod")
-        assert merged.variants == {}
 
 
 # ---------------------------------------------------------------------------
@@ -236,36 +182,6 @@ class TestValidation:
         profile = load_profile(minimal_profile_yaml)
         # Should not raise
         profile.validate(profile_dir)
-
-
-# ---------------------------------------------------------------------------
-# Deep Merge
-# ---------------------------------------------------------------------------
-
-
-class TestDeepMerge:
-    """Tests for the _deep_merge helper."""
-
-    def test_simple_override(self):
-        result = _deep_merge({"a": 1}, {"a": 2})
-        assert result == {"a": 2}
-
-    def test_nested_merge(self):
-        base = {"a": {"b": 1, "c": 2}}
-        override = {"a": {"b": 99}}
-        result = _deep_merge(base, override)
-        assert result == {"a": {"b": 99, "c": 2}}
-
-    def test_new_keys_added(self):
-        result = _deep_merge({"a": 1}, {"b": 2})
-        assert result == {"a": 1, "b": 2}
-
-    def test_no_mutation_of_originals(self):
-        base = {"a": {"b": 1}}
-        override = {"a": {"c": 2}}
-        _deep_merge(base, override)
-        assert base == {"a": {"b": 1}}
-        assert override == {"a": {"c": 2}}
 
 
 # ---------------------------------------------------------------------------
