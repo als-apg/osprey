@@ -21,6 +21,8 @@ from typing import Any
 
 import click
 
+from osprey.errors import BuildProfileError
+
 from .styles import Messages, Styles, console
 from .templates.manager import TemplateManager
 
@@ -193,6 +195,9 @@ def build(
 
     except click.Abort:
         raise
+    except BuildProfileError as e:
+        console.print(f"❌ Build error: {e}", style=Styles.ERROR)
+        raise click.Abort() from e
     except ValueError as e:
         console.print(f"❌ Error: {e}", style=Styles.ERROR)
         raise click.Abort() from e
@@ -225,10 +230,7 @@ def _run_lifecycle_phase(
         abort_on_failure: If True, raise BuildProfileError on failure.
             If False, warn and continue (used for validate phase).
     """
-    from osprey.errors import BuildProfileError
-
     console.print(f"  ⚙️  Running {phase_name} commands...", style=Styles.DIM)
-
     for step in steps:
         cmd_str = step.run.replace("{project_root}", str(project_path))
 
