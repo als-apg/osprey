@@ -88,27 +88,6 @@ def _launch_tuning_server(app: FastAPI) -> None:
         app.state.tuning_server_url = None
 
 
-def _launch_deplot_server(app: FastAPI) -> None:
-    """Auto-launch the DePlot graph extraction service if configured."""
-    try:
-        from osprey.infrastructure.server_launcher import ensure_deplot_server
-        from osprey.utils.workspace import load_osprey_config
-
-        config = load_osprey_config()
-        deplot = config.get("deplot", {})
-        if not deplot:
-            return
-        host = deplot.get("host", "127.0.0.1")
-        port = deplot.get("port", 8095)
-
-        app.state.deplot_server_url = f"http://{host}:{port}"
-        ensure_deplot_server()
-        logger.info("DePlot server available at %s", app.state.deplot_server_url)
-    except Exception:
-        logger.warning("Could not auto-launch DePlot server", exc_info=True)
-        app.state.deplot_server_url = None
-
-
 def _launch_channel_finder_server(app: FastAPI) -> None:
     """Auto-launch the Channel Finder web server if configured."""
     try:
@@ -320,9 +299,6 @@ def _create_lifespan(
             _launch_channel_finder_server(app)
         if "lattice" in enabled_panels:
             _launch_lattice_dashboard_server(app)
-
-        # Standalone services — always launched (not panel-tied)
-        _launch_deplot_server(app)
 
         # Hook env placeholder — hooks read config.yml directly for
         # hot-reloadable settings (no env var propagation needed).

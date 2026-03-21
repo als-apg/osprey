@@ -69,12 +69,6 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             description="Data visualization sub-agent",
         ),
         PromptArtifact(
-            canonical_name="agents/graph-analyst",
-            template_path="claude/agents/graph-analyst.md.j2",
-            output_path=".claude/agents/graph-analyst.md",
-            description="Graph analysis sub-agent",
-        ),
-        PromptArtifact(
             canonical_name="agents/literature-search",
             template_path="claude/agents/literature-search.md.j2",
             output_path=".claude/agents/literature-search.md",

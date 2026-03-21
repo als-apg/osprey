@@ -270,8 +270,6 @@ class TemplateManager:
                 ctx["confluence"] = rendered_config["confluence"]
             if "matlab" in rendered_config:
                 ctx["matlab"] = rendered_config["matlab"]
-            if "deplot" in rendered_config:
-                ctx["deplot"] = rendered_config["deplot"]
             # Claude Code explicit overrides
             cc_config = rendered_config.get("claude_code", {})
             cc_cfg = cc_config

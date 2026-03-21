@@ -66,7 +66,6 @@ class TestPromptCatalogDefault:
             "settings-json",
             "agents/channel-finder",
             "agents/data-visualizer",
-            "agents/graph-analyst",
             "agents/literature-search",
             "agents/logbook-search",
             "agents/logbook-deep-research",

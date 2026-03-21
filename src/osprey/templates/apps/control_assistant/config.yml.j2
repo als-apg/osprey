@@ -539,18 +539,6 @@ artifact_server:
   auto_launch: true
 
 # ============================================================
-# DEPLOT — Graph Data Extraction Service
-# ============================================================
-# DePlot extracts numerical data from chart/graph images using
-# Google's Pix2Struct model. Auto-launches with `osprey web`.
-# Requires: uv sync --extra graph (first run downloads ~1GB model)
-
-deplot:
-  host: "127.0.0.1"
-  port: 8095
-  auto_launch: true
-
-# ============================================================
 # KARMA — Claude Code Analytics Dashboard
 # ============================================================
 # Provides a rich analytics dashboard for Claude Code sessions.
@@ -627,7 +615,6 @@ matlab:
 #   confluence: section  → confluence MCP server + wiki-search agent
 #   matlab: section      → matlab MCP server + matlab-search agent
 #   channel_finder: section → channel-finder MCP server + channel-finder agent
-#   deplot: section       → graph tools on workspace + graph-analyst agent
 #
 # Auto-derived agents (always present unless disabled):
 #   logbook-search, logbook-deep-research, literature-search

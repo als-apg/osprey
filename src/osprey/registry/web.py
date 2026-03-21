@@ -69,16 +69,6 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         port_default=8090,
         factory_config_kwargs={"tuning_api_url": "tuning.api_url"},
     ),
-    "deplot": WebServerDefinition(
-        name="DePlot service",
-        factory_path="osprey.services.deplot.server:create_app",
-        config_key="deplot",
-        port_default=8095,
-        require_section=True,
-        import_error_message=(
-            "DePlot dependencies not installed. Install with: uv sync --extra graph"
-        ),
-    ),
     "channel_finder": WebServerDefinition(
         name="Channel Finder",
         factory_path="osprey.interfaces.channel_finder.app:create_app",

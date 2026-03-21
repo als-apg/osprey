@@ -819,7 +819,7 @@ class TestSettingsJsonValidity:
         assert "hooks" in data
 
     def test_all_optional_features_enabled(self, tmp_path):
-        """Valid JSON when all optional features (confluence, matlab, deplot) are enabled."""
+        """Valid JSON when all optional features (confluence, matlab) are enabled."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="json-all-features",
@@ -828,7 +828,6 @@ class TestSettingsJsonValidity:
             context={
                 "confluence": {"url": "https://wiki.example.com"},
                 "matlab": {"db_path": "~/.matlab-mml/mml.db"},
-                "deplot": {"host": "127.0.0.1", "port": 8095},
             },
         )
         settings_path = project_dir / ".claude" / "settings.json"

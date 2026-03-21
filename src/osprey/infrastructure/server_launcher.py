@@ -234,11 +234,6 @@ def ensure_tuning_server() -> None:
     ensure_web_server("tuning")
 
 
-def ensure_deplot_server() -> None:
-    """Ensure the DePlot service is running; launch if needed."""
-    ensure_web_server("deplot")
-
-
 def ensure_channel_finder_server() -> None:
     """Ensure the Channel Finder web server is running; launch if needed."""
     ensure_web_server("channel_finder")

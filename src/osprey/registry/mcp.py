@@ -163,9 +163,6 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "artifact_get",
             "artifact_focus",
             "artifact_export",
-            "graph_extract",
-            "graph_compare",
-            "graph_save_reference",
             "create_static_plot",
             "create_interactive_plot",
             "create_dashboard",
@@ -343,11 +340,6 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
         name="matlab-search",
         condition="matlab",
         description="Searches the MATLAB Middle Layer codebase database.",
-    ),
-    "graph-analyst": AgentDefinition(
-        name="graph-analyst",
-        condition="deplot",
-        description="Extracts data from graph images and compares against references.",
     ),
     "data-visualizer": AgentDefinition(
         name="data-visualizer",

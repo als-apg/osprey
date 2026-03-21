@@ -63,7 +63,6 @@ AGENT_DEFAULT_TIERS: dict[str, str] = {
     "data-visualizer": "sonnet",
     "wiki-search": "sonnet",
     "matlab-search": "sonnet",
-    "graph-analyst": "sonnet",
     "direct-channel-finder": "sonnet",
 }
 

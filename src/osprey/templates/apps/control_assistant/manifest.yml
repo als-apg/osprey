@@ -31,7 +31,6 @@ artifacts:
     - channel-finder
     - direct-channel-finder
     - data-visualizer
-    - graph-analyst
     - literature-search
     - logbook-search
     - logbook-deep-research

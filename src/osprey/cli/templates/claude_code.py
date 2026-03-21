@@ -124,9 +124,6 @@ def build_claude_code_context(
         ctx["confluence"] = config["confluence"]
     if "matlab" in config:
         ctx["matlab"] = config["matlab"]
-    if "deplot" in config:
-        ctx["deplot"] = config["deplot"]
-
     # Claude Code server + agent resolution (data-driven registry)
     claude_code_config = config.get("claude_code", {})
     ctx["facility_permissions"] = claude_code_config.get("permissions", {})

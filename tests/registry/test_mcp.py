@@ -246,7 +246,6 @@ class TestResolveAgents:
         assert {
             "wiki-search",
             "matlab-search",
-            "graph-analyst",
             "channel-finder",
             "direct-channel-finder",
         } <= disabled

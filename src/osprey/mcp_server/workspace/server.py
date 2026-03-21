@@ -49,7 +49,6 @@ def create_server() -> FastMCP:
             data_context_tools,
             facility_description,
             focus_tools,
-            graph_tools,
             lattice_tools,
             screen_capture,
             session_log,
