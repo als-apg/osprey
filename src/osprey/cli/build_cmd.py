@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import json
 import logging
+import shlex
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -93,10 +95,16 @@ def build(
                 )
                 raise click.Abort()
 
-        # 4. Clear Claude Code project state
+        # 4. Run pre_build lifecycle commands
+        if build_profile.lifecycle.pre_build:
+            _run_lifecycle_phase(
+                "pre_build", build_profile.lifecycle.pre_build, profile_dir, project_path
+            )
+
+        # 5. Clear Claude Code project state
         _clear_claude_code_project_state(project_path)
 
-        # 5. Build context from profile fields
+        # 6. Build context from profile fields
         context: dict[str, Any] = {}
         if build_profile.provider:
             context["default_provider"] = build_profile.provider
@@ -105,7 +113,7 @@ def build(
         if build_profile.channel_finder_mode:
             context["channel_finder_mode"] = build_profile.channel_finder_mode
 
-        # 6. Create project from template
+        # 7. Create project from template
         manager = TemplateManager()
         project_path = manager.create_project(
             project_name=project_name,
@@ -116,7 +124,7 @@ def build(
         )
         console.print("  ✓ Base template rendered", style=Styles.SUCCESS)
 
-        # 7. Apply config overrides
+        # 8. Apply config overrides
         if build_profile.config:
             _apply_config_overrides(project_path, build_profile.config)
             console.print(
@@ -124,14 +132,14 @@ def build(
                 style=Styles.SUCCESS,
             )
 
-        # 8. Copy overlay files
+        # 9. Copy overlay files
         if build_profile.overlay:
             _copy_overlay_files(profile_dir, project_path, build_profile.overlay)
             console.print(
                 f"  ✓ Copied {len(build_profile.overlay)} overlay(s)", style=Styles.SUCCESS
             )
 
-        # 9. Inject MCP servers
+        # 10. Inject MCP servers
         if build_profile.mcp_servers:
             _inject_mcp_servers(project_path, build_profile.mcp_servers)
             console.print(
@@ -139,7 +147,7 @@ def build(
                 style=Styles.SUCCESS,
             )
 
-        # 10. Generate manifest
+        # 13. Generate manifest
         manifest_context = {
             "default_provider": build_profile.provider or "anthropic",
             "default_model": build_profile.model or "haiku",
@@ -154,8 +162,24 @@ def build(
             context=manifest_context,
         )
 
-        # 11. Git init + commit
+        # 14. Git init + commit
         _git_init_and_commit(project_path)
+
+        # 15. Run post_build lifecycle commands
+        if build_profile.lifecycle.post_build:
+            _run_lifecycle_phase(
+                "post_build", build_profile.lifecycle.post_build, project_path, project_path
+            )
+
+        # 16. Run validate lifecycle commands
+        if build_profile.lifecycle.validate:
+            _run_lifecycle_phase(
+                "validate",
+                build_profile.lifecycle.validate,
+                project_path,
+                project_path,
+                abort_on_failure=False,
+            )
 
         console.print(f"\n✅ Project built successfully at: [bold]{project_path}[/bold]")
 
@@ -170,6 +194,85 @@ def build(
 
         console.print(traceback.format_exc(), style=Styles.DIM)
         raise click.Abort() from e
+
+
+_SHELL_METACHARACTERS = ("|", "&&", "||", "$(", "`")
+
+
+def _run_lifecycle_phase(
+    phase_name: str,
+    steps: list[Any],
+    default_cwd: Path,
+    project_path: Path,
+    *,
+    abort_on_failure: bool = True,
+) -> None:
+    """Run lifecycle commands for a build phase.
+
+    Args:
+        phase_name: Phase name for display (pre_build, post_build, validate).
+        steps: List of LifecycleStep objects.
+        default_cwd: Default working directory for steps without explicit cwd.
+        project_path: Project root path for {project_root} substitution.
+        abort_on_failure: If True, raise BuildProfileError on failure.
+            If False, warn and continue (used for validate phase).
+    """
+    from osprey.errors import BuildProfileError
+
+    console.print(f"  ⚙️  Running {phase_name} commands...", style=Styles.DIM)
+
+    for step in steps:
+        cmd_str = step.run.replace("{project_root}", str(project_path))
+
+        # Resolve cwd
+        if step.cwd:
+            cwd_str = step.cwd.replace("{project_root}", str(project_path))
+            cwd = (default_cwd / cwd_str).resolve()
+        else:
+            cwd = default_cwd
+
+        # Detect shell metacharacters
+        use_shell = any(meta in cmd_str for meta in _SHELL_METACHARACTERS)
+
+        try:
+            if use_shell:
+                result = subprocess.run(
+                    cmd_str,
+                    shell=True,
+                    cwd=cwd,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+            else:
+                result = subprocess.run(
+                    shlex.split(cmd_str),
+                    cwd=cwd,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+
+            if result.returncode != 0:
+                output = (result.stdout + result.stderr).strip()
+                msg = f"Lifecycle {phase_name} step '{step.name}' failed (exit {result.returncode})"
+                if output:
+                    msg += f":\n{output}"
+                if abort_on_failure:
+                    console.print(f"  ❌ {msg}", style=Styles.ERROR)
+                    raise BuildProfileError(msg)
+                else:
+                    console.print(f"  ⚠️  {msg}", style=Styles.WARNING)
+            else:
+                console.print(f"  ✓ {phase_name}: {step.name}", style=Styles.SUCCESS)
+
+        except subprocess.TimeoutExpired:
+            msg = f"Lifecycle {phase_name} step '{step.name}' timed out (120s)"
+            if abort_on_failure:
+                console.print(f"  ❌ {msg}", style=Styles.ERROR)
+                raise BuildProfileError(msg)
+            else:
+                console.print(f"  ⚠️  {msg}", style=Styles.WARNING)
 
 
 def _apply_config_overrides(project_path: Path, config_dict: dict[str, Any]) -> None:

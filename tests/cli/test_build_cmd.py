@@ -473,6 +473,67 @@ class TestBuildHelpers:
 
 
 # ---------------------------------------------------------------------------
+# Lifecycle Phase Runner
+# ---------------------------------------------------------------------------
+
+
+class TestLifecyclePhaseRunner:
+    """Tests for _run_lifecycle_phase()."""
+
+    def test_successful_step(self, tmp_path: Path):
+        from osprey.cli.build_cmd import _run_lifecycle_phase
+
+        steps = [LifecycleStep(name="echo test", run="echo hello")]
+        # Should not raise
+        _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+
+    def test_failing_step_aborts(self, tmp_path: Path):
+        from osprey.cli.build_cmd import _run_lifecycle_phase
+
+        steps = [LifecycleStep(name="bad cmd", run="false")]
+        with pytest.raises(BuildProfileError, match="'bad cmd' failed"):
+            _run_lifecycle_phase("pre_build", steps, tmp_path, tmp_path)
+
+    def test_failing_step_warns_when_no_abort(self, tmp_path: Path):
+        from osprey.cli.build_cmd import _run_lifecycle_phase
+
+        steps = [LifecycleStep(name="bad validate", run="false")]
+        # Should not raise
+        _run_lifecycle_phase(
+            "validate", steps, tmp_path, tmp_path, abort_on_failure=False
+        )
+
+    def test_step_with_cwd(self, tmp_path: Path):
+        from osprey.cli.build_cmd import _run_lifecycle_phase
+
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+        steps = [LifecycleStep(name="check cwd", run="pwd", cwd="subdir")]
+        # Should not raise — cwd relative to default_cwd
+        _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+
+    def test_project_root_placeholder(self, tmp_path: Path):
+        from osprey.cli.build_cmd import _run_lifecycle_phase
+
+        marker = tmp_path / "marker.txt"
+        steps = [
+            LifecycleStep(
+                name="touch marker",
+                run="touch {project_root}/marker.txt",
+            )
+        ]
+        _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+        assert marker.exists()
+
+    def test_shell_metacharacters_handled(self, tmp_path: Path):
+        from osprey.cli.build_cmd import _run_lifecycle_phase
+
+        steps = [LifecycleStep(name="piped cmd", run="echo hello | cat")]
+        # Should not raise — shell=True for pipe
+        _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+
+
+# ---------------------------------------------------------------------------
 # CLI Integration
 # ---------------------------------------------------------------------------
 
