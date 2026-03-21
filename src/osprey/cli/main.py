@@ -43,6 +43,7 @@ class LazyGroup(click.Group):
         # Map command names to their module paths
         commands = {
             "init": "osprey.cli.init_cmd",
+            "build": "osprey.cli.build_cmd",
             "deploy": "osprey.cli.deploy_cmd",
             "config": "osprey.cli.config_cmd",
             "health": "osprey.cli.health_cmd",
@@ -85,6 +86,7 @@ class LazyGroup(click.Group):
         """Return list of available commands (for --help)."""
         return [
             "init",
+            "build",
             "config",
             "deploy",
             "migrate",

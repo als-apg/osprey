@@ -84,3 +84,9 @@ class ConfigurationError(Exception):
     """
 
     pass
+
+
+class BuildProfileError(ConfigurationError):
+    """Raised when a build profile is invalid or missing required files."""
+
+    pass
