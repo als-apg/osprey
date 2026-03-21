@@ -24,6 +24,13 @@ Framework & Infrastructure
       Create, configure, and deploy an OSPREY project from ``osprey init`` through
       ``osprey deploy`` to a running instance.
 
+   .. grid-item-card:: Build Profiles
+      :link: build-profiles
+      :link-type: doc
+
+      Assemble facility-specific assistants from templates with config overrides,
+      file overlays, and custom MCP servers.
+
    .. grid-item-card:: Add an MCP Server
       :link: add-mcp-server
       :link-type: doc
@@ -85,6 +92,7 @@ Services & Connectors
 
    configure-providers
    deploy-project
+   build-profiles
    add-mcp-server
    use-web-terminal
    use-python-executor
