@@ -1346,15 +1346,15 @@ class TestALSLogbookAdapterWrite:
         )
 
         root = ET.fromstring(xml_str)
-        assert root.tag == "entry"
+        assert root.tag == "root"
         assert root.find("author").text == "testuser"
         assert root.find("password").text == "testpass"
-        assert root.find("subject").text == "Test subject"
-        assert root.find("details").text == "Test details"
-        assert root.find("level").text == "Info"
-        assert root.find("logbooks/logbook").text == "Operations"
+        assert root.find("entry/subject").text == "Test subject"
+        assert root.find("entry/details").text == "Test details"
+        assert root.find("entry/level").text == "Info"
+        assert root.find("entry/logbooks/logbook").text == "Operations"
 
-        categories = [c.text for c in root.findall("categories/category")]
+        categories = [c.text for c in root.findall("entry/categories/category")]
         assert categories == ["RF Systems", "Maintenance"]
 
     @pytest.mark.asyncio
