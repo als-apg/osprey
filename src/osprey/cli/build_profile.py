@@ -35,6 +35,7 @@ class LifecycleStep:
     name: str
     run: str
     cwd: str | None = None
+    timeout: int = 120  # seconds; override per-step in YAML
 
 
 @dataclass
@@ -134,6 +135,11 @@ class BuildProfile:
                             f"Lifecycle {phase_name} step '{step.name}' cwd must be"
                             f" relative without '..': {step.cwd}"
                         )
+                if step.timeout <= 0:
+                    errors.append(
+                        f"Lifecycle {phase_name} step '{step.name}' timeout must be"
+                        f" positive: {step.timeout}"
+                    )
 
         # Validate env var names
         for var in self.env.required:

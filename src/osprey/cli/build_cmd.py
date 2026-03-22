@@ -274,7 +274,7 @@ def _run_lifecycle_phase(
                     cwd=cwd,
                     capture_output=True,
                     text=True,
-                    timeout=120,
+                    timeout=step.timeout,
                 )
             else:
                 result = subprocess.run(
@@ -282,7 +282,7 @@ def _run_lifecycle_phase(
                     cwd=cwd,
                     capture_output=True,
                     text=True,
-                    timeout=120,
+                    timeout=step.timeout,
                 )
 
             if result.returncode != 0:
