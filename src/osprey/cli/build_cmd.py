@@ -134,14 +134,32 @@ def build(
                 style=Styles.SUCCESS,
             )
 
-        # 9. Copy overlay files
+        # 9. Copy service templates for `osprey deploy up`
+        svc_count = _copy_service_templates(project_path)
+        if svc_count:
+            console.print(
+                f"  ✓ Copied {svc_count} service template(s) for deploy",
+                style=Styles.SUCCESS,
+            )
+
+        # 10. Inject profile-defined services (facility containers)
+        if build_profile.services:
+            psvc_count = _inject_profile_services(
+                profile_dir, project_path, build_profile.services
+            )
+            console.print(
+                f"  ✓ Injected {psvc_count} profile service(s) for deploy",
+                style=Styles.SUCCESS,
+            )
+
+        # 11. Copy overlay files
         if build_profile.overlay:
             _copy_overlay_files(profile_dir, project_path, build_profile.overlay)
             console.print(
                 f"  ✓ Copied {len(build_profile.overlay)} overlay(s)", style=Styles.SUCCESS
             )
 
-        # 10. Inject MCP servers
+        # 12. Inject MCP servers
         if build_profile.mcp_servers:
             _inject_mcp_servers(project_path, build_profile.mcp_servers)
             console.print(
@@ -149,15 +167,15 @@ def build(
                 style=Styles.SUCCESS,
             )
 
-        # 11. Generate .env.template
+        # 13. Generate .env.template
         if build_profile.env.required or build_profile.env.defaults:
             _generate_env_template(project_path, build_profile.env)
 
-        # 12. Append to requirements.txt
+        # 14. Append to requirements.txt
         if build_profile.dependencies:
             _append_requirements(project_path, build_profile.dependencies)
 
-        # 13. Generate manifest
+        # 15. Generate manifest
         manifest_context = {
             "default_provider": build_profile.provider or "anthropic",
             "default_model": build_profile.model or "haiku",
@@ -172,16 +190,16 @@ def build(
             context=manifest_context,
         )
 
-        # 14. Git init + commit
+        # 16. Git init + commit
         _git_init_and_commit(project_path)
 
-        # 15. Run post_build lifecycle commands
+        # 17. Run post_build lifecycle commands
         if build_profile.lifecycle.post_build:
             _run_lifecycle_phase(
                 "post_build", build_profile.lifecycle.post_build, project_path, project_path
             )
 
-        # 16. Run validate lifecycle commands
+        # 18. Run validate lifecycle commands
         if build_profile.lifecycle.validate:
             _run_lifecycle_phase(
                 "validate",
@@ -283,6 +301,13 @@ def _run_lifecycle_phase(
                 raise BuildProfileError(msg)
             else:
                 console.print(f"  ⚠️  {msg}", style=Styles.WARNING)
+        except OSError as exc:
+            msg = f"Lifecycle {phase_name} step '{step.name}' failed to start: {exc}"
+            if abort_on_failure:
+                console.print(f"  ❌ {msg}", style=Styles.ERROR)
+                raise BuildProfileError(msg) from exc
+            else:
+                console.print(f"  ⚠️  {msg}", style=Styles.WARNING)
 
 
 def _generate_env_template(project_path: Path, env_config: Any) -> None:
@@ -338,6 +363,146 @@ def _apply_config_overrides(project_path: Path, config_dict: dict[str, Any]) -> 
         logger.warning("config.yml not found at %s — skipping config overrides", config_path)
         return
     config_update_fields(config_path, config_dict)
+
+
+def _copy_service_templates(project_path: Path) -> int:
+    """Copy service compose templates from the OSPREY package into the project.
+
+    Reads ``deployed_services`` from the generated config.yml and copies each
+    service's compose template directory from the package to the project's
+    ``services/`` tree.  This makes the project self-contained so that
+    ``osprey deploy up`` works directly from the project directory.
+
+    Returns:
+        Number of service template directories copied.
+    """
+    from ruamel.yaml import YAML
+
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        return 0
+
+    yaml = YAML()
+    with open(config_path) as fh:
+        config = yaml.load(fh)
+
+    deployed = config.get("deployed_services", [])
+    if not deployed:
+        return 0
+
+    # Locate the package's service templates directory
+    try:
+        import osprey.templates
+
+        pkg_services = Path(osprey.templates.__file__).parent / "services"
+    except (ImportError, AttributeError):
+        pkg_services = Path(__file__).parent.parent / "templates" / "services"
+
+    if not pkg_services.is_dir():
+        logger.warning("Service templates directory not found — skipping")
+        return 0
+
+    services_config = config.get("services", {})
+    dest_services_root = project_path / "services"
+    dest_services_root.mkdir(exist_ok=True)
+
+    # Copy the root services compose template (shared network definition)
+    root_template = pkg_services / "docker-compose.yml.j2"
+    if root_template.exists():
+        shutil.copy2(root_template, dest_services_root / "docker-compose.yml.j2")
+
+    count = 0
+    for service_name in deployed:
+        name = str(service_name)
+
+        # Resolve package source directory
+        parts = name.split(".")
+        if parts[0] == "osprey" and len(parts) == 2:
+            src_dir = pkg_services / parts[1]
+        elif len(parts) == 1:
+            src_dir = pkg_services / name
+        else:
+            logger.warning("Skipping service %r — unsupported naming for template copy", name)
+            continue
+
+        if not src_dir.is_dir():
+            logger.warning("No package template for service %r at %s", name, src_dir)
+            continue
+
+        # Determine destination from the service config's path field
+        svc_config = services_config.get(parts[-1], {})
+        dest_rel = svc_config.get("path", f"./services/{parts[-1]}")
+        dest_dir = project_path / dest_rel.lstrip("./")
+
+        if dest_dir.exists():
+            shutil.rmtree(dest_dir)
+        shutil.copytree(src_dir, dest_dir)
+        count += 1
+
+    return count
+
+
+def _inject_profile_services(
+    profile_dir: Path, project_path: Path, services: dict[str, Any]
+) -> int:
+    """Copy facility-defined service templates and register them in config.yml.
+
+    For each service declared in the profile's ``services:`` section:
+    1. Copies the template directory to ``{project}/services/{name}/``
+    2. Writes ``services.{name}`` config entries to config.yml
+    3. Appends the service to ``deployed_services``
+
+    This lets facilities define their own containers (Typesense, Redis, etc.)
+    alongside OSPREY's built-in services (PostgreSQL).
+
+    Returns:
+        Number of profile services injected.
+    """
+    from ruamel.yaml import YAML
+
+    if not services:
+        return 0
+
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        return 0
+
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    with open(config_path) as fh:
+        config = yaml.load(fh)
+
+    dest_services_root = project_path / "services"
+    dest_services_root.mkdir(exist_ok=True)
+
+    count = 0
+    for name, svc_def in services.items():
+        # Copy template directory
+        src_dir = profile_dir / svc_def.template
+        dest_dir = dest_services_root / name
+        if dest_dir.exists():
+            shutil.rmtree(dest_dir)
+        shutil.copytree(src_dir, dest_dir)
+
+        # Register service config in config.yml
+        if "services" not in config:
+            config["services"] = {}
+        svc_config = {"path": f"./services/{name}"}
+        svc_config.update(svc_def.config)
+        config["services"][name] = svc_config
+
+        # Add to deployed_services
+        deployed = config.get("deployed_services", [])
+        if name not in [str(s) for s in deployed]:
+            deployed.append(name)
+            config["deployed_services"] = deployed
+
+        count += 1
+
+    with open(config_path, "w") as fh:
+        yaml.dump(config, fh)
+
+    return count
 
 
 def _copy_overlay_files(

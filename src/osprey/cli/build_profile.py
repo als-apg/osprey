@@ -54,6 +54,14 @@ class EnvConfig:
     defaults: dict[str, str] = field(default_factory=dict)
 
 
+@dataclass
+class ServiceDef:
+    """Definition of a container service for ``osprey deploy``."""
+
+    template: str  # Path to template dir (relative to profile dir)
+    config: dict[str, Any] = field(default_factory=dict)
+
+
 _ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 
 
@@ -69,6 +77,7 @@ class BuildProfile:
     config: dict[str, Any] = field(default_factory=dict)
     overlay: dict[str, str] = field(default_factory=dict)
     mcp_servers: dict[str, McpServerDef] = field(default_factory=dict)
+    services: dict[str, ServiceDef] = field(default_factory=dict)
     lifecycle: LifecycleConfig = field(default_factory=LifecycleConfig)
     env: EnvConfig = field(default_factory=EnvConfig)
     dependencies: list[str] = field(default_factory=list)
@@ -96,6 +105,19 @@ class BuildProfile:
         for name, server in self.mcp_servers.items():
             if not server.command:
                 errors.append(f"MCP server '{name}' missing 'command'")
+
+        # Validate service definitions
+        for name, svc in self.services.items():
+            if not svc.template:
+                errors.append(f"Service '{name}' missing 'template'")
+            else:
+                tmpl_path = profile_dir / svc.template
+                if not tmpl_path.is_dir():
+                    errors.append(f"Service '{name}' template dir not found: {tmpl_path}")
+                elif not (tmpl_path / "docker-compose.yml.j2").exists():
+                    errors.append(
+                        f"Service '{name}' template dir missing docker-compose.yml.j2"
+                    )
 
         # Validate lifecycle steps
         for phase_name in ("pre_build", "post_build", "validate"):
@@ -175,6 +197,15 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             },
         )
 
+    services: dict[str, ServiceDef] = {}
+    for name, sdef in raw.get("services", {}).items():
+        if not isinstance(sdef, dict):
+            raise BuildProfileError(f"Service '{name}' must be a mapping")
+        services[name] = ServiceDef(
+            template=sdef.get("template", ""),
+            config=sdef.get("config", {}),
+        )
+
     lifecycle_raw = raw.get("lifecycle", {})
     lifecycle = LifecycleConfig(
         pre_build=[LifecycleStep(**s) for s in lifecycle_raw.get("pre_build", [])],
@@ -199,6 +230,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         config=raw.get("config", {}),
         overlay=raw.get("overlay", {}),
         mcp_servers=mcp_servers,
+        services=services,
         lifecycle=lifecycle,
         env=env,
         dependencies=dependencies,

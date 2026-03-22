@@ -1,5 +1,7 @@
 """Service deployment CLI command wrapping osprey.deployment.container_manager."""
 
+import os
+
 import click
 
 from osprey.cli.styles import Styles, console
@@ -13,7 +15,7 @@ from osprey.deployment.container_manager import (
     show_status,
 )
 
-from .project_utils import resolve_config_path
+from .project_utils import resolve_config_path, resolve_project_path
 
 
 @click.command()
@@ -112,6 +114,12 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool, ex
         console.print(f"Service management: [bold]{action}[/bold]")
 
     try:
+        # Resolve project directory and chdir into it so that all
+        # CWD-relative operations (template loading, .env lookup,
+        # build/ output) resolve against the project root.
+        project_dir = resolve_project_path(project)
+        os.chdir(project_dir)
+
         # Resolve config path from project and config args
         config_path = resolve_config_path(project, config)
 
@@ -213,8 +221,6 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool, ex
     except Exception as e:
         console.print(f"❌ Deployment failed: {e}", style=Styles.ERROR)
         # Show more details in verbose mode
-        import os
-
         if os.environ.get("DEBUG"):
             import traceback
 
