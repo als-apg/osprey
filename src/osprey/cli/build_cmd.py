@@ -79,6 +79,32 @@ def build(
         console.print(f"  📋 Profile: [accent]{build_profile.name}[/accent]")
         console.print(f"  📦 Template: [accent]{build_profile.base_template}[/accent]")
 
+        # 1b. Check OSPREY version requirement
+        if build_profile.requires_osprey_version:
+            from packaging.specifiers import SpecifierSet
+            from packaging.version import Version
+
+            from osprey import __version__
+
+            spec = SpecifierSet(build_profile.requires_osprey_version)
+            current = Version(__version__)
+            if current not in spec:
+                console.print(
+                    f"  ❌ OSPREY {__version__} does not satisfy "
+                    f"requires_osprey_version: {build_profile.requires_osprey_version}",
+                    style=Styles.ERROR,
+                )
+                console.print(
+                    f"     Upgrade OSPREY or run: osprey --version",
+                    style=Styles.DIM,
+                )
+                raise click.Abort()
+            console.print(
+                f"  ✓ OSPREY {__version__} satisfies "
+                f"{build_profile.requires_osprey_version}",
+                style=Styles.SUCCESS,
+            )
+
         # 2. Resolve output path
         output_path = Path(output_dir).resolve()
         project_path = output_path / project_name

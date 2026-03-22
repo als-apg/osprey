@@ -83,6 +83,7 @@ class BuildProfile:
     lifecycle: LifecycleConfig = field(default_factory=LifecycleConfig)
     env: EnvConfig = field(default_factory=EnvConfig)
     dependencies: list[str] = field(default_factory=list)
+    requires_osprey_version: str | None = None  # PEP 440 specifier, e.g. ">=0.12.0"
 
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
@@ -156,6 +157,18 @@ class BuildProfile:
         for dep in self.dependencies:
             if not isinstance(dep, str) or not dep.strip():
                 errors.append(f"Dependency must be a non-empty string: {dep!r}")
+
+        # Validate requires_osprey_version specifier
+        if self.requires_osprey_version:
+            try:
+                from packaging.specifiers import SpecifierSet
+
+                SpecifierSet(self.requires_osprey_version)
+            except Exception:
+                errors.append(
+                    f"Invalid requires_osprey_version specifier: "
+                    f"'{self.requires_osprey_version}' (must be PEP 440, e.g. '>=0.12.0')"
+                )
 
         if errors:
             raise BuildProfileError(
@@ -248,4 +261,5 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         lifecycle=lifecycle,
         env=env,
         dependencies=dependencies,
+        requires_osprey_version=raw.get("requires_osprey_version"),
     )
