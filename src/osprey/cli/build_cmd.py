@@ -16,6 +16,7 @@ import logging
 import shlex
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -266,6 +267,7 @@ def _run_lifecycle_phase(
         # Detect shell metacharacters
         use_shell = any(meta in cmd_str for meta in _SHELL_METACHARACTERS)
 
+        t0 = time.monotonic()
         try:
             if use_shell:
                 result = subprocess.run(
@@ -284,10 +286,11 @@ def _run_lifecycle_phase(
                     text=True,
                     timeout=step.timeout,
                 )
+            elapsed = time.monotonic() - t0
 
             if result.returncode != 0:
                 output = (result.stdout + result.stderr).strip()
-                msg = f"Lifecycle {phase_name} step '{step.name}' failed (exit {result.returncode})"
+                msg = f"Lifecycle {phase_name} step '{step.name}' failed (exit {result.returncode}, {elapsed:.1f}s)"
                 if output:
                     msg += f":\n{output}"
                 if abort_on_failure:
@@ -296,10 +299,20 @@ def _run_lifecycle_phase(
                 else:
                     console.print(f"  ⚠️  {msg}", style=Styles.WARNING)
             else:
-                console.print(f"  ✓ {phase_name}: {step.name}", style=Styles.SUCCESS)
+                # Build success message with timing
+                success_msg = f"  ✓ {step.name} ({elapsed:.1f}s)"
+                # Extract a one-line summary from the last non-empty line of
+                # combined output (scripts can print a summary as their last line)
+                output = (result.stdout + result.stderr).strip()
+                if output:
+                    summary = output.rstrip().rsplit("\n", 1)[-1].strip()
+                    if summary:
+                        success_msg += f" — {summary}"
+                console.print(success_msg, style=Styles.SUCCESS)
 
         except subprocess.TimeoutExpired:
-            msg = f"Lifecycle {phase_name} step '{step.name}' timed out (120s)"
+            elapsed = time.monotonic() - t0
+            msg = f"Lifecycle {phase_name} step '{step.name}' timed out ({elapsed:.0f}s)"
             if abort_on_failure:
                 console.print(f"  ❌ {msg}", style=Styles.ERROR)
                 raise BuildProfileError(msg)
