@@ -268,7 +268,9 @@ def main():
 
         # Skip policy — no approval needed
         if policy == "skip":
-            log_hook("approval", hook_input, status="allow", detail=f"policy=skip tool={short_name}")
+            log_hook(
+                "approval", hook_input, status="allow", detail=f"policy=skip tool={short_name}"
+            )
             json.dump(build_allow_output(), sys.stdout)
             sys.exit(0)
 
@@ -338,9 +340,7 @@ def main():
                 val = tool_input.get("value")
                 if ch is not None:
                     channels = [{"channel": ch, "value": val}]
-            channel_list = ", ".join(
-                f"{op.get('channel')}={op.get('value')}" for op in channels
-            )
+            channel_list = ", ".join(f"{op.get('channel')}={op.get('value')}" for op in channels)
             if channel_list:
                 reason_parts.append(f"Channels: {channel_list}")
 

@@ -150,7 +150,6 @@ def _launch_lattice_dashboard_server(app: FastAPI) -> None:
         app.state.lattice_dashboard_server_url = None
 
 
-
 # Panel classification constants
 UNIVERSAL_PANELS = {"artifacts", "karma"}
 BUILTIN_PANELS = {

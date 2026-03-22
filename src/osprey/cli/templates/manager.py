@@ -236,7 +236,11 @@ class TemplateManager:
 
         # 6. Copy data files from template (no src/ package)
         scaffolding.copy_template_data(
-            self.template_root, project_dir, package_name, template_name, ctx,
+            self.template_root,
+            project_dir,
+            package_name,
+            template_name,
+            ctx,
             jinja_env=self.jinja_env,
         )
 

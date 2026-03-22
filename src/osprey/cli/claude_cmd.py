@@ -357,7 +357,6 @@ def chat_claude(project, resume, print_mode, effort):
 
     # ── Provider isolation: inject env block + auth, scrub managed vars ──
     from osprey.cli.claude_code_resolver import (
-        MANAGED_ENV_VARS,
         ClaudeCodeModelResolver,
         inject_provider_env,
     )
@@ -380,9 +379,7 @@ def chat_claude(project, resume, print_mode, effort):
             if injected:
                 console.print(f"[dim]Injected: {', '.join(injected)}[/dim]")
             if spec.auth_secret_env and os.environ.get(spec.auth_env_var):
-                console.print(
-                    f"[dim]Set ${spec.auth_env_var} from ${spec.auth_secret_env}[/dim]"
-                )
+                console.print(f"[dim]Set ${spec.auth_env_var} from ${spec.auth_secret_env}[/dim]")
 
     # Build claude CLI args
     args = ["claude", "--project-dir", str(project_dir)]

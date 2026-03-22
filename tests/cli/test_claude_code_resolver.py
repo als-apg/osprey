@@ -5,7 +5,6 @@ import pytest
 from osprey.cli.claude_code_resolver import (
     AGENT_DEFAULT_TIERS,
     CLAUDE_CODE_PROVIDERS,
-    MANAGED_ENV_VARS,
     VALID_TIERS,
     ClaudeCodeModelResolver,
     ClaudeCodeModelSpec,

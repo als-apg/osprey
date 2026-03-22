@@ -92,8 +92,7 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         port_default=8741,
         require_section=False,
         import_error_message=(
-            "Claude Code Karma not installed. "
-            "Install with: pip install claude-code-karma"
+            "Claude Code Karma not installed. Install with: pip install claude-code-karma"
         ),
     ),
 }

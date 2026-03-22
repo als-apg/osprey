@@ -149,6 +149,7 @@ class TestRegenerationCorrectness:
         content = timezone_file.read_text()
         assert "Europe/Berlin" in content
 
+
 class TestSafetyPreservation:
     """Test that regeneration always preserves safety layers."""
 

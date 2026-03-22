@@ -1,7 +1,5 @@
 """Tests for effort level reading from config."""
 
-from pathlib import Path
-
 import pytest
 import yaml
 
