@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from textwrap import dedent
 
@@ -633,6 +634,98 @@ class TestLifecyclePhaseRunner:
         steps = [LifecycleStep(name="piped cmd", run="echo hello | cat")]
         # Should not raise — shell=True for pipe
         _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Install Dependencies
+# ---------------------------------------------------------------------------
+
+
+class TestInstallDependencies:
+    """Tests for _install_dependencies()."""
+
+    def test_installs_packages_with_uv_env_var(self, monkeypatch):
+        """Should use $UV env var to find uv (set by `uv run`)."""
+        from osprey.cli.build_cmd import _install_dependencies
+
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("osprey.cli.build_cmd.subprocess.run", fake_run)
+        monkeypatch.setenv("UV", "/home/user/.local/bin/uv")
+
+        _install_dependencies(["numpy>=1.24", "pandas"])
+
+        assert len(calls) == 1
+        cmd = calls[0]
+        assert cmd[0] == "/home/user/.local/bin/uv"
+        assert cmd[1:4] == ["pip", "install", "--quiet"]
+        assert "numpy>=1.24" in cmd
+        assert "pandas" in cmd
+
+    def test_falls_back_to_pip(self, monkeypatch):
+        """Should fall back to python -m pip when uv is not available."""
+        import sys
+
+        from osprey.cli.build_cmd import _install_dependencies
+
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("osprey.cli.build_cmd.subprocess.run", fake_run)
+        monkeypatch.delenv("UV", raising=False)
+        monkeypatch.setattr("shutil.which", lambda name: None)
+
+        _install_dependencies(["numpy>=1.24"])
+
+        assert len(calls) == 1
+        cmd = calls[0]
+        assert cmd[0] == sys.executable
+        assert cmd[1:4] == ["-m", "pip", "install"]
+
+    def test_warns_on_failure(self, monkeypatch):
+        """Should warn but not raise when pip fails."""
+        from osprey.cli.build_cmd import _install_dependencies
+
+        def fake_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=1, stdout="", stderr="ERROR: No matching distribution"
+            )
+
+        monkeypatch.setattr("osprey.cli.build_cmd.subprocess.run", fake_run)
+
+        # Should not raise
+        _install_dependencies(["nonexistent-package-xyz"])
+
+    def test_warns_on_timeout(self, monkeypatch):
+        """Should warn on timeout, not raise."""
+        from osprey.cli.build_cmd import _install_dependencies
+
+        def fake_run(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=120)
+
+        monkeypatch.setattr("osprey.cli.build_cmd.subprocess.run", fake_run)
+
+        # Should not raise
+        _install_dependencies(["slow-package"])
+
+    def test_warns_when_pip_missing(self, monkeypatch):
+        """Should warn when pip is not available."""
+        from osprey.cli.build_cmd import _install_dependencies
+
+        def fake_run(cmd, **kwargs):
+            raise FileNotFoundError("python not found")
+
+        monkeypatch.setattr("osprey.cli.build_cmd.subprocess.run", fake_run)
+
+        # Should not raise
+        _install_dependencies(["some-package"])
 
 
 # ---------------------------------------------------------------------------

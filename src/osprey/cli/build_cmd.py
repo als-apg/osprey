@@ -202,9 +202,10 @@ def build(
         if build_profile.env.required or build_profile.env.defaults:
             _generate_env_template(project_path, build_profile.env)
 
-        # 15. Append to requirements.txt
+        # 15. Append to requirements.txt and install into build environment
         if build_profile.dependencies:
             _append_requirements(project_path, build_profile.dependencies)
+            _install_dependencies(build_profile.dependencies)
 
         # 16. Generate manifest
         manifest_context = {
@@ -400,10 +401,71 @@ def _append_requirements(project_path: Path, dependencies: list[str]) -> None:
         f"  ✓ Added {len(dependencies)} profile dependency/ies to requirements.txt",
         style=Styles.SUCCESS,
     )
-    console.print(
-        "  💡 Run 'pip install -r requirements.txt' to install",
-        style=Styles.DIM,
-    )
+
+
+def _install_dependencies(dependencies: list[str]) -> None:
+    """Install profile dependencies into the build environment.
+
+    Tries ``uv pip install`` first (uv-managed venvs don't include pip),
+    then falls back to ``python -m pip install``.  This is best-effort:
+    if installation fails the build continues and the lifecycle step itself
+    will report the real error.
+
+    Args:
+        dependencies: PEP 508 dependency specifiers (e.g. ``["typesense>=0.21"]``).
+    """
+    import os
+    import shutil
+    import sys
+
+    console.print("  📦 Installing profile dependencies...", style=Styles.DIM)
+
+    # Prefer uv (uv-managed venvs don't ship pip).
+    # Inside `uv run`, $UV holds the path to the uv binary.
+    uv_path = os.environ.get("UV") or shutil.which("uv")
+    if uv_path:
+        cmd = [uv_path, "pip", "install", "--quiet", *dependencies]
+    else:
+        cmd = [
+            sys.executable, "-m", "pip", "install",
+            "--quiet", "--disable-pip-version-check", *dependencies,
+        ]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode == 0:
+            console.print(
+                f"  ✓ Installed {len(dependencies)} build dependency/ies",
+                style=Styles.SUCCESS,
+            )
+        else:
+            output = (result.stdout + result.stderr).strip()
+            console.print(
+                f"  ⚠️  Failed to install profile dependencies (exit {result.returncode})",
+                style=Styles.WARNING,
+            )
+            if output:
+                last_lines = "\n".join(output.split("\n")[-5:])
+                console.print(f"     {last_lines}", style=Styles.DIM)
+            console.print(
+                "     Lifecycle steps may fail if they import these packages.",
+                style=Styles.DIM,
+            )
+    except subprocess.TimeoutExpired:
+        console.print(
+            "  ⚠️  Dependency installation timed out (120s)",
+            style=Styles.WARNING,
+        )
+    except FileNotFoundError:
+        console.print(
+            "  ⚠️  Package installer not available — skipping dependency installation",
+            style=Styles.WARNING,
+        )
 
 
 def _apply_config_overrides(project_path: Path, config_dict: dict[str, Any]) -> None:
