@@ -192,7 +192,7 @@ screen-capture-linux = [
 
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,ariel,sheets,graph,screen-capture-linux]"
+    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux]"
 ]
 
 [project.urls]

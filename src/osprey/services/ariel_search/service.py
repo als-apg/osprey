@@ -519,7 +519,6 @@ class ARIELSearchService:
             reasoning=agent_result.reasoning,
             diagnostics=agent_result.diagnostics,
             pipeline_details=agent_result.pipeline_details,
->>>>>>> 9486f28d (fix(ariel): restore self-contained ReAct agent after LangGraph removal)
         )
 
     async def health_check(self) -> tuple[bool, str]:
