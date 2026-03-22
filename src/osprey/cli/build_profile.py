@@ -52,6 +52,7 @@ class EnvConfig:
 
     required: list[str] = field(default_factory=list)
     defaults: dict[str, str] = field(default_factory=dict)
+    file: str | None = None  # Profile-relative path to copy as .env
 
 
 @dataclass
@@ -139,6 +140,12 @@ class BuildProfile:
             if not _ENV_VAR_RE.match(var):
                 errors.append(f"Invalid env var name: {var}")
 
+        # Validate env file path
+        if self.env.file:
+            env_file_path = profile_dir / self.env.file
+            if not env_file_path.is_file():
+                errors.append(f"env.file not found: {self.env.file} (resolved: {env_file_path})")
+
         # Validate dependencies
         for dep in self.dependencies:
             if not isinstance(dep, str) or not dep.strip():
@@ -217,6 +224,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     env = EnvConfig(
         required=env_raw.get("required", []),
         defaults=env_raw.get("defaults", {}),
+        file=env_raw.get("file"),
     )
 
     dependencies = raw.get("dependencies", [])

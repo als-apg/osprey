@@ -167,15 +167,19 @@ def build(
                 style=Styles.SUCCESS,
             )
 
-        # 13. Generate .env.template
+        # 13. Copy profile .env file (if provided)
+        if build_profile.env.file:
+            _copy_env_file(profile_dir, project_path, build_profile.env.file)
+
+        # 14. Generate .env.template
         if build_profile.env.required or build_profile.env.defaults:
             _generate_env_template(project_path, build_profile.env)
 
-        # 14. Append to requirements.txt
+        # 15. Append to requirements.txt
         if build_profile.dependencies:
             _append_requirements(project_path, build_profile.dependencies)
 
-        # 15. Generate manifest
+        # 16. Generate manifest
         manifest_context = {
             "default_provider": build_profile.provider or "anthropic",
             "default_model": build_profile.model or "haiku",
@@ -190,16 +194,16 @@ def build(
             context=manifest_context,
         )
 
-        # 16. Git init + commit
+        # 17. Git init + commit
         _git_init_and_commit(project_path)
 
-        # 17. Run post_build lifecycle commands
+        # 18. Run post_build lifecycle commands
         if build_profile.lifecycle.post_build:
             _run_lifecycle_phase(
                 "post_build", build_profile.lifecycle.post_build, project_path, project_path
             )
 
-        # 18. Run validate lifecycle commands
+        # 19. Run validate lifecycle commands
         if build_profile.lifecycle.validate:
             _run_lifecycle_phase(
                 "validate",
@@ -310,6 +314,14 @@ def _run_lifecycle_phase(
                 console.print(f"  ⚠️  {msg}", style=Styles.WARNING)
 
 
+def _copy_env_file(profile_dir: Path, project_path: Path, env_file: str) -> None:
+    """Copy a profile-provided .env file to the built project."""
+    src = (profile_dir / env_file).resolve()
+    dst = project_path / ".env"
+    shutil.copy2(src, dst)
+    console.print(f"  ✓ Copied {env_file} → .env", style=Styles.SUCCESS)
+
+
 def _generate_env_template(project_path: Path, env_config: Any) -> None:
     """Generate a .env.template file from the profile's env configuration."""
     lines: list[str] = []
@@ -328,10 +340,11 @@ def _generate_env_template(project_path: Path, env_config: Any) -> None:
     env_path = project_path / ".env.template"
     env_path.write_text("\n".join(lines), encoding="utf-8")
     console.print("  ✓ Generated .env.template", style=Styles.SUCCESS)
-    console.print(
-        "  💡 Copy .env.template to .env and fill in required values",
-        style=Styles.DIM,
-    )
+    if not (project_path / ".env").exists():
+        console.print(
+            "  💡 Copy .env.template to .env and fill in required values",
+            style=Styles.DIM,
+        )
 
 
 def _append_requirements(project_path: Path, dependencies: list[str]) -> None:
