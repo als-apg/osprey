@@ -1,0 +1,1404 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey.approval.approval_manager &#8212; Osprey Framework 0.11.5 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
+
+
+
+
+
+const initStyles = () => {
+    const defaultStyle = document.createElement('style');
+    defaultStyle.textContent = `pre.mermaid {
+    /* Same as .mermaid-container > pre */
+    display: block;
+    width: 100%;
+}
+
+pre.mermaid > svg {
+    /* Same as .mermaid-container > pre > svg */
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}`;
+    document.head.appendChild(defaultStyle);
+
+    const fullscreenStyle = document.createElement('style');
+    fullscreenStyle.textContent = `.mermaid-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.mermaid-container > pre {
+    display: block;
+    width: 100%;
+}
+
+.mermaid-container > pre > svg {
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}
+
+.mermaid-fullscreen-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    color: #333;
+}
+
+.mermaid-fullscreen-btn:hover {
+    opacity: 100% !important;
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-btn.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-btn.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 95vw;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.98);
+    z-index: 9999;
+    padding: 20px;
+    overflow: auto;
+}
+
+.mermaid-fullscreen-modal.dark-theme {
+    background: rgba(0, 0, 0, 0.98);
+}
+
+.mermaid-fullscreen-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen {
+    position: relative;
+    width: 95vw;
+    height: 90vh;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen.dark-theme {
+    background: #1a1a1a;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-container-fullscreen pre.mermaid {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen .mermaid svg {
+    height: 100% !important;
+    width: 100% !important;
+    cursor: grab;
+}
+
+.mermaid-fullscreen-close {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    font-size: 24px;
+    line-height: 1;
+    color: #333;
+}
+
+.mermaid-fullscreen-close:hover {
+    background: white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-close.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-close.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
+    display: none !important;
+}`;
+    document.head.appendChild(fullscreenStyle);
+}
+
+// Detect if page has dark background
+const isDarkTheme = () => {
+    // We use a set of heuristics:
+    // 1. Check for common dark mode classes or attributes
+    // 2. Check computed background color brightness
+    if (document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        document.body.getAttribute('data-theme') === 'dark') {
+        // console.log("Dark theme detected via class/attribute");
+        return true;
+    }
+    if (document.documentElement.classList.contains('light') ||
+        document.documentElement.getAttribute('data-theme') === 'light' ||
+        document.body.classList.contains('light') ||
+        document.body.getAttribute('data-theme') === 'light') {
+        // console.log("Light theme detected via class/attribute");
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // console.log("Dark theme detected via prefers-color-scheme");
+        return true;
+    }
+    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        // console.log("Background color brightness:", brightness);
+        return brightness < 128;
+    }
+    // console.log("No dark or light theme detected, defaulting to light theme");
+    return false;
+};
+
+let darkTheme = isDarkTheme();
+let modal = null;
+let modalContent = null;
+let previousScrollOffset = [window.scrollX, window.scrollY];
+
+const runMermaid = async (rerun) => {
+    console.log("Running mermaid diagrams, rerun =", rerun);
+    // clear all existing mermaid charts
+    let all_mermaids = document.querySelectorAll(".mermaid");
+
+    if (rerun) {
+        all_mermaids.forEach((el) => {
+            if(!el.hasAttribute("data-original-code")) {
+                // store original code
+                // console.log(`Storing original code for first run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+            if(el.getAttribute("data-processed") === "true") {
+                // remove and restore original
+                el.removeAttribute("data-processed");
+                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
+                el.innerHTML = el.getAttribute('data-original-code');
+            } else {
+                // store original code
+                // console.log(`Storing original code for re-run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+        });
+        await mermaid.run();
+    }
+
+    all_mermaids = document.querySelectorAll(".mermaid");
+    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
+
+    if ("False" === "True") {
+        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
+        if(mermaids_to_add_zoom > 0) {
+            var svgs = d3.selectAll("");
+            if(all_mermaids.length !== mermaids_processed.length) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else if(svgs.size() !== mermaids_to_add_zoom) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else {
+                svgs.each(function() {
+                    var svg = d3.select(this);
+                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
+                    var inner = svg.select("g");
+                    var zoom = d3.zoom().on("zoom", function(event) {
+                        inner.attr("transform", event.transform);
+                    });
+                    svg.call(zoom);
+                });
+            }
+        }
+    } else if(all_mermaids.length !== mermaids_processed.length) {
+        // Wait for mermaid to process all diagrams
+        setTimeout(() => runMermaid(false), 200);
+        return;
+    }
+
+    // Stop here if not adding fullscreen capability
+    if ("True" !== "True") return;
+
+    if (modal !== null ) {
+        // Destroy existing modal
+        modal.remove();
+        modal = null;
+        modalContent = null;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
+    modal.innerHTML = `
+        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
+        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
+    `;
+    document.body.appendChild(modal);
+
+    modalContent = modal.querySelector('.mermaid-container-fullscreen');
+    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
+
+    const closeModal = () => {
+        modal.classList.remove('active');
+        modalContent.innerHTML = '';
+        document.body.style.overflow = ''
+        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+        }
+    });
+
+    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
+        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
+            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
+            // Already processed, adjust button class if needed
+            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
+            if (existingBtn) {
+                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+            }
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.className = 'mermaid-container';
+        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
+        container.appendChild(mermaidDiv);
+
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
+        fullscreenBtn.textContent = '⛶';
+        fullscreenBtn.style.opacity = '50%';
+
+        // Calculate dynamic position based on diagram's margin and padding
+        const diagramStyle = window.getComputedStyle(mermaidDiv);
+        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
+        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
+        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
+        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
+        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
+        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
+
+        fullscreenBtn.addEventListener('click', () => {
+            previousScrollOffset = [window.scroll, window.scrollY];
+            const clone = mermaidDiv.cloneNode(true);
+            modalContent.innerHTML = '';
+            modalContent.appendChild(clone);
+
+            const svg = clone.querySelector('svg');
+            if (svg) {
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxWidth = '100%';
+                svg.style.sdisplay = 'block';
+
+                if ("False" === "True") {
+                    setTimeout(() => {
+                        const g = svg.querySelector('g');
+                        if (g) {
+                            var svgD3 = d3.select(svg);
+                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
+                            var inner = svgD3.select("g");
+                            var zoom = d3.zoom().on("zoom", function(event) {
+                                inner.attr("transform", event.transform);
+                            });
+                            svgD3.call(zoom);
+                        }
+                    }, 100);
+                }
+            }
+
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+        container.appendChild(fullscreenBtn);
+    });
+};
+
+const load = async () => {
+    initStyles();
+
+    await runMermaid(true);
+
+    const reRunIfThemeChanges = async () => {
+        const newDarkTheme = isDarkTheme();
+        if (newDarkTheme !== darkTheme) {
+            darkTheme = newDarkTheme;
+            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
+            await mermaid.initialize(
+                {...JSON.parse(
+                    `{"startOnLoad": false}`
+                ),
+                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+                }
+            );
+            await runMermaid(true);
+        }
+    };
+
+    // Update theme classes when theme changes
+    const themeObserver = new MutationObserver(reRunIfThemeChanges);
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+    themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+};
+
+
+
+
+
+console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
+mermaid.initialize(
+    {...JSON.parse(
+        `{"startOnLoad": false}`
+    ),
+    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+    }
+);
+
+window.addEventListener("load", load);</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey/approval/approval_manager';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey.approval.approval_manager</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey.approval.approval_manager</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Approval Manager - Policy Configuration Layer for System-Wide Approval Control.</span>
+
+<span class="sd">This module provides centralized approval policy management with clean separation</span>
+<span class="sd">of concerns: configuration loading and validation only, with no business logic.</span>
+<span class="sd">The ApprovalManager serves as the single source of truth for approval settings</span>
+<span class="sd">across all capabilities in the system.</span>
+
+<span class="sd">The manager implements a layered configuration approach:</span>
+<span class="sd">1. Global approval modes that can override capability-specific settings</span>
+<span class="sd">2. Capability-specific configuration with typed validation</span>
+<span class="sd">3. Factory methods for creating configured evaluators</span>
+
+<span class="sd">Key Features:</span>
+<span class="sd">    - Type-safe configuration loading with comprehensive validation</span>
+<span class="sd">    - Global approval modes (disabled, selective, all_capabilities)</span>
+<span class="sd">    - Capability-specific configuration resolution with overrides</span>
+<span class="sd">    - Factory pattern for evaluator creation</span>
+<span class="sd">    - Extensive logging for security audit trails</span>
+<span class="sd">    - Singleton pattern for consistent system-wide configuration</span>
+
+<span class="sd">Architecture:</span>
+<span class="sd">    The manager separates policy (configuration) from enforcement (evaluators).</span>
+<span class="sd">    This design allows for dynamic configuration changes without affecting</span>
+<span class="sd">    business logic, and enables consistent approval behavior across the system.</span>
+
+<span class="sd">Examples:</span>
+<span class="sd">    Initialize approval manager::\n</span>
+<span class="sd">        &gt;&gt;&gt; manager = get_approval_manager()  # Loads from global config</span>
+<span class="sd">        &gt;&gt;&gt; summary = manager.get_config_summary()</span>
+<span class="sd">        &gt;&gt;&gt; print(f&quot;Global mode: {summary[&#39;global_mode&#39;]}&quot;)</span>
+
+<span class="sd">    Get capability-specific configuration::\n</span>
+<span class="sd">        &gt;&gt;&gt; python_config = manager.get_python_execution_config()</span>
+<span class="sd">        &gt;&gt;&gt; print(f&quot;Python approval enabled: {python_config.enabled}&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; print(f&quot;Python approval mode: {python_config.mode.value}&quot;)</span>
+
+<span class="sd">    Create configured evaluators::\n</span>
+<span class="sd">        &gt;&gt;&gt; evaluator = manager.get_python_execution_evaluator()</span>
+<span class="sd">        &gt;&gt;&gt; decision = evaluator.evaluate(has_epics_writes=True, has_epics_reads=False)</span>
+
+<span class="sd">    .. warning::</span>
+<span class="sd">       This module handles security-critical configuration. Invalid or missing</span>
+<span class="sd">       approval configuration will cause immediate startup failures to maintain</span>
+<span class="sd">       system security integrity.</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       The manager uses singleton pattern - configuration is loaded once at startup</span>
+<span class="sd">       and cached for the lifetime of the application.</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`GlobalApprovalConfig` : Configuration model used by the manager</span>
+<span class="sd">       :class:`PythonExecutionApprovalEvaluator` : Evaluator created by this manager</span>
+<span class="sd">       :class:`MemoryApprovalEvaluator` : Evaluator created by this manager</span>
+<span class="sd">       :func:`get_approval_manager` : Singleton access function</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.events</span><span class="w"> </span><span class="kn">import</span> <span class="n">ErrorEvent</span><span class="p">,</span> <span class="n">EventEmitter</span><span class="p">,</span> <span class="n">StatusEvent</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.config_models</span><span class="w"> </span><span class="kn">import</span> <span class="n">GlobalApprovalConfig</span><span class="p">,</span> <span class="n">MemoryApprovalConfig</span><span class="p">,</span> <span class="n">PythonExecutionApprovalConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.evaluators</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryApprovalEvaluator</span><span class="p">,</span> <span class="n">PythonExecutionApprovalEvaluator</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;approval_manager&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="ApprovalManager">
+<a class="viewcode-back" href="../../../api_reference/03_production_systems/01_human-approval.html#osprey.approval.ApprovalManager">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ApprovalManager</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Pure configuration service providing strongly typed approval models.</span>
+
+<span class="sd">    Serves as the centralized configuration management system for all approval</span>
+<span class="sd">    settings across the framework. This class implements a clean separation of</span>
+<span class="sd">    concerns by handling only configuration loading, validation, and provision</span>
+<span class="sd">    of typed configuration objects to capabilities.</span>
+
+<span class="sd">    The manager implements a hierarchical configuration system where global</span>
+<span class="sd">    approval modes can override capability-specific settings, ensuring consistent</span>
+<span class="sd">    security posture across the entire system while allowing for granular control</span>
+<span class="sd">    when needed.</span>
+
+<span class="sd">    Responsibilities:</span>
+<span class="sd">        - Load and validate approval configuration from global config system</span>
+<span class="sd">        - Apply global mode overrides to capability-specific settings</span>
+<span class="sd">        - Provide strongly typed configuration objects with validation</span>
+<span class="sd">        - Create configured evaluator instances for capabilities</span>
+<span class="sd">        - Maintain audit trail through comprehensive logging</span>
+
+<span class="sd">    Explicitly NOT responsible for:</span>
+<span class="sd">        - Business logic implementation (delegated to evaluators)</span>
+<span class="sd">        - Approval decision making (capability-specific in evaluators)</span>
+<span class="sd">        - State management (stateless configuration service)</span>
+
+<span class="sd">    Configuration Hierarchy:</span>
+<span class="sd">        1. Global mode settings (disabled, selective, all_capabilities)</span>
+<span class="sd">        2. Capability-specific settings (python_execution, memory, etc.)</span>
+<span class="sd">        3. Resolved effective configuration (global overrides applied)</span>
+
+<span class="sd">    :param approval_config: Raw approval configuration dictionary from config.yml</span>
+<span class="sd">    :type approval_config: dict</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Initialize with configuration::\n</span>
+<span class="sd">            &gt;&gt;&gt; config_dict = {</span>
+<span class="sd">            ...     &#39;global_mode&#39;: &#39;selective&#39;,</span>
+<span class="sd">            ...     &#39;capabilities&#39;: {</span>
+<span class="sd">            ...         &#39;python_execution&#39;: {&#39;enabled&#39;: True, &#39;mode&#39;: &#39;epics_writes&#39;},</span>
+<span class="sd">            ...         &#39;memory&#39;: {&#39;enabled&#39;: False}</span>
+<span class="sd">            ...     }</span>
+<span class="sd">            ... }</span>
+<span class="sd">            &gt;&gt;&gt; manager = ApprovalManager(config_dict)</span>
+
+<span class="sd">        Access resolved configuration::\n</span>
+<span class="sd">            &gt;&gt;&gt; python_config = manager.get_python_execution_config()</span>
+<span class="sd">            &gt;&gt;&gt; print(f&quot;Effective setting: {python_config.enabled}&quot;)</span>
+
+<span class="sd">        Create evaluators::\n</span>
+<span class="sd">            &gt;&gt;&gt; evaluator = manager.get_python_execution_evaluator()</span>
+<span class="sd">            &gt;&gt;&gt; # Evaluator is configured with resolved settings</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       The manager is designed to be instantiated once at application startup</span>
+<span class="sd">       and reused throughout the application lifecycle.</span>
+
+<span class="sd">    .. warning::</span>
+<span class="sd">       Configuration validation failures will raise ValueError to prevent</span>
+<span class="sd">       insecure default behavior in production environments.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ApprovalManager.__init__">
+<a class="viewcode-back" href="../../../api_reference/03_production_systems/01_human-approval.html#osprey.approval.ApprovalManager.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">approval_config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize with approval configuration.</span>
+
+<span class="sd">        :param approval_config: Raw approval configuration from config.yml</span>
+<span class="sd">        :type approval_config: dict</span>
+<span class="sd">        :raises ValueError: If configuration is invalid or missing required fields</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Create event emitter for configuration events</span>
+        <span class="n">emitter</span> <span class="o">=</span> <span class="n">EventEmitter</span><span class="p">(</span><span class="s2">&quot;approval_manager&quot;</span><span class="p">)</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;approval_manager&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Loading approval configuration from raw config&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;debug&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">GlobalApprovalConfig</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="n">approval_config</span><span class="p">)</span>
+
+            <span class="c1"># Emit configuration summary for user visibility</span>
+            <span class="n">config_summary</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Loaded approval configuration - Global mode: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">global_mode</span><span class="si">}</span><span class="s2">, &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Python execution: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">python_execution</span><span class="o">.</span><span class="n">enabled</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">python_execution</span><span class="o">.</span><span class="n">mode</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2">), &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Memory: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">memory</span><span class="o">.</span><span class="n">enabled</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;approval_manager&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="n">config_summary</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+
+        <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">ErrorEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;approval_manager&quot;</span><span class="p">,</span>
+                    <span class="n">error_type</span><span class="o">=</span><span class="s2">&quot;ConfigError&quot;</span><span class="p">,</span>
+                    <span class="n">error_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Invalid approval configuration: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                    <span class="n">recoverable</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="k">raise</span></div>
+
+
+<div class="viewcode-block" id="ApprovalManager.get_python_execution_config">
+<a class="viewcode-back" href="../../../api_reference/03_production_systems/01_human-approval.html#osprey.approval.ApprovalManager.get_python_execution_config">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_python_execution_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PythonExecutionApprovalConfig</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get strongly typed Python execution approval configuration.</span>
+
+<span class="sd">        Applies global mode overrides to capability-specific settings,</span>
+<span class="sd">        ensuring consistent behavior across the approval system.</span>
+
+<span class="sd">        :return: Configuration object with resolved approval settings</span>
+<span class="sd">        :rtype: PythonExecutionApprovalConfig</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">global_mode</span> <span class="o">==</span> <span class="s2">&quot;disabled&quot;</span><span class="p">:</span>
+            <span class="c1"># Override: global disable means everything is disabled</span>
+            <span class="k">return</span> <span class="n">PythonExecutionApprovalConfig</span><span class="p">(</span>
+                <span class="n">enabled</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">python_execution</span><span class="o">.</span><span class="n">mode</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">global_mode</span> <span class="o">==</span> <span class="s2">&quot;all_capabilities&quot;</span><span class="p">:</span>
+            <span class="c1"># Override: global enable means everything is enabled</span>
+            <span class="k">return</span> <span class="n">PythonExecutionApprovalConfig</span><span class="p">(</span>
+                <span class="n">enabled</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">python_execution</span><span class="o">.</span><span class="n">mode</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Selective mode: use capability-specific setting</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">python_execution</span></div>
+
+
+<div class="viewcode-block" id="ApprovalManager.get_memory_config">
+<a class="viewcode-back" href="../../../api_reference/03_production_systems/01_human-approval.html#osprey.approval.ApprovalManager.get_memory_config">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_memory_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MemoryApprovalConfig</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get strongly typed memory approval configuration.</span>
+
+<span class="sd">        Applies global mode overrides to capability-specific settings,</span>
+<span class="sd">        ensuring consistent behavior across the approval system.</span>
+
+<span class="sd">        :return: Configuration object with resolved approval settings</span>
+<span class="sd">        :rtype: MemoryApprovalConfig</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">global_mode</span> <span class="o">==</span> <span class="s2">&quot;disabled&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">MemoryApprovalConfig</span><span class="p">(</span><span class="n">enabled</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">global_mode</span> <span class="o">==</span> <span class="s2">&quot;all_capabilities&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">MemoryApprovalConfig</span><span class="p">(</span><span class="n">enabled</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">memory</span></div>
+
+
+<div class="viewcode-block" id="ApprovalManager.get_python_execution_evaluator">
+<a class="viewcode-back" href="../../../api_reference/03_production_systems/01_human-approval.html#osprey.approval.ApprovalManager.get_python_execution_evaluator">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_python_execution_evaluator</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PythonExecutionApprovalEvaluator</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get configured Python execution approval evaluator.</span>
+
+<span class="sd">        Creates a new evaluator instance with current configuration settings.</span>
+<span class="sd">        The evaluator contains the business logic for making approval decisions.</span>
+
+<span class="sd">        :return: Evaluator instance configured with current settings</span>
+<span class="sd">        :rtype: PythonExecutionApprovalEvaluator</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_python_execution_config</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">PythonExecutionApprovalEvaluator</span><span class="p">(</span><span class="n">config</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="ApprovalManager.get_memory_evaluator">
+<a class="viewcode-back" href="../../../api_reference/03_production_systems/01_human-approval.html#osprey.approval.ApprovalManager.get_memory_evaluator">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_memory_evaluator</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MemoryApprovalEvaluator</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get configured memory approval evaluator.</span>
+
+<span class="sd">        Creates a new evaluator instance with current configuration settings.</span>
+<span class="sd">        The evaluator contains the business logic for making approval decisions.</span>
+
+<span class="sd">        :return: Evaluator instance configured with current settings</span>
+<span class="sd">        :rtype: MemoryApprovalEvaluator</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_memory_config</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">MemoryApprovalEvaluator</span><span class="p">(</span><span class="n">config</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="ApprovalManager.get_config_summary">
+<a class="viewcode-back" href="../../../api_reference/03_production_systems/01_human-approval.html#osprey.approval.ApprovalManager.get_config_summary">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_config_summary</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get configuration summary for debugging and monitoring.</span>
+
+<span class="sd">        Provides a structured view of current approval configuration</span>
+<span class="sd">        settings for logging, debugging, and administrative review.</span>
+
+<span class="sd">        :return: Dictionary containing configuration summary with keys:</span>
+<span class="sd">            - &#39;global_mode&#39;: Current global approval mode</span>
+<span class="sd">            - &#39;python_execution&#39;: Python execution approval settings</span>
+<span class="sd">            - &#39;memory&#39;: Memory operation approval settings</span>
+<span class="sd">        :rtype: dict</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;global_mode&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">global_mode</span><span class="p">,</span>
+            <span class="s2">&quot;python_execution&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;enabled&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_python_execution_config</span><span class="p">()</span><span class="o">.</span><span class="n">enabled</span><span class="p">,</span>
+                <span class="s2">&quot;mode&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_python_execution_config</span><span class="p">()</span><span class="o">.</span><span class="n">mode</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+            <span class="p">},</span>
+            <span class="s2">&quot;memory&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;enabled&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_memory_config</span><span class="p">()</span><span class="o">.</span><span class="n">enabled</span><span class="p">},</span>
+        <span class="p">}</span></div>
+</div>
+
+
+
+<span class="c1"># Global instance</span>
+<span class="n">_approval_manager</span><span class="p">:</span> <span class="n">ApprovalManager</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="get_approval_manager">
+<a class="viewcode-back" href="../../../api_reference/03_production_systems/01_human-approval.html#osprey.approval.get_approval_manager">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_approval_manager</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">ApprovalManager</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get global ApprovalManager instance using singleton pattern.</span>
+
+<span class="sd">    Provides access to the system-wide approval manager instance, initializing</span>
+<span class="sd">    it from the configuration system on first access. The function</span>
+<span class="sd">    performs extensive validation to ensure security-critical approval</span>
+<span class="sd">    configuration is present and valid before creating the manager instance.</span>
+
+<span class="sd">    The singleton pattern ensures consistent configuration across all</span>
+<span class="sd">    capabilities and prevents multiple initialization of security-critical</span>
+<span class="sd">    settings. Configuration is loaded once at startup and cached for the</span>
+<span class="sd">    application lifetime.</span>
+
+<span class="sd">    Validation Process:</span>
+
+<span class="sd">        1. Verify approval configuration exists in global config</span>
+<span class="sd">        2. Validate configuration structure and required fields</span>
+<span class="sd">        3. Ensure global_mode and capabilities sections are present</span>
+<span class="sd">        4. Create and cache ApprovalManager instance</span>
+<span class="sd">        5. Log configuration summary for audit trail</span>
+
+<span class="sd">    :return: Configured approval manager instance ready for use</span>
+<span class="sd">    :rtype: ApprovalManager</span>
+<span class="sd">    :raises ValueError: If approval configuration is missing, has invalid</span>
+<span class="sd">                       structure, or fails validation checks</span>
+<span class="sd">    :raises KeyError: If required configuration sections are missing</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Get manager instance::</span>
+
+<span class="sd">            &gt;&gt;&gt; manager = get_approval_manager()</span>
+<span class="sd">            &gt;&gt;&gt; print(f&quot;Manager ready with mode: {manager.config.global_mode}&quot;)</span>
+
+<span class="sd">        Handle configuration errors::</span>
+
+<span class="sd">            &gt;&gt;&gt; try:</span>
+<span class="sd">            ...     manager = get_approval_manager()</span>
+<span class="sd">            ... except ValueError as e:</span>
+<span class="sd">            ...     print(f&quot;Configuration error: {e}&quot;)</span>
+<span class="sd">            ...     # Fix config.yml and restart application</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`ApprovalManager` : Manager class created by this function</span>
+<span class="sd">       :class:`GlobalApprovalConfig` : Configuration model used for initialization</span>
+<span class="sd">       :func:`configs.config.get_config_value` : Configuration source</span>
+<span class="sd">       :meth:`ApprovalManager.get_config_summary` : Configuration validation method</span>
+
+<span class="sd">    .. warning::</span>
+<span class="sd">       This function will cause immediate application failure if approval</span>
+<span class="sd">       configuration is missing or invalid. This is intentional to prevent</span>
+<span class="sd">       insecure operation in production environments.</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       The manager instance is cached globally. Subsequent calls return</span>
+<span class="sd">       the same instance without re-reading configuration files.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_approval_manager</span>
+
+    <span class="k">if</span> <span class="n">_approval_manager</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_value</span>
+
+        <span class="c1"># Get approval configuration from config system</span>
+        <span class="c1"># The config system will provide sensible defaults if approval section is missing</span>
+        <span class="n">approval_config</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;approval_config&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Basic validation - config system should always provide a dict</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">approval_config</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;❌ CRITICAL: Approval configuration must be a dictionary, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">approval_config</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">_approval_manager</span> <span class="o">=</span> <span class="n">ApprovalManager</span><span class="p">(</span><span class="n">approval_config</span><span class="p">)</span>
+            <span class="c1"># Emit initialization success</span>
+            <span class="n">emitter</span> <span class="o">=</span> <span class="n">EventEmitter</span><span class="p">(</span><span class="s2">&quot;approval_manager&quot;</span><span class="p">)</span>
+            <span class="n">capabilities</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">approval_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;capabilities&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;approval_manager&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Approval manager initialized - Global mode: </span><span class="si">{</span><span class="n">_approval_manager</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">global_mode</span><span class="si">}</span><span class="s2">, Capabilities: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">capabilities</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="c1"># Security-critical component failure requires immediate attention</span>
+            <span class="n">emitter</span> <span class="o">=</span> <span class="n">EventEmitter</span><span class="p">(</span><span class="s2">&quot;approval_manager&quot;</span><span class="p">)</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">ErrorEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;approval_manager&quot;</span><span class="p">,</span>
+                    <span class="n">error_type</span><span class="o">=</span><span class="s2">&quot;InitializationError&quot;</span><span class="p">,</span>
+                    <span class="n">error_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Failed to initialize ApprovalManager: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                    <span class="n">recoverable</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid approval configuration structure: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+
+    <span class="k">return</span> <span class="n">_approval_manager</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_python_execution_evaluator</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">PythonExecutionApprovalEvaluator</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get Python execution approval evaluator with current system configuration.</span>
+
+<span class="sd">    Convenience function that combines approval manager access and evaluator</span>
+<span class="sd">    creation in a single call. This provides a streamlined interface for</span>
+<span class="sd">    capabilities that need to evaluate Python code approval requirements</span>
+<span class="sd">    without directly managing configuration details.</span>
+
+<span class="sd">    The returned evaluator is configured with the current system settings,</span>
+<span class="sd">    including any global mode overrides and capability-specific configuration.</span>
+<span class="sd">    The evaluator is ready to use immediately for approval decisions.</span>
+
+<span class="sd">    :return: Fully configured evaluator instance ready for approval decisions</span>
+<span class="sd">    :rtype: PythonExecutionApprovalEvaluator</span>
+<span class="sd">    :raises ValueError: If approval configuration is missing or invalid</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Evaluate code approval requirement::\n</span>
+<span class="sd">            &gt;&gt;&gt; evaluator = get_python_execution_evaluator()</span>
+<span class="sd">            &gt;&gt;&gt; decision = evaluator.evaluate(</span>
+<span class="sd">            ...     has_epics_writes=True,</span>
+<span class="sd">            ...     has_epics_reads=False</span>
+<span class="sd">            ... )</span>
+<span class="sd">            &gt;&gt;&gt; if decision.needs_approval:</span>
+<span class="sd">            ...     print(f&quot;Approval required: {decision.reasoning}&quot;)</span>
+
+<span class="sd">        Use in capability implementation::\n</span>
+<span class="sd">            &gt;&gt;&gt; def execute_python_code(code: str):</span>
+<span class="sd">            ...     evaluator = get_python_execution_evaluator()</span>
+<span class="sd">            ...     # Analyze code for EPICS operations (implementation specific)</span>
+<span class="sd">            ...     has_writes = analyze_code_for_epics_writes(code)</span>
+<span class="sd">            ...     decision = evaluator.evaluate(has_epics_writes=has_writes, has_epics_reads=False)</span>
+<span class="sd">            ...     return decision</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       This function is a convenience wrapper around get_approval_manager()</span>
+<span class="sd">       and manager.get_python_execution_evaluator().</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">manager</span> <span class="o">=</span> <span class="n">get_approval_manager</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">manager</span><span class="o">.</span><span class="n">get_python_execution_evaluator</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_memory_evaluator</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">MemoryApprovalEvaluator</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get memory approval evaluator with current system configuration.</span>
+
+<span class="sd">    Convenience function that combines approval manager access and evaluator</span>
+<span class="sd">    creation in a single call. This provides a streamlined interface for</span>
+<span class="sd">    capabilities that need to evaluate memory operation approval requirements</span>
+<span class="sd">    without directly managing configuration details.</span>
+
+<span class="sd">    The returned evaluator is configured with the current system settings,</span>
+<span class="sd">    including any global mode overrides and memory-specific configuration.</span>
+<span class="sd">    The evaluator is ready to use immediately for memory operation approval decisions.</span>
+
+<span class="sd">    :return: Fully configured evaluator instance ready for approval decisions</span>
+<span class="sd">    :rtype: MemoryApprovalEvaluator</span>
+<span class="sd">    :raises ValueError: If approval configuration is missing or invalid</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Evaluate memory operation approval::\n</span>
+<span class="sd">            &gt;&gt;&gt; evaluator = get_memory_evaluator()</span>
+<span class="sd">            &gt;&gt;&gt; decision = evaluator.evaluate(operation_type=&quot;create&quot;)</span>
+<span class="sd">            &gt;&gt;&gt; if decision.needs_approval:</span>
+<span class="sd">            ...     print(f&quot;Memory approval required: {decision.reasoning}&quot;)</span>
+
+<span class="sd">        Use in memory service::\n</span>
+<span class="sd">            &gt;&gt;&gt; def save_memory(content: str, user_id: str):</span>
+<span class="sd">            ...     evaluator = get_memory_evaluator()</span>
+<span class="sd">            ...     decision = evaluator.evaluate(operation_type=&quot;save&quot;)</span>
+<span class="sd">            ...     if decision.needs_approval:</span>
+<span class="sd">            ...         # Create approval interrupt</span>
+<span class="sd">            ...         return create_memory_approval_interrupt(content, &quot;save&quot;, user_id)</span>
+<span class="sd">            ...     else:</span>
+<span class="sd">            ...         # Proceed with save operation</span>
+<span class="sd">            ...         return save_to_memory(content, user_id)</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       This function is a convenience wrapper around get_approval_manager()</span>
+<span class="sd">       and manager.get_memory_evaluator().</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">manager</span> <span class="o">=</span> <span class="n">get_approval_manager</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">manager</span><span class="o">.</span><span class="n">get_memory_evaluator</span><span class="p">()</span>
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

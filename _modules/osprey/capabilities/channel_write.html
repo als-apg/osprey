@@ -1,0 +1,1785 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey.capabilities.channel_write &#8212; Osprey Framework 0.11.5 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
+
+
+
+
+
+const initStyles = () => {
+    const defaultStyle = document.createElement('style');
+    defaultStyle.textContent = `pre.mermaid {
+    /* Same as .mermaid-container > pre */
+    display: block;
+    width: 100%;
+}
+
+pre.mermaid > svg {
+    /* Same as .mermaid-container > pre > svg */
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}`;
+    document.head.appendChild(defaultStyle);
+
+    const fullscreenStyle = document.createElement('style');
+    fullscreenStyle.textContent = `.mermaid-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.mermaid-container > pre {
+    display: block;
+    width: 100%;
+}
+
+.mermaid-container > pre > svg {
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}
+
+.mermaid-fullscreen-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    color: #333;
+}
+
+.mermaid-fullscreen-btn:hover {
+    opacity: 100% !important;
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-btn.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-btn.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 95vw;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.98);
+    z-index: 9999;
+    padding: 20px;
+    overflow: auto;
+}
+
+.mermaid-fullscreen-modal.dark-theme {
+    background: rgba(0, 0, 0, 0.98);
+}
+
+.mermaid-fullscreen-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen {
+    position: relative;
+    width: 95vw;
+    height: 90vh;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen.dark-theme {
+    background: #1a1a1a;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-container-fullscreen pre.mermaid {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen .mermaid svg {
+    height: 100% !important;
+    width: 100% !important;
+    cursor: grab;
+}
+
+.mermaid-fullscreen-close {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    font-size: 24px;
+    line-height: 1;
+    color: #333;
+}
+
+.mermaid-fullscreen-close:hover {
+    background: white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-close.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-close.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
+    display: none !important;
+}`;
+    document.head.appendChild(fullscreenStyle);
+}
+
+// Detect if page has dark background
+const isDarkTheme = () => {
+    // We use a set of heuristics:
+    // 1. Check for common dark mode classes or attributes
+    // 2. Check computed background color brightness
+    if (document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        document.body.getAttribute('data-theme') === 'dark') {
+        // console.log("Dark theme detected via class/attribute");
+        return true;
+    }
+    if (document.documentElement.classList.contains('light') ||
+        document.documentElement.getAttribute('data-theme') === 'light' ||
+        document.body.classList.contains('light') ||
+        document.body.getAttribute('data-theme') === 'light') {
+        // console.log("Light theme detected via class/attribute");
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // console.log("Dark theme detected via prefers-color-scheme");
+        return true;
+    }
+    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        // console.log("Background color brightness:", brightness);
+        return brightness < 128;
+    }
+    // console.log("No dark or light theme detected, defaulting to light theme");
+    return false;
+};
+
+let darkTheme = isDarkTheme();
+let modal = null;
+let modalContent = null;
+let previousScrollOffset = [window.scrollX, window.scrollY];
+
+const runMermaid = async (rerun) => {
+    console.log("Running mermaid diagrams, rerun =", rerun);
+    // clear all existing mermaid charts
+    let all_mermaids = document.querySelectorAll(".mermaid");
+
+    if (rerun) {
+        all_mermaids.forEach((el) => {
+            if(!el.hasAttribute("data-original-code")) {
+                // store original code
+                // console.log(`Storing original code for first run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+            if(el.getAttribute("data-processed") === "true") {
+                // remove and restore original
+                el.removeAttribute("data-processed");
+                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
+                el.innerHTML = el.getAttribute('data-original-code');
+            } else {
+                // store original code
+                // console.log(`Storing original code for re-run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+        });
+        await mermaid.run();
+    }
+
+    all_mermaids = document.querySelectorAll(".mermaid");
+    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
+
+    if ("False" === "True") {
+        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
+        if(mermaids_to_add_zoom > 0) {
+            var svgs = d3.selectAll("");
+            if(all_mermaids.length !== mermaids_processed.length) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else if(svgs.size() !== mermaids_to_add_zoom) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else {
+                svgs.each(function() {
+                    var svg = d3.select(this);
+                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
+                    var inner = svg.select("g");
+                    var zoom = d3.zoom().on("zoom", function(event) {
+                        inner.attr("transform", event.transform);
+                    });
+                    svg.call(zoom);
+                });
+            }
+        }
+    } else if(all_mermaids.length !== mermaids_processed.length) {
+        // Wait for mermaid to process all diagrams
+        setTimeout(() => runMermaid(false), 200);
+        return;
+    }
+
+    // Stop here if not adding fullscreen capability
+    if ("True" !== "True") return;
+
+    if (modal !== null ) {
+        // Destroy existing modal
+        modal.remove();
+        modal = null;
+        modalContent = null;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
+    modal.innerHTML = `
+        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
+        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
+    `;
+    document.body.appendChild(modal);
+
+    modalContent = modal.querySelector('.mermaid-container-fullscreen');
+    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
+
+    const closeModal = () => {
+        modal.classList.remove('active');
+        modalContent.innerHTML = '';
+        document.body.style.overflow = ''
+        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+        }
+    });
+
+    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
+        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
+            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
+            // Already processed, adjust button class if needed
+            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
+            if (existingBtn) {
+                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+            }
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.className = 'mermaid-container';
+        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
+        container.appendChild(mermaidDiv);
+
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
+        fullscreenBtn.textContent = '⛶';
+        fullscreenBtn.style.opacity = '50%';
+
+        // Calculate dynamic position based on diagram's margin and padding
+        const diagramStyle = window.getComputedStyle(mermaidDiv);
+        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
+        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
+        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
+        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
+        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
+        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
+
+        fullscreenBtn.addEventListener('click', () => {
+            previousScrollOffset = [window.scroll, window.scrollY];
+            const clone = mermaidDiv.cloneNode(true);
+            modalContent.innerHTML = '';
+            modalContent.appendChild(clone);
+
+            const svg = clone.querySelector('svg');
+            if (svg) {
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxWidth = '100%';
+                svg.style.sdisplay = 'block';
+
+                if ("False" === "True") {
+                    setTimeout(() => {
+                        const g = svg.querySelector('g');
+                        if (g) {
+                            var svgD3 = d3.select(svg);
+                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
+                            var inner = svgD3.select("g");
+                            var zoom = d3.zoom().on("zoom", function(event) {
+                                inner.attr("transform", event.transform);
+                            });
+                            svgD3.call(zoom);
+                        }
+                    }, 100);
+                }
+            }
+
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+        container.appendChild(fullscreenBtn);
+    });
+};
+
+const load = async () => {
+    initStyles();
+
+    await runMermaid(true);
+
+    const reRunIfThemeChanges = async () => {
+        const newDarkTheme = isDarkTheme();
+        if (newDarkTheme !== darkTheme) {
+            darkTheme = newDarkTheme;
+            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
+            await mermaid.initialize(
+                {...JSON.parse(
+                    `{"startOnLoad": false}`
+                ),
+                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+                }
+            );
+            await runMermaid(true);
+        }
+    };
+
+    // Update theme classes when theme changes
+    const themeObserver = new MutationObserver(reRunIfThemeChanges);
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+    themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+};
+
+
+
+
+
+console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
+mermaid.initialize(
+    {...JSON.parse(
+        `{"startOnLoad": false}`
+    ),
+    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+    }
+);
+
+window.addEventListener("load", load);</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey/capabilities/channel_write';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey.capabilities.channel_write</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey.capabilities.channel_write</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Channel Write Capability</span>
+
+<span class="sd">This capability handles writing values to control system channels with</span>
+<span class="sd">comprehensive safety controls.</span>
+
+<span class="sd">Safety Layers (enforced in order):</span>
+<span class="sd">1. Global writes_enabled flag (control_system.writes_enabled)</span>
+<span class="sd">   - Master safety switch - all writes blocked if false</span>
+<span class="sd">   - Checked by capability before calling connector</span>
+<span class="sd">2. Human approval workflow (approval.capabilities.python_execution)</span>
+<span class="sd">   - Requires user approval before executing writes (asked FIRST)</span>
+<span class="sd">   - Handled by capability through approval system</span>
+<span class="sd">3. Channel limits validation (control_system.limits_checking)</span>
+<span class="sd">   - Enforces min/max/step/writable constraints from limits database</span>
+<span class="sd">   - Handled automatically by connector during write_channel()</span>
+<span class="sd">4. Write verification (control_system.write_verification)</span>
+<span class="sd">   - Verifies write success via callback or readback</span>
+<span class="sd">   - Handled automatically by connector (per-channel or global config)</span>
+
+<span class="sd">All safety layers must pass for writes to succeed.</span>
+
+<span class="sd">Architecture Note:</span>
+<span class="sd">The capability focuses on high-level orchestration (parsing, approval) while</span>
+<span class="sd">the connector handles low-level safety (limits, verification). This clean</span>
+<span class="sd">separation means the capability doesn&#39;t need to know about limits databases</span>
+<span class="sd">or verification configuration - it just calls connector.write_channel() and</span>
+<span class="sd">the connector handles everything automatically.</span>
+
+<span class="sd">The capability uses LLM-based parsing to extract write operations from task</span>
+<span class="sd">descriptions and available context data (PYTHON_RESULTS, CHANNEL_VALUES, etc.).</span>
+<span class="sd">This allows it to handle diverse scenarios:</span>
+<span class="sd">- Direct values: &quot;Set HCM01 to 5.0&quot;</span>
+<span class="sd">- Calculated values: &quot;Set magnet to calculated optimal value&quot;</span>
+<span class="sd">- Statistical values: &quot;Set to yesterday&#39;s average&quot;</span>
+
+<span class="sd">Configuration:</span>
+<span class="sd">    # Safety Controls (all layers)</span>
+<span class="sd">    control_system:</span>
+<span class="sd">      writes_enabled: false  # Master safety switch - must be true for writes</span>
+
+<span class="sd">    control_system:</span>
+<span class="sd">      limits_checking:</span>
+<span class="sd">        enabled: true</span>
+<span class="sd">        database_path: &quot;data/channel_limits.json&quot;</span>
+<span class="sd">        allow_unlisted_channels: false  # Strict mode - reject unlisted channels</span>
+
+<span class="sd">    approval:</span>
+<span class="sd">      capabilities:</span>
+<span class="sd">        python_execution:</span>
+<span class="sd">          enabled: true</span>
+<span class="sd">          mode: &quot;epics_writes&quot;  # Require approval for all control system writes</span>
+
+<span class="sd">    # Write verification (final layer, after approval)</span>
+<span class="sd">    control_system:</span>
+<span class="sd">      write_verification:</span>
+<span class="sd">        default_level: callback  # or readback for full verification</span>
+
+<span class="sd">    # Connector configuration (development vs production)</span>
+<span class="sd">    control_system:</span>
+<span class="sd">      type: mock  # or epics for production</span>
+
+<span class="sd">    # Production EPICS configuration</span>
+<span class="sd">    control_system:</span>
+<span class="sd">      connector:</span>
+<span class="sd">        epics:</span>
+<span class="sd">          timeout: 5.0</span>
+<span class="sd">          gateways:</span>
+<span class="sd">            write_access:</span>
+<span class="sd">              address: cagw.your-facility.edu</span>
+<span class="sd">              port: 5084</span>
+
+<span class="sd">Note: All three safety layers (writes_enabled, limits, approval) apply to</span>
+<span class="sd">both Python-based writes (via epics.caput) and direct channel writes.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">ClassVar</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">Field</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.capability</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseCapability</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.decorators</span><span class="w"> </span><span class="kn">import</span> <span class="n">capability_node</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ErrorClassification</span><span class="p">,</span> <span class="n">ErrorSeverity</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.examples</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">OrchestratorGuide</span><span class="p">,</span>
+    <span class="n">TaskClassifierGuide</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.connectors.factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorFactory</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">CapabilityContext</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_model_config</span>
+
+<span class="c1"># Import model completion for LLM-based parsing</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_chat_completion</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="n">get_chat_completion</span> <span class="o">=</span> <span class="kc">None</span>
+
+
+<span class="c1"># ========================================================</span>
+<span class="c1"># Context Classes</span>
+<span class="c1"># ========================================================</span>
+
+
+<div class="viewcode-block" id="WriteVerificationInfo">
+<a class="viewcode-back" href="../../../developer-guides/03_core-framework-systems/07_built-in-capabilities.html#osprey.capabilities.channel_write.WriteVerificationInfo">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">WriteVerificationInfo</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Verification information for a channel write operation.&quot;&quot;&quot;</span>
+
+    <span class="n">level</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># &quot;none&quot;, &quot;callback&quot;, &quot;readback&quot;</span>
+    <span class="n">verified</span><span class="p">:</span> <span class="nb">bool</span>  <span class="c1"># Whether verification succeeded</span>
+    <span class="n">readback_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Actual value read back (for &quot;readback&quot; level)</span>
+    <span class="n">tolerance_used</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Tolerance used for comparison</span>
+    <span class="n">notes</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Additional verification details</span></div>
+
+
+
+<div class="viewcode-block" id="ChannelWriteResult">
+<a class="viewcode-back" href="../../../developer-guides/03_core-framework-systems/07_built-in-capabilities.html#osprey.capabilities.channel_write.ChannelWriteResult">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelWriteResult</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Individual channel write result data with optional verification.</span>
+
+<span class="sd">    This is the high-level result model used in capabilities and context classes.</span>
+<span class="sd">    Provides detailed information about write success and verification status.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">value_written</span><span class="p">:</span> <span class="n">Any</span>
+    <span class="n">success</span><span class="p">:</span> <span class="nb">bool</span>  <span class="c1"># Write command succeeded</span>
+    <span class="n">verification</span><span class="p">:</span> <span class="n">WriteVerificationInfo</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Verification details (if performed)</span>
+    <span class="n">error_message</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></div>
+
+
+
+<div class="viewcode-block" id="ChannelWriteResultsContext">
+<a class="viewcode-back" href="../../../developer-guides/03_core-framework-systems/07_built-in-capabilities.html#osprey.capabilities.channel_write.ChannelWriteResultsContext">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelWriteResultsContext</span><span class="p">(</span><span class="n">CapabilityContext</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Result from channel write operation and context for downstream capabilities.</span>
+<span class="sd">    Provides detailed results for each write operation including success/failure status.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">CONTEXT_TYPE</span><span class="p">:</span> <span class="n">ClassVar</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;CHANNEL_WRITE_RESULTS&quot;</span>
+    <span class="n">CONTEXT_CATEGORY</span><span class="p">:</span> <span class="n">ClassVar</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;COMPUTATIONAL_DATA&quot;</span>
+
+    <span class="n">results</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]</span>  <span class="c1"># List of write results</span>
+    <span class="n">total_writes</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">successful_count</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">failed_count</span><span class="p">:</span> <span class="nb">int</span>
+
+<div class="viewcode-block" id="ChannelWriteResultsContext.get_access_details">
+<a class="viewcode-back" href="../../../developer-guides/03_core-framework-systems/07_built-in-capabilities.html#osprey.capabilities.channel_write.ChannelWriteResultsContext.get_access_details">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_access_details</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Rich description for LLM consumption.&quot;&quot;&quot;</span>
+        <span class="c1"># Get first few channel names for preview</span>
+        <span class="n">channels_preview</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span><span class="o">.</span><span class="n">channel_address</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">results</span><span class="p">[:</span><span class="mi">3</span><span class="p">]]</span>
+        <span class="n">example_channel</span> <span class="o">=</span> <span class="n">channels_preview</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="n">channels_preview</span> <span class="k">else</span> <span class="s2">&quot;MAG:HCM01:CURRENT:SP&quot;</span>
+        <span class="n">example_value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">results</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">value_written</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">results</span> <span class="k">else</span> <span class="s2">&quot;50.0&quot;</span>
+
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;total_writes&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">total_writes</span><span class="p">,</span>
+            <span class="s2">&quot;successful_writes&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">successful_count</span><span class="p">,</span>
+            <span class="s2">&quot;failed_writes&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">failed_count</span><span class="p">,</span>
+            <span class="s2">&quot;channels&quot;</span><span class="p">:</span> <span class="n">channels_preview</span><span class="p">,</span>
+            <span class="s2">&quot;data_structure&quot;</span><span class="p">:</span> <span class="s2">&quot;List[ChannelWriteResult] where each result has .channel_address, .value_written, .success, .verification (optional), .error_message fields&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;access_pattern&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;context.</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">CONTEXT_TYPE</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.results[index].success&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;example_usage&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;context.</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">CONTEXT_TYPE</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.results[0].channel_address gives &#39;</span><span class="si">{</span><span class="n">example_channel</span><span class="si">}</span><span class="s2">&#39;, .value_written gives &#39;</span><span class="si">{</span><span class="n">example_value</span><span class="si">}</span><span class="s2">&#39;, .verification.verified shows if write was verified&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;available_fields&quot;</span><span class="p">:</span> <span class="p">[</span>
+                <span class="s2">&quot;channel_address&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;value_written&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;success&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;verification&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;error_message&quot;</span><span class="p">,</span>
+            <span class="p">],</span>
+            <span class="s2">&quot;verification_fields&quot;</span><span class="p">:</span> <span class="p">[</span>
+                <span class="s2">&quot;level&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;verified&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;readback_value&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;tolerance_used&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;notes&quot;</span><span class="p">,</span>
+            <span class="p">],</span>
+        <span class="p">}</span></div>
+
+
+<div class="viewcode-block" id="ChannelWriteResultsContext.get_summary">
+<a class="viewcode-back" href="../../../developer-guides/03_core-framework-systems/07_built-in-capabilities.html#osprey.capabilities.channel_write.ChannelWriteResultsContext.get_summary">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_summary</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        FOR HUMAN DISPLAY: Create readable summary for UI/debugging.</span>
+<span class="sd">        Always customize for better user experience.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">results_summary</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">results</span><span class="p">:</span>
+            <span class="n">result_dict</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">&quot;channel&quot;</span><span class="p">:</span> <span class="n">r</span><span class="o">.</span><span class="n">channel_address</span><span class="p">,</span>
+                <span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="n">r</span><span class="o">.</span><span class="n">value_written</span><span class="p">,</span>
+                <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="n">r</span><span class="o">.</span><span class="n">success</span><span class="p">,</span>
+                <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="n">r</span><span class="o">.</span><span class="n">error_message</span><span class="p">,</span>
+            <span class="p">}</span>
+
+            <span class="c1"># Add verification info if available</span>
+            <span class="k">if</span> <span class="n">r</span><span class="o">.</span><span class="n">verification</span><span class="p">:</span>
+                <span class="n">result_dict</span><span class="p">[</span><span class="s2">&quot;verification&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+                    <span class="s2">&quot;level&quot;</span><span class="p">:</span> <span class="n">r</span><span class="o">.</span><span class="n">verification</span><span class="o">.</span><span class="n">level</span><span class="p">,</span>
+                    <span class="s2">&quot;verified&quot;</span><span class="p">:</span> <span class="n">r</span><span class="o">.</span><span class="n">verification</span><span class="o">.</span><span class="n">verified</span><span class="p">,</span>
+                    <span class="s2">&quot;readback_value&quot;</span><span class="p">:</span> <span class="n">r</span><span class="o">.</span><span class="n">verification</span><span class="o">.</span><span class="n">readback_value</span><span class="p">,</span>
+                    <span class="s2">&quot;notes&quot;</span><span class="p">:</span> <span class="n">r</span><span class="o">.</span><span class="n">verification</span><span class="o">.</span><span class="n">notes</span><span class="p">,</span>
+                <span class="p">}</span>
+
+            <span class="n">results_summary</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">result_dict</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;Channel Write Results&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;total_writes&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">total_writes</span><span class="p">,</span>
+            <span class="s2">&quot;successful&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">successful_count</span><span class="p">,</span>
+            <span class="s2">&quot;failed&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">failed_count</span><span class="p">,</span>
+            <span class="s2">&quot;results&quot;</span><span class="p">:</span> <span class="n">results_summary</span><span class="p">,</span>
+        <span class="p">}</span></div>
+</div>
+
+
+
+<span class="c1"># ========================================================</span>
+<span class="c1"># Internal Models for Write Operation Parsing</span>
+<span class="c1"># ========================================================</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">WriteOperation</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Internal model for a single write operation.&quot;&quot;&quot;</span>
+
+    <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Channel address to write to&quot;</span><span class="p">)</span>
+    <span class="n">value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Numeric value to write&quot;</span><span class="p">)</span>
+    <span class="n">units</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Units if specified&quot;</span><span class="p">)</span>
+    <span class="n">notes</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Additional context&quot;</span><span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">WriteOperationsOutput</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Structured output from LLM-based write operation parser.&quot;&quot;&quot;</span>
+
+    <span class="n">write_operations</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">WriteOperation</span><span class="p">]</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
+        <span class="n">description</span><span class="o">=</span><span class="s2">&quot;List of parsed write operations with channel-value pairs. &quot;</span>
+        <span class="s2">&quot;Empty list if no valid operations could be identified.&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="c1"># ========================================================</span>
+<span class="c1"># Channel Write-Related Errors</span>
+<span class="c1"># ========================================================</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelWriteError</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Base class for all channel write-related errors.&quot;&quot;&quot;</span>
+
+    <span class="k">pass</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelNotWritableError</span><span class="p">(</span><span class="n">ChannelWriteError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Raised when attempting to write to a read-only channel.&quot;&quot;&quot;</span>
+
+    <span class="k">pass</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelWriteTimeoutError</span><span class="p">(</span><span class="n">ChannelWriteError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Raised when channel write operations time out.&quot;&quot;&quot;</span>
+
+    <span class="k">pass</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelWriteAccessError</span><span class="p">(</span><span class="n">ChannelWriteError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Raised when there are channel write access errors.&quot;&quot;&quot;</span>
+
+    <span class="k">pass</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelWriteDependencyError</span><span class="p">(</span><span class="n">ChannelWriteError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Raised when required dependencies are missing.&quot;&quot;&quot;</span>
+
+    <span class="k">pass</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">WriteParsingError</span><span class="p">(</span><span class="n">ChannelWriteError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Raised when write operation parsing fails.&quot;&quot;&quot;</span>
+
+    <span class="k">pass</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">AmbiguousWriteOperationError</span><span class="p">(</span><span class="n">ChannelWriteError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Raised when write operations cannot be clearly identified.&quot;&quot;&quot;</span>
+
+    <span class="k">pass</span>
+
+
+<span class="c1"># ========================================================</span>
+<span class="c1"># Helper Functions</span>
+<span class="c1"># ========================================================</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_log_write_outcome</span><span class="p">(</span>
+    <span class="n">result</span><span class="p">:</span> <span class="n">ChannelWriteResult</span><span class="p">,</span> <span class="n">operation</span><span class="p">:</span> <span class="n">WriteOperation</span><span class="p">,</span> <span class="n">units_str</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">logger</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Log the outcome of a channel write operation.</span>
+
+<span class="sd">    Helper function to keep the main execution flow clean.</span>
+<span class="sd">    Handles logging for success, verification status, and warnings.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        result: The write result from the connector</span>
+<span class="sd">        operation: The original write operation</span>
+<span class="sd">        units_str: Units string for display (e.g., &quot; A&quot; or &quot;&quot;)</span>
+<span class="sd">        logger: Logger instance to use</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">result</span><span class="o">.</span><span class="n">success</span><span class="p">:</span>
+        <span class="c1"># Failed writes are logged by the exception handler</span>
+        <span class="k">return</span>
+
+    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">verification</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">verification</span><span class="o">.</span><span class="n">verified</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">success</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;✓ Wrote </span><span class="si">{</span><span class="n">operation</span><span class="o">.</span><span class="n">channel_address</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="n">operation</span><span class="o">.</span><span class="n">value</span><span class="si">}{</span><span class="n">units_str</span><span class="si">}</span><span class="s2"> &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">verification</span><span class="o">.</span><span class="n">level</span><span class="si">}</span><span class="s2"> verified]&quot;</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;⚠️  Wrote </span><span class="si">{</span><span class="n">operation</span><span class="o">.</span><span class="n">channel_address</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="n">operation</span><span class="o">.</span><span class="n">value</span><span class="si">}{</span><span class="n">units_str</span><span class="si">}</span><span class="s2"> &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;but verification failed: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">verification</span><span class="o">.</span><span class="n">notes</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">success</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;✓ Wrote </span><span class="si">{</span><span class="n">operation</span><span class="o">.</span><span class="n">channel_address</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="n">operation</span><span class="o">.</span><span class="n">value</span><span class="si">}{</span><span class="n">units_str</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+
+<span class="c1"># ========================================================</span>
+<span class="c1"># LLM-Based Write Parsing Helper</span>
+<span class="c1"># ========================================================</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_get_write_parsing_system_prompt</span><span class="p">(</span>
+    <span class="n">task_objective</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">channel_addresses</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">channel_queries</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span>
+    <span class="n">step_inputs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]],</span>
+    <span class="n">state</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create context-agnostic system prompt for parsing write operations.</span>
+
+<span class="sd">    Builds capability-specific runtime context (context summaries, channel mapping)</span>
+<span class="sd">    and delegates prompt composition to the prompt builder system.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        task_objective: The write task to parse</span>
+<span class="sd">        channel_addresses: List of available channel addresses</span>
+<span class="sd">        channel_queries: Mapping of channel addresses to their original queries for semantic linking</span>
+<span class="sd">        step_inputs: Input contexts from the execution plan</span>
+<span class="sd">        state: Agent state for accessing other context data (PYTHON_RESULTS, etc.)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.prompts.loader</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_framework_prompts</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_registry</span>
+
+    <span class="c1"># Build context summaries section - CONTEXT TYPE AGNOSTIC</span>
+    <span class="n">context_summaries</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="n">step_inputs</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">input_spec</span> <span class="ow">in</span> <span class="n">step_inputs</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">context_type</span><span class="p">,</span> <span class="n">context_key</span> <span class="ow">in</span> <span class="n">input_spec</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="c1"># Skip CHANNEL_ADDRESSES (handled separately)</span>
+                <span class="k">if</span> <span class="n">context_type</span> <span class="o">==</span> <span class="s2">&quot;CHANNEL_ADDRESSES&quot;</span><span class="p">:</span>
+                    <span class="k">continue</span>
+
+                <span class="c1"># Get context data</span>
+                <span class="n">context_data</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;capability_context_data&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">context_type</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">context_key</span><span class="p">)</span>
+                <span class="p">)</span>
+
+                <span class="k">if</span> <span class="n">context_data</span><span class="p">:</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">registry</span> <span class="o">=</span> <span class="n">get_registry</span><span class="p">()</span>
+                        <span class="n">context_class</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_context_class</span><span class="p">(</span><span class="n">context_type</span><span class="p">)</span>
+
+                        <span class="k">if</span> <span class="n">context_class</span><span class="p">:</span>
+                            <span class="c1"># Get summary for LLM</span>
+                            <span class="n">context_obj</span> <span class="o">=</span> <span class="n">context_class</span><span class="p">(</span><span class="o">**</span><span class="n">context_data</span><span class="p">)</span>
+                            <span class="n">summary</span> <span class="o">=</span> <span class="n">context_obj</span><span class="o">.</span><span class="n">get_summary</span><span class="p">()</span>
+
+                            <span class="n">context_summaries</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;&quot;&quot;</span>
+<span class="si">{</span><span class="n">context_type</span><span class="si">}</span><span class="s2"> (from step &#39;</span><span class="si">{</span><span class="n">context_key</span><span class="si">}</span><span class="s2">&#39;):</span>
+<span class="si">{</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">summary</span><span class="p">,</span><span class="w"> </span><span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="n">default</span><span class="o">=</span><span class="nb">str</span><span class="p">)</span><span class="si">}</span>
+<span class="s2">                            &quot;&quot;&quot;</span><span class="p">)</span>
+                    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
+
+                        <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;channel_write&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;Could not get summary for </span><span class="si">{</span><span class="n">context_type</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">context_key</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>
+                        <span class="p">)</span>
+
+    <span class="n">available_data</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">context_summaries</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">context_summaries</span>
+        <span class="k">else</span> <span class="s2">&quot;No additional context data available&quot;</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Build semantic channel mapping section</span>
+    <span class="n">channel_mapping_lines</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">channel_addresses</span><span class="p">:</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="n">channel_queries</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">query</span><span class="p">:</span>
+            <span class="n">channel_mapping_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;  &quot;</span><span class="si">{</span><span class="n">query</span><span class="si">}</span><span class="s1">&quot; → </span><span class="si">{</span><span class="n">address</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">channel_mapping_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">address</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="n">channel_mapping</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">channel_mapping_lines</span><span class="p">)</span>
+
+    <span class="c1"># Delegate prompt composition to the builder</span>
+    <span class="n">builder</span> <span class="o">=</span> <span class="n">get_framework_prompts</span><span class="p">()</span><span class="o">.</span><span class="n">get_channel_write_prompt_builder</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">builder</span><span class="o">.</span><span class="n">build_prompt</span><span class="p">(</span>
+        <span class="n">task_objective</span><span class="o">=</span><span class="n">task_objective</span><span class="p">,</span>
+        <span class="n">channel_mapping</span><span class="o">=</span><span class="n">channel_mapping</span><span class="p">,</span>
+        <span class="n">available_data</span><span class="o">=</span><span class="n">available_data</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="c1"># ========================================================</span>
+<span class="c1"># Capability Implementation</span>
+<span class="c1"># ========================================================</span>
+
+
+<span class="nd">@capability_node</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelWriteCapability</span><span class="p">(</span><span class="n">BaseCapability</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Channel write capability for writing values to control system channels.&quot;&quot;&quot;</span>
+
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;channel_write&quot;</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="s2">&quot;Write values to control system channels&quot;</span>
+    <span class="n">provides</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;CHANNEL_WRITE_RESULTS&quot;</span><span class="p">]</span>
+    <span class="n">requires</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;CHANNEL_ADDRESSES&quot;</span><span class="p">]</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Execute channel write operation with LLM-based value parsing.</span>
+
+<span class="sd">        This method:</span>
+<span class="sd">        1. Parses write operations from task and available contexts using LLM</span>
+<span class="sd">        2. Executes the parsed operations using the configured connector</span>
+<span class="sd">        3. Returns structured results with success/failure status</span>
+
+<span class="sd">        The parsing is context-agnostic and handles:</span>
+<span class="sd">        - Direct values from task: &quot;Set X to 5&quot;</span>
+<span class="sd">        - Calculated values from PYTHON_RESULTS</span>
+<span class="sd">        - Statistical values from ARCHIVER_DATA</span>
+<span class="sd">        - Any other context data the orchestrator provides</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            State updates containing the CHANNEL_WRITE_RESULTS context with write confirmations.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ChannelWriteDependencyError: If required CHANNEL_ADDRESSES context is missing.</span>
+<span class="sd">            AmbiguousWriteOperationError: If write operations cannot be parsed.</span>
+<span class="sd">            ChannelWriteAccessError: If channel writing fails.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="c1"># Get unified logger with automatic streaming</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span>
+
+        <span class="c1"># Check global writes_enabled flag FIRST (Safety Layer 1)</span>
+        <span class="c1"># NOTE: This is operator-level authorization and ALWAYS raises exception if disabled</span>
+        <span class="c1"># (unlike limits violations which can be configured to skip)</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_value</span>
+
+        <span class="c1"># Try new location first (control_system.writes_enabled)</span>
+        <span class="n">writes_enabled</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;control_system.writes_enabled&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+
+        <span class="c1"># Fall back to old location for backward compatibility</span>
+        <span class="k">if</span> <span class="n">writes_enabled</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">writes_enabled</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;execution_control.epics.writes_enabled&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">writes_enabled</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                    <span class="s2">&quot;⚠️  DEPRECATED: &#39;execution_control.epics.writes_enabled&#39; is deprecated.&quot;</span>
+                <span class="p">)</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                    <span class="s2">&quot;   Please move this setting to &#39;control_system.writes_enabled&#39; in your config.yml&quot;</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">writes_enabled</span> <span class="o">=</span> <span class="kc">False</span>  <span class="c1"># Default to disabled for safety</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">writes_enabled</span><span class="p">:</span>
+            <span class="c1"># ALWAYS raise exception - this is operator authorization, not value validation</span>
+            <span class="n">error_msg</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="s2">&quot;Control system writes are disabled in configuration. &quot;</span>
+                <span class="s2">&quot;Set control_system.writes_enabled: true to enable hardware writes.&quot;</span>
+            <span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">error_msg</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="n">ChannelWriteAccessError</span><span class="p">(</span><span class="n">error_msg</span><span class="p">)</span>
+
+        <span class="c1"># Extract channel address contexts</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="p">(</span><span class="n">channel_contexts</span><span class="p">,)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ChannelWriteDependencyError</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+
+        <span class="c1"># Parse write operations using LLM (pass full context objects for semantic linking)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="s2">&quot;Parsing write operations...&quot;</span><span class="p">)</span>
+        <span class="n">write_operations</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parse_write_operations</span><span class="p">(</span><span class="n">channel_contexts</span><span class="p">)</span>
+
+        <span class="c1"># Log what we&#39;re about to write</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Writing </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">write_operations</span><span class="p">)</span><span class="si">}</span><span class="s2"> channel(s):&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">write_operations</span><span class="p">:</span>
+            <span class="n">units_str</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot; </span><span class="si">{</span><span class="n">op</span><span class="o">.</span><span class="n">units</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="n">op</span><span class="o">.</span><span class="n">units</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  • </span><span class="si">{</span><span class="n">op</span><span class="o">.</span><span class="n">channel_address</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="n">op</span><span class="o">.</span><span class="n">value</span><span class="si">}{</span><span class="n">units_str</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Check if approval is needed based on configuration (Safety Layer 2 - Ask user FIRST)</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.approval.approval_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_python_execution_evaluator</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.approval.approval_system</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+            <span class="n">create_channel_write_approval_interrupt</span><span class="p">,</span>
+            <span class="n">get_approval_resume_data</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Check if we&#39;re resuming from an approval interrupt</span>
+        <span class="n">has_approval_resume</span><span class="p">,</span> <span class="n">approved_payload</span> <span class="o">=</span> <span class="n">get_approval_resume_data</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">,</span> <span class="s2">&quot;channel_write&quot;</span>
+        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">has_approval_resume</span><span class="p">:</span>
+            <span class="c1"># We&#39;re resuming after approval</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">approved_payload</span><span class="p">:</span>
+                <span class="c1"># User rejected the approval</span>
+                <span class="n">error_msg</span> <span class="o">=</span> <span class="s2">&quot;Write operation cancelled by user&quot;</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="n">error_msg</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="n">ChannelWriteAccessError</span><span class="p">(</span><span class="n">error_msg</span><span class="p">)</span>
+            <span class="c1"># User approved - continue with execution</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Resuming approved write operation&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># First time execution - check if approval is needed</span>
+            <span class="c1"># Treat channel writes as EPICS writes for approval purposes</span>
+            <span class="n">approval_evaluator</span> <span class="o">=</span> <span class="n">get_python_execution_evaluator</span><span class="p">()</span>
+            <span class="n">approval_decision</span> <span class="o">=</span> <span class="n">approval_evaluator</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span>
+                <span class="n">has_epics_writes</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>  <span class="c1"># Channel writes are control system writes</span>
+                <span class="n">has_epics_reads</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">approval_decision</span><span class="o">.</span><span class="n">needs_approval</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Write operation requires human approval&quot;</span><span class="p">)</span>
+
+                <span class="c1"># Create approval interrupt</span>
+                <span class="n">interrupt_data</span> <span class="o">=</span> <span class="n">create_channel_write_approval_interrupt</span><span class="p">(</span>
+                    <span class="n">operations</span><span class="o">=</span><span class="n">write_operations</span><span class="p">,</span>
+                    <span class="n">analysis_details</span><span class="o">=</span><span class="p">{</span>
+                        <span class="s2">&quot;operation_count&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">write_operations</span><span class="p">),</span>
+                        <span class="s2">&quot;channels&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">op</span><span class="o">.</span><span class="n">channel_address</span> <span class="k">for</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">write_operations</span><span class="p">],</span>
+                        <span class="s2">&quot;values&quot;</span><span class="p">:</span> <span class="p">[(</span><span class="n">op</span><span class="o">.</span><span class="n">channel_address</span><span class="p">,</span> <span class="n">op</span><span class="o">.</span><span class="n">value</span><span class="p">)</span> <span class="k">for</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">write_operations</span><span class="p">],</span>
+                        <span class="s2">&quot;safety_level&quot;</span><span class="p">:</span> <span class="s2">&quot;high&quot;</span><span class="p">,</span>
+                    <span class="p">},</span>
+                    <span class="n">safety_concerns</span><span class="o">=</span><span class="p">[</span>
+                        <span class="sa">f</span><span class="s2">&quot;Direct hardware write: </span><span class="si">{</span><span class="n">op</span><span class="o">.</span><span class="n">channel_address</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="n">op</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span>
+                        <span class="k">for</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">write_operations</span>
+                    <span class="p">],</span>
+                    <span class="n">step_objective</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">get_task_objective</span><span class="p">(),</span>
+                <span class="p">)</span>
+
+                <span class="c1"># Pause execution for human approval</span>
+                <span class="kn">from</span><span class="w"> </span><span class="nn">langgraph.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">interrupt</span>
+
+                <span class="n">interrupt</span><span class="p">(</span><span class="n">interrupt_data</span><span class="p">)</span>
+
+                <span class="c1"># If we reach here, something went wrong with the interrupt mechanism</span>
+                <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;Interrupt mechanism failed - execution should have paused&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Create control system connector from configuration</span>
+        <span class="c1"># NOTE: Connector now handles limits validation (Safety Layer 3) and</span>
+        <span class="c1"># verification config (Safety Layer 4) automatically</span>
+        <span class="n">connector</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">create_control_system_connector</span><span class="p">()</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># Execute all write operations</span>
+            <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">total_writes</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">write_operations</span><span class="p">)</span>
+
+            <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">operation</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">write_operations</span><span class="p">,</span> <span class="mi">1</span><span class="p">):</span>
+                <span class="n">units_str</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot; </span><span class="si">{</span><span class="n">operation</span><span class="o">.</span><span class="n">units</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="n">operation</span><span class="o">.</span><span class="n">units</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Writing </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">total_writes</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">operation</span><span class="o">.</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">...&quot;</span><span class="p">)</span>
+
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="c1"># Write using connector (handles limits validation and verification automatically)</span>
+                    <span class="n">connector_result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">write_channel</span><span class="p">(</span>
+                        <span class="n">operation</span><span class="o">.</span><span class="n">channel_address</span><span class="p">,</span> <span class="n">operation</span><span class="o">.</span><span class="n">value</span>
+                    <span class="p">)</span>
+
+                    <span class="c1"># Convert connector result to context model</span>
+                    <span class="n">verification_info</span> <span class="o">=</span> <span class="kc">None</span>
+                    <span class="k">if</span> <span class="n">connector_result</span><span class="o">.</span><span class="n">verification</span><span class="p">:</span>
+                        <span class="n">verification_info</span> <span class="o">=</span> <span class="n">WriteVerificationInfo</span><span class="p">(</span>
+                            <span class="n">level</span><span class="o">=</span><span class="n">connector_result</span><span class="o">.</span><span class="n">verification</span><span class="o">.</span><span class="n">level</span><span class="p">,</span>
+                            <span class="n">verified</span><span class="o">=</span><span class="n">connector_result</span><span class="o">.</span><span class="n">verification</span><span class="o">.</span><span class="n">verified</span><span class="p">,</span>
+                            <span class="n">readback_value</span><span class="o">=</span><span class="n">connector_result</span><span class="o">.</span><span class="n">verification</span><span class="o">.</span><span class="n">readback_value</span><span class="p">,</span>
+                            <span class="n">tolerance_used</span><span class="o">=</span><span class="n">connector_result</span><span class="o">.</span><span class="n">verification</span><span class="o">.</span><span class="n">tolerance_used</span><span class="p">,</span>
+                            <span class="n">notes</span><span class="o">=</span><span class="n">connector_result</span><span class="o">.</span><span class="n">verification</span><span class="o">.</span><span class="n">notes</span><span class="p">,</span>
+                        <span class="p">)</span>
+
+                    <span class="c1"># Store result</span>
+                    <span class="n">result</span> <span class="o">=</span> <span class="n">ChannelWriteResult</span><span class="p">(</span>
+                        <span class="n">channel_address</span><span class="o">=</span><span class="n">connector_result</span><span class="o">.</span><span class="n">channel_address</span><span class="p">,</span>
+                        <span class="n">value_written</span><span class="o">=</span><span class="n">connector_result</span><span class="o">.</span><span class="n">value_written</span><span class="p">,</span>
+                        <span class="n">success</span><span class="o">=</span><span class="n">connector_result</span><span class="o">.</span><span class="n">success</span><span class="p">,</span>
+                        <span class="n">verification</span><span class="o">=</span><span class="n">verification_info</span><span class="p">,</span>
+                        <span class="n">error_message</span><span class="o">=</span><span class="n">connector_result</span><span class="o">.</span><span class="n">error_message</span><span class="p">,</span>
+                    <span class="p">)</span>
+                    <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+
+                    <span class="c1"># Log outcome (delegated to helper)</span>
+                    <span class="n">_log_write_outcome</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">operation</span><span class="p">,</span> <span class="n">units_str</span><span class="p">,</span> <span class="n">logger</span><span class="p">)</span>
+
+                <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to write </span><span class="si">{</span><span class="n">operation</span><span class="o">.</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                    <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                        <span class="n">ChannelWriteResult</span><span class="p">(</span>
+                            <span class="n">channel_address</span><span class="o">=</span><span class="n">operation</span><span class="o">.</span><span class="n">channel_address</span><span class="p">,</span>
+                            <span class="n">value_written</span><span class="o">=</span><span class="n">operation</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                            <span class="n">success</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                            <span class="n">verification</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                            <span class="n">error_message</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span>
+                        <span class="p">)</span>
+                    <span class="p">)</span>
+                    <span class="c1"># Continue with other channels rather than failing completely</span>
+
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="c1"># Always disconnect connector</span>
+            <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">disconnect</span><span class="p">()</span>
+
+        <span class="c1"># Calculate counts</span>
+        <span class="n">successful_count</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="mi">1</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span> <span class="k">if</span> <span class="n">r</span><span class="o">.</span><span class="n">success</span><span class="p">)</span>
+        <span class="n">failed_count</span> <span class="o">=</span> <span class="n">total_writes</span> <span class="o">-</span> <span class="n">successful_count</span>
+        <span class="n">verified_count</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span>
+            <span class="mi">1</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span> <span class="k">if</span> <span class="n">r</span><span class="o">.</span><span class="n">success</span> <span class="ow">and</span> <span class="n">r</span><span class="o">.</span><span class="n">verification</span> <span class="ow">and</span> <span class="n">r</span><span class="o">.</span><span class="n">verification</span><span class="o">.</span><span class="n">verified</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Single summary message with verification info</span>
+        <span class="k">if</span> <span class="n">failed_count</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">verified_count</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">success</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Successfully wrote </span><span class="si">{</span><span class="n">successful_count</span><span class="si">}</span><span class="s2"> channel(s) (</span><span class="si">{</span><span class="n">verified_count</span><span class="si">}</span><span class="s2"> verified)&quot;</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">success</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Successfully wrote </span><span class="si">{</span><span class="n">successful_count</span><span class="si">}</span><span class="s2"> channel(s)&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Wrote </span><span class="si">{</span><span class="n">successful_count</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">total_writes</span><span class="si">}</span><span class="s2"> channel(s) successfully &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="n">failed_count</span><span class="si">}</span><span class="s2"> failed, </span><span class="si">{</span><span class="n">verified_count</span><span class="si">}</span><span class="s2"> verified)&quot;</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Create structured result with explicit counts</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">ChannelWriteResultsContext</span><span class="p">(</span>
+            <span class="n">results</span><span class="o">=</span><span class="n">results</span><span class="p">,</span>
+            <span class="n">total_writes</span><span class="o">=</span><span class="n">total_writes</span><span class="p">,</span>
+            <span class="n">successful_count</span><span class="o">=</span><span class="n">successful_count</span><span class="p">,</span>
+            <span class="n">failed_count</span><span class="o">=</span><span class="n">failed_count</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Store result in execution context</span>
+        <span class="n">state_updates</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+
+        <span class="c1"># Clear approval state after successful approved write to prevent</span>
+        <span class="c1"># downstream nodes (e.g., reactive_orchestrator) from misinterpreting</span>
+        <span class="c1"># stale approval flags as their own approval resume.</span>
+        <span class="k">if</span> <span class="n">has_approval_resume</span><span class="p">:</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.approval</span><span class="w"> </span><span class="kn">import</span> <span class="n">clear_approval_state</span>
+
+            <span class="n">state_updates</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">clear_approval_state</span><span class="p">())</span>
+
+        <span class="k">return</span> <span class="n">state_updates</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_parse_write_operations</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_contexts</span><span class="p">:</span> <span class="nb">list</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">WriteOperation</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Parse write operations from task and available contexts using LLM.</span>
+
+<span class="sd">        This is an internal helper that uses LLM-based structured output to extract</span>
+<span class="sd">        channel-value pairs from the task description and any available context data.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            channel_contexts: List of ChannelAddressesContext objects with channels and original_query</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            List of parsed WriteOperation objects</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            WriteParsingError: If LLM parsing fails</span>
+<span class="sd">            AmbiguousWriteOperationError: If no valid operations can be parsed</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span>
+
+        <span class="c1"># Get current step information using helper methods</span>
+        <span class="n">task_objective</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_task_objective</span><span class="p">()</span>
+        <span class="n">step_inputs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_step_inputs</span><span class="p">()</span>
+
+        <span class="c1"># Extract channel addresses and build semantic mapping from context objects</span>
+        <span class="n">channel_addresses</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">channel_queries</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">for</span> <span class="n">ctx</span> <span class="ow">in</span> <span class="n">channel_contexts</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">ctx</span><span class="o">.</span><span class="n">channels</span><span class="p">:</span>
+                <span class="n">channel_addresses</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+                <span class="n">channel_queries</span><span class="p">[</span><span class="n">address</span><span class="p">]</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">original_query</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Channel semantic mapping: </span><span class="si">{</span><span class="n">channel_queries</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Build context-agnostic prompt</span>
+        <span class="n">full_prompt</span> <span class="o">=</span> <span class="n">_get_write_parsing_system_prompt</span><span class="p">(</span>
+            <span class="n">task_objective</span><span class="o">=</span><span class="n">task_objective</span><span class="p">,</span>
+            <span class="n">channel_addresses</span><span class="o">=</span><span class="n">channel_addresses</span><span class="p">,</span>
+            <span class="n">channel_queries</span><span class="o">=</span><span class="n">channel_queries</span><span class="p">,</span>
+            <span class="n">step_inputs</span><span class="o">=</span><span class="n">step_inputs</span><span class="p">,</span>
+            <span class="n">state</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Prompt length: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">full_prompt</span><span class="p">)</span><span class="si">}</span><span class="s2"> characters&quot;</span><span class="p">)</span>
+
+        <span class="c1"># LLM call with structured output</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">model_config</span> <span class="o">=</span> <span class="n">get_model_config</span><span class="p">(</span><span class="s2">&quot;channel_write&quot;</span><span class="p">)</span>
+
+            <span class="c1"># Set caller context for API call logging (propagates through asyncio.to_thread)</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">set_api_call_context</span>
+
+            <span class="n">set_api_call_context</span><span class="p">(</span>
+                <span class="n">function</span><span class="o">=</span><span class="s2">&quot;_parse_write_operations&quot;</span><span class="p">,</span>
+                <span class="n">module</span><span class="o">=</span><span class="s2">&quot;channel_write&quot;</span><span class="p">,</span>
+                <span class="n">class_name</span><span class="o">=</span><span class="s2">&quot;ChannelWriteCapability&quot;</span><span class="p">,</span>
+                <span class="n">extra</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;capability&quot;</span><span class="p">:</span> <span class="s2">&quot;channel_write&quot;</span><span class="p">},</span>
+            <span class="p">)</span>
+
+            <span class="n">response_data</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
+                <span class="n">get_chat_completion</span><span class="p">,</span>
+                <span class="n">model_config</span><span class="o">=</span><span class="n">model_config</span><span class="p">,</span>
+                <span class="n">message</span><span class="o">=</span><span class="n">full_prompt</span><span class="p">,</span>
+                <span class="n">output_model</span><span class="o">=</span><span class="n">WriteOperationsOutput</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;LLM parsing failed: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="n">WriteParsingError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to parse write operations: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+
+        <span class="c1"># Validate response</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">response_data</span><span class="p">,</span> <span class="n">WriteOperationsOutput</span><span class="p">):</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid LLM response type: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">response_data</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="n">WriteParsingError</span><span class="p">(</span><span class="s2">&quot;LLM failed to return structured write operations output&quot;</span><span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;LLM result: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">response_data</span><span class="o">.</span><span class="n">write_operations</span><span class="p">)</span><span class="si">}</span><span class="s2"> operation(s)&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Check if valid operations were found</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">response_data</span><span class="o">.</span><span class="n">write_operations</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;No write operations found in: &#39;</span><span class="si">{</span><span class="n">task_objective</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="n">AmbiguousWriteOperationError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Could not parse write operations from task: &#39;</span><span class="si">{</span><span class="n">task_objective</span><span class="si">}</span><span class="s2">&#39;. &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Available channels: </span><span class="si">{</span><span class="n">channel_addresses</span><span class="si">}</span><span class="s2">. &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Task may require calculation or additional context data.&quot;</span>
+            <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">response_data</span><span class="o">.</span><span class="n">write_operations</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">process_extracted_contexts</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">contexts</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Normalize CHANNEL_ADDRESSES to always be a list of context objects.</span>
+
+<span class="sd">        Keeps the full context objects (with original_query) for semantic linking.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">channels_raw</span> <span class="o">=</span> <span class="n">contexts</span><span class="p">[</span><span class="s2">&quot;CHANNEL_ADDRESSES&quot;</span><span class="p">]</span>
+
+        <span class="c1"># Normalize to list of context objects</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">channels_raw</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+            <span class="n">contexts</span><span class="p">[</span><span class="s2">&quot;CHANNEL_ADDRESSES&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">channels_raw</span><span class="p">]</span>
+
+        <span class="k">return</span> <span class="n">contexts</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">classify_error</span><span class="p">(</span><span class="n">exc</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ErrorClassification</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Channel write-specific error classification.&quot;&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">AmbiguousWriteOperationError</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+                <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">REPLANNING</span><span class="p">,</span>
+                <span class="n">user_message</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">),</span>
+                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)},</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">WriteParsingError</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+                <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RETRIABLE</span><span class="p">,</span>
+                <span class="n">user_message</span><span class="o">=</span><span class="s2">&quot;Write parsing failed, retrying...&quot;</span><span class="p">,</span>
+                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)},</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">ChannelWriteTimeoutError</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+                <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RETRIABLE</span><span class="p">,</span>
+                <span class="n">user_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Channel write timeout: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)},</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">ChannelWriteAccessError</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+                <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">,</span>
+                <span class="n">user_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Channel write access error: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)},</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">ChannelNotWritableError</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+                <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">,</span>
+                <span class="n">user_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Channel is read-only: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)},</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">ChannelWriteDependencyError</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+                <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">REPLANNING</span><span class="p">,</span>
+                <span class="n">user_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Missing dependency: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)},</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">ChannelWriteError</span><span class="p">):</span>
+            <span class="c1"># Generic channel write error</span>
+            <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+                <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">,</span>
+                <span class="n">user_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Channel write error: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)},</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Not a channel write-specific error, use default classification</span>
+            <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+                <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">,</span>
+                <span class="n">user_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Unexpected error during write: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)},</span>
+            <span class="p">)</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_retry_policy</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Define retry policy for channel write operations.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;max_attempts&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>  <span class="c1"># Fewer retries for writes (be conservative)</span>
+            <span class="s2">&quot;delay_seconds&quot;</span><span class="p">:</span> <span class="mf">2.0</span><span class="p">,</span>
+            <span class="s2">&quot;backoff_factor&quot;</span><span class="p">:</span> <span class="mf">2.0</span><span class="p">,</span>
+        <span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_create_orchestrator_guide</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">OrchestratorGuide</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Delegate orchestrator guide to prompt builder.&quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.prompts.loader</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_framework_prompts</span>
+
+        <span class="n">builder</span> <span class="o">=</span> <span class="n">get_framework_prompts</span><span class="p">()</span><span class="o">.</span><span class="n">get_channel_write_prompt_builder</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">builder</span><span class="o">.</span><span class="n">get_orchestrator_guide</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_create_classifier_guide</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TaskClassifierGuide</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Delegate classifier guide to prompt builder.&quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.prompts.loader</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_framework_prompts</span>
+
+        <span class="n">builder</span> <span class="o">=</span> <span class="n">get_framework_prompts</span><span class="p">()</span><span class="o">.</span><span class="n">get_channel_write_prompt_builder</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">builder</span><span class="o">.</span><span class="n">get_classifier_guide</span><span class="p">()</span>
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

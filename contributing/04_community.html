@@ -1,0 +1,773 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Community Guidelines &#8212; Osprey Framework 0.11.5 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'contributing/04_community';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="prev" title="AI-Assisted Development" href="03_ai-assisted-development.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="01_git-and-github.html">Git and GitHub Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="02_code-standards.html">Code Standards</a></li>
+<li class="toctree-l1"><a class="reference internal" href="03_ai-assisted-development.html">AI-Assisted Development</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Community Guidelines</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Contributing to Osprey</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Community Guidelines</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="community-guidelines">
+<h1>Community Guidelines<a class="headerlink" href="#community-guidelines" title="Link to this heading">#</a></h1>
+<p>How to participate in the Osprey community.</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-0">
+📋 Community Guidelines</label><div class="sd-tab-content docutils">
+<p><strong>Code of Conduct</strong></p>
+<p>We are committed to a welcoming and inclusive environment.</p>
+<p><strong>Our Values:</strong></p>
+<ul class="simple">
+<li><p>Be respectful and considerate</p></li>
+<li><p>Welcome newcomers</p></li>
+<li><p>Accept constructive criticism</p></li>
+<li><p>Focus on what’s best for the community</p></li>
+<li><p>Show empathy</p></li>
+</ul>
+<p><strong>Unacceptable Behavior:</strong></p>
+<ul class="simple">
+<li><p>Harassment or discrimination</p></li>
+<li><p>Personal attacks</p></li>
+<li><p>Trolling or inflammatory comments</p></li>
+<li><p>Publishing private information</p></li>
+<li><p>Other unwelcoming conduct</p></li>
+</ul>
+<p><strong>Reporting Issues:</strong></p>
+<p>If you experience unacceptable behavior, contact the maintainers. All reports are handled confidentially.</p>
+<p><strong>Communication Channels</strong></p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Channel</p></th>
+<th class="head"><p>Use For</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>GitHub Issues</strong></p></td>
+<td><p>Bug reports, feature requests, specific problems, task tracking</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>GitHub Discussions</strong></p></td>
+<td><p>Questions, general discussions, ideas, brainstorming, announcements</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Pull Requests</strong></p></td>
+<td><p>Code contributions, documentation improvements, code review</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Follow <a class="reference internal" href="01_git-and-github.html"><span class="doc">Git and GitHub Workflow</span></a> for the PR process.</p>
+<p><strong>Response Expectations</strong></p>
+<p>Maintainers are volunteers with day jobs and other commitments. Please:</p>
+<ul class="simple">
+<li><p>Be patient while waiting for responses</p></li>
+<li><p>Be respectful in all interactions</p></li>
+<li><p>Provide clear, detailed information</p></li>
+<li><p>Follow up constructively</p></li>
+</ul>
+<p>We aim to respond within a few days, but complex issues may take longer.</p>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-1">
+💬 I Need Help</label><div class="sd-tab-content docutils">
+<p><strong>Quick Start:</strong></p>
+<ol class="arabic simple">
+<li><p>Check the documentation</p></li>
+<li><p>Search existing issues and discussions</p></li>
+<li><p>Still stuck? Ask for help</p></li>
+</ol>
+<p><strong>1. Check Documentation</strong></p>
+<ul class="simple">
+<li><p><a class="reference internal" href="index.html"><span class="doc">Contributing to Osprey</span></a> - Environment setup and contribution guide</p></li>
+<li><p><a class="reference internal" href="03_ai-assisted-development.html"><span class="doc">AI-Assisted Development</span></a> - AI workflows and tools</p></li>
+<li><p><a class="reference internal" href="../developer-guides/index.html"><span class="doc">Developer Guides</span></a> - Technical documentation</p></li>
+</ul>
+<p><strong>2. Search Existing Resources</strong></p>
+<p>Search GitHub Issues and Discussions - your question may already be answered.</p>
+<p><strong>3. Ask for Help</strong></p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-4" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-4">
+Something’s Not Working</label><div class="sd-tab-content docutils">
+<p><strong>Open a GitHub Issue</strong></p>
+<p>Include:</p>
+<ul class="simple">
+<li><p>Clear description of the problem</p></li>
+<li><p>What you’ve tried</p></li>
+<li><p>Relevant code/configuration</p></li>
+<li><p>Environment details (OS, Python version, Osprey version)</p></li>
+</ul>
+<p><strong>Be specific:</strong></p>
+<p>❌ Bad: “Osprey doesn’t work”</p>
+<p>✅ Good: “Getting timeout when querying Channel Finder with wildcards”</p>
+</div>
+<input id="sd-tab-item-5" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-5">
+General Questions</label><div class="sd-tab-content docutils">
+<p><strong>Use GitHub Discussions</strong></p>
+<p>For:</p>
+<ul class="simple">
+<li><p>Questions about using Osprey</p></li>
+<li><p>General discussions and ideas</p></li>
+<li><p>Brainstorming</p></li>
+<li><p>Best practices</p></li>
+</ul>
+</div>
+</div>
+<p><strong>Help Others:</strong></p>
+<ul class="simple">
+<li><p>Answer questions in issues and discussions</p></li>
+<li><p>Review pull requests</p></li>
+<li><p>Improve documentation</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Maintainers are volunteers. Please be patient and respectful while waiting for responses.</p>
+</div>
+</div>
+<input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-2">
+🐛 I Found a Bug</label><div class="sd-tab-content docutils">
+<p><strong>Before Reporting:</strong></p>
+<ul class="simple">
+<li><p>Search existing issues - it may already be reported</p></li>
+<li><p>Check if fixed in latest version</p></li>
+<li><p>Verify it’s actually a bug (not expected behavior)</p></li>
+</ul>
+<p><strong>Create a Bug Report</strong></p>
+<p>Include these details:</p>
+<ol class="arabic simple">
+<li><p><strong>Clear description</strong> - What happened vs. what you expected</p></li>
+<li><p><strong>Reproduction steps</strong> - Minimal steps to reproduce the issue</p></li>
+<li><p><strong>Environment</strong> - OS, Python version, Osprey version</p></li>
+<li><p><strong>Error messages</strong> - Full stack traces</p></li>
+<li><p><strong>Additional context</strong> - Any relevant details</p></li>
+</ol>
+<p><strong>Example Bug Report:</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Title: Channel Finder timeout with wildcard queries
+
+Description: Queries fail with timeout when using broad wildcards.
+
+Steps to Reproduce:
+1. Run `osprey chat`
+2. Ask: &quot;Find all PVs matching BPM:*:Current&quot;
+3. Wait 30 seconds
+4. See timeout error
+
+Environment: macOS 14.1, Python 3.11.5, Osprey 0.9.7
+
+Error Message:
+ERROR: Channel Finder query timed out after 30.0 seconds
+</pre></div>
+</div>
+<p><strong>After Reporting:</strong></p>
+<ul class="simple">
+<li><p>Maintainers will review your report</p></li>
+<li><p>May ask follow-up questions for clarification</p></li>
+<li><p>Will assign labels and priority</p></li>
+<li><p>Will provide timeline if fix is planned</p></li>
+</ul>
+</div>
+<input id="sd-tab-item-3" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-3">
+💡 I Have an Idea</label><div class="sd-tab-content docutils">
+<p><strong>Before Requesting:</strong></p>
+<ul class="simple">
+<li><p>Search for similar feature requests</p></li>
+<li><p>Check latest documentation - it might already exist</p></li>
+<li><p>Consider if it fits Osprey’s goals and scope</p></li>
+</ul>
+<p><strong>Create a Feature Request</strong></p>
+<p>Include these sections:</p>
+<ol class="arabic simple">
+<li><p><strong>Use case</strong> - What you’re trying to accomplish</p></li>
+<li><p><strong>Current limitations</strong> - What doesn’t work today</p></li>
+<li><p><strong>Proposed solution</strong> - Your ideal solution</p></li>
+<li><p><strong>Alternatives considered</strong> - Other approaches you’ve thought about</p></li>
+</ol>
+<p><strong>Example Feature Request:</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Title: Save and replay common queries
+
+Use Case:
+As a beamline scientist, I repeatedly ask similar questions.
+I want to save and replay them for faster workflow.
+
+Current Limitation:
+Must retype complex queries each time
+
+Proposed Solution:
+Add query saving functionality:
+&gt; save query as &quot;bpm_sector1&quot;
+&gt; run query &quot;bpm_sector1&quot;
+
+Benefits:
+- Faster workflow
+- Shareable queries between team members
+- Reproducible analysis
+</pre></div>
+</div>
+<p><strong>After Requesting:</strong></p>
+<ul class="simple">
+<li><p>Community discussion on the idea</p></li>
+<li><p>Maintainer review for feasibility</p></li>
+<li><p>Priority assignment</p></li>
+<li><p>Implementation (by maintainers or community members)</p></li>
+</ul>
+<p><strong>Want to Implement It Yourself?</strong></p>
+<p>Comment on the issue offering to help! Maintainers can provide guidance on:</p>
+<ul class="simple">
+<li><p>Technical approach</p></li>
+<li><p>Code structure</p></li>
+<li><p>Testing requirements</p></li>
+<li><p>Documentation needs</p></li>
+</ul>
+<p>See <a class="reference internal" href="01_git-and-github.html"><span class="doc">Git and GitHub Workflow</span></a> for the contribution process.</p>
+</div>
+</div>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="03_ai-assisted-development.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">AI-Assisted Development</p>
+      </div>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/contributing/04_community.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

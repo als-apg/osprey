@@ -1,0 +1,1257 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Installation &amp; Setup &#8212; Osprey Framework 0.11.5 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'getting-started/installation';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Conceptual Tutorial" href="conceptual-tutorial.html" />
+    <link rel="prev" title="Getting Started" href="index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Installation &amp; Setup</a></li>
+<li class="toctree-l1"><a class="reference internal" href="conceptual-tutorial.html">Conceptual Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hello-world-tutorial.html">Hello World Tutorial</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="control-assistant.html">Production Control Systems Tutorial</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="control-assistant-part1-setup.html">Part 1: Getting Started</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-assistant-part2-channel-finder.html">Part 2: Building Your Channel Finder</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-assistant-part3-production.html">Part 3: Integration &amp; Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-assistant-part4-customization.html">Part 4: Customization &amp; Extension</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Getting Started</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Installation &amp; Setup</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="installation-setup">
+<h1>Installation &amp; Setup<a class="headerlink" href="#installation-setup" title="Link to this heading">#</a></h1>
+<section id="what-you-ll-learn">
+<h2>What You’ll Learn<a class="headerlink" href="#what-you-ll-learn" title="Link to this heading">#</a></h2>
+<p>This installation guide covers the complete framework setup process:</p>
+<ul class="simple">
+<li><p><strong>Installing Container Runtime</strong> - Docker Desktop or Podman for containerized services</p></li>
+<li><p><strong>Python 3.11+ Setup</strong> - Virtual environment configuration</p></li>
+<li><p><strong>Framework Installation</strong> - Installing the pip package with all dependencies</p></li>
+<li><p><strong>Project Creation</strong> - Generating a new project from templates</p></li>
+<li><p><strong>Configuration</strong> - Setting up <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and environment variables</p></li>
+<li><p><strong>Service Deployment</strong> - Starting containerized services (Jupyter, OpenWebUI, Pipelines)</p></li>
+<li><p><strong>OpenWebUI Configuration</strong> - Chat interface setup and customization</p></li>
+</ul>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-list-unordered" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.75 2.5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm1-6a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text"><strong>Prerequisites</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>System Requirements:</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text"><strong>Operating System:</strong> Linux, macOS, or Windows with WSL2</p></li>
+<li><p class="sd-card-text"><strong>Admin/sudo access:</strong> Required for installing container runtime and Python</p></li>
+<li><p class="sd-card-text"><strong>Internet connection:</strong> For downloading packages and container images</p></li>
+<li><p class="sd-card-text"><strong>Disk space:</strong> At least 5GB free for containers and dependencies</p></li>
+</ul>
+<p class="sd-card-text"><strong>What You’ll Install:</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text">Docker Desktop 4.0+ OR Podman 4.0+ (container runtime)</p></li>
+<li><p class="sd-card-text">Python 3.11+ (programming language)</p></li>
+<li><p class="sd-card-text">Osprey Framework (pip package)</p></li>
+</ul>
+<p class="sd-card-text"><strong>Time estimate:</strong> 30-60 minutes for complete setup</p>
+</div>
+</details></section>
+<section id="installation-steps">
+<h2>Installation Steps<a class="headerlink" href="#installation-steps" title="Link to this heading">#</a></h2>
+<p><strong>Install Container Runtime</strong></p>
+<p>The framework supports both Docker and Podman. Install <strong>either one</strong> (not both required):</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-0">
+Docker Desktop (Recommended for macOS/Windows)</label><div class="sd-tab-content docutils">
+<p><strong>Installation:</strong></p>
+<p><a class="reference external" href="https://www.docker.com/products/docker-desktop/">Docker Desktop</a> is the most widely used container platform, providing an integrated experience with native compose support.</p>
+<p>Download and install Docker Desktop 4.0+ from the <a class="reference external" href="https://docs.docker.com/get-started/get-docker/">official Docker installation guide</a>.</p>
+<p><strong>Verification:</strong></p>
+<p>After installation, verify Docker is working:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>--version
+docker<span class="w"> </span>compose<span class="w"> </span>version
+docker<span class="w"> </span>run<span class="w"> </span>hello-world
+</pre></div>
+</div>
+<p>Docker Desktop handles the VM setup automatically on macOS/Windows - no additional configuration needed.</p>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-1">
+Podman (Recommended for Linux/Security-focused deployments)</label><div class="sd-tab-content docutils">
+<p><strong>Installation:</strong></p>
+<p><a class="reference external" href="https://podman.io/">Podman</a> is a daemonless container engine that provides enhanced security through rootless operation. Unlike Docker, Podman doesn’t require a privileged daemon running as root, offering better privilege separation and a reduced attack surface.</p>
+<p>Install Podman 4.0+ from the <a class="reference external" href="https://podman.io/docs/installation">official Podman installation guide</a>.</p>
+<p><strong>Verification:</strong></p>
+<p>After installation, verify Podman is working:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>podman<span class="w"> </span>--version
+podman<span class="w"> </span>run<span class="w"> </span>hello-world
+</pre></div>
+</div>
+<p><strong>Podman Machine Setup (macOS/Windows only):</strong></p>
+<p>On macOS/Windows, initialize and start the Podman machine:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>podman<span class="w"> </span>machine<span class="w"> </span>init
+podman<span class="w"> </span>machine<span class="w"> </span>start
+</pre></div>
+</div>
+<p><strong>Note:</strong> Linux users can skip this step as Podman runs natively on Linux.</p>
+</div>
+</div>
+<p><strong>Runtime Selection:</strong></p>
+<p>The framework automatically detects which runtime is available. To explicitly choose a runtime:</p>
+<ul class="simple">
+<li><p><strong>Via configuration:</strong> Set <code class="docutils literal notranslate"><span class="pre">container_runtime:</span> <span class="pre">docker</span></code> or <code class="docutils literal notranslate"><span class="pre">container_runtime:</span> <span class="pre">podman</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p></li>
+<li><p><strong>Via environment variable:</strong> <code class="docutils literal notranslate"><span class="pre">export</span> <span class="pre">CONTAINER_RUNTIME=docker</span></code> or <code class="docutils literal notranslate"><span class="pre">export</span> <span class="pre">CONTAINER_RUNTIME=podman</span></code></p></li>
+</ul>
+<p>If both are installed, Docker is preferred by default.</p>
+<p><strong>Environment Setup</strong></p>
+<p><strong>Python 3.11+ Requirement</strong></p>
+<p>This framework requires <a class="reference external" href="https://www.python.org/downloads/">Python 3.11+</a>. Verify you have the correct version:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3.11<span class="w"> </span>--version
+</pre></div>
+</div>
+<p><strong>Virtual Environment Setup</strong></p>
+<p>To avoid conflicts with your system Python packages, create a virtual environment with Python 3.11+:</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-2" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-2">
+uv (Recommended)</label><div class="sd-tab-content docutils">
+<p><a class="reference external" href="https://docs.astral.sh/uv/">uv</a> is a fast Python package manager that handles virtual environments automatically:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># uv creates and manages the .venv automatically</span>
+uv<span class="w"> </span>venv
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-3" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-3">
+pip (Traditional)</label><div class="sd-tab-content docutils">
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3.11<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>venv
+<span class="nb">source</span><span class="w"> </span>venv/bin/activate<span class="w">  </span><span class="c1"># On Windows: venv\Scripts\activate</span>
+</pre></div>
+</div>
+</div>
+</div>
+<p><strong>Installing the Framework</strong></p>
+<p>After setting up your virtual environment, install the framework package:</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-4" name="sd-tab-set-2" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-4">
+uv (Recommended)</label><div class="sd-tab-content docutils">
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>osprey-framework
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-5" name="sd-tab-set-2" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-5">
+pip (Traditional)</label><div class="sd-tab-content docutils">
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>pip
+pip<span class="w"> </span>install<span class="w"> </span>osprey-framework
+</pre></div>
+</div>
+</div>
+</div>
+<div class="version-07plus-change admonition">
+<p class="admonition-title">New in v0.7+: Pip-Installable Architecture</p>
+<p>The framework is now distributed as a pip-installable package with modular dependencies. You no longer need to clone the repository or manage <code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code> files manually.</p>
+<p><strong>Core Dependencies</strong> (always installed):</p>
+<ul class="simple">
+<li><p><strong>Core Framework</strong>: <a class="reference external" href="https://www.langchain.com/langgraph">LangGraph</a>, <a class="reference external" href="https://www.langchain.com/">LangChain</a>, <a class="reference external" href="https://docs.litellm.ai/">LiteLLM</a></p></li>
+<li><p><strong>AI Providers</strong>: 100+ providers via LiteLLM including <a class="reference external" href="https://openai.com/">OpenAI</a>, <a class="reference external" href="https://www.anthropic.com/">Anthropic</a>, <a class="reference external" href="https://ai.google.dev/">Google</a>, <a class="reference external" href="https://ollama.com/">Ollama</a></p></li>
+<li><p><strong>CLI &amp; UI</strong>: <a class="reference external" href="https://rich.readthedocs.io/">Rich</a>, <a class="reference external" href="https://click.palletsprojects.com/">Click</a>, <a class="reference external" href="https://python-prompt-toolkit.readthedocs.io/">prompt_toolkit</a></p></li>
+<li><p><strong>Container Runtime</strong>: Docker Desktop 4.0+ or Podman 4.0+ (installed separately via system package managers)</p></li>
+<li><p><strong>Configuration</strong>: PyYAML, Jinja2, python-dotenv</p></li>
+<li><p><strong>Networking</strong>: requests, websocket-client</p></li>
+</ul>
+<p><strong>Optional Dependencies</strong> (install with extras):</p>
+<ul class="simple">
+<li><p><strong>[scientific]</strong>: SciPy, Seaborn, Scikit-learn, ipywidgets <em>(for advanced data analysis)</em></p></li>
+<li><p><strong>[docs]</strong>: Sphinx and documentation tools</p></li>
+<li><p><strong>[dev]</strong>: pytest, ruff, mypy, and development tools</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The following packages are now included in the core installation:</p>
+<ul class="simple">
+<li><p><strong>Claude Agent SDK</strong>: Advanced code generation with multi-turn agentic reasoning</p></li>
+<li><p><strong>NumPy, Pandas, Matplotlib</strong>: Required for data handling and visualization in Python execution capability</p></li>
+</ul>
+</div>
+<p><strong>Installation Examples:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Recommended: Core + scientific computing for advanced data analysis</span>
+pip<span class="w"> </span>install<span class="w"> </span>osprey-framework<span class="o">[</span>scientific<span class="o">]</span>
+
+<span class="c1"># Minimal installation (includes Claude Code SDK)</span>
+pip<span class="w"> </span>install<span class="w"> </span>osprey-framework
+
+<span class="c1"># Core + documentation</span>
+pip<span class="w"> </span>install<span class="w"> </span>osprey-framework<span class="o">[</span>docs<span class="o">]</span>
+
+<span class="c1"># Everything (includes docs, dev tools, etc.)</span>
+pip<span class="w"> </span>install<span class="w"> </span>osprey-framework<span class="o">[</span>all<span class="o">]</span>
+</pre></div>
+</div>
+</div>
+<p><strong>Creating a New Project</strong></p>
+<div class="version-07plus-change admonition">
+<p class="admonition-title">New in v0.7.7: Interactive Project Creation</p>
+<p>The framework now includes an interactive menu that guides you through project creation with helpful prompts and automatic API key detection. This is the recommended method for new users.</p>
+</div>
+<p>Once the framework is installed, you can create a new project using either the interactive menu or direct CLI commands:</p>
+<p><strong>Method 1: Interactive Mode (Recommended for New Users)</strong></p>
+<p>Simply run <code class="docutils literal notranslate"><span class="pre">osprey</span></code> without any arguments to launch the interactive menu:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey
+</pre></div>
+</div>
+<p>The interactive menu will:</p>
+<ol class="arabic simple">
+<li><p>Guide you through template selection with descriptions</p></li>
+<li><p>Help you choose an AI provider (Cborg, OpenAI, Anthropic, etc.)</p></li>
+<li><p>Let you select from available models</p></li>
+<li><p>Automatically detect API keys from your environment</p></li>
+<li><p>Create a ready-to-use project with smart defaults</p></li>
+</ol>
+<p><strong>Method 2: Direct CLI Command</strong></p>
+<p>For automation or if you prefer direct commands, use <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Create a project with the hello_world_weather template</span>
+osprey<span class="w"> </span>init<span class="w"> </span>my-weather-agent<span class="w"> </span>--template<span class="w"> </span>hello_world_weather
+
+<span class="c1"># Navigate to your project</span>
+<span class="nb">cd</span><span class="w"> </span>my-weather-agent
+</pre></div>
+</div>
+<p>Available templates:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">minimal</span></code> - Basic skeleton for starting from scratch</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">hello_world_weather</span></code> - Simple weather agent (recommended for learning)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> - Production control system integration template</p></li>
+</ul>
+<p>Both methods create identical project structures - choose whichever fits your workflow.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-file-directory" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 2.75C0 1.784.784 1 1.75 1H5c.55 0 1.07.26 1.4.7l.9 1.2a.25.25 0 0 0 .2.1h6.75c.966 0 1.75.784 1.75 1.75v8.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-8.5a.25.25 0 0 0-.25-.25H7.5c-.55 0-1.07-.26-1.4-.7l-.9-1.2a.25.25 0 0 0-.2-.1Z"></path></svg></span><span class="sd-summary-text"><strong>Understand Your Project Structure</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">The generated project includes all components needed for a complete AI agent application:</p>
+<ul class="simple">
+<li><p class="sd-card-text"><strong>Application code</strong> (<code class="docutils literal notranslate"><span class="pre">src/</span></code>) - Your capabilities, context classes, and business logic</p></li>
+<li><p class="sd-card-text"><strong>Service configurations</strong> (<code class="docutils literal notranslate"><span class="pre">services/</span></code>) - Container configs for Jupyter, OpenWebUI, and Pipelines</p></li>
+<li><p class="sd-card-text"><strong>Configuration file</strong> (<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>) - Self-contained application settings</p></li>
+<li><p class="sd-card-text"><strong>Environment template</strong> (<code class="docutils literal notranslate"><span class="pre">.env.example</span></code>) - API keys and secrets template</p></li>
+</ul>
+<p class="sd-card-text"><strong>Project Structure Example</strong> (using <code class="docutils literal notranslate"><span class="pre">hello_world_weather</span></code> template):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>my-weather-agent/
+├── src/
+│   └── my_weather_agent/
+│       ├── __init__.py
+│       ├── mock_weather_api.py      # Data source
+│       ├── context_classes.py       # Data models
+│       ├── registry.py              # Component registration
+│       └── capabilities/
+│           ├── __init__.py
+│           └── current_weather.py   # Business logic
+├── services/                        # Container configurations
+├── config.yml                       # Application settings
+└── .env.example                     # API key template
+</pre></div>
+</div>
+<p class="sd-card-text"><strong>Want to understand what each component does?</strong></p>
+<p class="sd-card-text">The <a class="reference internal" href="hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a> provides a detailed walkthrough of this structure - explaining what each file does, how components work together, and how to customize them for your needs. If you want to understand the architecture before continuing with deployment, jump to the tutorial now.</p>
+</div>
+</details></section>
+<section id="configuration-environment">
+<span id="configuration"></span><h2>Configuration &amp; Environment<a class="headerlink" href="#configuration-environment" title="Link to this heading">#</a></h2>
+<p>The generated project includes both a <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> configuration file and a <code class="docutils literal notranslate"><span class="pre">.env.example</span></code> template for environment variables. Configure both for your environment:</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-6" name="sd-tab-set-3" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-6">
+config.yml</label><div class="sd-tab-content docutils">
+<p><strong>Update config.yml</strong></p>
+<p>The generated project includes a complete <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> file in the project root. All framework settings are pre-configured with sensible defaults. Modify the following settings as needed:</p>
+<p><strong>1. Project Root Path</strong></p>
+<p>The <code class="docutils literal notranslate"><span class="pre">project_root</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> is automatically set to your project directory during <code class="docutils literal notranslate"><span class="pre">framework</span> <span class="pre">init</span></code>. For advanced use cases (multi-environment deployments), you can override this by setting <code class="docutils literal notranslate"><span class="pre">PROJECT_ROOT</span></code> in your <code class="docutils literal notranslate"><span class="pre">.env</span></code> file.</p>
+<p><strong>2. Ollama Base URL</strong></p>
+<p>Set the base URL for <a class="reference external" href="https://ollama.com/">Ollama</a>:</p>
+<ul class="simple">
+<li><p>For direct host access: <code class="docutils literal notranslate"><span class="pre">localhost:11434</span></code></p></li>
+<li><p>For container-based agents (like OpenWebUI pipelines): <code class="docutils literal notranslate"><span class="pre">host.containers.internal:11434</span></code></p></li>
+<li><p>See <a class="reference internal" href="#ollama-connection">Ollama Connection</a> for OpenWebUI-specific configuration</p></li>
+</ul>
+<p><strong>3. Deployed Services</strong></p>
+<p>Ensure the following are uncommented in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">jupyter</span></code> - Environment for editing and running generated code</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">open_webui</span></code> - Web-based chat interface</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pipelines</span></code> - Core agent runtime environment</p></li>
+</ul>
+<p><strong>4. API Provider URLs</strong></p>
+<p>If using <a class="reference external" href="https://cborg.lbl.gov/">CBorg</a> (LBNL internal only), set the API URL:</p>
+<ul class="simple">
+<li><p>Global: <code class="docutils literal notranslate"><span class="pre">https://api.cborg.lbl.gov/v1</span></code></p></li>
+<li><p>Local: <code class="docutils literal notranslate"><span class="pre">https://api-local.cborg.lbl.gov/v1</span></code> (requires local network)</p></li>
+</ul>
+<p>In <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>: <code class="docutils literal notranslate"><span class="pre">api:</span> <span class="pre">providers:cborg:base_url:</span> <span class="pre">https://api-local.cborg.lbl.gov/v1</span></code></p>
+<p><strong>5. Model Providers (External Users)</strong></p>
+<p>If you don’t have CBorg access, configure alternative providers in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Update the <code class="docutils literal notranslate"><span class="pre">provider</span></code> fields under the <code class="docutils literal notranslate"><span class="pre">models</span></code> section to use <code class="docutils literal notranslate"><span class="pre">openai</span></code>, <code class="docutils literal notranslate"><span class="pre">anthropic</span></code>, <code class="docutils literal notranslate"><span class="pre">ollama</span></code>, etc. Set corresponding API keys in your <code class="docutils literal notranslate"><span class="pre">.env</span></code> file.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-people" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 5.5a3.5 3.5 0 1 1 5.898 2.549 5.508 5.508 0 0 1 3.034 4.084.75.75 0 1 1-1.482.235 4 4 0 0 0-7.9 0 .75.75 0 0 1-1.482-.236A5.507 5.507 0 0 1 3.102 8.05 3.493 3.493 0 0 1 2 5.5ZM11 4a3.001 3.001 0 0 1 2.22 5.018 5.01 5.01 0 0 1 2.56 3.012.749.749 0 0 1-.885.954.752.752 0 0 1-.549-.514 3.507 3.507 0 0 0-2.522-2.372.75.75 0 0 1-.574-.73v-.352a.75.75 0 0 1 .416-.672A1.5 1.5 0 0 0 11 5.5.75.75 0 0 1 11 4Zm-5.5-.5a2 2 0 1 0-.001 3.999A2 2 0 0 0 5.5 3.5Z"></path></svg></span><span class="sd-summary-text">Need Support for Additional Providers?</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">We’re happy to implement support for additional model providers beyond those currently supported. Many research institutions and national laboratories now operate their own AI/LM services similar to LBNL’s CBorg system. If you need integration with your institution’s internal AI services or other providers, please reach out to us. We can work with you to add native support for your preferred provider.</p>
+</div>
+</details></div>
+<input id="sd-tab-item-7" name="sd-tab-set-3" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-7">
+Environment Variables</label><div class="sd-tab-content docutils">
+<p id="environment-variables"><strong>Environment Variables</strong></p>
+<p>The framework uses environment variables for <strong>secrets</strong> (API keys) and <strong>machine-specific settings</strong> (file paths, network configuration). This allows you to run the same project on different machines - your laptop, a lab server, or a control room computer - without changing your code or <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
+<p>The generated project includes a <code class="docutils literal notranslate"><span class="pre">.env.example</span></code> template with all supported variables.</p>
+<p><strong>When to use .env vs config.yml:</strong></p>
+<ul class="simple">
+<li><p><strong>Environment variables (.env):</strong> Secrets, absolute paths, proxy settings that change per machine</p></li>
+<li><p><strong>Configuration file (config.yml):</strong> Application behavior, model choices, capabilities that stay the same</p></li>
+</ul>
+<p><strong>Automatic Setup (if API keys are in your environment):</strong></p>
+<p>If you already have API keys exported in your shell:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># These are already in your shell environment</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">ANTHROPIC_API_KEY</span><span class="o">=</span>sk-ant-...
+<span class="nb">export</span><span class="w"> </span><span class="nv">CBORG_API_KEY</span><span class="o">=</span>...
+
+<span class="c1"># When you create a project, the framework automatically creates .env with them!</span>
+osprey<span class="w"> </span>init<span class="w"> </span>my-agent
+<span class="c1"># or use interactive mode: osprey</span>
+</pre></div>
+</div>
+<p>The framework will create a <code class="docutils literal notranslate"><span class="pre">.env</span></code> file automatically with your detected keys.</p>
+<p><strong>Manual Setup (if keys are not in environment):</strong></p>
+<p>If API keys are not in your environment, set them up manually:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Copy the template</span>
+cp<span class="w"> </span>.env.example<span class="w"> </span>.env
+
+<span class="c1"># Edit with your values</span>
+nano<span class="w"> </span>.env<span class="w">  </span><span class="c1"># or your preferred editor</span>
+</pre></div>
+</div>
+<p><strong>Required Variables:</strong></p>
+<p><strong>API Keys</strong> (at least one required):</p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">OPENAI_API_KEY</span></code></dt><dd><p>OpenAI API key for GPT models.</p>
+<p>Get from: <a class="reference external" href="https://platform.openai.com/api-keys">https://platform.openai.com/api-keys</a></p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code></dt><dd><p>Anthropic API key for Claude models.</p>
+<p>Get from: <a class="reference external" href="https://console.anthropic.com/">https://console.anthropic.com/</a></p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">GOOGLE_API_KEY</span></code></dt><dd><p>Google API key for Gemini models.</p>
+<p>Get from: <a class="reference external" href="https://makersuite.google.com/app/apikey">https://makersuite.google.com/app/apikey</a></p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">CBORG_API_KEY</span></code></dt><dd><p>CBorg API key (LBNL internal only).</p>
+<p>Get from: <a class="reference external" href="https://cborg.lbl.gov/">https://cborg.lbl.gov/</a></p>
+</dd>
+</dl>
+<p><strong>Optional Variables:</strong></p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">OSPREY_PROJECT</span></code></dt><dd><p>Default project directory for CLI commands (new in v0.7.7). Allows working with specific projects without changing directories.</p>
+<p>Example: <code class="docutils literal notranslate"><span class="pre">/home/user/projects/my-agent</span></code></p>
+<p>See <a class="reference internal" href="../developer-guides/02_quick-start-patterns/00_cli-reference.html"><span class="doc">CLI Reference</span></a> for multi-project workflow examples.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">LOCAL_PYTHON_VENV</span></code></dt><dd><p>Path to Python virtual environment for local execution mode.</p>
+<p>Default: Uses current active environment</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">TZ</span></code></dt><dd><p>Timezone for timestamp formatting.</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">America/Los_Angeles</span></code></p>
+<p>Example: <code class="docutils literal notranslate"><span class="pre">UTC</span></code>, <code class="docutils literal notranslate"><span class="pre">Europe/London</span></code>, <code class="docutils literal notranslate"><span class="pre">Asia/Tokyo</span></code></p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code></dt><dd><p>Override config file location (advanced usage).</p>
+<p>Default: <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> in current directory</p>
+</dd>
+</dl>
+<p><strong>Optional Variables</strong> (for advanced use cases):</p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">PROJECT_ROOT</span></code></dt><dd><p>Override the <code class="docutils literal notranslate"><span class="pre">project_root</span></code> value from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Useful for multi-environment deployments or if you move your project directory.</p>
+<p>Example: <code class="docutils literal notranslate"><span class="pre">/home/user/my-agent</span></code></p>
+</dd>
+</dl>
+<p><strong>Network Settings</strong> (for restricted environments):</p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">HTTP_PROXY</span></code></dt><dd><p>HTTP proxy server URL. Useful in production environments with firewall restrictions (labs, control rooms, corporate networks).</p>
+<p>Example: <code class="docutils literal notranslate"><span class="pre">http://proxy.company.com:8080</span></code></p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">NO_PROXY</span></code></dt><dd><p>Comma-separated list of hosts to exclude from proxy.</p>
+<p>Example: <code class="docutils literal notranslate"><span class="pre">localhost,127.0.0.1,.internal</span></code></p>
+</dd>
+</dl>
+</div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Security &amp; Multi-Machine Workflow:</strong></p>
+<ul class="simple">
+<li><p>The framework automatically loads <code class="docutils literal notranslate"><span class="pre">.env</span></code> from your project root</p></li>
+<li><p><strong>Keep ``.env`` in ``.gitignore``</strong> to protect secrets from version control</p></li>
+<li><p>Environment variables in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> are resolved using <code class="docutils literal notranslate"><span class="pre">${VARIABLE_NAME}</span></code> syntax</p></li>
+<li><p><strong>Best practice:</strong> Keep one <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (in git), but different <code class="docutils literal notranslate"><span class="pre">.env</span></code> files per machine (NOT in git)</p></li>
+<li><p>Example: <code class="docutils literal notranslate"><span class="pre">.env.laptop</span></code>, <code class="docutils literal notranslate"><span class="pre">.env.controlroom</span></code>, <code class="docutils literal notranslate"><span class="pre">.env.server</span></code> - copy the appropriate one to <code class="docutils literal notranslate"><span class="pre">.env</span></code> when running on that machine</p></li>
+</ul>
+</div>
+</section>
+<section id="documentation">
+<h2>Documentation<a class="headerlink" href="#documentation" title="Link to this heading">#</a></h2>
+<p><strong>Compile Documentation (Optional)</strong></p>
+<p>If you want to build and serve the documentation locally:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install documentation dependencies</span>
+uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>docs
+
+<span class="c1"># Build and serve documentation with auto-reload</span>
+<span class="nb">cd</span><span class="w"> </span>docs<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>sphinx-autobuild<span class="w"> </span><span class="nb">source</span><span class="w"> </span>build
+</pre></div>
+</div>
+<p>Once running, you can view the documentation at <a class="reference external" href="http://localhost:8000">http://localhost:8000</a></p>
+</section>
+<section id="building-and-running">
+<h2>Building and Running<a class="headerlink" href="#building-and-running" title="Link to this heading">#</a></h2>
+<p>Once you have installed the framework, created a project, and configured it, you can start the services. The framework includes a deployment CLI that orchestrates all services using Podman containers.</p>
+<p><strong>Start Services</strong></p>
+<p>The framework CLI provides convenient commands for managing services. For detailed information about all deployment options, see <a class="reference internal" href="../developer-guides/05_production-systems/05_container-and-deployment.html"><span class="doc">Container Deployment</span></a> or the <a class="reference internal" href="../developer-guides/02_quick-start-patterns/00_cli-reference.html"><span class="doc">CLI reference</span></a>.</p>
+<div class="version-07plus-change admonition">
+<p class="admonition-title">New in v0.7+: Framework CLI Commands</p>
+<p>Service management is now handled through the <a class="reference internal" href="../developer-guides/02_quick-start-patterns/00_cli-reference.html"><span class="doc">osprey deploy</span></a> command instead of running Python scripts directly.</p>
+</div>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-8" name="sd-tab-set-4" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-8">
+Development Mode (Recommended for starters)</label><div class="sd-tab-content docutils">
+<p><strong>For initial setup and debugging</strong>, start services one by one in non-detached mode:</p>
+<ol class="arabic simple">
+<li><p>Comment out all services except one in your <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> under <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code></p></li>
+<li><p>Start the first service:</p></li>
+</ol>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up
+</pre></div>
+</div>
+<ol class="arabic simple" start="3">
+<li><p>Monitor the logs to ensure it starts correctly</p></li>
+<li><p>Once stable, stop with <code class="docutils literal notranslate"><span class="pre">Ctrl+C</span></code> and uncomment the next service</p></li>
+<li><p>Repeat until all services are working</p></li>
+</ol>
+<p>This approach helps identify issues early and ensures each service is properly configured before proceeding.</p>
+</div>
+<input id="sd-tab-item-9" name="sd-tab-set-4" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-9">
+Production Mode</label><div class="sd-tab-content docutils">
+<p><strong>Once all services are tested individually</strong>, start everything together in detached mode:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--detached
+</pre></div>
+</div>
+<p>This runs all services in the background, suitable for production deployments where you don’t need to monitor individual service logs.</p>
+</div>
+</div>
+<p><strong>Other Deployment Commands</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>down<span class="w">      </span><span class="c1"># Stop all services</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>restart<span class="w">   </span><span class="c1"># Restart services</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>status<span class="w">    </span><span class="c1"># Show service status</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>clean<span class="w">     </span><span class="c1"># Clean deployment</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>rebuild<span class="w">   </span><span class="c1"># Rebuild containers</span>
+</pre></div>
+</div>
+<p><strong>Verify Services are Running</strong></p>
+<p>Check that services are running properly:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># If using Docker</span>
+docker<span class="w"> </span>ps
+
+<span class="c1"># If using Podman</span>
+podman<span class="w"> </span>ps
+</pre></div>
+</div>
+<p><strong>Access OpenWebUI</strong></p>
+<p>Once services are running, access the web interface at:</p>
+<ul class="simple">
+<li><p>OpenWebUI: <a class="reference external" href="http://localhost:8080">http://localhost:8080</a></p></li>
+</ul>
+</section>
+<section id="openwebui-configuration">
+<span id="id2"></span><h2>OpenWebUI Configuration<a class="headerlink" href="#openwebui-configuration" title="Link to this heading">#</a></h2>
+<p><a class="reference external" href="https://openwebui.com/">OpenWebUI</a> is a feature-rich, self-hosted web interface for Language Models that provides a ChatGPT-like experience with extensive customization options. The framework’s integration provides real-time progress tracking during agent execution, automatic display of <a class="reference internal" href="../api_reference/01_core_framework/02_state_and_context.html#id10" title="osprey.state.StateManager.register_figure"><code class="xref py py-func docutils literal notranslate"><span class="pre">registered</span> <span class="pre">figures</span></code></a> and <a class="reference internal" href="../api_reference/01_core_framework/02_state_and_context.html#id11" title="osprey.state.StateManager.register_notebook"><code class="xref py py-func docutils literal notranslate"><span class="pre">notebooks</span></code></a>, and session continuity across conversations.</p>
+<p id="ollama-connection"><strong>Ollama Connection:</strong></p>
+<p>The framework automatically configures OpenWebUI to connect to Ollama at <code class="docutils literal notranslate"><span class="pre">http://host.docker.internal:11434</span></code>. This special hostname allows containers to access services running on the host machine (containers cannot access the host’s localhost directly).</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>On <strong>Linux with Podman</strong>, use <code class="docutils literal notranslate"><span class="pre">host.containers.internal</span></code> instead of <code class="docutils literal notranslate"><span class="pre">host.docker.internal</span></code>. Update the URL in <code class="docutils literal notranslate"><span class="pre">services/open-webui/docker-compose.yml</span></code> if needed.</p>
+</div>
+<p>Once Ollama is serving, <a class="reference external" href="https://openwebui.com/">OpenWebUI</a> will automatically discover all models currently available in your Ollama installation.</p>
+<p><strong>Pipeline Connection:</strong></p>
+<p>The Osprey framework provides a pipeline connection to integrate the agent framework with OpenWebUI.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-info" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text">Understanding Pipelines</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><a class="reference external" href="https://docs.openwebui.com/features/pipelines/">OpenWebUI Pipelines</a> are a powerful extensibility system that allows you to customize and extend OpenWebUI’s functionality. Think of pipelines as plugins that can:</p>
+<ul class="simple">
+<li><p class="sd-card-text"><strong>Filter</strong>: Process user messages before they reach the LLM and modify responses after they return</p></li>
+<li><p class="sd-card-text"><strong>Pipe</strong>: Create custom “models” that integrate external APIs, build workflows, or implement RAG systems</p></li>
+<li><p class="sd-card-text"><strong>Integrate</strong>: Connect with external services, databases, or specialized AI providers</p></li>
+</ul>
+<p class="sd-card-text">Pipelines appear as models with an “External” designation in your model selector and enable advanced functionality like real-time data retrieval, custom processing workflows, and integration with external AI services.</p>
+</div>
+</details><p>The framework automatically configures the pipeline connection with these settings:</p>
+<ul class="simple">
+<li><p><strong>URL</strong>: <code class="docutils literal notranslate"><span class="pre">http://pipelines:9099</span></code> (default configuration)</p></li>
+<li><p><strong>API Key</strong>: <code class="docutils literal notranslate"><span class="pre">0p3n-w3bu!</span></code> (default for local development)</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Production Deployments</strong>: The default <code class="docutils literal notranslate"><span class="pre">PIPELINES_API_KEY</span></code> is intended for local development only. For production or shared deployments, override it by adding <code class="docutils literal notranslate"><span class="pre">PIPELINES_API_KEY=your-secure-key</span></code> to your <code class="docutils literal notranslate"><span class="pre">.env</span></code> file. Use a strong, randomly generated key.</p>
+</div>
+<p><strong>Note</strong>: The URL uses <code class="docutils literal notranslate"><span class="pre">pipelines:9099</span></code> instead of <code class="docutils literal notranslate"><span class="pre">localhost:9099</span></code> because OpenWebUI runs inside a container and communicates with the pipelines service through the container network.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-secondary sd-bg-text-secondary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-tools" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.433 2.304A4.492 4.492 0 0 0 3.5 6c0 1.598.832 3.002 2.09 3.802.518.328.929.923.902 1.64v.008l-.164 3.337a.75.75 0 1 1-1.498-.073l.163-3.33c.002-.085-.05-.216-.207-.316A5.996 5.996 0 0 1 2 6a5.993 5.993 0 0 1 2.567-4.92 1.482 1.482 0 0 1 1.673-.04c.462.296.76.827.76 1.423v2.82c0 .082.041.16.11.206l.75.51a.25.25 0 0 0 .28 0l.75-.51A.249.249 0 0 0 9 5.282V2.463c0-.596.298-1.127.76-1.423a1.482 1.482 0 0 1 1.673.04A5.993 5.993 0 0 1 14 6a5.996 5.996 0 0 1-2.786 5.068c-.157.1-.209.23-.207.315l.163 3.33a.752.752 0 0 1-1.094.714.75.75 0 0 1-.404-.64l-.164-3.345c-.027-.717.384-1.312.902-1.64A4.495 4.495 0 0 0 12.5 6a4.492 4.492 0 0 0-1.933-3.696c-.024.017-.067.067-.067.16v2.818a1.75 1.75 0 0 1-.767 1.448l-.75.51a1.75 1.75 0 0 1-1.966 0l-.75-.51A1.75 1.75 0 0 1 5.5 5.282V2.463c0-.092-.043-.142-.067-.159Z"></path></svg></span><span class="sd-summary-text">Manual Configuration (if needed)</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">If you need to manually configure or verify the pipeline connection:</p>
+<ol class="arabic simple">
+<li><p class="sd-card-text">Go to <strong>Admin Panel</strong> → <strong>Settings</strong> (upper panel) → <strong>Connections</strong> (left panel)</p></li>
+<li><p class="sd-card-text">Click the <strong>(+)</strong> button in <strong>Manage OpenAI API Connections</strong></p></li>
+<li><p class="sd-card-text">Configure the pipeline connection with these details:</p>
+<ul class="simple">
+<li><p class="sd-card-text"><strong>URL</strong>: <code class="docutils literal notranslate"><span class="pre">http://pipelines:9099</span></code> (if using default configuration)</p></li>
+<li><p class="sd-card-text"><strong>API Key</strong>: Found in <code class="docutils literal notranslate"><span class="pre">services/osprey/pipelines/docker-compose.yml.j2</span></code> under <code class="docutils literal notranslate"><span class="pre">PIPELINES_API_KEY</span></code> (default <code class="docutils literal notranslate"><span class="pre">0p3n-w3bu!</span></code>)</p></li>
+</ul>
+</li>
+</ol>
+</div>
+</details><p><strong>Authentication:</strong></p>
+<p>For local development convenience, OpenWebUI authentication is disabled (<code class="docutils literal notranslate"><span class="pre">WEBUI_AUTH=false</span></code>). This means:</p>
+<ul class="simple">
+<li><p><strong>No login required</strong> - Access the interface immediately at <a class="reference external" href="http://localhost:8080">http://localhost:8080</a></p></li>
+<li><p><strong>Full admin access</strong> - All features and settings are available without authentication</p></li>
+<li><p><strong>Faster workflow</strong> - No need to manage passwords or user accounts</p></li>
+</ul>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><strong>Security Consideration</strong>: If you deploy OpenWebUI on a shared server or expose it to a network, you should enable authentication for security. To enable authentication:</p>
+<ol class="arabic simple">
+<li><p>Open <code class="docutils literal notranslate"><span class="pre">services/osprey/open-webui/docker-compose.yml.j2</span></code></p></li>
+<li><p>Change <code class="docutils literal notranslate"><span class="pre">WEBUI_AUTH=false</span></code> to <code class="docutils literal notranslate"><span class="pre">WEBUI_AUTH=true</span></code></p></li>
+<li><p>Redeploy with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code></p></li>
+<li><p>On first visit, you’ll be prompted to create an admin account</p></li>
+</ol>
+<p>For localhost-only deployments (default), authentication is not necessary.</p>
+</div>
+<p><strong>Additional OpenWebUI Configuration:</strong></p>
+<p>For optimal performance and user experience, consider these additional configuration settings:</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-10" name="sd-tab-set-5" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-10" id="model-management">
+Model Management</label><div class="sd-tab-content docutils">
+<blockquote>
+<div><p><strong>Making Models Public:</strong></p>
+<p>To use Ollama models for OpenWebUI features like chat tagging, title generation, and other automated tasks, you must configure them as public models:</p>
+<ol class="arabic simple">
+<li><p>Go to <strong>Admin Panel</strong> → <strong>Settings</strong> → <strong>Models</strong></p></li>
+<li><p>Find the Ollama model you want to use (e.g., <code class="docutils literal notranslate"><span class="pre">mistral:7b</span></code>, <code class="docutils literal notranslate"><span class="pre">llama3:8b</span></code>)</p></li>
+<li><p>Click the <strong>edit button</strong> (pencil icon) next to the model</p></li>
+<li><p>Ensure the model is <strong>activated</strong> (enabled)</p></li>
+<li><p>Set the model visibility to <strong>Public</strong> (not Private)</p></li>
+<li><p>Click <strong>Save</strong> to apply the changes</p></li>
+</ol>
+<p><strong>Deactivating Unused Models:</strong></p>
+<ul class="simple">
+<li><p>Deactivate unused (Ollama-)models in <strong>Admin Panel</strong> → <strong>Settings</strong> → <strong>Models</strong> to reduce clutter</p></li>
+<li><p>This helps keep your model selection interface clean and focused on the models you actually use</p></li>
+<li><p>You can always reactivate models later if needed</p></li>
+</ul>
+</div></blockquote>
+</div>
+<input id="sd-tab-item-11" name="sd-tab-set-5" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-11">
+Chat Augmentation</label><div class="sd-tab-content docutils">
+<p>OpenWebUI automatically generates titles and tags for conversations, which can interfere with your main agent’s processing. It’s recommended to use a dedicated local model for this:</p>
+<ol class="arabic simple">
+<li><p>Go to <strong>Admin Panel</strong> → <strong>Settings</strong> → <strong>Interface</strong></p></li>
+<li><p>Find <strong>Task Model</strong> setting</p></li>
+<li><p>Change from <strong>Current Model</strong> to any local Ollama model (e.g., <code class="docutils literal notranslate"><span class="pre">mistral:7b</span></code>, <code class="docutils literal notranslate"><span class="pre">llama3:8b</span></code>)</p></li>
+<li><p>This prevents title generation from consuming your main agent’s resources</p></li>
+</ol>
+<p>Note that this model needs to be public as well (see <a class="reference internal" href="#model-management"><span class="std std-ref">Model Management</span></a> section to the left).</p>
+</div>
+<input id="sd-tab-item-12" name="sd-tab-set-5" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-12">
+Buttons</label><div class="sd-tab-content docutils">
+<p><strong>Adding Custom Function Buttons:</strong></p>
+<p>OpenWebUI allows you to add custom function buttons to enhance the user interface. For comprehensive information about functions, see the <a class="reference external" href="https://docs.openwebui.com/features/plugin/">official OpenWebUI functions documentation</a>.</p>
+<p><strong>Installing Functions:</strong></p>
+<ol class="arabic simple">
+<li><p>Navigate to <strong>Admin Panel</strong> → <strong>Functions</strong></p></li>
+<li><p>Add a function using the plus sign (UI details may vary between OpenWebUI versions)</p></li>
+<li><p>Copy and paste function code from our repository’s pre-built functions</p></li>
+</ol>
+<p><strong>Available Functions in Repository:</strong></p>
+<p>The framework includes several pre-built functions located in <code class="docutils literal notranslate"><span class="pre">services/osprey/open-webui/functions/</span></code>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">execution_history_button.py</span></code> - View and manage execution history</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">agent_context_button.py</span></code> - Access agent context information</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">memory_button.py</span></code> - Memory management functionality</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">execution_plan_editor.py</span></code> - Edit and manage execution plans</p></li>
+</ul>
+<p><strong>Activation Requirements:</strong></p>
+<p>After adding a function:</p>
+<ol class="arabic simple">
+<li><p><strong>Enable the function</strong> - Activate it in the functions interface</p></li>
+<li><p><strong>Enable globally</strong> - Use additional options to enable the function globally</p></li>
+<li><p><strong>Refresh the page</strong> - The button should appear on your OpenWebUI interface after refresh</p></li>
+</ol>
+<p>These buttons provide quick access to advanced agent capabilities and debugging tools.</p>
+</div>
+<input id="sd-tab-item-13" name="sd-tab-set-5" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-13">
+Debugging</label><div class="sd-tab-content docutils">
+<p><strong>Real-time Log Viewer:</strong></p>
+<p>For debugging and monitoring, use the <code class="docutils literal notranslate"><span class="pre">/logs</span></code> command in chat to view application logs without accessing container logs directly:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">/logs</span></code> - Show last 100 log entries</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/logs</span> <span class="pre">50</span></code> - Show last 50 log entries</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/logs</span> <span class="pre">help</span></code> - Show available options</p></li>
+</ul>
+<p>This is particularly useful for troubleshooting when OpenWebUI provides minimal feedback by design.</p>
+</div>
+<input id="sd-tab-item-14" name="sd-tab-set-5" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-14">
+Default Prompts</label><div class="sd-tab-content docutils">
+<p><strong>Customizing Default Prompt Suggestions:</strong></p>
+<p>OpenWebUI provides default prompt suggestions that you can customize for your specific use case:</p>
+<p><strong>Accessing Default Prompts:</strong></p>
+<ol class="arabic simple">
+<li><p>Go to <strong>Admin Panel</strong> → <strong>Settings</strong> → <strong>Interface</strong></p></li>
+<li><p>Scroll down to find <strong>Default Prompt Suggestions</strong> section</p></li>
+<li><p>Here you can see the built-in OpenWebUI prompt suggestions</p></li>
+</ol>
+<p><strong>Customizing Prompts:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Remove Default Prompts</strong>: Clear the existing default prompts if they don’t fit your workflow</p></li>
+<li><p><strong>Add Custom Prompts</strong>: Replace them with prompts tailored to your agent’s capabilities</p></li>
+<li><p><strong>Use Cases</strong>:</p>
+<ul class="simple">
+<li><p><strong>Production</strong>: Set prompts that guide users toward your agent’s core functionalities</p></li>
+<li><p><strong>R&amp;D Testing</strong>: Create prompts that help test specific features or edge cases</p></li>
+<li><p><strong>Domain-Specific</strong>: Add prompts relevant to your application domain (e.g., ALS operations, data analysis)</p></li>
+</ul>
+</li>
+</ol>
+<p><strong>Example Custom Prompts:</strong></p>
+<ul class="simple">
+<li><p>“Analyze the recent beam performance data from the storage ring”</p></li>
+<li><p>“Find PV addresses related to beam position monitors”</p></li>
+<li><p>“Generate a summary of today’s logbook entries”</p></li>
+<li><p>“Help me troubleshoot insertion device issues”</p></li>
+</ul>
+<p><strong>Benefits:</strong></p>
+<ul class="simple">
+<li><p>Guides users toward productive interactions with your agent</p></li>
+<li><p>Reduces cognitive load for new users</p></li>
+<li><p>Enables consistent testing scenarios during development</p></li>
+<li><p>Improves user adoption by showcasing agent capabilities</p></li>
+</ul>
+</div>
+</div>
+</section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>
+<p><strong>Common Issues:</strong></p>
+<ul class="simple">
+<li><p>If you encounter connection issues with Ollama, ensure you’re using <code class="docutils literal notranslate"><span class="pre">host.containers.internal</span></code> instead of <code class="docutils literal notranslate"><span class="pre">localhost</span></code> when connecting from containers</p></li>
+<li><p>Verify that all required services are uncommented in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p></li>
+<li><p>Check that API keys are properly set in the <code class="docutils literal notranslate"><span class="pre">.env</span></code> file</p></li>
+<li><p>Ensure container runtime is running (Docker Desktop or Podman machine on macOS/Windows)</p></li>
+<li><p>If containers fail to start, check logs with: <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">logs</span> <span class="pre">&lt;container_name&gt;</span></code> or <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">logs</span> <span class="pre">&lt;container_name&gt;</span></code></p></li>
+</ul>
+<p><strong>Verification Steps:</strong></p>
+<ol class="arabic simple">
+<li><p>Check Python version: <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">--version</span></code> (should be 3.11.x or higher)</p></li>
+<li><p>Check container runtime version: <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">--version</span></code> or <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">--version</span></code> (should be 4.0.0+)</p></li>
+<li><p>Verify virtual environment is active (should see <code class="docutils literal notranslate"><span class="pre">(venv)</span></code> in your prompt)</p></li>
+<li><p>Test core framework imports: <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-c</span> <span class="pre">&quot;import</span> <span class="pre">langgraph;</span> <span class="pre">print('LangGraph</span> <span class="pre">installed</span> <span class="pre">successfully')&quot;</span></code></p></li>
+<li><p>Test container connectivity: <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">run</span> <span class="pre">--rm</span> <span class="pre">alpine</span> <span class="pre">ping</span> <span class="pre">-c</span> <span class="pre">1</span> <span class="pre">host.containers.internal</span></code> (or use <code class="docutils literal notranslate"><span class="pre">podman</span></code> instead)</p></li>
+<li><p>Check service status: <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">ps</span></code> or <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">ps</span></code></p></li>
+</ol>
+<p><strong>Common Installation Issues:</strong></p>
+<ul class="simple">
+<li><p><strong>Python version mismatch</strong>: Ensure you’re using Python 3.11+ with <code class="docutils literal notranslate"><span class="pre">python3.11</span> <span class="pre">-m</span> <span class="pre">venv</span> <span class="pre">venv</span></code></p></li>
+<li><p><strong>Package conflicts</strong>: If you get dependency conflicts, try creating a fresh virtual environment</p></li>
+<li><p><strong>Missing dependencies</strong>: The main requirements.txt should install everything needed; avoid mixing with system packages</p></li>
+</ul>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">#</a></h2>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a></dt><dd><p>Build your first simple weather agent</p>
+</dd>
+<dt><a class="reference internal" href="control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a></dt><dd><p>Production control system assistant with channel finding and comprehensive tooling</p>
+</dd>
+<dt><a class="reference internal" href="../developer-guides/02_quick-start-patterns/00_cli-reference.html"><span class="doc">CLI Reference</span></a></dt><dd><p>Complete CLI command reference</p>
+</dd>
+<dt><a class="reference internal" href="../api_reference/01_core_framework/04_configuration_system.html"><span class="doc">Configuration System</span></a></dt><dd><p>Deep dive into configuration system</p>
+</dd>
+<dt><a class="reference internal" href="../developer-guides/03_core-framework-systems/03_registry-and-discovery.html"><span class="doc">Registry and Discovery</span></a></dt><dd><p>Understanding the registry and component discovery</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Getting Started</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="conceptual-tutorial.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Conceptual Tutorial</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-you-ll-learn">What You’ll Learn</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation-steps">Installation Steps</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-environment">Configuration &amp; Environment</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#documentation">Documentation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#building-and-running">Building and Running</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#openwebui-configuration">OpenWebUI Configuration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/getting-started/installation.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

@@ -1,0 +1,2012 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey.infrastructure.reactive_orchestrator_node &#8212; Osprey Framework 0.11.5 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
+
+
+
+
+
+const initStyles = () => {
+    const defaultStyle = document.createElement('style');
+    defaultStyle.textContent = `pre.mermaid {
+    /* Same as .mermaid-container > pre */
+    display: block;
+    width: 100%;
+}
+
+pre.mermaid > svg {
+    /* Same as .mermaid-container > pre > svg */
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}`;
+    document.head.appendChild(defaultStyle);
+
+    const fullscreenStyle = document.createElement('style');
+    fullscreenStyle.textContent = `.mermaid-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.mermaid-container > pre {
+    display: block;
+    width: 100%;
+}
+
+.mermaid-container > pre > svg {
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}
+
+.mermaid-fullscreen-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    color: #333;
+}
+
+.mermaid-fullscreen-btn:hover {
+    opacity: 100% !important;
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-btn.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-btn.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 95vw;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.98);
+    z-index: 9999;
+    padding: 20px;
+    overflow: auto;
+}
+
+.mermaid-fullscreen-modal.dark-theme {
+    background: rgba(0, 0, 0, 0.98);
+}
+
+.mermaid-fullscreen-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen {
+    position: relative;
+    width: 95vw;
+    height: 90vh;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen.dark-theme {
+    background: #1a1a1a;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-container-fullscreen pre.mermaid {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen .mermaid svg {
+    height: 100% !important;
+    width: 100% !important;
+    cursor: grab;
+}
+
+.mermaid-fullscreen-close {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    font-size: 24px;
+    line-height: 1;
+    color: #333;
+}
+
+.mermaid-fullscreen-close:hover {
+    background: white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-close.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-close.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
+    display: none !important;
+}`;
+    document.head.appendChild(fullscreenStyle);
+}
+
+// Detect if page has dark background
+const isDarkTheme = () => {
+    // We use a set of heuristics:
+    // 1. Check for common dark mode classes or attributes
+    // 2. Check computed background color brightness
+    if (document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        document.body.getAttribute('data-theme') === 'dark') {
+        // console.log("Dark theme detected via class/attribute");
+        return true;
+    }
+    if (document.documentElement.classList.contains('light') ||
+        document.documentElement.getAttribute('data-theme') === 'light' ||
+        document.body.classList.contains('light') ||
+        document.body.getAttribute('data-theme') === 'light') {
+        // console.log("Light theme detected via class/attribute");
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // console.log("Dark theme detected via prefers-color-scheme");
+        return true;
+    }
+    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        // console.log("Background color brightness:", brightness);
+        return brightness < 128;
+    }
+    // console.log("No dark or light theme detected, defaulting to light theme");
+    return false;
+};
+
+let darkTheme = isDarkTheme();
+let modal = null;
+let modalContent = null;
+let previousScrollOffset = [window.scrollX, window.scrollY];
+
+const runMermaid = async (rerun) => {
+    console.log("Running mermaid diagrams, rerun =", rerun);
+    // clear all existing mermaid charts
+    let all_mermaids = document.querySelectorAll(".mermaid");
+
+    if (rerun) {
+        all_mermaids.forEach((el) => {
+            if(!el.hasAttribute("data-original-code")) {
+                // store original code
+                // console.log(`Storing original code for first run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+            if(el.getAttribute("data-processed") === "true") {
+                // remove and restore original
+                el.removeAttribute("data-processed");
+                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
+                el.innerHTML = el.getAttribute('data-original-code');
+            } else {
+                // store original code
+                // console.log(`Storing original code for re-run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+        });
+        await mermaid.run();
+    }
+
+    all_mermaids = document.querySelectorAll(".mermaid");
+    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
+
+    if ("False" === "True") {
+        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
+        if(mermaids_to_add_zoom > 0) {
+            var svgs = d3.selectAll("");
+            if(all_mermaids.length !== mermaids_processed.length) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else if(svgs.size() !== mermaids_to_add_zoom) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else {
+                svgs.each(function() {
+                    var svg = d3.select(this);
+                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
+                    var inner = svg.select("g");
+                    var zoom = d3.zoom().on("zoom", function(event) {
+                        inner.attr("transform", event.transform);
+                    });
+                    svg.call(zoom);
+                });
+            }
+        }
+    } else if(all_mermaids.length !== mermaids_processed.length) {
+        // Wait for mermaid to process all diagrams
+        setTimeout(() => runMermaid(false), 200);
+        return;
+    }
+
+    // Stop here if not adding fullscreen capability
+    if ("True" !== "True") return;
+
+    if (modal !== null ) {
+        // Destroy existing modal
+        modal.remove();
+        modal = null;
+        modalContent = null;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
+    modal.innerHTML = `
+        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
+        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
+    `;
+    document.body.appendChild(modal);
+
+    modalContent = modal.querySelector('.mermaid-container-fullscreen');
+    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
+
+    const closeModal = () => {
+        modal.classList.remove('active');
+        modalContent.innerHTML = '';
+        document.body.style.overflow = ''
+        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+        }
+    });
+
+    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
+        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
+            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
+            // Already processed, adjust button class if needed
+            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
+            if (existingBtn) {
+                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+            }
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.className = 'mermaid-container';
+        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
+        container.appendChild(mermaidDiv);
+
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
+        fullscreenBtn.textContent = '⛶';
+        fullscreenBtn.style.opacity = '50%';
+
+        // Calculate dynamic position based on diagram's margin and padding
+        const diagramStyle = window.getComputedStyle(mermaidDiv);
+        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
+        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
+        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
+        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
+        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
+        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
+
+        fullscreenBtn.addEventListener('click', () => {
+            previousScrollOffset = [window.scroll, window.scrollY];
+            const clone = mermaidDiv.cloneNode(true);
+            modalContent.innerHTML = '';
+            modalContent.appendChild(clone);
+
+            const svg = clone.querySelector('svg');
+            if (svg) {
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxWidth = '100%';
+                svg.style.sdisplay = 'block';
+
+                if ("False" === "True") {
+                    setTimeout(() => {
+                        const g = svg.querySelector('g');
+                        if (g) {
+                            var svgD3 = d3.select(svg);
+                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
+                            var inner = svgD3.select("g");
+                            var zoom = d3.zoom().on("zoom", function(event) {
+                                inner.attr("transform", event.transform);
+                            });
+                            svgD3.call(zoom);
+                        }
+                    }, 100);
+                }
+            }
+
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+        container.appendChild(fullscreenBtn);
+    });
+};
+
+const load = async () => {
+    initStyles();
+
+    await runMermaid(true);
+
+    const reRunIfThemeChanges = async () => {
+        const newDarkTheme = isDarkTheme();
+        if (newDarkTheme !== darkTheme) {
+            darkTheme = newDarkTheme;
+            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
+            await mermaid.initialize(
+                {...JSON.parse(
+                    `{"startOnLoad": false}`
+                ),
+                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+                }
+            );
+            await runMermaid(true);
+        }
+    };
+
+    // Update theme classes when theme changes
+    const themeObserver = new MutationObserver(reRunIfThemeChanges);
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+    themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+};
+
+
+
+
+
+console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
+mermaid.initialize(
+    {...JSON.parse(
+        `{"startOnLoad": false}`
+    ),
+    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+    }
+);
+
+window.addEventListener("load", load);</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey/infrastructure/reactive_orchestrator_node';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey.infrastructure.reactive_orchestrator_node</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey.infrastructure.reactive_orchestrator_node</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Reactive Orchestrator Node - ReAct Agent Pattern.</span>
+
+<span class="sd">Implements step-by-step reactive orchestration using the ReAct (Reasoning + Acting)</span>
+<span class="sd">pattern. Instead of generating a full execution plan upfront, this orchestrator</span>
+<span class="sd">decides the next action one step at a time, observing results between steps.</span>
+
+<span class="sd">The reactive orchestrator produces individual ``PlannedStep`` objects that execute</span>
+<span class="sd">through the same ``@capability_node`` infrastructure as the plan-first orchestrator.</span>
+<span class="sd">Capabilities are unaware of which orchestration mode generated their step.</span>
+
+<span class="sd">Key components:</span>
+<span class="sd">    - ``ReactiveOrchestratorNode``: Infrastructure node implementing the ReAct loop</span>
+<span class="sd">    - ``validate_single_step``: Reused from orchestration_node for step validation</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">langgraph.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">interrupt</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.approval</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">clear_approval_state</span><span class="p">,</span>
+    <span class="n">create_approval_type</span><span class="p">,</span>
+    <span class="n">create_step_approval_interrupt</span><span class="p">,</span>
+    <span class="n">get_approval_resume_data</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.decorators</span><span class="w"> </span><span class="kn">import</span> <span class="n">infrastructure_node</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.errors</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ErrorClassification</span><span class="p">,</span>
+    <span class="n">ErrorSeverity</span><span class="p">,</span>
+    <span class="n">InvalidContextKeyError</span><span class="p">,</span>
+    <span class="n">ReclassificationRequiredError</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.nodes</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseInfrastructureNode</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.planning</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExecutionPlan</span><span class="p">,</span> <span class="n">PlannedStep</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.context.context_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContextManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.infrastructure.orchestration_node</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">_is_planning_mode_enabled</span><span class="p">,</span>
+    <span class="n">validate_single_step</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_chat_completion</span><span class="p">,</span> <span class="n">set_api_call_context</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.models.messages</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChatCompletionRequest</span><span class="p">,</span> <span class="n">ChatMessage</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.prompts.loader</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_framework_prompts</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_registry</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">AgentState</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_status_update</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_interface_context</span><span class="p">,</span> <span class="n">get_model_config</span>
+
+<span class="n">_MAX_VALIDATION_RETRIES</span> <span class="o">=</span> <span class="mi">2</span>  <span class="c1"># Up to 3 total attempts (1 initial + 2 retries)</span>
+<span class="n">_MAX_LIGHTWEIGHT_CALLS</span> <span class="o">=</span> <span class="mi">5</span>  <span class="c1"># Max inline tool calls per orchestrator invocation</span>
+<span class="n">_MAX_CONSECUTIVE_REJECTIONS</span> <span class="o">=</span> <span class="mi">3</span>  <span class="c1"># Skip approval gate after this many consecutive rejections</span>
+
+
+<span class="c1"># =============================================================================</span>
+<span class="c1"># REACTIVE ORCHESTRATOR NODE</span>
+<span class="c1"># =============================================================================</span>
+
+
+<div class="viewcode-block" id="ReactiveOrchestratorNode">
+<a class="viewcode-back" href="../../../api_reference/02_infrastructure/04_orchestration.html#osprey.infrastructure.reactive_orchestrator_node.ReactiveOrchestratorNode">[docs]</a>
+<span class="nd">@infrastructure_node</span><span class="p">(</span><span class="n">quiet</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ReactiveOrchestratorNode</span><span class="p">(</span><span class="n">BaseInfrastructureNode</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Reactive step-by-step orchestration using the ReAct pattern.</span>
+
+<span class="sd">    This node generates one ``PlannedStep`` at a time instead of a full</span>
+<span class="sd">    execution plan. After each capability executes, the router sends</span>
+<span class="sd">    control back here so the LLM can observe the result and decide</span>
+<span class="sd">    the next action.</span>
+
+<span class="sd">    The node produces the same ``PlannedStep`` objects consumed by</span>
+<span class="sd">    ``@capability_node``, so capabilities are unaware of which</span>
+<span class="sd">    orchestration mode generated their step.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;reactive_orchestrator&quot;</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="s2">&quot;Reactive orchestration&quot;</span>
+
+<div class="viewcode-block" id="ReactiveOrchestratorNode.classify_error">
+<a class="viewcode-back" href="../../../api_reference/02_infrastructure/04_orchestration.html#osprey.infrastructure.reactive_orchestrator_node.ReactiveOrchestratorNode.classify_error">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">classify_error</span><span class="p">(</span><span class="n">exc</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ErrorClassification</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Error classification matching OrchestrationNode patterns.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="s2">&quot;__class__&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">&quot;timeout&quot;</span> <span class="ow">in</span> <span class="n">exc</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+            <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+                <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RETRIABLE</span><span class="p">,</span>
+                <span class="n">user_message</span><span class="o">=</span><span class="s2">&quot;LLM timeout during reactive orchestration, retrying...&quot;</span><span class="p">,</span>
+                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)},</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="p">(</span><span class="ne">ConnectionError</span><span class="p">,</span> <span class="ne">TimeoutError</span><span class="p">)):</span>
+            <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+                <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RETRIABLE</span><span class="p">,</span>
+                <span class="n">user_message</span><span class="o">=</span><span class="s2">&quot;Network timeout during reactive orchestration, retrying...&quot;</span><span class="p">,</span>
+                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)},</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Rate limit errors are retriable (with backoff handled by litellm)</span>
+        <span class="n">exc_str</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="n">exc_type</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">if</span> <span class="s2">&quot;ratelimit&quot;</span> <span class="ow">in</span> <span class="n">exc_type</span> <span class="ow">or</span> <span class="s2">&quot;rate_limit&quot;</span> <span class="ow">in</span> <span class="n">exc_type</span> <span class="ow">or</span> <span class="s2">&quot;rate limit&quot;</span> <span class="ow">in</span> <span class="n">exc_str</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+                <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RETRIABLE</span><span class="p">,</span>
+                <span class="n">user_message</span><span class="o">=</span><span class="s2">&quot;LLM rate limit hit during reactive orchestration, retrying...&quot;</span><span class="p">,</span>
+                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)},</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">any</span><span class="p">(</span>
+            <span class="n">indicator</span> <span class="ow">in</span> <span class="n">exc_str</span>
+            <span class="k">for</span> <span class="n">indicator</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;validation error&quot;</span><span class="p">,</span> <span class="s2">&quot;field required&quot;</span><span class="p">,</span> <span class="s2">&quot;pydantic&quot;</span><span class="p">,</span> <span class="s2">&quot;json&quot;</span><span class="p">,</span> <span class="s2">&quot;parsing&quot;</span><span class="p">]</span>
+        <span class="p">):</span>
+            <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+                <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RETRIABLE</span><span class="p">,</span>
+                <span class="n">user_message</span><span class="o">=</span><span class="s2">&quot;LLM failed to generate valid reactive decision, retrying...&quot;</span><span class="p">,</span>
+                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)},</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">ReclassificationRequiredError</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+                <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RECLASSIFICATION</span><span class="p">,</span>
+                <span class="n">user_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Task needs reclassification: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)},</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">InvalidContextKeyError</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+                <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RETRIABLE</span><span class="p">,</span>
+                <span class="n">user_message</span><span class="o">=</span><span class="s2">&quot;Invalid context key in reactive step, retrying...&quot;</span><span class="p">,</span>
+                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)},</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">)):</span>
+            <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+                <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">,</span>
+                <span class="n">user_message</span><span class="o">=</span><span class="s2">&quot;Reactive orchestration configuration error&quot;</span><span class="p">,</span>
+                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)},</span>
+            <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+            <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">,</span>
+            <span class="n">user_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Unknown reactive orchestration error: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="n">metadata</span><span class="o">=</span><span class="p">{</span>
+                <span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Error type: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">, Details: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">},</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="ReactiveOrchestratorNode.get_retry_policy">
+<a class="viewcode-back" href="../../../api_reference/02_infrastructure/04_orchestration.html#osprey.infrastructure.reactive_orchestrator_node.ReactiveOrchestratorNode.get_retry_policy">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_retry_policy</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Retry policy for LLM-based reactive orchestration.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;max_attempts&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+            <span class="s2">&quot;delay_seconds&quot;</span><span class="p">:</span> <span class="mf">2.0</span><span class="p">,</span>
+            <span class="s2">&quot;backoff_factor&quot;</span><span class="p">:</span> <span class="mf">2.0</span><span class="p">,</span>
+        <span class="p">}</span></div>
+
+
+<div class="viewcode-block" id="ReactiveOrchestratorNode.execute">
+<a class="viewcode-back" href="../../../api_reference/02_infrastructure/04_orchestration.html#osprey.infrastructure.reactive_orchestrator_node.ReactiveOrchestratorNode.execute">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Execute one iteration of the ReAct loop using tool calling.</span>
+
+<span class="sd">        Two-tier tool architecture:</span>
+
+<span class="sd">        - **Lightweight tools** (read_context, list_available_context, etc.):</span>
+<span class="sd">          Execute inline within the LLM loop. Results are fed back as tool</span>
+<span class="sd">          response messages for the next LLM turn.</span>
+<span class="sd">        - **Capability tools** (channel_finding, respond, etc.):</span>
+<span class="sd">          Trigger exit from the loop — the orchestrator builds a PlannedStep</span>
+<span class="sd">          and returns control to the router for capability execution.</span>
+
+<span class="sd">        The LLM may also return plain text (no tool call), which is parsed</span>
+<span class="sd">        as an ExecutionPlan JSON for backward compatibility with models</span>
+<span class="sd">        that don&#39;t support function calling.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.infrastructure.reactive_tools</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+            <span class="n">build_capability_tools</span><span class="p">,</span>
+            <span class="n">build_lightweight_tools</span><span class="p">,</span>
+            <span class="n">execute_lightweight_tool</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span>
+
+        <span class="c1"># =================================================================</span>
+        <span class="c1"># STEP 0: CHECK FOR APPROVAL RESUME</span>
+        <span class="c1"># =================================================================</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_needs_approval_cleanup</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="n">_step_approval_type</span> <span class="o">=</span> <span class="n">create_approval_type</span><span class="p">(</span><span class="s2">&quot;reactive_orchestrator&quot;</span><span class="p">,</span> <span class="s2">&quot;step&quot;</span><span class="p">)</span>
+
+        <span class="n">has_approval_resume</span><span class="p">,</span> <span class="n">approved_payload</span> <span class="o">=</span> <span class="n">get_approval_resume_data</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">_step_approval_type</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">has_approval_resume</span> <span class="ow">and</span> <span class="n">approved_payload</span><span class="p">:</span>
+            <span class="c1"># APPROVED — return stored plan + react state without LLM call</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Reactive step approved — returning stored plan&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">{</span>
+                <span class="s2">&quot;planning_execution_plan&quot;</span><span class="p">:</span> <span class="n">approved_payload</span><span class="p">[</span><span class="s2">&quot;execution_plan&quot;</span><span class="p">],</span>
+                <span class="s2">&quot;planning_current_step_index&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+                <span class="s2">&quot;react_messages&quot;</span><span class="p">:</span> <span class="n">approved_payload</span><span class="p">[</span><span class="s2">&quot;react_messages&quot;</span><span class="p">],</span>
+                <span class="s2">&quot;react_step_count&quot;</span><span class="p">:</span> <span class="n">approved_payload</span><span class="p">[</span><span class="s2">&quot;react_step_count&quot;</span><span class="p">],</span>
+                <span class="s2">&quot;react_rejection_count&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+                <span class="s2">&quot;control_has_error&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                <span class="s2">&quot;control_error_info&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+                <span class="s2">&quot;control_last_error&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+                <span class="s2">&quot;control_retry_count&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+                <span class="s2">&quot;control_current_step_retry_count&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+                <span class="o">**</span><span class="n">clear_approval_state</span><span class="p">(),</span>
+            <span class="p">}</span>
+        <span class="k">elif</span> <span class="n">has_approval_resume</span><span class="p">:</span>
+            <span class="c1"># REJECTED — flag for cleanup; fall through to LLM call</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Reactive step rejected — re-evaluating with LLM&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_needs_approval_cleanup</span> <span class="o">=</span> <span class="kc">True</span>
+
+        <span class="n">current_task</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_current_task</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">current_task</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;No current task available for reactive orchestration&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Resolve active capabilities from state (set by classifier)</span>
+        <span class="n">active_capability_names</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;planning_active_capabilities&quot;</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="n">registry</span> <span class="o">=</span> <span class="n">get_registry</span><span class="p">()</span>
+        <span class="n">active_capabilities</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">cap</span>
+            <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">active_capability_names</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">cap</span> <span class="o">:=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_capability</span><span class="p">(</span><span class="n">name</span><span class="p">))</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="p">]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">active_capabilities</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;No valid capability instances for reactive orchestration&quot;</span><span class="p">)</span>
+
+        <span class="n">react_messages</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;react_messages&quot;</span><span class="p">,</span> <span class="p">[]))</span>
+        <span class="n">react_step_count</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;react_step_count&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+        <span class="c1"># On rejection, inject a rejection observation so the LLM knows</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_needs_approval_cleanup</span><span class="p">:</span>
+            <span class="n">react_messages</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="p">{</span>
+                    <span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;observation&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;User REJECTED the proposed step. Choose a different approach or respond.&quot;</span><span class="p">,</span>
+                <span class="p">}</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Build the system prompt using shared prompt infrastructure</span>
+        <span class="n">system_prompt</span> <span class="o">=</span> <span class="n">_build_system_prompt</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">logger</span><span class="p">,</span> <span class="n">active_capabilities</span><span class="p">)</span>
+
+        <span class="c1"># Build the conversation for the LLM</span>
+        <span class="n">observation</span> <span class="o">=</span> <span class="n">_format_observation</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+
+        <span class="c1"># Persist observation from previous step into react_messages</span>
+        <span class="k">if</span> <span class="n">observation</span><span class="p">:</span>
+            <span class="n">react_messages</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;observation&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">observation</span><span class="p">})</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Deciding next action (step </span><span class="si">{</span><span class="n">react_step_count</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">)...&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Call LLM - fall back to orchestrator model if no reactive-specific config</span>
+        <span class="n">model_config</span> <span class="o">=</span> <span class="n">get_model_config</span><span class="p">(</span><span class="s2">&quot;reactive_orchestrator&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">model_config</span><span class="p">:</span>
+            <span class="n">model_config</span> <span class="o">=</span> <span class="n">get_model_config</span><span class="p">(</span><span class="s2">&quot;orchestrator&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Build tools: lightweight (inline) + capability (exit to router)</span>
+        <span class="n">lightweight_tool_defs</span><span class="p">,</span> <span class="n">lightweight_tool_map</span> <span class="o">=</span> <span class="n">build_lightweight_tools</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+        <span class="n">capability_tool_defs</span> <span class="o">=</span> <span class="n">build_capability_tools</span><span class="p">(</span><span class="n">active_capabilities</span><span class="p">)</span>
+        <span class="n">all_tool_defs</span> <span class="o">=</span> <span class="n">lightweight_tool_defs</span> <span class="o">+</span> <span class="n">capability_tool_defs</span>
+
+        <span class="n">capability_names</span> <span class="o">=</span> <span class="p">{</span><span class="nb">getattr</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">active_capabilities</span><span class="p">}</span>
+
+        <span class="n">chat_request</span> <span class="o">=</span> <span class="n">_build_chat_request</span><span class="p">(</span><span class="n">system_prompt</span><span class="p">,</span> <span class="n">current_task</span><span class="p">,</span> <span class="n">react_messages</span><span class="p">)</span>
+
+        <span class="c1"># --- Tool-calling loop ---</span>
+        <span class="c1"># The LLM may call lightweight tools multiple times before selecting</span>
+        <span class="c1"># a capability. Safety limit prevents infinite loops.</span>
+        <span class="n">lightweight_count</span> <span class="o">=</span> <span class="mi">0</span>
+
+        <span class="k">for</span> <span class="n">_loop_iter</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">_MAX_LIGHTWEIGHT_CALLS</span><span class="p">):</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
+                <span class="s2">&quot;LLM prompt built&quot;</span><span class="p">,</span>
+                <span class="n">llm_prompt</span><span class="o">=</span><span class="n">chat_request</span><span class="o">.</span><span class="n">to_single_string</span><span class="p">(),</span>
+                <span class="n">stream</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="p">)</span>
+
+            <span class="n">set_api_call_context</span><span class="p">(</span>
+                <span class="n">function</span><span class="o">=</span><span class="s2">&quot;execute&quot;</span><span class="p">,</span>
+                <span class="n">module</span><span class="o">=</span><span class="s2">&quot;reactive_orchestrator_node&quot;</span><span class="p">,</span>
+                <span class="n">class_name</span><span class="o">=</span><span class="s2">&quot;ReactiveOrchestratorNode&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+
+            <span class="n">plan_start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+
+            <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
+                <span class="n">get_chat_completion</span><span class="p">,</span>
+                <span class="n">chat_request</span><span class="o">=</span><span class="n">chat_request</span><span class="p">,</span>
+                <span class="n">model_config</span><span class="o">=</span><span class="n">model_config</span><span class="p">,</span>
+                <span class="n">tools</span><span class="o">=</span><span class="n">all_tool_defs</span><span class="p">,</span>
+            <span class="p">)</span>
+
+            <span class="n">execution_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">plan_start_time</span>
+
+            <span class="c1"># --- Handle tool call response ---</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Parsing response (</span><span class="si">{</span><span class="n">execution_time</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">s)&quot;</span><span class="p">,</span>
+                    <span class="n">llm_response</span><span class="o">=</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">),</span>
+                    <span class="n">stream</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="p">)</span>
+
+                <span class="c1"># Separate lightweight and capability tool calls</span>
+                <span class="n">lw_calls</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="n">cap_call</span> <span class="o">=</span> <span class="kc">None</span>
+
+                <span class="k">for</span> <span class="n">tc</span> <span class="ow">in</span> <span class="n">response</span><span class="p">:</span>
+                    <span class="n">fn_name</span> <span class="o">=</span> <span class="n">tc</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;function&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;name&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">fn_name</span> <span class="ow">in</span> <span class="n">lightweight_tool_map</span><span class="p">:</span>
+                        <span class="n">lw_calls</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">tc</span><span class="p">)</span>
+                    <span class="k">elif</span> <span class="n">fn_name</span> <span class="ow">in</span> <span class="n">capability_names</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="n">cap_call</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                            <span class="n">cap_call</span> <span class="o">=</span> <span class="n">tc</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                                <span class="sa">f</span><span class="s2">&quot;Multiple capability tool calls; ignoring </span><span class="si">{</span><span class="n">fn_name</span><span class="si">}</span><span class="s2"> &quot;</span>
+                                <span class="sa">f</span><span class="s2">&quot;(using </span><span class="si">{</span><span class="n">cap_call</span><span class="p">[</span><span class="s1">&#39;function&#39;</span><span class="p">][</span><span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">)&quot;</span>
+                            <span class="p">)</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="c1"># Unknown tool — feed error back as tool result</span>
+                        <span class="n">chat_request</span><span class="o">.</span><span class="n">messages</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                            <span class="n">ChatMessage</span><span class="p">(</span>
+                                <span class="n">role</span><span class="o">=</span><span class="s2">&quot;assistant&quot;</span><span class="p">,</span>
+                                <span class="n">tool_calls</span><span class="o">=</span><span class="p">[</span><span class="n">tc</span><span class="p">],</span>
+                            <span class="p">)</span>
+                        <span class="p">)</span>
+                        <span class="n">chat_request</span><span class="o">.</span><span class="n">messages</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                            <span class="n">ChatMessage</span><span class="p">(</span>
+                                <span class="n">role</span><span class="o">=</span><span class="s2">&quot;tool&quot;</span><span class="p">,</span>
+                                <span class="n">tool_call_id</span><span class="o">=</span><span class="n">tc</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">),</span>
+                                <span class="n">name</span><span class="o">=</span><span class="n">fn_name</span><span class="p">,</span>
+                                <span class="n">content</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Error: Unknown tool &#39;</span><span class="si">{</span><span class="n">fn_name</span><span class="si">}</span><span class="s2">&#39;. &quot;</span>
+                                <span class="sa">f</span><span class="s2">&quot;Available capabilities: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">capability_names</span><span class="p">))</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                            <span class="p">)</span>
+                        <span class="p">)</span>
+                        <span class="n">lightweight_count</span> <span class="o">+=</span> <span class="mi">1</span>
+
+                <span class="c1"># Execute lightweight tools inline</span>
+                <span class="k">if</span> <span class="n">lw_calls</span><span class="p">:</span>
+                    <span class="c1"># Append the assistant message with all tool calls</span>
+                    <span class="n">chat_request</span><span class="o">.</span><span class="n">messages</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ChatMessage</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="s2">&quot;assistant&quot;</span><span class="p">,</span> <span class="n">tool_calls</span><span class="o">=</span><span class="n">lw_calls</span><span class="p">))</span>
+                    <span class="k">for</span> <span class="n">tc</span> <span class="ow">in</span> <span class="n">lw_calls</span><span class="p">:</span>
+                        <span class="n">fn_name</span> <span class="o">=</span> <span class="n">tc</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;function&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;name&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+                        <span class="n">fn_args</span> <span class="o">=</span> <span class="n">tc</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;function&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;arguments&quot;</span><span class="p">,</span> <span class="s2">&quot;</span><span class="si">{}</span><span class="s2">&quot;</span><span class="p">)</span>
+                        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Executing tool: </span><span class="si">{</span><span class="n">fn_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                        <span class="n">result</span> <span class="o">=</span> <span class="n">execute_lightweight_tool</span><span class="p">(</span><span class="n">fn_name</span><span class="p">,</span> <span class="n">fn_args</span><span class="p">,</span> <span class="n">lightweight_tool_map</span><span class="p">)</span>
+                        <span class="n">chat_request</span><span class="o">.</span><span class="n">messages</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                            <span class="n">ChatMessage</span><span class="p">(</span>
+                                <span class="n">role</span><span class="o">=</span><span class="s2">&quot;tool&quot;</span><span class="p">,</span>
+                                <span class="n">tool_call_id</span><span class="o">=</span><span class="n">tc</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">),</span>
+                                <span class="n">name</span><span class="o">=</span><span class="n">fn_name</span><span class="p">,</span>
+                                <span class="n">content</span><span class="o">=</span><span class="n">result</span><span class="p">,</span>
+                            <span class="p">)</span>
+                        <span class="p">)</span>
+                        <span class="n">lightweight_count</span> <span class="o">+=</span> <span class="mi">1</span>
+
+                <span class="c1"># If a capability tool call was found, dispatch it</span>
+                <span class="k">if</span> <span class="n">cap_call</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_dispatch_capability_tool_call</span><span class="p">(</span>
+                        <span class="n">cap_call</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">react_messages</span><span class="p">,</span> <span class="n">react_step_count</span><span class="p">,</span> <span class="n">current_task</span><span class="p">,</span> <span class="n">logger</span>
+                    <span class="p">)</span>
+
+                <span class="c1"># Only lightweight tools were called — continue the loop</span>
+                <span class="k">if</span> <span class="n">lightweight_count</span> <span class="o">&gt;</span> <span class="n">_MAX_LIGHTWEIGHT_CALLS</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;Exceeded maximum lightweight tool calls (</span><span class="si">{</span><span class="n">_MAX_LIGHTWEIGHT_CALLS</span><span class="si">}</span><span class="s2">). &quot;</span>
+                        <span class="s2">&quot;The orchestrator must select a capability to execute.&quot;</span>
+                    <span class="p">)</span>
+                <span class="k">continue</span>
+
+            <span class="c1"># --- Handle text response (fallback for non-tool-calling models) ---</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Parsing response (</span><span class="si">{</span><span class="n">execution_time</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">s)&quot;</span><span class="p">,</span>
+                <span class="n">llm_response</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">response</span><span class="p">),</span>
+                <span class="n">stream</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_handle_text_response</span><span class="p">(</span>
+                <span class="n">response</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">react_messages</span><span class="p">,</span> <span class="n">react_step_count</span><span class="p">,</span> <span class="n">current_task</span><span class="p">,</span> <span class="n">logger</span>
+            <span class="p">)</span>
+
+        <span class="c1"># If we exhaust the loop without dispatching, raise</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Exceeded maximum lightweight tool calls (</span><span class="si">{</span><span class="n">_MAX_LIGHTWEIGHT_CALLS</span><span class="si">}</span><span class="s2">). &quot;</span>
+            <span class="s2">&quot;The orchestrator must select a capability to execute.&quot;</span>
+        <span class="p">)</span></div>
+
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_dispatch_capability_tool_call</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">tool_call</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+        <span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">,</span>
+        <span class="n">react_messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span>
+        <span class="n">react_step_count</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">current_task</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">logger</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build a PlannedStep from a capability tool call and return state updates.&quot;&quot;&quot;</span>
+        <span class="n">fn</span> <span class="o">=</span> <span class="n">tool_call</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;function&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="n">capability</span> <span class="o">=</span> <span class="n">fn</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;name&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+        <span class="n">args_str</span> <span class="o">=</span> <span class="n">fn</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;arguments&quot;</span><span class="p">,</span> <span class="s2">&quot;</span><span class="si">{}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">args</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">args_str</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">args_str</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">else</span> <span class="n">args_str</span>
+        <span class="k">except</span> <span class="n">json</span><span class="o">.</span><span class="n">JSONDecodeError</span><span class="p">:</span>
+            <span class="n">args</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="n">task_objective</span> <span class="o">=</span> <span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;task_objective&quot;</span><span class="p">,</span> <span class="n">current_task</span><span class="p">)</span>
+
+        <span class="c1"># Intercept respond — generate response directly with full reactive context</span>
+        <span class="k">if</span> <span class="n">capability</span> <span class="o">==</span> <span class="s2">&quot;respond&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_generate_direct_response</span><span class="p">(</span>
+                <span class="n">state</span><span class="p">,</span>
+                <span class="n">react_messages</span><span class="p">,</span>
+                <span class="n">react_step_count</span><span class="p">,</span>
+                <span class="n">current_task</span><span class="p">,</span>
+                <span class="n">task_objective</span><span class="p">,</span>
+                <span class="n">logger</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="n">context_key</span> <span class="o">=</span> <span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;context_key&quot;</span><span class="p">,</span> <span class="n">capability</span><span class="p">)</span>
+        <span class="n">expected_output</span> <span class="o">=</span> <span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;expected_output&quot;</span><span class="p">)</span>
+        <span class="n">success_criteria</span> <span class="o">=</span> <span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;success_criteria&quot;</span><span class="p">,</span> <span class="s2">&quot;Step completed successfully&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Validate and resolve inputs</span>
+        <span class="n">inputs</span> <span class="o">=</span> <span class="n">_resolve_inputs</span><span class="p">(</span><span class="n">capability</span><span class="p">,</span> <span class="n">state</span><span class="p">)</span>
+
+        <span class="c1"># Pre-dispatch gate: check for unresolved requirements</span>
+        <span class="n">active_caps</span> <span class="o">=</span> <span class="n">_get_active_capabilities</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+        <span class="n">missing</span> <span class="o">=</span> <span class="n">_check_unresolved_requirements</span><span class="p">(</span><span class="n">capability</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">active_caps</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">missing</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">_build_missing_requirements_response</span><span class="p">(</span>
+                <span class="n">capability</span><span class="p">,</span> <span class="n">missing</span><span class="p">,</span> <span class="n">react_messages</span><span class="p">,</span> <span class="n">react_step_count</span><span class="p">,</span> <span class="n">logger</span><span class="p">,</span> <span class="n">state</span>
+            <span class="p">)</span>
+
+        <span class="n">step_with_inputs</span> <span class="o">=</span> <span class="n">PlannedStep</span><span class="p">(</span>
+            <span class="n">context_key</span><span class="o">=</span><span class="n">context_key</span><span class="p">,</span>
+            <span class="n">capability</span><span class="o">=</span><span class="n">capability</span><span class="p">,</span>
+            <span class="n">task_objective</span><span class="o">=</span><span class="n">task_objective</span><span class="p">,</span>
+            <span class="n">expected_output</span><span class="o">=</span><span class="n">expected_output</span><span class="p">,</span>
+            <span class="n">success_criteria</span><span class="o">=</span><span class="n">success_criteria</span><span class="p">,</span>
+            <span class="n">inputs</span><span class="o">=</span><span class="n">inputs</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">validate_single_step</span><span class="p">(</span><span class="n">step_with_inputs</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">logger</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_return_state</span><span class="p">(</span>
+            <span class="n">step_with_inputs</span><span class="p">,</span> <span class="n">capability</span><span class="p">,</span> <span class="n">react_messages</span><span class="p">,</span> <span class="n">react_step_count</span><span class="p">,</span> <span class="n">task_objective</span><span class="p">,</span> <span class="n">logger</span>
+        <span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_handle_text_response</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">response</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">,</span>
+        <span class="n">react_messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span>
+        <span class="n">react_step_count</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">current_task</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">logger</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Parse text response as ExecutionPlan JSON (backward compatibility).&quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">execution_plan</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">response</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">else</span> <span class="n">response</span>
+        <span class="k">except</span> <span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">JSONDecodeError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;LLM returned text that is not valid ExecutionPlan JSON: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">response</span><span class="p">)[:</span><span class="mi">200</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+
+        <span class="n">steps</span> <span class="o">=</span> <span class="n">execution_plan</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;steps&quot;</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">steps</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;LLM returned an ExecutionPlan with no steps&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">steps</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Reactive mode expected 1 step but got </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">steps</span><span class="p">)</span><span class="si">}</span><span class="s2">; using first step only&quot;</span>
+            <span class="p">)</span>
+
+        <span class="n">step</span> <span class="o">=</span> <span class="n">steps</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">capability</span> <span class="o">=</span> <span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;capability&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Intercept respond — generate response directly with full reactive context</span>
+        <span class="k">if</span> <span class="n">capability</span> <span class="o">==</span> <span class="s2">&quot;respond&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_generate_direct_response</span><span class="p">(</span>
+                <span class="n">state</span><span class="p">,</span>
+                <span class="n">react_messages</span><span class="p">,</span>
+                <span class="n">react_step_count</span><span class="p">,</span>
+                <span class="n">current_task</span><span class="p">,</span>
+                <span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;task_objective&quot;</span><span class="p">,</span> <span class="n">current_task</span><span class="p">),</span>
+                <span class="n">logger</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="n">inputs</span> <span class="o">=</span> <span class="n">_resolve_inputs</span><span class="p">(</span><span class="n">capability</span><span class="p">,</span> <span class="n">state</span><span class="p">)</span>
+
+        <span class="c1"># Pre-dispatch gate: check for unresolved requirements</span>
+        <span class="n">active_caps</span> <span class="o">=</span> <span class="n">_get_active_capabilities</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+        <span class="n">missing</span> <span class="o">=</span> <span class="n">_check_unresolved_requirements</span><span class="p">(</span><span class="n">capability</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">active_caps</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">missing</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">_build_missing_requirements_response</span><span class="p">(</span>
+                <span class="n">capability</span><span class="p">,</span> <span class="n">missing</span><span class="p">,</span> <span class="n">react_messages</span><span class="p">,</span> <span class="n">react_step_count</span><span class="p">,</span> <span class="n">logger</span><span class="p">,</span> <span class="n">state</span>
+            <span class="p">)</span>
+
+        <span class="n">step_with_inputs</span> <span class="o">=</span> <span class="n">PlannedStep</span><span class="p">(</span>
+            <span class="n">context_key</span><span class="o">=</span><span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;context_key&quot;</span><span class="p">,</span> <span class="n">capability</span><span class="p">),</span>
+            <span class="n">capability</span><span class="o">=</span><span class="n">capability</span><span class="p">,</span>
+            <span class="n">task_objective</span><span class="o">=</span><span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;task_objective&quot;</span><span class="p">,</span> <span class="n">current_task</span><span class="p">),</span>
+            <span class="n">expected_output</span><span class="o">=</span><span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;expected_output&quot;</span><span class="p">),</span>
+            <span class="n">success_criteria</span><span class="o">=</span><span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;success_criteria&quot;</span><span class="p">,</span> <span class="s2">&quot;Step completed successfully&quot;</span><span class="p">),</span>
+            <span class="n">inputs</span><span class="o">=</span><span class="n">inputs</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">validate_single_step</span><span class="p">(</span><span class="n">step_with_inputs</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">logger</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_return_state</span><span class="p">(</span>
+            <span class="n">step_with_inputs</span><span class="p">,</span>
+            <span class="n">capability</span><span class="p">,</span>
+            <span class="n">react_messages</span><span class="p">,</span>
+            <span class="n">react_step_count</span><span class="p">,</span>
+            <span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;task_objective&quot;</span><span class="p">,</span> <span class="n">current_task</span><span class="p">),</span>
+            <span class="n">logger</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_generate_direct_response</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">,</span>
+        <span class="n">react_messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span>
+        <span class="n">react_step_count</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">current_task</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">task_objective</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">logger</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Generate a response directly using the response prompt builder.</span>
+
+<span class="sd">        Instead of delegating to the respond capability (which lacks access to</span>
+<span class="sd">        react_messages), the reactive orchestrator generates the final response</span>
+<span class="sd">        itself.  It uses the same response generation prompt builder for</span>
+<span class="sd">        guidelines and formatting, but includes the full reactive context chain.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
+
+        <span class="kn">from</span><span class="w"> </span><span class="nn">langchain_core.messages</span><span class="w"> </span><span class="kn">import</span> <span class="n">AIMessage</span>
+
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.infrastructure.respond_node</span><span class="w"> </span><span class="kn">import</span> <span class="n">ResponseContext</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">populate_legacy_fields_from_artifacts</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="s2">&quot;Generating response directly from reactive context...&quot;</span><span class="p">)</span>
+
+        <span class="c1"># 1. Get prompt builders</span>
+        <span class="n">prompt_provider</span> <span class="o">=</span> <span class="n">get_framework_prompts</span><span class="p">()</span>
+        <span class="n">response_builder</span> <span class="o">=</span> <span class="n">prompt_provider</span><span class="o">.</span><span class="n">get_response_generation_prompt_builder</span><span class="p">()</span>
+        <span class="n">orchestrator_builder</span> <span class="o">=</span> <span class="n">prompt_provider</span><span class="o">.</span><span class="n">get_orchestrator_prompt_builder</span><span class="p">()</span>
+
+        <span class="c1"># 2. Gather context summaries (all types, not filtered by step inputs)</span>
+        <span class="n">context_manager</span> <span class="o">=</span> <span class="n">ContextManager</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+        <span class="n">context_summaries</span> <span class="o">=</span> <span class="n">context_manager</span><span class="o">.</span><span class="n">get_summaries</span><span class="p">(</span><span class="kc">None</span><span class="p">)</span>
+
+        <span class="c1"># 3. Format reactive context via customisable method</span>
+        <span class="n">formatted_react_context</span> <span class="o">=</span> <span class="n">orchestrator_builder</span><span class="o">.</span><span class="n">format_reactive_response_context</span><span class="p">(</span>
+            <span class="n">react_messages</span>
+        <span class="p">)</span>
+
+        <span class="c1"># 4. Build ResponseContext for the response builder&#39;s guidelines</span>
+        <span class="n">ui_artifacts</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ui_artifacts&quot;</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="n">legacy_updates</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">ui_artifacts</span><span class="p">:</span>
+            <span class="n">legacy_updates</span> <span class="o">=</span> <span class="n">populate_legacy_fields_from_artifacts</span><span class="p">(</span><span class="n">ui_artifacts</span><span class="p">)</span>
+
+        <span class="n">figures_available</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">legacy_updates</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ui_captured_figures&quot;</span><span class="p">,</span> <span class="p">[]))</span>
+        <span class="n">commands_available</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">legacy_updates</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ui_launchable_commands&quot;</span><span class="p">,</span> <span class="p">[]))</span>
+        <span class="n">notebooks_available</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">legacy_updates</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ui_captured_notebooks&quot;</span><span class="p">,</span> <span class="p">[]))</span>
+
+        <span class="n">interface_context</span> <span class="o">=</span> <span class="n">get_interface_context</span><span class="p">()</span>
+
+        <span class="n">response_context</span> <span class="o">=</span> <span class="n">ResponseContext</span><span class="p">(</span>
+            <span class="n">current_task</span><span class="o">=</span><span class="n">current_task</span><span class="p">,</span>
+            <span class="n">execution_history</span><span class="o">=</span><span class="p">[],</span>  <span class="c1"># not used — reactive context replaces this</span>
+            <span class="n">relevant_context</span><span class="o">=</span><span class="n">context_summaries</span><span class="p">,</span>
+            <span class="n">is_killed</span><span class="o">=</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;control_is_killed&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">),</span>
+            <span class="n">kill_reason</span><span class="o">=</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;control_kill_reason&quot;</span><span class="p">),</span>
+            <span class="n">capabilities_overview</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="n">total_steps_executed</span><span class="o">=</span><span class="n">react_step_count</span><span class="p">,</span>
+            <span class="n">execution_start_time</span><span class="o">=</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_start_time&quot;</span><span class="p">),</span>
+            <span class="n">reclassification_count</span><span class="o">=</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;control_reclassification_count&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+            <span class="n">current_date</span><span class="o">=</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%Y-%m-</span><span class="si">%d</span><span class="s2">&quot;</span><span class="p">),</span>
+            <span class="n">figures_available</span><span class="o">=</span><span class="n">figures_available</span><span class="p">,</span>
+            <span class="n">commands_available</span><span class="o">=</span><span class="n">commands_available</span><span class="p">,</span>
+            <span class="n">notebooks_available</span><span class="o">=</span><span class="n">notebooks_available</span><span class="p">,</span>
+            <span class="n">interface_context</span><span class="o">=</span><span class="n">interface_context</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># 5. Build system prompt from response builder (includes guidelines)</span>
+        <span class="n">system_prompt</span> <span class="o">=</span> <span class="n">response_builder</span><span class="o">.</span><span class="n">get_system_instructions</span><span class="p">(</span>
+            <span class="n">current_task</span><span class="o">=</span><span class="n">current_task</span><span class="p">,</span>
+            <span class="n">info</span><span class="o">=</span><span class="n">response_context</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># 6. Build user message with task + objective + reactive context</span>
+        <span class="n">user_content</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;TASK: </span><span class="si">{</span><span class="n">current_task</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;OBJECTIVE: </span><span class="si">{</span><span class="n">task_objective</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;REACTIVE EXECUTION CONTEXT:</span><span class="se">\n</span><span class="si">{</span><span class="n">formatted_react_context</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+
+        <span class="n">chat_request</span> <span class="o">=</span> <span class="n">ChatCompletionRequest</span><span class="p">(</span>
+            <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
+                <span class="n">ChatMessage</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="n">system_prompt</span><span class="p">),</span>
+                <span class="n">ChatMessage</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="n">user_content</span><span class="p">),</span>
+            <span class="p">]</span>
+        <span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
+            <span class="s2">&quot;Response LLM prompt built&quot;</span><span class="p">,</span>
+            <span class="n">llm_prompt</span><span class="o">=</span><span class="n">chat_request</span><span class="o">.</span><span class="n">to_single_string</span><span class="p">(),</span>
+            <span class="n">stream</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># 7. Make LLM call with response model config</span>
+        <span class="n">set_api_call_context</span><span class="p">(</span>
+            <span class="n">function</span><span class="o">=</span><span class="s2">&quot;_generate_direct_response&quot;</span><span class="p">,</span>
+            <span class="n">module</span><span class="o">=</span><span class="s2">&quot;reactive_orchestrator_node&quot;</span><span class="p">,</span>
+            <span class="n">class_name</span><span class="o">=</span><span class="s2">&quot;ReactiveOrchestratorNode&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">response_model_config</span> <span class="o">=</span> <span class="n">get_model_config</span><span class="p">(</span><span class="s2">&quot;response&quot;</span><span class="p">)</span>
+        <span class="n">resp_start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
+            <span class="n">get_chat_completion</span><span class="p">,</span>
+            <span class="n">chat_request</span><span class="o">=</span><span class="n">chat_request</span><span class="p">,</span>
+            <span class="n">model_config</span><span class="o">=</span><span class="n">response_model_config</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">resp_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">resp_start_time</span>
+
+        <span class="c1"># Handle different response types</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">response_text</span> <span class="o">=</span> <span class="n">response</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+            <span class="n">text_parts</span> <span class="o">=</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">block</span><span class="p">)</span> <span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">response</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="s2">&quot;text&quot;</span><span class="p">)]</span>
+            <span class="n">response_text</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">text_parts</span><span class="p">)</span> <span class="k">if</span> <span class="n">text_parts</span> <span class="k">else</span> <span class="nb">str</span><span class="p">(</span><span class="n">response</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">response_text</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">response</span><span class="p">)</span> <span class="k">if</span> <span class="n">response</span> <span class="k">else</span> <span class="s2">&quot;Unable to generate response.&quot;</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Parsing response (</span><span class="si">{</span><span class="n">resp_time</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">s)&quot;</span><span class="p">,</span> <span class="n">llm_response</span><span class="o">=</span><span class="n">response_text</span><span class="p">,</span> <span class="n">stream</span><span class="o">=</span><span class="kc">False</span>
+        <span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">key_info</span><span class="p">(</span><span class="s2">&quot;Reactive orchestrator: response generated directly&quot;</span><span class="p">)</span>
+
+        <span class="c1"># 8. Build return state</span>
+        <span class="n">react_messages</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;assistant&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Action: respond</span><span class="se">\n</span><span class="s2">Objective: </span><span class="si">{</span><span class="n">task_objective</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="p">}</span>
+        <span class="p">)</span>
+
+        <span class="n">result</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;messages&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">AIMessage</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="n">response_text</span><span class="p">)],</span>
+            <span class="s2">&quot;react_messages&quot;</span><span class="p">:</span> <span class="n">react_messages</span><span class="p">,</span>
+            <span class="s2">&quot;react_step_count&quot;</span><span class="p">:</span> <span class="n">react_step_count</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span>
+            <span class="s2">&quot;react_rejection_count&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+            <span class="s2">&quot;react_response_generated&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+            <span class="s2">&quot;control_has_error&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+            <span class="s2">&quot;control_error_info&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s2">&quot;control_last_error&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s2">&quot;control_retry_count&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+            <span class="s2">&quot;control_current_step_retry_count&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+            <span class="o">**</span><span class="n">legacy_updates</span><span class="p">,</span>
+            <span class="o">**</span><span class="n">create_status_update</span><span class="p">(</span>
+                <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Reactive orchestrator: response generated&quot;</span><span class="p">,</span>
+                <span class="n">progress</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+                <span class="n">complete</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                <span class="n">node</span><span class="o">=</span><span class="s2">&quot;reactive_orchestrator&quot;</span><span class="p">,</span>
+                <span class="n">capability</span><span class="o">=</span><span class="s2">&quot;respond&quot;</span><span class="p">,</span>
+            <span class="p">),</span>
+        <span class="p">}</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_needs_approval_cleanup</span><span class="p">:</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">clear_approval_state</span><span class="p">())</span>
+
+        <span class="k">return</span> <span class="n">result</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_build_return_state</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">plan_step</span><span class="p">:</span> <span class="n">PlannedStep</span><span class="p">,</span>
+        <span class="n">capability</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">react_messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span>
+        <span class="n">react_step_count</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">task_objective</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">logger</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build the common return dict for any dispatch path.&quot;&quot;&quot;</span>
+        <span class="n">is_terminal</span> <span class="o">=</span> <span class="n">capability</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;respond&quot;</span><span class="p">,</span> <span class="s2">&quot;clarify&quot;</span><span class="p">,</span> <span class="s2">&quot;error&quot;</span><span class="p">)</span>
+
+        <span class="n">react_messages</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;assistant&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Action: </span><span class="si">{</span><span class="n">capability</span><span class="si">}</span><span class="se">\n</span><span class="s2">Objective: </span><span class="si">{</span><span class="n">task_objective</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;step&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span><span class="n">plan_step</span><span class="p">),</span>
+            <span class="p">}</span>
+        <span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">key_info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Reactive orchestrator: </span><span class="si">{</span><span class="n">capability</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">single_plan</span> <span class="o">=</span> <span class="n">ExecutionPlan</span><span class="p">(</span><span class="n">steps</span><span class="o">=</span><span class="p">[</span><span class="n">plan_step</span><span class="p">])</span>
+
+        <span class="c1"># ----- Per-step approval gate -----</span>
+        <span class="c1"># Gate non-terminal steps when planning_mode_enabled is True.</span>
+        <span class="c1"># After _MAX_CONSECUTIVE_REJECTIONS, skip the gate to prevent</span>
+        <span class="c1"># infinite reject→propose→reject loops.</span>
+        <span class="n">rejection_count</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;react_rejection_count&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="ow">not</span> <span class="n">is_terminal</span>
+            <span class="ow">and</span> <span class="n">_is_planning_mode_enabled</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">)</span>
+            <span class="ow">and</span> <span class="n">rejection_count</span> <span class="o">&lt;</span> <span class="n">_MAX_CONSECUTIVE_REJECTIONS</span>
+        <span class="p">):</span>
+            <span class="n">interrupt_data</span> <span class="o">=</span> <span class="n">create_step_approval_interrupt</span><span class="p">(</span>
+                <span class="nb">dict</span><span class="p">(</span><span class="n">plan_step</span><span class="p">),</span> <span class="n">react_step_count</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">single_plan</span>
+            <span class="p">)</span>
+            <span class="n">interrupt_data</span><span class="p">[</span><span class="s2">&quot;resume_payload&quot;</span><span class="p">][</span><span class="s2">&quot;react_messages&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">react_messages</span>
+            <span class="n">interrupt_data</span><span class="p">[</span><span class="s2">&quot;resume_payload&quot;</span><span class="p">][</span><span class="s2">&quot;react_step_count&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">react_step_count</span> <span class="o">+</span> <span class="mi">1</span>
+            <span class="n">interrupt</span><span class="p">(</span><span class="n">interrupt_data</span><span class="p">)</span>  <span class="c1"># raises GraphInterrupt, never returns</span>
+
+        <span class="c1"># Build result — include approval cleanup if recovering from rejection</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;planning_execution_plan&quot;</span><span class="p">:</span> <span class="n">single_plan</span><span class="p">,</span>
+            <span class="s2">&quot;planning_current_step_index&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+            <span class="s2">&quot;react_messages&quot;</span><span class="p">:</span> <span class="n">react_messages</span><span class="p">,</span>
+            <span class="s2">&quot;react_step_count&quot;</span><span class="p">:</span> <span class="n">react_step_count</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span>
+            <span class="s2">&quot;react_rejection_count&quot;</span><span class="p">:</span> <span class="p">(</span>
+                <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;react_rejection_count&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_needs_approval_cleanup</span>
+                <span class="k">else</span> <span class="mi">0</span>
+            <span class="p">),</span>
+            <span class="s2">&quot;control_has_error&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+            <span class="s2">&quot;control_error_info&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s2">&quot;control_last_error&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s2">&quot;control_retry_count&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+            <span class="s2">&quot;control_current_step_retry_count&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+            <span class="o">**</span><span class="n">create_status_update</span><span class="p">(</span>
+                <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Reactive orchestrator: </span><span class="si">{</span><span class="n">capability</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="k">if</span> <span class="n">is_terminal</span>
+                <span class="k">else</span> <span class="sa">f</span><span class="s2">&quot;Reactive step </span><span class="si">{</span><span class="n">react_step_count</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">capability</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">progress</span><span class="o">=</span><span class="mf">1.0</span> <span class="k">if</span> <span class="n">is_terminal</span> <span class="k">else</span> <span class="mf">0.5</span><span class="p">,</span>
+                <span class="n">complete</span><span class="o">=</span><span class="n">is_terminal</span><span class="p">,</span>
+                <span class="n">node</span><span class="o">=</span><span class="s2">&quot;reactive_orchestrator&quot;</span><span class="p">,</span>
+                <span class="n">capability</span><span class="o">=</span><span class="n">capability</span><span class="p">,</span>
+            <span class="p">),</span>
+        <span class="p">}</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_needs_approval_cleanup</span><span class="p">:</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">clear_approval_state</span><span class="p">())</span>
+
+        <span class="k">return</span> <span class="n">result</span></div>
+
+
+
+<span class="c1"># =============================================================================</span>
+<span class="c1"># HELPER FUNCTIONS</span>
+<span class="c1"># =============================================================================</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_check_unresolved_requirements</span><span class="p">(</span>
+    <span class="n">capability_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">resolved_inputs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]],</span>
+    <span class="n">active_capabilities</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Check if a capability&#39;s requirements are satisfied by the resolved inputs.</span>
+
+<span class="sd">    Compares the capability&#39;s ``requires`` list against the resolved inputs to</span>
+<span class="sd">    identify missing context types.  For each missing type, looks up which</span>
+<span class="sd">    registered capability ``provides`` it so the orchestrator can auto-expand</span>
+<span class="sd">    the active set and tell the LLM what to call first.</span>
+
+<span class="sd">    Searches **all** registered capabilities (not just active ones) so that</span>
+<span class="sd">    provider capabilities omitted by the classifier can be discovered and</span>
+<span class="sd">    activated automatically.</span>
+
+<span class="sd">    :param capability_name: Name of the capability about to be dispatched</span>
+<span class="sd">    :param resolved_inputs: Inputs returned by ``_resolve_inputs()``</span>
+<span class="sd">    :param active_capabilities: Currently active capability instances (unused but</span>
+<span class="sd">        kept for API consistency; the registry is searched instead)</span>
+<span class="sd">    :return: List of ``(missing_context_type, provider_capability_name | None)`` tuples</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">registry</span> <span class="o">=</span> <span class="n">get_registry</span><span class="p">()</span>
+    <span class="n">cap_instance</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_capability</span><span class="p">(</span><span class="n">capability_name</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">cap_instance</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[]</span>
+
+    <span class="n">requires</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">cap_instance</span><span class="p">,</span> <span class="s2">&quot;requires&quot;</span><span class="p">,</span> <span class="p">[])</span> <span class="ow">or</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">requires</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[]</span>
+
+    <span class="c1"># Collect context types that were actually resolved</span>
+    <span class="n">resolved_types</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">inp</span> <span class="ow">in</span> <span class="n">resolved_inputs</span><span class="p">:</span>
+        <span class="n">resolved_types</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">inp</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+
+    <span class="c1"># Build a map: context_type -&gt; providing capability name (from ALL registered)</span>
+    <span class="n">provider_map</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">cap</span> <span class="ow">in</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_all_capabilities</span><span class="p">():</span>
+        <span class="k">for</span> <span class="n">provided_type</span> <span class="ow">in</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">cap</span><span class="p">,</span> <span class="s2">&quot;provides&quot;</span><span class="p">,</span> <span class="p">[])</span> <span class="ow">or</span> <span class="p">[]:</span>
+            <span class="n">provider_map</span><span class="p">[</span><span class="n">provided_type</span><span class="p">]</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">cap</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">)</span>
+
+    <span class="n">missing</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">req</span> <span class="ow">in</span> <span class="n">requires</span><span class="p">:</span>
+        <span class="n">context_type</span> <span class="o">=</span> <span class="n">req</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">req</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)</span> <span class="k">else</span> <span class="n">req</span>
+        <span class="k">if</span> <span class="n">context_type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">resolved_types</span><span class="p">:</span>
+            <span class="n">missing</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">context_type</span><span class="p">,</span> <span class="n">provider_map</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">context_type</span><span class="p">)))</span>
+
+    <span class="k">return</span> <span class="n">missing</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_resolve_inputs</span><span class="p">(</span><span class="n">capability_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Auto-resolve inputs for a capability based on its requires and available context.</span>
+
+<span class="sd">    Matches a capability&#39;s ``requires`` list against available keys in</span>
+<span class="sd">    ``capability_context_data`` to build the inputs list automatically.</span>
+
+<span class="sd">    :param capability_name: Name of the capability to resolve inputs for</span>
+<span class="sd">    :param state: Current agent state</span>
+<span class="sd">    :return: List of input reference dicts ``[{context_type: context_key}, ...]``</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">capability_name</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[]</span>
+
+    <span class="n">registry</span> <span class="o">=</span> <span class="n">get_registry</span><span class="p">()</span>
+    <span class="n">cap_instance</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_capability</span><span class="p">(</span><span class="n">capability_name</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">cap_instance</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[]</span>
+
+    <span class="n">requires</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">cap_instance</span><span class="p">,</span> <span class="s2">&quot;requires&quot;</span><span class="p">,</span> <span class="p">[])</span> <span class="ow">or</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">requires</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[]</span>
+
+    <span class="n">context_data</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;capability_context_data&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="n">inputs</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">req</span> <span class="ow">in</span> <span class="n">requires</span><span class="p">:</span>
+        <span class="c1"># Handle both string and tuple (context_type, cardinality) formats</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">req</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+            <span class="n">context_type</span> <span class="o">=</span> <span class="n">req</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">context_type</span> <span class="o">=</span> <span class="n">req</span>
+
+        <span class="c1"># Find the most recent context key for this type</span>
+        <span class="n">type_contexts</span> <span class="o">=</span> <span class="n">context_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">context_type</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="k">if</span> <span class="n">type_contexts</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">type_contexts</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="c1"># Use the last key (most recently added)</span>
+            <span class="n">latest_key</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">type_contexts</span><span class="o">.</span><span class="n">keys</span><span class="p">())[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">inputs</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="n">context_type</span><span class="p">:</span> <span class="n">latest_key</span><span class="p">})</span>
+
+    <span class="k">return</span> <span class="n">inputs</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_get_active_capabilities</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Reconstruct the active capability instances from state.</span>
+
+<span class="sd">    :param state: Current agent state</span>
+<span class="sd">    :return: List of capability instances</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">registry</span> <span class="o">=</span> <span class="n">get_registry</span><span class="p">()</span>
+    <span class="k">return</span> <span class="p">[</span>
+        <span class="n">cap</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;planning_active_capabilities&quot;</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">cap</span> <span class="o">:=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_capability</span><span class="p">(</span><span class="n">name</span><span class="p">))</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+    <span class="p">]</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_build_missing_requirements_response</span><span class="p">(</span>
+    <span class="n">capability</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">missing</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]],</span>
+    <span class="n">react_messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span>
+    <span class="n">react_step_count</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">logger</span><span class="p">,</span>
+    <span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Build a state update that feeds a dependency error back to the LLM.</span>
+
+<span class="sd">    Instead of dispatching a capability whose requirements aren&#39;t met, this</span>
+<span class="sd">    returns an observation explaining what&#39;s missing so the LLM can</span>
+<span class="sd">    course-correct (e.g., call ``channel_finding`` before ``channel_write``).</span>
+
+<span class="sd">    As a safety net, any provider capabilities referenced in ``missing`` are</span>
+<span class="sd">    auto-added to ``planning_active_capabilities`` so the LLM can actually</span>
+<span class="sd">    call them on the next iteration.</span>
+
+<span class="sd">    :param capability: Name of the capability that was attempted</span>
+<span class="sd">    :param missing: List of ``(context_type, provider_name | None)`` tuples</span>
+<span class="sd">    :param react_messages: Current react message history (mutated in-place)</span>
+<span class="sd">    :param react_step_count: Current step count</span>
+<span class="sd">    :param logger: Logger instance</span>
+<span class="sd">    :param state: Current agent state (for reading active capabilities)</span>
+<span class="sd">    :return: State update dict that loops back to the orchestrator</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">parts</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">context_type</span><span class="p">,</span> <span class="n">provider</span> <span class="ow">in</span> <span class="n">missing</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">provider</span><span class="p">:</span>
+            <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Cannot execute </span><span class="si">{</span><span class="n">capability</span><span class="si">}</span><span class="s2">: requires </span><span class="si">{</span><span class="n">context_type</span><span class="si">}</span><span class="s2"> context &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;(produced by </span><span class="si">{</span><span class="n">provider</span><span class="si">}</span><span class="s2">). Call </span><span class="si">{</span><span class="n">provider</span><span class="si">}</span><span class="s2"> first.&quot;</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Cannot execute </span><span class="si">{</span><span class="n">capability</span><span class="si">}</span><span class="s2">: requires </span><span class="si">{</span><span class="n">context_type</span><span class="si">}</span><span class="s2"> context &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;but no active capability provides it.&quot;</span>
+            <span class="p">)</span>
+    <span class="n">observation</span> <span class="o">=</span> <span class="s2">&quot; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span>
+
+    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Pre-dispatch gate blocked </span><span class="si">{</span><span class="n">capability</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">observation</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="n">react_messages</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+        <span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;assistant&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Action: </span><span class="si">{</span><span class="n">capability</span><span class="si">}</span><span class="s2"> (blocked — missing dependencies)&quot;</span><span class="p">}</span>
+    <span class="p">)</span>
+    <span class="n">react_messages</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;observation&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">observation</span><span class="p">})</span>
+
+    <span class="c1"># Auto-expand active capabilities with providers for missing context types</span>
+    <span class="n">active_set</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;planning_active_capabilities&quot;</span><span class="p">,</span> <span class="p">[]))</span>
+    <span class="n">expanded</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;planning_active_capabilities&quot;</span><span class="p">,</span> <span class="p">[]))</span>
+    <span class="k">for</span> <span class="n">_context_type</span><span class="p">,</span> <span class="n">provider</span> <span class="ow">in</span> <span class="n">missing</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">provider</span> <span class="ow">and</span> <span class="n">provider</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">active_set</span><span class="p">:</span>
+            <span class="n">expanded</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">provider</span><span class="p">)</span>
+            <span class="n">active_set</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">provider</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Auto-expanded active capabilities: added &#39;</span><span class="si">{</span><span class="n">provider</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span>
+
+    <span class="n">result</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;react_messages&quot;</span><span class="p">:</span> <span class="n">react_messages</span><span class="p">,</span>
+        <span class="s2">&quot;react_step_count&quot;</span><span class="p">:</span> <span class="n">react_step_count</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="s2">&quot;react_rejection_count&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="s2">&quot;control_has_error&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="s2">&quot;control_error_info&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;control_last_error&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;control_retry_count&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="s2">&quot;control_current_step_retry_count&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">create_status_update</span><span class="p">(</span>
+            <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Reactive step </span><span class="si">{</span><span class="n">react_step_count</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">capability</span><span class="si">}</span><span class="s2"> blocked (missing deps)&quot;</span><span class="p">,</span>
+            <span class="n">progress</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+            <span class="n">complete</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">node</span><span class="o">=</span><span class="s2">&quot;reactive_orchestrator&quot;</span><span class="p">,</span>
+            <span class="n">capability</span><span class="o">=</span><span class="n">capability</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="p">}</span>
+
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">expanded</span><span class="p">)</span> <span class="o">&gt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;planning_active_capabilities&quot;</span><span class="p">,</span> <span class="p">[])):</span>
+        <span class="n">result</span><span class="p">[</span><span class="s2">&quot;planning_active_capabilities&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">expanded</span>
+
+    <span class="k">return</span> <span class="n">result</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_format_execution_history</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Format step results into a human-readable execution history string.</span>
+
+<span class="sd">    :param state: Current agent state</span>
+<span class="sd">    :return: Formatted execution history</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">step_results</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_step_results&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">step_results</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;No steps executed yet&quot;</span>
+
+    <span class="n">history_lines</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">ordered</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">step_results</span><span class="o">.</span><span class="n">items</span><span class="p">(),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;step_index&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+    <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">ordered</span><span class="p">:</span>
+        <span class="n">cap</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;capability&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">)</span>
+        <span class="n">success</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;success&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+        <span class="n">objective</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;task_objective&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+        <span class="n">status</span> <span class="o">=</span> <span class="s2">&quot;SUCCESS&quot;</span> <span class="k">if</span> <span class="n">success</span> <span class="k">else</span> <span class="s2">&quot;FAILED&quot;</span>
+        <span class="n">history_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;- Step &#39;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">&#39; (</span><span class="si">{</span><span class="n">cap</span><span class="si">}</span><span class="s2">): </span><span class="si">{</span><span class="n">status</span><span class="si">}</span><span class="s2"> - </span><span class="si">{</span><span class="n">objective</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">history_lines</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_build_system_prompt</span><span class="p">(</span>
+    <span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">,</span>
+    <span class="n">logger</span><span class="p">,</span>
+    <span class="n">active_capabilities</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Build the reactive orchestrator system prompt using shared prompt infrastructure.</span>
+
+<span class="sd">    Delegates to ``get_reactive_instructions()`` on the orchestrator prompt builder,</span>
+<span class="sd">    which composes the prompt from shared components (role, step format, capabilities,</span>
+<span class="sd">    context) plus reactive-specific strategy and execution history.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">prompt_provider</span> <span class="o">=</span> <span class="n">get_framework_prompts</span><span class="p">()</span>
+    <span class="n">builder</span> <span class="o">=</span> <span class="n">prompt_provider</span><span class="o">.</span><span class="n">get_orchestrator_prompt_builder</span><span class="p">()</span>
+    <span class="n">context_manager</span> <span class="o">=</span> <span class="n">ContextManager</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+    <span class="n">execution_history</span> <span class="o">=</span> <span class="n">_format_execution_history</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">builder</span><span class="o">.</span><span class="n">get_reactive_instructions</span><span class="p">(</span>
+        <span class="n">active_capabilities</span><span class="o">=</span><span class="n">active_capabilities</span><span class="p">,</span>
+        <span class="n">context_manager</span><span class="o">=</span><span class="n">context_manager</span><span class="p">,</span>
+        <span class="n">execution_history</span><span class="o">=</span><span class="n">execution_history</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_build_chat_request</span><span class="p">(</span>
+    <span class="n">system_prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">current_task</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">react_messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChatCompletionRequest</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Build a structured chat request from system prompt, task, and history.</span>
+
+<span class="sd">    Observations are taken from ``react_messages`` (already appended by the</span>
+<span class="sd">    caller), so each observation appears exactly once — fixing the</span>
+<span class="sd">    duplication bug in the former ``_build_messages()`` function.</span>
+
+<span class="sd">    :param system_prompt: Orchestrator system prompt (cached on Anthropic)</span>
+<span class="sd">    :param current_task: The user&#39;s current task</span>
+<span class="sd">    :param react_messages: Accumulated assistant/observation messages</span>
+<span class="sd">    :return: A ``ChatCompletionRequest`` with proper multi-turn structure</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">msgs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChatMessage</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">ChatMessage</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="n">system_prompt</span><span class="p">)]</span>
+
+    <span class="c1"># Build user task message — append first-step instruction if no history</span>
+    <span class="n">task_content</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;USER TASK: </span><span class="si">{</span><span class="n">current_task</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">react_messages</span><span class="p">:</span>
+        <span class="n">task_content</span> <span class="o">+=</span> <span class="s2">&quot;</span><span class="se">\n\n</span><span class="s2">This is the first step. Analyze the task and decide what to do first.&quot;</span>
+    <span class="n">msgs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ChatMessage</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="n">task_content</span><span class="p">))</span>
+
+    <span class="c1"># Map react_messages to proper chat roles</span>
+    <span class="k">for</span> <span class="n">msg</span> <span class="ow">in</span> <span class="n">react_messages</span><span class="p">:</span>
+        <span class="n">role</span> <span class="o">=</span> <span class="n">msg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;role&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">)</span>
+        <span class="n">content</span> <span class="o">=</span> <span class="n">msg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;content&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">role</span> <span class="o">==</span> <span class="s2">&quot;assistant&quot;</span><span class="p">:</span>
+            <span class="n">msgs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ChatMessage</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="s2">&quot;assistant&quot;</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="n">content</span><span class="p">))</span>
+        <span class="k">elif</span> <span class="n">role</span> <span class="o">==</span> <span class="s2">&quot;observation&quot;</span><span class="p">:</span>
+            <span class="n">msgs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ChatMessage</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;OBSERVATION: </span><span class="si">{</span><span class="n">content</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">))</span>
+
+    <span class="k">return</span> <span class="n">ChatCompletionRequest</span><span class="p">(</span><span class="n">messages</span><span class="o">=</span><span class="n">msgs</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_format_observation</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Summarize the last step result or error for LLM context.</span>
+
+<span class="sd">    :param state: Current agent state</span>
+<span class="sd">    :return: Formatted observation string, or None if no observation available</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Check for errors first</span>
+    <span class="n">error_info</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;control_error_info&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">error_info</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">error_info</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="n">classification</span> <span class="o">=</span> <span class="n">error_info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;classification&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">classification</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">classification</span><span class="p">,</span> <span class="s2">&quot;user_message&quot;</span><span class="p">):</span>
+            <span class="n">cap_name</span> <span class="o">=</span> <span class="n">error_info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;capability_name&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;ERROR in </span><span class="si">{</span><span class="n">cap_name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">classification</span><span class="o">.</span><span class="n">user_message</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Severity: </span><span class="si">{</span><span class="n">classification</span><span class="o">.</span><span class="n">severity</span><span class="o">.</span><span class="n">value</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="nb">hasattr</span><span class="p">(</span><span class="n">classification</span><span class="o">.</span><span class="n">severity</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;value&#39;</span><span class="p">)</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="n">classification</span><span class="o">.</span><span class="n">severity</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+
+    <span class="c1"># Check for last result</span>
+    <span class="n">last_result</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_last_result&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">last_result</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">last_result</span><span class="p">,</span> <span class="s2">&quot;success&quot;</span><span class="p">):</span>
+            <span class="n">cap</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">last_result</span><span class="p">,</span> <span class="s2">&quot;capability&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">last_result</span><span class="o">.</span><span class="n">success</span><span class="p">:</span>
+                <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Step completed successfully (capability: </span><span class="si">{</span><span class="n">cap</span><span class="si">}</span><span class="s2">)&quot;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">error</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">last_result</span><span class="p">,</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown error&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Step FAILED (capability: </span><span class="si">{</span><span class="n">cap</span><span class="si">}</span><span class="s2">): </span><span class="si">{</span><span class="n">error</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">last_result</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="n">cap</span> <span class="o">=</span> <span class="n">last_result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;capability&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">last_result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;success&quot;</span><span class="p">):</span>
+                <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Step completed successfully (capability: </span><span class="si">{</span><span class="n">cap</span><span class="si">}</span><span class="s2">)&quot;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">error</span> <span class="o">=</span> <span class="n">last_result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown error&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Step FAILED (capability: </span><span class="si">{</span><span class="n">cap</span><span class="si">}</span><span class="s2">): </span><span class="si">{</span><span class="n">error</span><span class="si">}</span><span class="s2">&quot;</span>
+
+    <span class="c1"># Check step results for any completed work</span>
+    <span class="n">step_results</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_step_results&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="k">if</span> <span class="n">step_results</span><span class="p">:</span>
+        <span class="n">last_key</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">step_results</span><span class="o">.</span><span class="n">keys</span><span class="p">())[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">last</span> <span class="o">=</span> <span class="n">step_results</span><span class="p">[</span><span class="n">last_key</span><span class="p">]</span>
+        <span class="n">cap</span> <span class="o">=</span> <span class="n">last</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;capability&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">)</span>
+        <span class="n">success</span> <span class="o">=</span> <span class="n">last</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;success&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">success</span><span class="p">:</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Previous step &#39;</span><span class="si">{</span><span class="n">last_key</span><span class="si">}</span><span class="s2">&#39; (</span><span class="si">{</span><span class="n">cap</span><span class="si">}</span><span class="s2">) completed successfully&quot;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Previous step &#39;</span><span class="si">{</span><span class="n">last_key</span><span class="si">}</span><span class="s2">&#39; (</span><span class="si">{</span><span class="n">cap</span><span class="si">}</span><span class="s2">) failed&quot;</span>
+
+    <span class="k">return</span> <span class="kc">None</span>
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

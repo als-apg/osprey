@@ -1,0 +1,1696 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey.prompts.base &#8212; Osprey Framework 0.11.5 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
+
+
+
+
+
+const initStyles = () => {
+    const defaultStyle = document.createElement('style');
+    defaultStyle.textContent = `pre.mermaid {
+    /* Same as .mermaid-container > pre */
+    display: block;
+    width: 100%;
+}
+
+pre.mermaid > svg {
+    /* Same as .mermaid-container > pre > svg */
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}`;
+    document.head.appendChild(defaultStyle);
+
+    const fullscreenStyle = document.createElement('style');
+    fullscreenStyle.textContent = `.mermaid-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.mermaid-container > pre {
+    display: block;
+    width: 100%;
+}
+
+.mermaid-container > pre > svg {
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}
+
+.mermaid-fullscreen-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    color: #333;
+}
+
+.mermaid-fullscreen-btn:hover {
+    opacity: 100% !important;
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-btn.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-btn.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 95vw;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.98);
+    z-index: 9999;
+    padding: 20px;
+    overflow: auto;
+}
+
+.mermaid-fullscreen-modal.dark-theme {
+    background: rgba(0, 0, 0, 0.98);
+}
+
+.mermaid-fullscreen-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen {
+    position: relative;
+    width: 95vw;
+    height: 90vh;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen.dark-theme {
+    background: #1a1a1a;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-container-fullscreen pre.mermaid {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen .mermaid svg {
+    height: 100% !important;
+    width: 100% !important;
+    cursor: grab;
+}
+
+.mermaid-fullscreen-close {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    font-size: 24px;
+    line-height: 1;
+    color: #333;
+}
+
+.mermaid-fullscreen-close:hover {
+    background: white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-close.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-close.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
+    display: none !important;
+}`;
+    document.head.appendChild(fullscreenStyle);
+}
+
+// Detect if page has dark background
+const isDarkTheme = () => {
+    // We use a set of heuristics:
+    // 1. Check for common dark mode classes or attributes
+    // 2. Check computed background color brightness
+    if (document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        document.body.getAttribute('data-theme') === 'dark') {
+        // console.log("Dark theme detected via class/attribute");
+        return true;
+    }
+    if (document.documentElement.classList.contains('light') ||
+        document.documentElement.getAttribute('data-theme') === 'light' ||
+        document.body.classList.contains('light') ||
+        document.body.getAttribute('data-theme') === 'light') {
+        // console.log("Light theme detected via class/attribute");
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // console.log("Dark theme detected via prefers-color-scheme");
+        return true;
+    }
+    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        // console.log("Background color brightness:", brightness);
+        return brightness < 128;
+    }
+    // console.log("No dark or light theme detected, defaulting to light theme");
+    return false;
+};
+
+let darkTheme = isDarkTheme();
+let modal = null;
+let modalContent = null;
+let previousScrollOffset = [window.scrollX, window.scrollY];
+
+const runMermaid = async (rerun) => {
+    console.log("Running mermaid diagrams, rerun =", rerun);
+    // clear all existing mermaid charts
+    let all_mermaids = document.querySelectorAll(".mermaid");
+
+    if (rerun) {
+        all_mermaids.forEach((el) => {
+            if(!el.hasAttribute("data-original-code")) {
+                // store original code
+                // console.log(`Storing original code for first run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+            if(el.getAttribute("data-processed") === "true") {
+                // remove and restore original
+                el.removeAttribute("data-processed");
+                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
+                el.innerHTML = el.getAttribute('data-original-code');
+            } else {
+                // store original code
+                // console.log(`Storing original code for re-run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+        });
+        await mermaid.run();
+    }
+
+    all_mermaids = document.querySelectorAll(".mermaid");
+    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
+
+    if ("False" === "True") {
+        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
+        if(mermaids_to_add_zoom > 0) {
+            var svgs = d3.selectAll("");
+            if(all_mermaids.length !== mermaids_processed.length) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else if(svgs.size() !== mermaids_to_add_zoom) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else {
+                svgs.each(function() {
+                    var svg = d3.select(this);
+                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
+                    var inner = svg.select("g");
+                    var zoom = d3.zoom().on("zoom", function(event) {
+                        inner.attr("transform", event.transform);
+                    });
+                    svg.call(zoom);
+                });
+            }
+        }
+    } else if(all_mermaids.length !== mermaids_processed.length) {
+        // Wait for mermaid to process all diagrams
+        setTimeout(() => runMermaid(false), 200);
+        return;
+    }
+
+    // Stop here if not adding fullscreen capability
+    if ("True" !== "True") return;
+
+    if (modal !== null ) {
+        // Destroy existing modal
+        modal.remove();
+        modal = null;
+        modalContent = null;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
+    modal.innerHTML = `
+        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
+        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
+    `;
+    document.body.appendChild(modal);
+
+    modalContent = modal.querySelector('.mermaid-container-fullscreen');
+    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
+
+    const closeModal = () => {
+        modal.classList.remove('active');
+        modalContent.innerHTML = '';
+        document.body.style.overflow = ''
+        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+        }
+    });
+
+    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
+        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
+            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
+            // Already processed, adjust button class if needed
+            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
+            if (existingBtn) {
+                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+            }
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.className = 'mermaid-container';
+        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
+        container.appendChild(mermaidDiv);
+
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
+        fullscreenBtn.textContent = '⛶';
+        fullscreenBtn.style.opacity = '50%';
+
+        // Calculate dynamic position based on diagram's margin and padding
+        const diagramStyle = window.getComputedStyle(mermaidDiv);
+        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
+        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
+        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
+        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
+        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
+        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
+
+        fullscreenBtn.addEventListener('click', () => {
+            previousScrollOffset = [window.scroll, window.scrollY];
+            const clone = mermaidDiv.cloneNode(true);
+            modalContent.innerHTML = '';
+            modalContent.appendChild(clone);
+
+            const svg = clone.querySelector('svg');
+            if (svg) {
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxWidth = '100%';
+                svg.style.sdisplay = 'block';
+
+                if ("False" === "True") {
+                    setTimeout(() => {
+                        const g = svg.querySelector('g');
+                        if (g) {
+                            var svgD3 = d3.select(svg);
+                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
+                            var inner = svgD3.select("g");
+                            var zoom = d3.zoom().on("zoom", function(event) {
+                                inner.attr("transform", event.transform);
+                            });
+                            svgD3.call(zoom);
+                        }
+                    }, 100);
+                }
+            }
+
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+        container.appendChild(fullscreenBtn);
+    });
+};
+
+const load = async () => {
+    initStyles();
+
+    await runMermaid(true);
+
+    const reRunIfThemeChanges = async () => {
+        const newDarkTheme = isDarkTheme();
+        if (newDarkTheme !== darkTheme) {
+            darkTheme = newDarkTheme;
+            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
+            await mermaid.initialize(
+                {...JSON.parse(
+                    `{"startOnLoad": false}`
+                ),
+                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+                }
+            );
+            await runMermaid(true);
+        }
+    };
+
+    // Update theme classes when theme changes
+    const themeObserver = new MutationObserver(reRunIfThemeChanges);
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+    themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+};
+
+
+
+
+
+console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
+mermaid.initialize(
+    {...JSON.parse(
+        `{"startOnLoad": false}`
+    ),
+    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+    }
+);
+
+window.addEventListener("load", load);</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey/prompts/base';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey.prompts.base</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey.prompts.base</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Base classes for framework prompt builders.</span>
+
+<span class="sd">This file defines the abstract interfaces that application layers must implement to provide</span>
+<span class="sd">domain-specific prompts to the framework infrastructure. This enables clean separation between</span>
+<span class="sd">the generic framework (which handles orchestration, task extraction, etc.) and application-specific</span>
+<span class="sd">domain knowledge (like ALS accelerator terminology). Applications register concrete implementations</span>
+<span class="sd">of these builders, allowing the framework to remain domain-agnostic while still generating</span>
+<span class="sd">contextually appropriate prompts.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">textwrap</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Optional</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">TaskClassifierGuide</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_agent_dir</span><span class="p">,</span> <span class="n">get_config_value</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseExample</span><span class="p">,</span> <span class="n">OrchestratorGuide</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;osprey&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="FrameworkPromptBuilder">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/05_prompt_management.html#osprey.prompts.FrameworkPromptBuilder">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">FrameworkPromptBuilder</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Abstract base class for building domain-agnostic framework prompts with flexible composition.</span>
+
+<span class="sd">    This class provides the foundational architecture for the framework&#39;s prompt system,</span>
+<span class="sd">    enabling clean separation between generic framework infrastructure and domain-specific</span>
+<span class="sd">    prompt customization. Applications can inherit from this class to provide specialized</span>
+<span class="sd">    prompts while maintaining compatibility with the framework&#39;s orchestration, task</span>
+<span class="sd">    extraction, and response generation systems.</span>
+
+<span class="sd">    The prompt building system follows a modular composition pattern where each component</span>
+<span class="sd">    (role, task, instructions, examples, context) can be independently customized or</span>
+<span class="sd">    omitted based on the specific needs of the prompt type. This flexibility allows</span>
+<span class="sd">    everything from simple single-purpose prompts to complex multi-stage prompts with</span>
+<span class="sd">    dynamic context injection.</span>
+
+<span class="sd">    **Customization Points:**</span>
+
+<span class="sd">    +---------------------------------+------------------------------------------+</span>
+<span class="sd">    | I want to...                    | Override...                              |</span>
+<span class="sd">    +=================================+==========================================+</span>
+<span class="sd">    | Change the agent identity       | ``get_role()``                           |</span>
+<span class="sd">    +---------------------------------+------------------------------------------+</span>
+<span class="sd">    | Add a task statement            | ``get_task()``                           |</span>
+<span class="sd">    +---------------------------------+------------------------------------------+</span>
+<span class="sd">    | Change core instructions        | ``get_instructions()``                   |</span>
+<span class="sd">    +---------------------------------+------------------------------------------+</span>
+<span class="sd">    | Supply few-shot examples        | ``get_examples(**kwargs)``               |</span>
+<span class="sd">    +---------------------------------+------------------------------------------+</span>
+<span class="sd">    | Change example formatting       | ``format_examples(examples)``            |</span>
+<span class="sd">    +---------------------------------+------------------------------------------+</span>
+<span class="sd">    | Inject runtime context          | ``build_dynamic_context(**kwargs)``       |</span>
+<span class="sd">    +---------------------------------+------------------------------------------+</span>
+<span class="sd">    | Provide orchestrator guidance   | ``get_orchestrator_guide()``             |</span>
+<span class="sd">    +---------------------------------+------------------------------------------+</span>
+<span class="sd">    | Provide classifier guidance     | ``get_classifier_guide()``               |</span>
+<span class="sd">    +---------------------------------+------------------------------------------+</span>
+
+<span class="sd">    :raises NotImplementedError: If required abstract methods are not implemented</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       All prompts automatically integrate with the framework&#39;s debug system for</span>
+<span class="sd">       development visibility. Set development.prompts.show_all=true in config</span>
+<span class="sd">       to see generated prompts in logs.</span>
+
+<span class="sd">    .. warning::</span>
+<span class="sd">       Subclasses must implement get_role() and get_instructions().</span>
+<span class="sd">       These are the minimum requirements for a functional prompt.</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Basic prompt builder implementation::</span>
+
+<span class="sd">            class CustomPromptBuilder(FrameworkPromptBuilder):</span>
+<span class="sd">                def get_role(self) -&gt; str:</span>
+<span class="sd">                    return &quot;You are a data analysis specialist.&quot;</span>
+
+<span class="sd">                def get_instructions(self) -&gt; str:</span>
+<span class="sd">                    return &quot;Analyze the provided data and extract key insights.&quot;</span>
+
+<span class="sd">        Advanced prompt with dynamic context::</span>
+
+<span class="sd">            class ContextualPromptBuilder(FrameworkPromptBuilder):</span>
+<span class="sd">                def get_role(self) -&gt; str:</span>
+<span class="sd">                    return &quot;You are an ALS accelerator operations expert.&quot;</span>
+
+<span class="sd">                def get_instructions(self) -&gt; str:</span>
+<span class="sd">                    return &quot;Provide technical analysis using ALS-specific terminology.&quot;</span>
+
+<span class="sd">                def build_dynamic_context(self, **kwargs) -&gt; Optional[str]:</span>
+<span class="sd">                    if &#39;device_status&#39; in kwargs:</span>
+<span class="sd">                        return f&quot;Current device status: {kwargs[&#39;device_status&#39;]}&quot;</span>
+<span class="sd">                    return None</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`FrameworkPromptProvider` : Provider interface for registering prompt builders</span>
+<span class="sd">       :func:`get_framework_prompts` : Access registered prompt builders</span>
+<span class="sd">       :func:`debug_print_prompt` : Standalone debug function for prompt inspection</span>
+<span class="sd">       :doc:`/developer-guides/03_core-framework-systems/04_prompt-customization` : Guide for customizing framework prompts</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="FrameworkPromptBuilder.get_role">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/05_prompt_management.html#osprey.prompts.FrameworkPromptBuilder.get_role">[docs]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_role</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Define the AI agent&#39;s role and primary identity for the prompt.</span>
+
+<span class="sd">        This method provides the foundational &quot;You are...&quot; statement that establishes</span>
+<span class="sd">        the agent&#39;s expertise, perspective, and behavioral context. This is always</span>
+<span class="sd">        required and forms the first component of every generated prompt.</span>
+
+<span class="sd">        :return: Role definition string that establishes agent identity and expertise</span>
+<span class="sd">        :rtype: str</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Generic framework role::</span>
+
+<span class="sd">                return &quot;You are an expert execution planner for the assistant system.&quot;</span>
+
+<span class="sd">            Domain-specific role::</span>
+
+<span class="sd">                return &quot;You are an ALS accelerator operations specialist with expertise in beam diagnostics.&quot;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">pass</span></div>
+
+
+<div class="viewcode-block" id="FrameworkPromptBuilder.get_task">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/05_prompt_management.html#osprey.prompts.FrameworkPromptBuilder.get_task">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_task</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Define the specific task or objective for the prompt.</span>
+
+<span class="sd">        This method provides an explicit task statement when the role definition</span>
+<span class="sd">        alone is insufficient to establish the prompt&#39;s purpose. Can be omitted</span>
+<span class="sd">        if the task is embedded within the role definition or instructions.</span>
+
+<span class="sd">        :return: Task definition string or None if task is embedded elsewhere</span>
+<span class="sd">        :rtype: Optional[str]</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Explicit task definition::</span>
+
+<span class="sd">                return &quot;TASK: Create a detailed execution plan for the user&#39;s request.&quot;</span>
+
+<span class="sd">            No separate task (embedded in role)::</span>
+
+<span class="sd">                return None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="FrameworkPromptBuilder.get_role_definition">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/05_prompt_management.html#osprey.prompts.FrameworkPromptBuilder.get_role_definition">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_role_definition</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Deprecated: use ``get_role()`` instead.</span>
+
+<span class="sd">        Deprecation bridge — if a subclass still overrides ``get_role_definition()``,</span>
+<span class="sd">        this emits a warning and delegates to the subclass override.  Otherwise it</span>
+<span class="sd">        forwards to :meth:`get_role`.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">get_role_definition</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">FrameworkPromptBuilder</span><span class="o">.</span><span class="n">get_role_definition</span><span class="p">:</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.get_role_definition() is deprecated. &quot;</span>
+                <span class="s2">&quot;Override get_role() instead.&quot;</span><span class="p">,</span>
+                <span class="ne">DeprecationWarning</span><span class="p">,</span>
+                <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="c1"># Subclass overrides get_role_definition — call it via super bypass</span>
+            <span class="k">return</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">get_role_definition</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_role</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="FrameworkPromptBuilder.get_task_definition">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/05_prompt_management.html#osprey.prompts.FrameworkPromptBuilder.get_task_definition">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_task_definition</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Deprecated: use ``get_task()`` instead.</span>
+
+<span class="sd">        Deprecation bridge — if a subclass still overrides ``get_task_definition()``,</span>
+<span class="sd">        this emits a warning and delegates to the subclass override.  Otherwise it</span>
+<span class="sd">        forwards to :meth:`get_task`.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">get_task_definition</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">FrameworkPromptBuilder</span><span class="o">.</span><span class="n">get_task_definition</span><span class="p">:</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.get_task_definition() is deprecated. &quot;</span>
+                <span class="s2">&quot;Override get_task() instead.&quot;</span><span class="p">,</span>
+                <span class="ne">DeprecationWarning</span><span class="p">,</span>
+                <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">get_task_definition</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_task</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="FrameworkPromptBuilder.get_instructions">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/05_prompt_management.html#osprey.prompts.FrameworkPromptBuilder.get_instructions">[docs]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_instructions</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Provide detailed instructions for how the agent should perform its task.</span>
+
+<span class="sd">        This method contains the core operational guidance that tells the agent</span>
+<span class="sd">        exactly how to approach and execute its assigned task. This is always</span>
+<span class="sd">        required and typically contains the most detailed content of the prompt.</span>
+
+<span class="sd">        :return: Comprehensive instructions for task execution</span>
+<span class="sd">        :rtype: str</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Structured instructions with guidelines::</span>
+
+<span class="sd">                return textwrap.dedent(&#39;&#39;&#39;</span>
+<span class="sd">                    Follow these steps:</span>
+<span class="sd">                    1. Analyze the user&#39;s request for key requirements</span>
+<span class="sd">                    2. Identify necessary data sources and dependencies</span>
+<span class="sd">                    3. Create a step-by-step execution plan</span>
+
+<span class="sd">                    Guidelines:</span>
+<span class="sd">                    - Be specific and actionable</span>
+<span class="sd">                    - Consider error handling scenarios</span>
+<span class="sd">                    - Optimize for efficiency</span>
+<span class="sd">                    &#39;&#39;&#39;)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">pass</span></div>
+
+
+<div class="viewcode-block" id="FrameworkPromptBuilder.get_examples">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/05_prompt_management.html#osprey.prompts.FrameworkPromptBuilder.get_examples">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_examples</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="s2">&quot;BaseExample&quot;</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Provide few-shot examples to guide agent behavior and output format.</span>
+
+<span class="sd">        Override this method in subclasses to supply static or dynamic examples.</span>
+<span class="sd">        Examples are particularly valuable for structured output tasks, complex</span>
+<span class="sd">        reasoning patterns, or domain-specific formatting.</span>
+
+<span class="sd">        :param kwargs: Context parameters for dynamic example generation</span>
+<span class="sd">        :type kwargs: dict</span>
+<span class="sd">        :return: List of examples or None if no examples needed</span>
+<span class="sd">        :rtype: Optional[List[BaseExample]]</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Static examples::</span>
+
+<span class="sd">                def get_examples(self, **kwargs):</span>
+<span class="sd">                    return [</span>
+<span class="sd">                        TaskExtractionExample(</span>
+<span class="sd">                            input=&quot;Show me yesterday&#39;s beam current data&quot;,</span>
+<span class="sd">                            output=&quot;Extract beam current measurements from yesterday&quot;</span>
+<span class="sd">                        )</span>
+<span class="sd">                    ]</span>
+
+<span class="sd">            Dynamic examples based on context::</span>
+
+<span class="sd">                def get_examples(self, **kwargs):</span>
+<span class="sd">                    if kwargs.get(&#39;task_type&#39;) == &#39;data_analysis&#39;:</span>
+<span class="sd">                        return self._get_analysis_examples()</span>
+<span class="sd">                    return self._get_general_examples()</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Deprecation bridge: detect subclasses still overriding old private name</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">_get_examples</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">FrameworkPromptBuilder</span><span class="o">.</span><span class="n">_get_examples</span><span class="p">:</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">._get_examples() is deprecated. &quot;</span>
+                <span class="s2">&quot;Override get_examples() instead.&quot;</span><span class="p">,</span>
+                <span class="ne">DeprecationWarning</span><span class="p">,</span>
+                <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_examples</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">return</span> <span class="kc">None</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_examples</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="s2">&quot;BaseExample&quot;</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Deprecated: override get_examples() instead.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+<div class="viewcode-block" id="FrameworkPromptBuilder.build_dynamic_context">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/05_prompt_management.html#osprey.prompts.FrameworkPromptBuilder.build_dynamic_context">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">build_dynamic_context</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Inject runtime context information into the prompt.</span>
+
+<span class="sd">        Override this method in subclasses to incorporate dynamic information</span>
+<span class="sd">        such as current system state, user preferences, or execution context.</span>
+<span class="sd">        The context is appended to the prompt after all other components.</span>
+
+<span class="sd">        :param kwargs: Runtime context data for prompt customization</span>
+<span class="sd">        :type kwargs: dict</span>
+<span class="sd">        :return: Dynamic context string or None if no context needed</span>
+<span class="sd">        :rtype: Optional[str]</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            System status context::</span>
+
+<span class="sd">                def build_dynamic_context(self, **kwargs):</span>
+<span class="sd">                    if &#39;system_status&#39; in kwargs:</span>
+<span class="sd">                        return f&quot;Current system status: {kwargs[&#39;system_status&#39;]}&quot;</span>
+<span class="sd">                    return None</span>
+
+<span class="sd">            User preferences context::</span>
+
+<span class="sd">                def build_dynamic_context(self, **kwargs):</span>
+<span class="sd">                    prefs = kwargs.get(&#39;user_preferences&#39;, {})</span>
+<span class="sd">                    if prefs:</span>
+<span class="sd">                        return f&quot;User preferences: {prefs}&quot;</span>
+<span class="sd">                    return None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Deprecation bridge: detect subclasses still overriding old private name</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">_get_dynamic_context</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">FrameworkPromptBuilder</span><span class="o">.</span><span class="n">_get_dynamic_context</span><span class="p">:</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">._get_dynamic_context() is deprecated. &quot;</span>
+                <span class="s2">&quot;Override build_dynamic_context() instead.&quot;</span><span class="p">,</span>
+                <span class="ne">DeprecationWarning</span><span class="p">,</span>
+                <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_dynamic_context</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">return</span> <span class="kc">None</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_dynamic_context</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Deprecated: override build_dynamic_context() instead.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+<div class="viewcode-block" id="FrameworkPromptBuilder.build_prompt">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/05_prompt_management.html#osprey.prompts.FrameworkPromptBuilder.build_prompt">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">build_prompt</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">context</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compose and return the complete prompt for agent/LLM configuration.</span>
+
+<span class="sd">        This method orchestrates the prompt building process by combining all prompt</span>
+<span class="sd">        components in the correct order: role, task, instructions, examples, and</span>
+<span class="sd">        dynamic context. It handles optional components gracefully and automatically</span>
+<span class="sd">        integrates with the framework&#39;s debug system for development visibility.</span>
+
+<span class="sd">        The composition follows this structure:</span>
+<span class="sd">        1. Role (always present)</span>
+<span class="sd">        2. Task (optional)</span>
+<span class="sd">        3. Instructions (always present)</span>
+<span class="sd">        4. Examples (optional, can be static or dynamic)</span>
+<span class="sd">        5. Dynamic context (optional)</span>
+
+<span class="sd">        :param context: Runtime context data passed to dynamic methods</span>
+<span class="sd">        :type context: dict</span>
+<span class="sd">        :return: Complete prompt ready for LLM consumption</span>
+<span class="sd">        :rtype: str</span>
+
+<span class="sd">        .. note::</span>
+<span class="sd">           This method automatically calls debug_print_prompt() if debug output</span>
+<span class="sd">           is enabled in the configuration. No manual debug calls are needed.</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Basic usage in framework infrastructure::</span>
+
+<span class="sd">                prompt_builder = get_framework_prompts().get_orchestrator_prompt_builder()</span>
+<span class="sd">                prompt = prompt_builder.build_prompt(</span>
+<span class="sd">                    capabilities=active_capabilities,</span>
+<span class="sd">                    context_manager=context_manager</span>
+<span class="sd">                )</span>
+
+<span class="sd">            With dynamic context injection::</span>
+
+<span class="sd">                prompt = builder.build_prompt(</span>
+<span class="sd">                    user_preferences={&#39;format&#39;: &#39;detailed&#39;},</span>
+<span class="sd">                    system_status=&#39;operational&#39;,</span>
+<span class="sd">                    available_data_sources=[&#39;archiver&#39;, &#39;logbook&#39;]</span>
+<span class="sd">                )</span>
+
+<span class="sd">        .. seealso::</span>
+<span class="sd">           :meth:`debug_print_prompt` : Debug output for prompt development</span>
+<span class="sd">           :meth:`format_examples` : Custom example formatting override</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">sections</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c1"># Role (always present)</span>
+        <span class="n">sections</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_role</span><span class="p">())</span>
+
+        <span class="c1"># Task (optional)</span>
+        <span class="n">task</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_task</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">task</span><span class="p">:</span>
+            <span class="n">sections</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">task</span><span class="p">)</span>
+
+        <span class="c1"># Instructions (always present)</span>
+        <span class="n">instructions</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_instructions</span><span class="p">()</span>
+        <span class="n">sections</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">instructions</span><span class="p">)</span>
+
+        <span class="c1"># Examples (optional, can be static or dynamic)</span>
+        <span class="n">examples</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_examples</span><span class="p">(</span><span class="o">**</span><span class="n">context</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">examples</span><span class="p">:</span>
+            <span class="n">formatted_examples</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">format_examples</span><span class="p">(</span><span class="n">examples</span><span class="p">)</span>
+            <span class="n">sections</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;EXAMPLES:</span><span class="se">\n</span><span class="si">{</span><span class="n">formatted_examples</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Dynamic context (optional)</span>
+        <span class="n">dynamic_context</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">build_dynamic_context</span><span class="p">(</span><span class="o">**</span><span class="n">context</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">dynamic_context</span><span class="p">:</span>
+            <span class="n">sections</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">dynamic_context</span><span class="p">)</span>
+
+        <span class="n">final_prompt</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="se">\n\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sections</span><span class="p">)</span>
+
+        <span class="c1"># Debug: Print prompt if enabled (automatic for all framework prompts)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">debug_print_prompt</span><span class="p">(</span><span class="n">final_prompt</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">final_prompt</span></div>
+
+
+<div class="viewcode-block" id="FrameworkPromptBuilder.get_system_instructions">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/05_prompt_management.html#osprey.prompts.FrameworkPromptBuilder.get_system_instructions">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_system_instructions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Deprecated: use ``build_prompt()`` instead.</span>
+
+<span class="sd">        Deprecation bridge — if a subclass still overrides ``get_system_instructions()``,</span>
+<span class="sd">        this emits a warning and delegates to the subclass override.  Otherwise it</span>
+<span class="sd">        forwards to :meth:`build_prompt`.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">get_system_instructions</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">FrameworkPromptBuilder</span><span class="o">.</span><span class="n">get_system_instructions</span><span class="p">:</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.get_system_instructions() is deprecated. &quot;</span>
+                <span class="s2">&quot;Override build_prompt() instead.&quot;</span><span class="p">,</span>
+                <span class="ne">DeprecationWarning</span><span class="p">,</span>
+                <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">get_system_instructions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">build_prompt</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="FrameworkPromptBuilder.debug_print_prompt">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/05_prompt_management.html#osprey.prompts.FrameworkPromptBuilder.debug_print_prompt">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">debug_print_prompt</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Output prompt content for debugging and development visibility.</span>
+
+<span class="sd">        This method integrates with the framework&#39;s development configuration to</span>
+<span class="sd">        provide optional prompt debugging through console output and file saving.</span>
+<span class="sd">        It&#39;s automatically called by build_prompt() but can also be</span>
+<span class="sd">        used manually for specialized prompts or intermediate prompt stages.</span>
+
+<span class="sd">        The debug output includes metadata such as timestamp, builder class,</span>
+<span class="sd">        and configuration settings, making it easy to trace prompt generation</span>
+<span class="sd">        during development and troubleshooting.</span>
+
+<span class="sd">        :param prompt: The complete prompt text to output for debugging</span>
+<span class="sd">        :type prompt: str</span>
+<span class="sd">        :param name: Custom name for the prompt in debug output. If not provided,</span>
+<span class="sd">                    uses class-based default naming</span>
+<span class="sd">        :type name: Optional[str]</span>
+
+<span class="sd">        .. note::</span>
+<span class="sd">           Debug output is controlled by development.prompts configuration:</span>
+<span class="sd">           - show_all: Enable console output with detailed formatting</span>
+<span class="sd">           - print_all: Enable file output to prompts directory</span>
+<span class="sd">           - latest_only: Control file naming (latest.md vs timestamped)</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Automatic usage (called by build_prompt)::</span>
+
+<span class="sd">                # Debug output happens automatically</span>
+<span class="sd">                prompt = builder.build_prompt()</span>
+
+<span class="sd">            Manual usage for specialized prompts::</span>
+
+<span class="sd">                classification_prompt = &quot;Classify this task...&quot;</span>
+<span class="sd">                builder.debug_print_prompt(classification_prompt, &quot;task_classification&quot;)</span>
+
+<span class="sd">        .. seealso::</span>
+<span class="sd">           :func:`debug_print_prompt` : Standalone debug function</span>
+<span class="sd">           :meth:`_get_default_prompt_name` : Default naming logic</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">prompt_name</span> <span class="o">=</span> <span class="n">name</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_default_prompt_name</span><span class="p">()</span>
+        <span class="n">debug_print_prompt</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span> <span class="n">prompt_name</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_default_prompt_name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Generate default name for prompt debugging based on class metadata.</span>
+
+<span class="sd">        This method provides consistent naming for debug output by using either</span>
+<span class="sd">        the PROMPT_TYPE class attribute (if defined) or deriving a name from</span>
+<span class="sd">        the class name by removing &#39;PromptBuilder&#39; suffix and converting to lowercase.</span>
+
+<span class="sd">        :return: Default prompt name for debug output</span>
+<span class="sd">        :rtype: str</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            With PROMPT_TYPE attribute::</span>
+
+<span class="sd">                class CustomPromptBuilder(FrameworkPromptBuilder):</span>
+<span class="sd">                    PROMPT_TYPE = &quot;custom_analysis&quot;</span>
+<span class="sd">                # Returns: &quot;custom_analysis&quot;</span>
+
+<span class="sd">            Without PROMPT_TYPE attribute::</span>
+
+<span class="sd">                class DataAnalysisPromptBuilder(FrameworkPromptBuilder):</span>
+<span class="sd">                    pass</span>
+<span class="sd">                # Returns: &quot;dataanalysis&quot;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span>
+            <span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;PROMPT_TYPE&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;PromptBuilder&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="p">)</span>
+
+<div class="viewcode-block" id="FrameworkPromptBuilder.format_examples">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/05_prompt_management.html#osprey.prompts.FrameworkPromptBuilder.format_examples">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">format_examples</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">examples</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="s2">&quot;BaseExample&quot;</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Format example objects into prompt-ready text representation.</span>
+
+<span class="sd">        Override this method in subclasses to provide custom example formatting.</span>
+<span class="sd">        The default implementation calls format_for_prompt() on each example and</span>
+<span class="sd">        joins them with newlines.</span>
+
+<span class="sd">        :param examples: List of example objects to format</span>
+<span class="sd">        :type examples: List[BaseExample]</span>
+<span class="sd">        :return: Formatted examples string ready for prompt inclusion</span>
+<span class="sd">        :rtype: str</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Default formatting::</span>
+
+<span class="sd">                examples = [TaskExample(input=&quot;...&quot;, output=&quot;...&quot;)]</span>
+<span class="sd">                formatted = self.format_examples(examples)</span>
+<span class="sd">                # Returns: &quot;Input: ...\nOutput: ...\n&quot;</span>
+
+<span class="sd">            Custom formatting override::</span>
+
+<span class="sd">                def format_examples(self, examples):</span>
+<span class="sd">                    formatted = []</span>
+<span class="sd">                    for i, ex in enumerate(examples, 1):</span>
+<span class="sd">                        formatted.append(f&quot;Example {i}:\n{ex.format_for_prompt()}&quot;)</span>
+<span class="sd">                    return &quot;\n\n&quot;.join(formatted)</span>
+
+<span class="sd">        .. seealso::</span>
+<span class="sd">           :class:`BaseExample` : Base class for prompt examples</span>
+<span class="sd">           :meth:`BaseExample.format_for_prompt` : Individual example formatting</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Deprecation bridge: detect subclasses still overriding old private name</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">_format_examples</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">FrameworkPromptBuilder</span><span class="o">.</span><span class="n">_format_examples</span><span class="p">:</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">._format_examples() is deprecated. &quot;</span>
+                <span class="s2">&quot;Override format_examples() instead.&quot;</span><span class="p">,</span>
+                <span class="ne">DeprecationWarning</span><span class="p">,</span>
+                <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_format_examples</span><span class="p">(</span><span class="n">examples</span><span class="p">)</span>
+        <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">ex</span><span class="o">.</span><span class="n">format_for_prompt</span><span class="p">()</span> <span class="k">for</span> <span class="n">ex</span> <span class="ow">in</span> <span class="n">examples</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_format_examples</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">examples</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="s2">&quot;BaseExample&quot;</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Deprecated: override format_examples() instead.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">ex</span><span class="o">.</span><span class="n">format_for_prompt</span><span class="p">()</span> <span class="k">for</span> <span class="n">ex</span> <span class="ow">in</span> <span class="n">examples</span><span class="p">)</span>
+
+<div class="viewcode-block" id="FrameworkPromptBuilder.get_orchestrator_guide">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/05_prompt_management.html#osprey.prompts.FrameworkPromptBuilder.get_orchestrator_guide">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_orchestrator_guide</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="s2">&quot;OrchestratorGuide&quot;</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Provide orchestrator planning guidance for capability-specific prompts.</span>
+
+<span class="sd">        This method allows prompt builders to provide structured guidance to the</span>
+<span class="sd">        orchestrator about how to plan and execute tasks related to their specific</span>
+<span class="sd">        capability or domain. The guide includes detailed instructions, rich examples,</span>
+<span class="sd">        and priority settings for capability coordination.</span>
+
+<span class="sd">        :return: Orchestrator guide object or None if no guidance needed</span>
+<span class="sd">        :rtype: Optional[OrchestratorGuide]</span>
+
+<span class="sd">        .. note::</span>
+<span class="sd">           This method is primarily used by capability-specific prompt builders</span>
+<span class="sd">           rather than infrastructure prompt builders.</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Capability-specific orchestrator guidance::</span>
+
+<span class="sd">                def get_orchestrator_guide(self):</span>
+<span class="sd">                    return OrchestratorGuide(</span>
+<span class="sd">                        instructions=&quot;Use for data analysis when user requests statistical analysis or data validation&quot;,</span>
+<span class="sd">                        examples=[</span>
+<span class="sd">                            OrchestratorExample(</span>
+<span class="sd">                                step=PlannedStep(</span>
+<span class="sd">                                    context_key=&quot;analysis_results&quot;,</span>
+<span class="sd">                                    capability=&quot;data_analysis&quot;,</span>
+<span class="sd">                                    task_objective=&quot;Analyze provided data for trends and anomalies&quot;,</span>
+<span class="sd">                                    success_criteria=&quot;Statistical analysis complete&quot;,</span>
+<span class="sd">                                    expected_output=&quot;ANALYSIS_RESULTS&quot;,</span>
+<span class="sd">                                    inputs=[{&quot;DATA_SET&quot;: &quot;numerical_data&quot;}]</span>
+<span class="sd">                                ),</span>
+<span class="sd">                                scenario_description=&quot;When user requests data analysis or trend identification&quot;,</span>
+<span class="sd">                                context_requirements={&quot;DATA_SET&quot;: &quot;Numerical data for analysis&quot;}</span>
+<span class="sd">                            )</span>
+<span class="sd">                        ],</span>
+<span class="sd">                        priority=10</span>
+<span class="sd">                    )</span>
+
+<span class="sd">        .. seealso::</span>
+<span class="sd">           :class:`OrchestratorGuide` : Structure for orchestrator guidance</span>
+<span class="sd">           :class:`PlannedStep` : Structure for planned steps</span>
+<span class="sd">           :meth:`get_classifier_guide` : Related classifier guidance</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="FrameworkPromptBuilder.get_classifier_guide">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/05_prompt_management.html#osprey.prompts.FrameworkPromptBuilder.get_classifier_guide">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_classifier_guide</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="s2">&quot;TaskClassifierGuide&quot;</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Provide task classification guidance for capability-specific prompts.</span>
+
+<span class="sd">        This method allows prompt builders to provide structured guidance to the</span>
+<span class="sd">        task classifier about when and how their associated capability should be</span>
+<span class="sd">        selected for different types of tasks. This helps ensure accurate capability</span>
+<span class="sd">        routing in multi-capability scenarios.</span>
+
+<span class="sd">        :return: Classifier guide object or None if no guidance needed</span>
+<span class="sd">        :rtype: Optional[TaskClassifierGuide]</span>
+
+<span class="sd">        .. note::</span>
+<span class="sd">           This method is primarily used by capability-specific prompt builders</span>
+<span class="sd">           to improve task routing accuracy.</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Capability-specific classification guidance::</span>
+
+<span class="sd">                def get_classifier_guide(self):</span>
+<span class="sd">                    return TaskClassifierGuide(</span>
+<span class="sd">                        instructions=&quot;Determine if the task involves data analysis or trend identification requests&quot;,</span>
+<span class="sd">                        examples=[</span>
+<span class="sd">                            ClassifierExample(</span>
+<span class="sd">                                query=&quot;Analyze the beam current trends&quot;,</span>
+<span class="sd">                                result=True,</span>
+<span class="sd">                                reason=&quot;Request for data analysis requiring trend identification&quot;</span>
+<span class="sd">                            ),</span>
+<span class="sd">                            ClassifierExample(</span>
+<span class="sd">                                query=&quot;What time is it?&quot;,</span>
+<span class="sd">                                result=False,</span>
+<span class="sd">                                reason=&quot;Simple information request, not data analysis&quot;</span>
+<span class="sd">                            )</span>
+<span class="sd">                        ],</span>
+<span class="sd">                        actions_if_true=ClassifierActions()</span>
+<span class="sd">                    )</span>
+
+<span class="sd">        .. seealso::</span>
+<span class="sd">           :class:`TaskClassifierGuide` : Structure for classification guidance</span>
+<span class="sd">           :class:`ClassifierExample` : Structure for classifier examples</span>
+<span class="sd">           :meth:`get_orchestrator_guide` : Related orchestrator guidance</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="kc">None</span></div>
+</div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">debug_print_prompt</span><span class="p">(</span><span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">builder_class</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Output prompt content for debugging across the entire framework.</span>
+
+<span class="sd">    This standalone function provides prompt debugging capabilities that can be</span>
+<span class="sd">    used anywhere in the framework, not just within prompt builders. It supports</span>
+<span class="sd">    both console output with detailed formatting and file output with metadata</span>
+<span class="sd">    headers, making it invaluable for development and troubleshooting.</span>
+
+<span class="sd">    The function integrates with the development configuration system to provide</span>
+<span class="sd">    flexible debugging options. It handles configuration errors gracefully to</span>
+<span class="sd">    ensure debugging never breaks main functionality.</span>
+
+<span class="sd">    :param prompt: The complete prompt text to output for debugging</span>
+<span class="sd">    :type prompt: str</span>
+<span class="sd">    :param name: Descriptive name for the prompt, used in console output and filename</span>
+<span class="sd">    :type name: str</span>
+<span class="sd">    :param builder_class: Optional builder class name for metadata and tracing</span>
+<span class="sd">    :type builder_class: Optional[str]</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       Debug output is controlled by development.prompts configuration:</span>
+
+<span class="sd">       - show_all: Enable detailed console output with separators</span>
+<span class="sd">       - print_all: Enable file output to configured prompts directory</span>
+<span class="sd">       - latest_only: Use latest.md filenames vs timestamped files</span>
+
+<span class="sd">    .. warning::</span>
+<span class="sd">       This function silently handles configuration errors to prevent debugging</span>
+<span class="sd">       from breaking main application functionality. Check logs for debug issues.</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Basic debugging from any framework component::</span>
+
+<span class="sd">            debug_print_prompt(</span>
+<span class="sd">                &quot;You are a data analyst...&quot;,</span>
+<span class="sd">                &quot;custom_analysis&quot;,</span>
+<span class="sd">                &quot;CustomAnalysisBuilder&quot;</span>
+<span class="sd">            )</span>
+
+<span class="sd">        Infrastructure component debugging::</span>
+
+<span class="sd">            classification_prompt = build_classification_prompt(task)</span>
+<span class="sd">            debug_print_prompt(</span>
+<span class="sd">                classification_prompt,</span>
+<span class="sd">                &quot;task_classification&quot;,</span>
+<span class="sd">                &quot;OrchestrationNode&quot;</span>
+<span class="sd">            )</span>
+
+<span class="sd">        Development workflow integration::</span>
+
+<span class="sd">            # Enable in config.yml:</span>
+<span class="sd">            # development:</span>
+<span class="sd">            #   prompts:</span>
+<span class="sd">            #     show_all: true</span>
+<span class="sd">            #     print_all: true</span>
+<span class="sd">            #     latest_only: false</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :meth:`FrameworkPromptBuilder.debug_print_prompt` : Builder-specific debug method</span>
+<span class="sd">       :func:`get_config_value` : Configuration system integration</span>
+<span class="sd">       :func:`get_agent_dir` : Directory management for file output</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">development_config</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;development&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="n">prompts_config</span> <span class="o">=</span> <span class="n">development_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;prompts&quot;</span><span class="p">,</span> <span class="p">{})</span>
+
+        <span class="c1"># Console output</span>
+        <span class="k">if</span> <span class="n">prompts_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;show_all&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+            <span class="n">builder_info</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot; (</span><span class="si">{</span><span class="n">builder_class</span><span class="si">}</span><span class="s2">)&quot;</span> <span class="k">if</span> <span class="n">builder_class</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
+
+            <span class="c1"># Print with clear separators for readability</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="si">{</span><span class="s1">&#39;=&#39;</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">80</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;🔍 DEBUG PROMPT: </span><span class="si">{</span><span class="n">name</span><span class="si">}{</span><span class="n">builder_info</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="s1">&#39;=&#39;</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">80</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="n">prompt</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="s1">&#39;=&#39;</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">80</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+
+            <span class="c1"># Also log at debug level</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Generated prompt: </span><span class="si">{</span><span class="n">name</span><span class="si">}{</span><span class="n">builder_info</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># File output</span>
+        <span class="k">if</span> <span class="n">prompts_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;print_all&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+            <span class="n">prompts_dir</span> <span class="o">=</span> <span class="n">get_agent_dir</span><span class="p">(</span><span class="s2">&quot;prompts_dir&quot;</span><span class="p">)</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">prompts_dir</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+            <span class="c1"># Determine filename based on latest_only flag</span>
+            <span class="n">latest_only</span> <span class="o">=</span> <span class="n">prompts_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;latest_only&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">latest_only</span><span class="p">:</span>
+                <span class="n">filename</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">_latest.md&quot;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">timestamp</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%Y%m</span><span class="si">%d</span><span class="s2">_%H%M%S&quot;</span><span class="p">)</span>
+                <span class="n">filename</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">timestamp</span><span class="si">}</span><span class="s2">.md&quot;</span>
+
+            <span class="n">prompt_file_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">prompts_dir</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+
+            <span class="c1"># Create header with metadata</span>
+            <span class="n">timestamp_str</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%Y-%m-</span><span class="si">%d</span><span class="s2"> %H:%M:%S&quot;</span><span class="p">)</span>
+            <span class="n">header</span> <span class="o">=</span> <span class="n">textwrap</span><span class="o">.</span><span class="n">dedent</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">                # PROMPT METADATA</span>
+<span class="s2">                # Generated: </span><span class="si">{</span><span class="n">timestamp_str</span><span class="si">}</span>
+<span class="s2">                # Name: </span><span class="si">{</span><span class="n">name</span><span class="si">}</span>
+<span class="s2">                # Builder: </span><span class="si">{</span><span class="n">builder_class</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="s2">&quot;Unknown&quot;</span><span class="si">}</span>
+<span class="s2">                # File: </span><span class="si">{</span><span class="n">prompt_file_path</span><span class="si">}</span>
+<span class="s2">                # Latest Only: </span><span class="si">{</span><span class="n">latest_only</span><span class="si">}</span>
+<span class="s2">                &quot;&quot;&quot;</span>
+            <span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+
+            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">prompt_file_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">header</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n\n\n</span><span class="s2">&quot;</span> <span class="o">+</span> <span class="n">prompt</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Prompt written to </span><span class="si">{</span><span class="n">prompt_file_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="c1"># Silently continue if config is not available or there&#39;s an error</span>
+        <span class="c1"># This ensures the debug function never breaks the main functionality</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error displaying prompt: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">pass</span>
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

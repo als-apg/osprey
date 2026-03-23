@@ -1,0 +1,1944 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey.registry.base &#8212; Osprey Framework 0.11.5 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
+
+
+
+
+
+const initStyles = () => {
+    const defaultStyle = document.createElement('style');
+    defaultStyle.textContent = `pre.mermaid {
+    /* Same as .mermaid-container > pre */
+    display: block;
+    width: 100%;
+}
+
+pre.mermaid > svg {
+    /* Same as .mermaid-container > pre > svg */
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}`;
+    document.head.appendChild(defaultStyle);
+
+    const fullscreenStyle = document.createElement('style');
+    fullscreenStyle.textContent = `.mermaid-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.mermaid-container > pre {
+    display: block;
+    width: 100%;
+}
+
+.mermaid-container > pre > svg {
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}
+
+.mermaid-fullscreen-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    color: #333;
+}
+
+.mermaid-fullscreen-btn:hover {
+    opacity: 100% !important;
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-btn.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-btn.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 95vw;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.98);
+    z-index: 9999;
+    padding: 20px;
+    overflow: auto;
+}
+
+.mermaid-fullscreen-modal.dark-theme {
+    background: rgba(0, 0, 0, 0.98);
+}
+
+.mermaid-fullscreen-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen {
+    position: relative;
+    width: 95vw;
+    height: 90vh;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen.dark-theme {
+    background: #1a1a1a;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-container-fullscreen pre.mermaid {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen .mermaid svg {
+    height: 100% !important;
+    width: 100% !important;
+    cursor: grab;
+}
+
+.mermaid-fullscreen-close {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    font-size: 24px;
+    line-height: 1;
+    color: #333;
+}
+
+.mermaid-fullscreen-close:hover {
+    background: white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-close.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-close.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
+    display: none !important;
+}`;
+    document.head.appendChild(fullscreenStyle);
+}
+
+// Detect if page has dark background
+const isDarkTheme = () => {
+    // We use a set of heuristics:
+    // 1. Check for common dark mode classes or attributes
+    // 2. Check computed background color brightness
+    if (document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        document.body.getAttribute('data-theme') === 'dark') {
+        // console.log("Dark theme detected via class/attribute");
+        return true;
+    }
+    if (document.documentElement.classList.contains('light') ||
+        document.documentElement.getAttribute('data-theme') === 'light' ||
+        document.body.classList.contains('light') ||
+        document.body.getAttribute('data-theme') === 'light') {
+        // console.log("Light theme detected via class/attribute");
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // console.log("Dark theme detected via prefers-color-scheme");
+        return true;
+    }
+    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        // console.log("Background color brightness:", brightness);
+        return brightness < 128;
+    }
+    // console.log("No dark or light theme detected, defaulting to light theme");
+    return false;
+};
+
+let darkTheme = isDarkTheme();
+let modal = null;
+let modalContent = null;
+let previousScrollOffset = [window.scrollX, window.scrollY];
+
+const runMermaid = async (rerun) => {
+    console.log("Running mermaid diagrams, rerun =", rerun);
+    // clear all existing mermaid charts
+    let all_mermaids = document.querySelectorAll(".mermaid");
+
+    if (rerun) {
+        all_mermaids.forEach((el) => {
+            if(!el.hasAttribute("data-original-code")) {
+                // store original code
+                // console.log(`Storing original code for first run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+            if(el.getAttribute("data-processed") === "true") {
+                // remove and restore original
+                el.removeAttribute("data-processed");
+                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
+                el.innerHTML = el.getAttribute('data-original-code');
+            } else {
+                // store original code
+                // console.log(`Storing original code for re-run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+        });
+        await mermaid.run();
+    }
+
+    all_mermaids = document.querySelectorAll(".mermaid");
+    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
+
+    if ("False" === "True") {
+        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
+        if(mermaids_to_add_zoom > 0) {
+            var svgs = d3.selectAll("");
+            if(all_mermaids.length !== mermaids_processed.length) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else if(svgs.size() !== mermaids_to_add_zoom) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else {
+                svgs.each(function() {
+                    var svg = d3.select(this);
+                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
+                    var inner = svg.select("g");
+                    var zoom = d3.zoom().on("zoom", function(event) {
+                        inner.attr("transform", event.transform);
+                    });
+                    svg.call(zoom);
+                });
+            }
+        }
+    } else if(all_mermaids.length !== mermaids_processed.length) {
+        // Wait for mermaid to process all diagrams
+        setTimeout(() => runMermaid(false), 200);
+        return;
+    }
+
+    // Stop here if not adding fullscreen capability
+    if ("True" !== "True") return;
+
+    if (modal !== null ) {
+        // Destroy existing modal
+        modal.remove();
+        modal = null;
+        modalContent = null;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
+    modal.innerHTML = `
+        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
+        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
+    `;
+    document.body.appendChild(modal);
+
+    modalContent = modal.querySelector('.mermaid-container-fullscreen');
+    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
+
+    const closeModal = () => {
+        modal.classList.remove('active');
+        modalContent.innerHTML = '';
+        document.body.style.overflow = ''
+        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+        }
+    });
+
+    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
+        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
+            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
+            // Already processed, adjust button class if needed
+            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
+            if (existingBtn) {
+                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+            }
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.className = 'mermaid-container';
+        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
+        container.appendChild(mermaidDiv);
+
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
+        fullscreenBtn.textContent = '⛶';
+        fullscreenBtn.style.opacity = '50%';
+
+        // Calculate dynamic position based on diagram's margin and padding
+        const diagramStyle = window.getComputedStyle(mermaidDiv);
+        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
+        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
+        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
+        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
+        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
+        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
+
+        fullscreenBtn.addEventListener('click', () => {
+            previousScrollOffset = [window.scroll, window.scrollY];
+            const clone = mermaidDiv.cloneNode(true);
+            modalContent.innerHTML = '';
+            modalContent.appendChild(clone);
+
+            const svg = clone.querySelector('svg');
+            if (svg) {
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxWidth = '100%';
+                svg.style.sdisplay = 'block';
+
+                if ("False" === "True") {
+                    setTimeout(() => {
+                        const g = svg.querySelector('g');
+                        if (g) {
+                            var svgD3 = d3.select(svg);
+                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
+                            var inner = svgD3.select("g");
+                            var zoom = d3.zoom().on("zoom", function(event) {
+                                inner.attr("transform", event.transform);
+                            });
+                            svgD3.call(zoom);
+                        }
+                    }, 100);
+                }
+            }
+
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+        container.appendChild(fullscreenBtn);
+    });
+};
+
+const load = async () => {
+    initStyles();
+
+    await runMermaid(true);
+
+    const reRunIfThemeChanges = async () => {
+        const newDarkTheme = isDarkTheme();
+        if (newDarkTheme !== darkTheme) {
+            darkTheme = newDarkTheme;
+            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
+            await mermaid.initialize(
+                {...JSON.parse(
+                    `{"startOnLoad": false}`
+                ),
+                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+                }
+            );
+            await runMermaid(true);
+        }
+    };
+
+    // Update theme classes when theme changes
+    const themeObserver = new MutationObserver(reRunIfThemeChanges);
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+    themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+};
+
+
+
+
+
+console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
+mermaid.initialize(
+    {...JSON.parse(
+        `{"startOnLoad": false}`
+    ),
+    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+    }
+);
+
+window.addEventListener("load", load);</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey/registry/base';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey.registry.base</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey.registry.base</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Registry Configuration Interface and Shared Definitions.</span>
+
+<span class="sd">This module defines the abstract interface that all applications must implement</span>
+<span class="sd">to provide their registry configuration, plus all shared dataclass definitions</span>
+<span class="sd">used by both framework and applications. It serves as the foundation for the</span>
+<span class="sd">registry system&#39;s type-safe, convention-based component registration.</span>
+
+<span class="sd">The module provides two main categories of functionality:</span>
+
+<span class="sd">1. **Registration Dataclasses**: Structured metadata definitions for lazy loading</span>
+<span class="sd">   of all component types (capabilities, nodes, context classes, data sources, services)</span>
+<span class="sd">2. **Configuration Interface**: Abstract base class that applications implement</span>
+<span class="sd">   to provide their registry configuration in a standardized way</span>
+
+<span class="sd">This design eliminates naming ambiguity, provides complete type safety, and ensures</span>
+<span class="sd">zero backwards compatibility issues when the registry system evolves. Applications</span>
+<span class="sd">only need to implement the RegistryConfigProvider interface and define their</span>
+<span class="sd">components using the provided registration dataclasses.</span>
+
+<span class="sd">Architecture Benefits:</span>
+<span class="sd">    - **Type Safety**: All component metadata is strongly typed</span>
+<span class="sd">    - **Lazy Loading**: Components are loaded only when needed, preventing circular imports</span>
+<span class="sd">    - **Convention-Based**: Standardized patterns reduce configuration complexity</span>
+<span class="sd">    - **Extensible**: New component types can be added without breaking existing applications</span>
+<span class="sd">    - **Validation**: Built-in validation ensures configuration consistency</span>
+
+<span class="sd">The registration system supports sophisticated component relationships through</span>
+<span class="sd">the provides/requires pattern, enabling automatic dependency resolution and</span>
+<span class="sd">validation at runtime.</span>
+
+<span class="sd">.. note::</span>
+<span class="sd">   All registration dataclasses use module_path and class_name for lazy loading,</span>
+<span class="sd">   ensuring components are imported only during registry initialization, not at</span>
+<span class="sd">   module load time.</span>
+
+<span class="sd">.. warning::</span>
+<span class="sd">   Applications must implement exactly one RegistryConfigProvider class in their</span>
+<span class="sd">   registry module. Multiple implementations or missing implementations will cause</span>
+<span class="sd">   RegistryError during initialization.</span>
+
+<span class="sd">Examples:</span>
+<span class="sd">    Basic application registry implementation::</span>
+
+<span class="sd">        &gt;&gt;&gt; from osprey.registry.base import RegistryConfigProvider, RegistryConfig</span>
+<span class="sd">        &gt;&gt;&gt; from osprey.registry.base import CapabilityRegistration, ContextClassRegistration</span>
+<span class="sd">        &gt;&gt;&gt;</span>
+<span class="sd">        &gt;&gt;&gt; class MyAppRegistryProvider(RegistryConfigProvider):</span>
+<span class="sd">        ...     def get_registry_config(self) -&gt; RegistryConfig:</span>
+<span class="sd">        ...         return RegistryConfig(</span>
+<span class="sd">        ...             capabilities=[</span>
+<span class="sd">        ...                 CapabilityRegistration(</span>
+<span class="sd">        ...                     name=&quot;data_analysis&quot;,</span>
+<span class="sd">        ...                     module_path=&quot;applications.myapp.capabilities.data_analysis&quot;,</span>
+<span class="sd">        ...                     class_name=&quot;DataAnalysisCapability&quot;,</span>
+<span class="sd">        ...                     description=&quot;Analyze scientific data sets&quot;,</span>
+<span class="sd">        ...                     provides=[&quot;ANALYSIS_RESULTS&quot;],</span>
+<span class="sd">        ...                     requires=[&quot;DATA_INPUT&quot;]</span>
+<span class="sd">        ...                 )</span>
+<span class="sd">        ...             ],</span>
+<span class="sd">        ...             context_classes=[</span>
+<span class="sd">        ...                 ContextClassRegistration(</span>
+<span class="sd">        ...                     context_type=&quot;ANALYSIS_RESULTS&quot;,</span>
+<span class="sd">        ...                     module_path=&quot;applications.myapp.context_classes&quot;,</span>
+<span class="sd">        ...                     class_name=&quot;AnalysisResults&quot;</span>
+<span class="sd">        ...                 )</span>
+<span class="sd">        ...             ]</span>
+<span class="sd">        ...         )</span>
+
+<span class="sd">    Service registration with internal nodes::</span>
+
+<span class="sd">        &gt;&gt;&gt; ServiceRegistration(</span>
+<span class="sd">        ...     name=&quot;data_processor&quot;,</span>
+<span class="sd">        ...     module_path=&quot;applications.myapp.services.data_processor&quot;,</span>
+<span class="sd">        ...     class_name=&quot;DataProcessorService&quot;,</span>
+<span class="sd">        ...     description=&quot;Multi-step data processing service&quot;,</span>
+<span class="sd">        ...     provides=[&quot;PROCESSED_DATA&quot;],</span>
+<span class="sd">        ...     requires=[&quot;RAW_DATA&quot;],</span>
+<span class="sd">        ...     internal_nodes=[&quot;validator&quot;, &quot;transformer&quot;, &quot;aggregator&quot;]</span>
+<span class="sd">        ... )</span>
+
+<span class="sd">.. seealso::</span>
+<span class="sd">   :class:`RegistryManager` : Registry manager that uses these definitions</span>
+<span class="sd">   :mod:`osprey.registry.registry` : Framework registry provider implementation</span>
+<span class="sd">   :doc:`/developer-guides/registry-system` : Complete registry system guide</span>
+<span class="sd">   :doc:`/developer-guides/03_core-framework-systems/03_registry-and-discovery` : Component registration patterns</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+
+<span class="c1"># =============================================================================</span>
+<span class="c1"># SHARED DATACLASS DEFINITIONS - Used by both framework and applications</span>
+<span class="c1"># =============================================================================</span>
+
+
+<div class="viewcode-block" id="NodeRegistration">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.NodeRegistration">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">NodeRegistration</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Registration metadata for infrastructure node functions.</span>
+
+<span class="sd">    Defines the metadata required for lazy loading of functional nodes.</span>
+
+<span class="sd">    :param name: Unique identifier for the node in the registry</span>
+<span class="sd">    :type name: str</span>
+<span class="sd">    :param module_path: Python module path for lazy import</span>
+<span class="sd">    :type module_path: str</span>
+<span class="sd">    :param function_name: Function name within the module (decorated with @infrastructure_node)</span>
+<span class="sd">    :type function_name: str</span>
+<span class="sd">    :param description: Human-readable description of node functionality</span>
+<span class="sd">    :type description: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">function_name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span></div>
+
+
+
+<div class="viewcode-block" id="CapabilityRegistration">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.CapabilityRegistration">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">CapabilityRegistration</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Registration metadata for capabilities.</span>
+
+<span class="sd">    Defines the metadata required for lazy loading of capability classes that</span>
+<span class="sd">    implement specific functionality for agent systems. Enhanced for LangGraph</span>
+<span class="sd">    migration with support for convention-based decorators and advanced features.</span>
+
+<span class="sd">    :param name: Unique capability name for registration</span>
+<span class="sd">    :type name: str</span>
+<span class="sd">    :param module_path: Python module path for lazy import</span>
+<span class="sd">    :type module_path: str</span>
+<span class="sd">    :param class_name: Class name within the module</span>
+<span class="sd">    :type class_name: str</span>
+<span class="sd">    :param description: Human-readable description of capability</span>
+<span class="sd">    :type description: str</span>
+<span class="sd">    :param provides: List of context types this capability produces</span>
+<span class="sd">    :type provides: list[str]</span>
+<span class="sd">    :param requires: List of context types this capability needs</span>
+<span class="sd">    :type requires: list[str]</span>
+<span class="sd">    :param always_active: Whether capability is always active (no classification needed), defaults to False</span>
+<span class="sd">    :type always_active: bool</span>
+<span class="sd">    :param functional_node: Name of the functional node for execution (from capability.node attribute)</span>
+<span class="sd">    :type functional_node: str</span>
+<span class="sd">    :param example_usage: Example of how this capability is used</span>
+<span class="sd">    :type example_usage: str</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># Unique name like &quot;pv_address_finding&quot;</span>
+    <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># Like &quot;applications.als_assistant.capabilities.pv_address_finding&quot;</span>
+    <span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># Like &quot;PVAddressFindingCapability&quot;</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># Human-readable description</span>
+    <span class="n">provides</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>  <span class="c1"># Context types this capability produces</span>
+    <span class="n">requires</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>  <span class="c1"># Context types this capability needs as input</span>
+    <span class="n">always_active</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>  <span class="c1"># Whether capability is always active (no classification needed)</span>
+    <span class="n">functional_node</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Name of functional node (from capability.node attribute)</span>
+    <span class="n">example_usage</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>  <span class="c1"># Example of how this capability is used</span>
+    <span class="n">_is_explicit_override</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>  <span class="c1"># Internal: True if registered via override_capabilities</span></div>
+
+
+
+<div class="viewcode-block" id="ContextClassRegistration">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.ContextClassRegistration">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ContextClassRegistration</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Registration metadata for context data classes.</span>
+
+<span class="sd">    Defines the metadata required for lazy loading of context classes that</span>
+<span class="sd">    represent structured data passed between capabilities.</span>
+
+<span class="sd">    :param context_type: String identifier for the context type (e.g., &#39;PV_ADDRESSES&#39;)</span>
+<span class="sd">    :type context_type: str</span>
+<span class="sd">    :param module_path: Python module path for lazy import</span>
+<span class="sd">    :type module_path: str</span>
+<span class="sd">    :param class_name: Class name within the module</span>
+<span class="sd">    :type class_name: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">context_type</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># String constant like &quot;PV_ADDRESSES&quot;</span>
+    <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># Like &quot;applications.als_assistant.context_classes&quot;</span>
+    <span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># Like &quot;PVAddresses&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="DataSourceRegistration">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.DataSourceRegistration">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">DataSourceRegistration</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Registration metadata for external data source providers.</span>
+
+<span class="sd">    Defines the metadata required for lazy loading of data source provider classes</span>
+<span class="sd">    that provide access to external systems and databases.</span>
+
+<span class="sd">    :param name: Unique identifier for the data source in the registry</span>
+<span class="sd">    :type name: str</span>
+<span class="sd">    :param module_path: Python module path for lazy import</span>
+<span class="sd">    :type module_path: str</span>
+<span class="sd">    :param class_name: Class name within the module</span>
+<span class="sd">    :type class_name: str</span>
+<span class="sd">    :param description: Human-readable description of data source</span>
+<span class="sd">    :type description: str</span>
+<span class="sd">    :param health_check_required: Whether provider requires health checking</span>
+<span class="sd">    :type health_check_required: bool</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># Module path for lazy loading</span>
+    <span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># Class name for lazy loading</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">health_check_required</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span></div>
+
+
+
+<div class="viewcode-block" id="ExecutionPolicyAnalyzerRegistration">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.ExecutionPolicyAnalyzerRegistration">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ExecutionPolicyAnalyzerRegistration</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Registration metadata for configurable execution policy analyzers.</span>
+
+<span class="sd">    Defines the metadata required for lazy loading of execution policy analyzer classes</span>
+<span class="sd">    that make execution mode and approval decisions based on code analysis.</span>
+
+<span class="sd">    :param name: Unique identifier for the policy analyzer in the registry</span>
+<span class="sd">    :type name: str</span>
+<span class="sd">    :param module_path: Python module path for lazy import</span>
+<span class="sd">    :type module_path: str</span>
+<span class="sd">    :param class_name: Class name within the module</span>
+<span class="sd">    :type class_name: str</span>
+<span class="sd">    :param description: Human-readable description of policy analyzer</span>
+<span class="sd">    :type description: str</span>
+<span class="sd">    :param priority: Analysis priority (lower numbers = higher priority)</span>
+<span class="sd">    :type priority: int</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># Module path for lazy loading</span>
+    <span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># Class name for lazy loading</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">priority</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span>  <span class="c1"># Default priority</span></div>
+
+
+
+<div class="viewcode-block" id="DomainAnalyzerRegistration">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.DomainAnalyzerRegistration">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">DomainAnalyzerRegistration</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Registration metadata for configurable domain analyzers.</span>
+
+<span class="sd">    Defines the metadata required for lazy loading of domain analyzer classes</span>
+<span class="sd">    that analyze generated code for domain-specific patterns and operations.</span>
+
+<span class="sd">    :param name: Unique identifier for the domain analyzer in the registry</span>
+<span class="sd">    :type name: str</span>
+<span class="sd">    :param module_path: Python module path for lazy import</span>
+<span class="sd">    :type module_path: str</span>
+<span class="sd">    :param class_name: Class name within the module</span>
+<span class="sd">    :type class_name: str</span>
+<span class="sd">    :param description: Human-readable description of domain analyzer</span>
+<span class="sd">    :type description: str</span>
+<span class="sd">    :param priority: Analysis priority (lower numbers = higher priority)</span>
+<span class="sd">    :type priority: int</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># Module path for lazy loading</span>
+    <span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># Class name for lazy loading</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">priority</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span>  <span class="c1"># Default priority</span></div>
+
+
+
+<div class="viewcode-block" id="FrameworkPromptProviderRegistration">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.FrameworkPromptProviderRegistration">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FrameworkPromptProviderRegistration</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Registration metadata for prompt provider customization.</span>
+
+<span class="sd">    Defines which prompt builders to override from framework defaults.</span>
+<span class="sd">    Uses the &quot;selective override&quot; pattern - only specify what you want to customize,</span>
+<span class="sd">    everything else uses framework defaults automatically.</span>
+
+<span class="sd">    :param module_path: Python module path containing your custom builder classes</span>
+<span class="sd">    :type module_path: str</span>
+<span class="sd">    :param prompt_builders: Mapping of prompt types to your custom builder class names</span>
+<span class="sd">    :type prompt_builders: dict[str, str]</span>
+<span class="sd">    :param application_name: (Deprecated) Application identifier - no longer used</span>
+<span class="sd">    :type application_name: str | None</span>
+<span class="sd">    :param description: (Deprecated) Human-readable description - no longer used</span>
+<span class="sd">    :type description: str | None</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Override task extraction only::</span>
+
+<span class="sd">            FrameworkPromptProviderRegistration(</span>
+<span class="sd">                module_path=&quot;weather_agent.framework_prompts&quot;,</span>
+<span class="sd">                prompt_builders={</span>
+<span class="sd">                    &quot;task_extraction&quot;: &quot;WeatherTaskExtractionPromptBuilder&quot;</span>
+<span class="sd">                }</span>
+<span class="sd">            )</span>
+
+<span class="sd">        Override multiple prompts::</span>
+
+<span class="sd">            FrameworkPromptProviderRegistration(</span>
+<span class="sd">                module_path=&quot;als_assistant.framework_prompts&quot;,</span>
+<span class="sd">                prompt_builders={</span>
+<span class="sd">                    &quot;orchestrator&quot;: &quot;ALSOrchestratorPromptBuilder&quot;,</span>
+<span class="sd">                    &quot;task_extraction&quot;: &quot;ALSTaskExtractionPromptBuilder&quot;,</span>
+<span class="sd">                    &quot;memory_extraction&quot;: &quot;ALSMemoryExtractionPromptBuilder&quot;</span>
+<span class="sd">                }</span>
+<span class="sd">            )</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># Module path containing custom builders</span>
+    <span class="n">prompt_builders</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>  <span class="c1"># prompt_type -&gt; class_name</span>
+
+    <span class="c1"># Deprecated fields (kept for backward compatibility)</span>
+    <span class="n">application_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+<div class="viewcode-block" id="FrameworkPromptProviderRegistration.__post_init__">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.FrameworkPromptProviderRegistration.__post_init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Emit deprecation warnings for removed fields.&quot;&quot;&quot;</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">application_name</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+                <span class="s2">&quot;The &#39;application_name&#39; parameter in FrameworkPromptProviderRegistration is deprecated &quot;</span>
+                <span class="s2">&quot;and will be removed in v0.10. It is no longer used by the framework. &quot;</span>
+                <span class="s2">&quot;Please remove it from your registry configuration.&quot;</span><span class="p">,</span>
+                <span class="ne">DeprecationWarning</span><span class="p">,</span>
+                <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">description</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+                <span class="s2">&quot;The &#39;description&#39; parameter in FrameworkPromptProviderRegistration is deprecated &quot;</span>
+                <span class="s2">&quot;and will be removed in v0.10. It is no longer used by the framework. &quot;</span>
+                <span class="s2">&quot;Please remove it from your registry configuration.&quot;</span><span class="p">,</span>
+                <span class="ne">DeprecationWarning</span><span class="p">,</span>
+                <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+            <span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="ServiceRegistration">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.ServiceRegistration">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ServiceRegistration</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Registration metadata for internal service graphs.</span>
+
+<span class="sd">    Services are separate LangGraph graphs that can be called by capabilities</span>
+<span class="sd">    without interfering with the main graph routing. Each service manages its</span>
+<span class="sd">    own internal node flow and returns control to the calling capability.</span>
+
+<span class="sd">    :param name: Unique identifier for the service in the registry</span>
+<span class="sd">    :type name: str</span>
+<span class="sd">    :param module_path: Python module path for lazy import</span>
+<span class="sd">    :type module_path: str</span>
+<span class="sd">    :param class_name: Service class name within the module</span>
+<span class="sd">    :type class_name: str</span>
+<span class="sd">    :param description: Human-readable description of service functionality</span>
+<span class="sd">    :type description: str</span>
+<span class="sd">    :param provides: List of context types this service produces</span>
+<span class="sd">    :type provides: list[str]</span>
+<span class="sd">    :param requires: List of context types this service needs</span>
+<span class="sd">    :type requires: list[str]</span>
+<span class="sd">    :param internal_nodes: List of node names internal to this service</span>
+<span class="sd">    :type internal_nodes: list[str]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">provides</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">requires</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">internal_nodes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="ProviderRegistration">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.ProviderRegistration">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ProviderRegistration</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Minimal registration for lazy loading AI model providers.</span>
+
+<span class="sd">    Provider metadata (requires_api_key, supports_proxy, etc.) is defined as</span>
+<span class="sd">    class attributes on the provider class itself. The registry introspects</span>
+<span class="sd">    these attributes after loading the class, following the same pattern as</span>
+<span class="sd">    capabilities and context classes.</span>
+
+<span class="sd">    This avoids metadata duplication between registration and class definition,</span>
+<span class="sd">    maintaining a single source of truth on the provider class.</span>
+
+<span class="sd">    :param module_path: Python module path for lazy import (e.g., &#39;osprey.models.providers.anthropic&#39;)</span>
+<span class="sd">    :type module_path: str</span>
+<span class="sd">    :param class_name: Provider class name within the module (e.g., &#39;AnthropicProviderAdapter&#39;)</span>
+<span class="sd">    :type class_name: str</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; ProviderRegistration(</span>
+<span class="sd">        ...     module_path=&quot;osprey.models.providers.anthropic&quot;,</span>
+<span class="sd">        ...     class_name=&quot;AnthropicProviderAdapter&quot;</span>
+<span class="sd">        ... )</span>
+
+<span class="sd">        The registry will load this class and introspect metadata like:</span>
+<span class="sd">        - AnthropicProviderAdapter.name</span>
+<span class="sd">        - AnthropicProviderAdapter.requires_api_key</span>
+<span class="sd">        - AnthropicProviderAdapter.supports_proxy</span>
+<span class="sd">        etc.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Provider name for config-driven filtering</span></div>
+
+
+
+<div class="viewcode-block" id="ConnectorRegistration">
+<a class="viewcode-back" href="../../../api_reference/03_production_systems/06_control-system-connectors.html#osprey.registry.ConnectorRegistration">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ConnectorRegistration</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Registration metadata for control system and archiver connectors.</span>
+
+<span class="sd">    Defines the metadata required for lazy loading of connector classes.</span>
+<span class="sd">    Connectors are registered with the ConnectorFactory during registry</span>
+<span class="sd">    initialization, providing unified management of all framework components.</span>
+
+<span class="sd">    :param name: Unique connector name (e.g., &#39;epics&#39;, &#39;tango&#39;, &#39;mock&#39;)</span>
+<span class="sd">    :type name: str</span>
+<span class="sd">    :param connector_type: Type of connector (&#39;control_system&#39; or &#39;archiver&#39;)</span>
+<span class="sd">    :type connector_type: str</span>
+<span class="sd">    :param module_path: Python module path for lazy import</span>
+<span class="sd">    :type module_path: str</span>
+<span class="sd">    :param class_name: Connector class name within the module</span>
+<span class="sd">    :type class_name: str</span>
+<span class="sd">    :param description: Human-readable description</span>
+<span class="sd">    :type description: str</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Control system connector registration::</span>
+
+<span class="sd">            &gt;&gt;&gt; ConnectorRegistration(</span>
+<span class="sd">            ...     name=&quot;labview&quot;,</span>
+<span class="sd">            ...     connector_type=&quot;control_system&quot;,</span>
+<span class="sd">            ...     module_path=&quot;my_app.connectors.labview_connector&quot;,</span>
+<span class="sd">            ...     class_name=&quot;LabVIEWConnector&quot;,</span>
+<span class="sd">            ...     description=&quot;LabVIEW Web Services connector for NI systems&quot;</span>
+<span class="sd">            ... )</span>
+
+<span class="sd">        Archiver connector registration::</span>
+
+<span class="sd">            &gt;&gt;&gt; ConnectorRegistration(</span>
+<span class="sd">            ...     name=&quot;custom_archiver&quot;,</span>
+<span class="sd">            ...     connector_type=&quot;archiver&quot;,</span>
+<span class="sd">            ...     module_path=&quot;my_app.connectors.custom_archiver&quot;,</span>
+<span class="sd">            ...     class_name=&quot;CustomArchiverConnector&quot;,</span>
+<span class="sd">            ...     description=&quot;Custom facility archiver connector&quot;</span>
+<span class="sd">            ... )</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       The connector classes are registered with ConnectorFactory during</span>
+<span class="sd">       registry initialization, enabling lazy loading while maintaining</span>
+<span class="sd">       the factory pattern for runtime connector creation.</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`osprey.connectors.factory.ConnectorFactory` : Runtime connector factory</span>
+<span class="sd">       :class:`osprey.connectors.control_system.base.ControlSystemConnector` : Base class for control system connectors</span>
+<span class="sd">       :class:`osprey.connectors.archiver.base.ArchiverConnector` : Base class for archiver connectors</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># &#39;control_system&#39; or &#39;archiver&#39;</span>
+    <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span></div>
+
+
+
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">CodeGeneratorRegistration</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Registration metadata for Python executor code generators.</span>
+
+<span class="sd">    Defines the metadata required for lazy loading of code generator classes that</span>
+<span class="sd">    implement the CodeGenerator protocol for Python code generation. This enables</span>
+<span class="sd">    applications to register custom code generation strategies alongside framework</span>
+<span class="sd">    defaults like the basic LLM generator and Claude Code SDK generator.</span>
+
+<span class="sd">    :param name: Unique generator name (e.g., &#39;basic&#39;, &#39;claude_code&#39;, &#39;custom&#39;)</span>
+<span class="sd">    :type name: str</span>
+<span class="sd">    :param module_path: Python module path for lazy import</span>
+<span class="sd">    :type module_path: str</span>
+<span class="sd">    :param class_name: Generator class name within the module</span>
+<span class="sd">    :type class_name: str</span>
+<span class="sd">    :param description: Human-readable description of the generator</span>
+<span class="sd">    :type description: str</span>
+<span class="sd">    :param optional_dependencies: Optional list of package names required for this generator</span>
+<span class="sd">    :type optional_dependencies: list[str]</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Framework code generator registration::</span>
+
+<span class="sd">            &gt;&gt;&gt; CodeGeneratorRegistration(</span>
+<span class="sd">            ...     name=&quot;claude_code&quot;,</span>
+<span class="sd">            ...     module_path=&quot;osprey.services.python_executor.claude_code_generator&quot;,</span>
+<span class="sd">            ...     class_name=&quot;ClaudeCodeGenerator&quot;,</span>
+<span class="sd">            ...     description=&quot;Claude Code SDK-based generator with multi-turn reasoning&quot;,</span>
+<span class="sd">            ...     optional_dependencies=[&quot;claude-agent-sdk&quot;]</span>
+<span class="sd">            ... )</span>
+
+<span class="sd">        Application custom generator registration::</span>
+
+<span class="sd">            &gt;&gt;&gt; CodeGeneratorRegistration(</span>
+<span class="sd">            ...     name=&quot;domain_specific&quot;,</span>
+<span class="sd">            ...     module_path=&quot;applications.myapp.generators.domain_generator&quot;,</span>
+<span class="sd">            ...     class_name=&quot;DomainSpecificGenerator&quot;,</span>
+<span class="sd">            ...     description=&quot;Domain-specific code generator with specialized templates&quot;</span>
+<span class="sd">            ... )</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       Code generators must implement the CodeGenerator protocol with an async</span>
+<span class="sd">       generate_code(request, error_chain) method. The factory will validate</span>
+<span class="sd">       protocol compliance at runtime.</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       Generators with optional_dependencies will be skipped if dependencies</span>
+<span class="sd">       are not installed, allowing graceful degradation to fallback generators.</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`osprey.services.python_executor.code_generator_interface.CodeGenerator` : Protocol all generators must implement</span>
+<span class="sd">       :class:`osprey.services.python_executor.generator_factory.create_code_generator` : Factory that uses these registrations</span>
+<span class="sd">       :class:`osprey.services.python_executor.basic_generator.BasicLLMCodeGenerator` : Built-in basic generator</span>
+<span class="sd">       :class:`osprey.services.python_executor.claude_code_generator.ClaudeCodeGenerator` : Built-in Claude Code generator</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">optional_dependencies</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="ArielSearchModuleRegistration">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.ArielSearchModuleRegistration">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ArielSearchModuleRegistration</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Registration metadata for ARIEL search modules.</span>
+
+<span class="sd">    Defines the metadata required for lazy loading of search modules that provide</span>
+<span class="sd">    tool descriptors for the ARIEL agent executor and capabilities API.</span>
+
+<span class="sd">    :param name: Config key, e.g., &quot;ariel_keyword&quot;</span>
+<span class="sd">    :type name: str</span>
+<span class="sd">    :param module_path: Module exporting get_tool_descriptor()</span>
+<span class="sd">    :type module_path: str</span>
+<span class="sd">    :param description: Human-readable description</span>
+<span class="sd">    :type description: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span></div>
+
+
+
+<div class="viewcode-block" id="ArielEnhancementModuleRegistration">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.ArielEnhancementModuleRegistration">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ArielEnhancementModuleRegistration</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Registration metadata for ARIEL enhancement modules.</span>
+
+<span class="sd">    Defines the metadata required for lazy loading of enhancement module classes</span>
+<span class="sd">    that process logbook entries (e.g., keyword extraction, embedding generation).</span>
+
+<span class="sd">    :param name: Config key, e.g., &quot;ariel_text_embedding&quot;</span>
+<span class="sd">    :type name: str</span>
+<span class="sd">    :param module_path: Module containing the class</span>
+<span class="sd">    :type module_path: str</span>
+<span class="sd">    :param class_name: Enhancement module class name, e.g., &quot;TextEmbeddingModule&quot;</span>
+<span class="sd">    :type class_name: str</span>
+<span class="sd">    :param description: Human-readable description</span>
+<span class="sd">    :type description: str</span>
+<span class="sd">    :param execution_order: Lower = earlier execution (e.g., 10, 20)</span>
+<span class="sd">    :type execution_order: int</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">execution_order</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span></div>
+
+
+
+<div class="viewcode-block" id="ArielIngestionAdapterRegistration">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.ArielIngestionAdapterRegistration">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ArielIngestionAdapterRegistration</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Registration metadata for ARIEL ingestion adapters.</span>
+
+<span class="sd">    Defines the metadata required for lazy loading of ingestion adapter classes</span>
+<span class="sd">    that connect to facility-specific logbook data sources.</span>
+
+<span class="sd">    :param name: Config key, e.g., &quot;als_logbook&quot;</span>
+<span class="sd">    :type name: str</span>
+<span class="sd">    :param module_path: Module containing the adapter class</span>
+<span class="sd">    :type module_path: str</span>
+<span class="sd">    :param class_name: Adapter class name, e.g., &quot;ALSLogbookAdapter&quot;</span>
+<span class="sd">    :type class_name: str</span>
+<span class="sd">    :param description: Human-readable description</span>
+<span class="sd">    :type description: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span></div>
+
+
+
+<div class="viewcode-block" id="ArielPipelineRegistration">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.ArielPipelineRegistration">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ArielPipelineRegistration</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Registration metadata for ARIEL pipeline descriptors.</span>
+
+<span class="sd">    Defines the metadata required for lazy loading of pipeline descriptor modules</span>
+<span class="sd">    that declare RAG or Agent execution strategies.</span>
+
+<span class="sd">    :param name: Config key, e.g., &quot;ariel_rag&quot;</span>
+<span class="sd">    :type name: str</span>
+<span class="sd">    :param module_path: Module exporting get_pipeline_descriptor()</span>
+<span class="sd">    :type module_path: str</span>
+<span class="sd">    :param description: Human-readable description</span>
+<span class="sd">    :type description: str</span>
+<span class="sd">    :param category: Pipeline category (&quot;llm&quot; or &quot;direct&quot;)</span>
+<span class="sd">    :type category: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">category</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;llm&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="RegistryConfig">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.RegistryConfig">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">RegistryConfig</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Complete registry configuration with all component metadata.</span>
+
+<span class="sd">    Contains the complete configuration for the framework registry including</span>
+<span class="sd">    all component registrations and initialization ordering. Enhanced for</span>
+<span class="sd">    LangGraph migration with support for decorators and advanced features.</span>
+
+<span class="sd">    Most fields are optional with sensible defaults to improve UX for applications.</span>
+<span class="sd">    Applications typically only need to define capabilities, context_classes, and</span>
+<span class="sd">    optionally data_sources and framework_prompt_providers.</span>
+
+<span class="sd">    Registry Modes:</span>
+<span class="sd">        **Standalone Mode (RegistryConfig)**:</span>
+<span class="sd">            Direct use of RegistryConfig indicates a complete, self-contained registry.</span>
+<span class="sd">            Framework registry is NOT loaded. Application must provide ALL components</span>
+<span class="sd">            including core framework nodes, capabilities, and services.</span>
+
+<span class="sd">        **Extend Mode (ExtendedRegistryConfig)**:</span>
+<span class="sd">            Use of ExtendedRegistryConfig (via extend_framework_registry() helper)</span>
+<span class="sd">            indicates registry extends framework defaults. Framework components are</span>
+<span class="sd">            loaded first, then application components are merged.</span>
+
+<span class="sd">    :param capabilities: Registration entries for domain capabilities</span>
+<span class="sd">    :type capabilities: list[CapabilityRegistration]</span>
+<span class="sd">    :param context_classes: Registration entries for context data classes</span>
+<span class="sd">    :type context_classes: list[ContextClassRegistration]</span>
+<span class="sd">    :param core_nodes: Registration entries for infrastructure nodes (optional)</span>
+<span class="sd">    :type core_nodes: list[NodeRegistration]</span>
+<span class="sd">    :param data_sources: Registration entries for external data sources (optional)</span>
+<span class="sd">    :type data_sources: list[DataSourceRegistration]</span>
+<span class="sd">    :param services: Registration entries for internal service graphs (optional)</span>
+<span class="sd">    :type services: list[ServiceRegistration]</span>
+<span class="sd">    :param domain_analyzers: Registration entries for domain analyzers (optional)</span>
+<span class="sd">    :type domain_analyzers: list[DomainAnalyzerRegistration]</span>
+<span class="sd">    :param execution_policy_analyzers: Registration entries for execution policy analyzers (optional)</span>
+<span class="sd">    :type execution_policy_analyzers: list[ExecutionPolicyAnalyzerRegistration]</span>
+<span class="sd">    :param framework_prompt_providers: Registration entries for prompt providers (optional)</span>
+<span class="sd">    :type framework_prompt_providers: list[FrameworkPromptProviderRegistration]</span>
+<span class="sd">    :param providers: Registration entries for AI model providers (optional)</span>
+<span class="sd">    :type providers: list[ProviderRegistration]</span>
+<span class="sd">    :param connectors: Registration entries for control system and archiver connectors (optional)</span>
+<span class="sd">    :type connectors: list[ConnectorRegistration]</span>
+<span class="sd">    :param code_generators: Registration entries for Python executor code generators (optional)</span>
+<span class="sd">    :type code_generators: list[CodeGeneratorRegistration]</span>
+<span class="sd">    :param framework_exclusions: Framework component names to exclude by type (optional)</span>
+<span class="sd">    :type framework_exclusions: dict[str, list[str]]</span>
+<span class="sd">    :param initialization_order: Component type initialization sequence (optional)</span>
+<span class="sd">    :type initialization_order: list[str]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># Required fields (what applications typically define)</span>
+    <span class="n">capabilities</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">CapabilityRegistration</span><span class="p">]</span>
+    <span class="n">context_classes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ContextClassRegistration</span><span class="p">]</span>
+
+    <span class="c1"># Optional fields with sensible defaults (mostly for framework)</span>
+    <span class="n">core_nodes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">NodeRegistration</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">data_sources</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">DataSourceRegistration</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">services</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ServiceRegistration</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">domain_analyzers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">DomainAnalyzerRegistration</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">execution_policy_analyzers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ExecutionPolicyAnalyzerRegistration</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
+        <span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span>
+    <span class="p">)</span>
+    <span class="n">framework_prompt_providers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FrameworkPromptProviderRegistration</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
+        <span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span>
+    <span class="p">)</span>
+    <span class="n">providers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ProviderRegistration</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">connectors</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ConnectorRegistration</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">code_generators</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">CodeGeneratorRegistration</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">ariel_search_modules</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ArielSearchModuleRegistration</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">ariel_enhancement_modules</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ArielEnhancementModuleRegistration</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
+        <span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span>
+    <span class="p">)</span>
+    <span class="n">ariel_pipelines</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ArielPipelineRegistration</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">ariel_ingestion_adapters</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ArielIngestionAdapterRegistration</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">framework_exclusions</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+    <span class="n">initialization_order</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
+        <span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="p">[</span>
+            <span class="s2">&quot;context_classes&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;data_sources&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;domain_analyzers&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;execution_policy_analyzers&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;providers&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;connectors&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;code_generators&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;ariel_search_modules&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;ariel_enhancement_modules&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;ariel_pipelines&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;ariel_ingestion_adapters&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;capabilities&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;framework_prompt_providers&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;core_nodes&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;services&quot;</span><span class="p">,</span>
+        <span class="p">]</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="ExtendedRegistryConfig">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.ExtendedRegistryConfig">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ExtendedRegistryConfig</span><span class="p">(</span><span class="n">RegistryConfig</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Registry configuration that extends framework defaults (marker subclass).</span>
+
+<span class="sd">    This is a marker subclass of RegistryConfig used to indicate that this</span>
+<span class="sd">    registry should be merged with framework defaults rather than used standalone.</span>
+
+<span class="sd">    The extend_framework_registry() helper returns this type to signal extend mode.</span>
+<span class="sd">    The registry manager detects this type and merges with framework components.</span>
+
+<span class="sd">    All fields and behavior are identical to RegistryConfig - this class exists</span>
+<span class="sd">    purely to distinguish extend mode from standalone mode at the type level.</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Extend mode (returned by helper)::</span>
+
+<span class="sd">            &gt;&gt;&gt; config = extend_framework_registry(</span>
+<span class="sd">            ...     capabilities=[...],</span>
+<span class="sd">            ...     context_classes=[...]</span>
+<span class="sd">            ... )</span>
+<span class="sd">            &gt;&gt;&gt; isinstance(config, ExtendedRegistryConfig)  # True</span>
+<span class="sd">            &gt;&gt;&gt; isinstance(config, RegistryConfig)  # Also True (inheritance)</span>
+
+<span class="sd">        Standalone mode (direct construction)::</span>
+
+<span class="sd">            &gt;&gt;&gt; config = RegistryConfig(</span>
+<span class="sd">            ...     capabilities=[...],</span>
+<span class="sd">            ...     context_classes=[...],</span>
+<span class="sd">            ...     core_nodes=[...],  # Must provide ALL framework components</span>
+<span class="sd">            ...     ...</span>
+<span class="sd">            ... )</span>
+<span class="sd">            &gt;&gt;&gt; isinstance(config, ExtendedRegistryConfig)  # False</span>
+<span class="sd">            &gt;&gt;&gt; isinstance(config, RegistryConfig)  # True</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :func:`extend_framework_registry` : Helper that returns this type</span>
+<span class="sd">       :class:`RegistryConfig` : Base configuration class</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">pass</span>  <span class="c1"># Marker class - inherits all fields and behavior from RegistryConfig</span></div>
+
+
+
+<span class="c1"># =============================================================================</span>
+<span class="c1"># REGISTRY CONFIGURATION INTERFACE</span>
+<span class="c1"># =============================================================================</span>
+
+
+<div class="viewcode-block" id="RegistryConfigProvider">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.RegistryConfigProvider">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">RegistryConfigProvider</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Abstract interface for application registry configuration.</span>
+
+<span class="sd">    All applications must implement this interface to provide their registry</span>
+<span class="sd">    configuration in a standardized, type-safe manner. This interface eliminates</span>
+<span class="sd">    naming ambiguity and ensures consistent registry patterns across all applications</span>
+<span class="sd">    in the framework ecosystem.</span>
+
+<span class="sd">    The framework loads classes implementing this interface from each configured</span>
+<span class="sd">    application&#39;s registry module using the convention-based path:</span>
+<span class="sd">    applications.{app_name}.registry</span>
+
+<span class="sd">    This design provides several key benefits:</span>
+
+<span class="sd">    - **Type Safety**: All registry configurations are strongly typed</span>
+<span class="sd">    - **Convention-Based Loading**: Standardized module path patterns</span>
+<span class="sd">    - **Validation**: Automatic validation of registry structure</span>
+<span class="sd">    - **Extensibility**: Easy to add new component types without breaking changes</span>
+<span class="sd">    - **Documentation**: Self-documenting registry configurations</span>
+
+<span class="sd">    Implementation Requirements:</span>
+<span class="sd">        1. Exactly one class per application registry module must implement this interface</span>
+<span class="sd">        2. The get_registry_config() method must return a complete RegistryConfig</span>
+<span class="sd">        3. All component registrations must use valid module paths and class names</span>
+<span class="sd">        4. Context type dependencies (provides/requires) must be consistent</span>
+
+<span class="sd">    The registry system will call get_registry_config() once during initialization</span>
+<span class="sd">    and merge the returned configuration with the framework&#39;s base registry.</span>
+<span class="sd">    Applications can override framework components by using the same names.</span>
+
+<span class="sd">    :raises RegistryError: If multiple implementations found in one module</span>
+<span class="sd">    :raises RegistryError: If no implementation found in application registry module</span>
+<span class="sd">    :raises NotImplementedError: If get_registry_config() is not implemented</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Basic application registry::</span>
+
+<span class="sd">            &gt;&gt;&gt; class MyAppRegistryProvider(RegistryConfigProvider):</span>
+<span class="sd">            ...     def get_registry_config(self) -&gt; RegistryConfig:</span>
+<span class="sd">            ...         return RegistryConfig(</span>
+<span class="sd">            ...             capabilities=[</span>
+<span class="sd">            ...                 CapabilityRegistration(</span>
+<span class="sd">            ...                     name=&quot;my_capability&quot;,</span>
+<span class="sd">            ...                     module_path=&quot;applications.myapp.capabilities.my_capability&quot;,</span>
+<span class="sd">            ...                     class_name=&quot;MyCapability&quot;,</span>
+<span class="sd">            ...                     description=&quot;Application-specific functionality&quot;,</span>
+<span class="sd">            ...                     provides=[&quot;MY_RESULTS&quot;],</span>
+<span class="sd">            ...                     requires=[&quot;INPUT_DATA&quot;]</span>
+<span class="sd">            ...                 )</span>
+<span class="sd">            ...             ],</span>
+<span class="sd">            ...             context_classes=[</span>
+<span class="sd">            ...                 ContextClassRegistration(</span>
+<span class="sd">            ...                     context_type=&quot;MY_RESULTS&quot;,</span>
+<span class="sd">            ...                     module_path=&quot;applications.myapp.context_classes&quot;,</span>
+<span class="sd">            ...                     class_name=&quot;MyResults&quot;</span>
+<span class="sd">            ...                 )</span>
+<span class="sd">            ...             ]</span>
+<span class="sd">            ...         )</span>
+
+<span class="sd">        Advanced registry with services and data sources::</span>
+
+<span class="sd">            &gt;&gt;&gt; class AdvancedAppRegistryProvider(RegistryConfigProvider):</span>
+<span class="sd">            ...     def get_registry_config(self) -&gt; RegistryConfig:</span>
+<span class="sd">            ...         return RegistryConfig(</span>
+<span class="sd">            ...             capabilities=[...],</span>
+<span class="sd">            ...             context_classes=[...],</span>
+<span class="sd">            ...             data_sources=[</span>
+<span class="sd">            ...                 DataSourceRegistration(</span>
+<span class="sd">            ...                     name=&quot;app_database&quot;,</span>
+<span class="sd">            ...                     module_path=&quot;applications.myapp.data_sources.database&quot;,</span>
+<span class="sd">            ...                     class_name=&quot;AppDatabaseProvider&quot;,</span>
+<span class="sd">            ...                     description=&quot;Application-specific database access&quot;,</span>
+<span class="sd">            ...                     health_check_required=True</span>
+<span class="sd">            ...                 )</span>
+<span class="sd">            ...             ],</span>
+<span class="sd">            ...             services=[</span>
+<span class="sd">            ...                 ServiceRegistration(</span>
+<span class="sd">            ...                     name=&quot;data_processor&quot;,</span>
+<span class="sd">            ...                     module_path=&quot;applications.myapp.services.processor&quot;,</span>
+<span class="sd">            ...                     class_name=&quot;DataProcessorService&quot;,</span>
+<span class="sd">            ...                     description=&quot;Multi-step data processing workflow&quot;,</span>
+<span class="sd">            ...                     provides=[&quot;PROCESSED_DATA&quot;],</span>
+<span class="sd">            ...                     requires=[&quot;RAW_DATA&quot;],</span>
+<span class="sd">            ...                     internal_nodes=[&quot;validator&quot;, &quot;transformer&quot;, &quot;aggregator&quot;]</span>
+<span class="sd">            ...                 )</span>
+<span class="sd">            ...             ]</span>
+<span class="sd">            ...         )</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       The framework will merge application registries with the base framework registry,</span>
+<span class="sd">       allowing applications to override framework components by using the same names.</span>
+
+<span class="sd">    .. warning::</span>
+<span class="sd">       Each application registry module must contain exactly one class implementing</span>
+<span class="sd">       this interface. Multiple implementations or missing implementations will cause</span>
+<span class="sd">       RegistryError during framework initialization.</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`RegistryConfig` : Configuration structure returned by implementations</span>
+<span class="sd">       :class:`RegistryManager` : Manager that discovers and uses these providers</span>
+<span class="sd">       :doc:`/developer-guides/02_quick-start-patterns/01_building-your-first-capability` : Complete application development guide</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="RegistryConfigProvider.get_registry_config">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.RegistryConfigProvider.get_registry_config">[docs]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_registry_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RegistryConfig</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get complete application registry configuration.</span>
+
+<span class="sd">        This method is called once during registry initialization to retrieve</span>
+<span class="sd">        the complete component configuration for the application. The returned</span>
+<span class="sd">        RegistryConfig will be merged with the framework&#39;s base registry,</span>
+<span class="sd">        allowing applications to extend or override framework functionality.</span>
+
+<span class="sd">        The configuration should include all components that the application</span>
+<span class="sd">        provides: capabilities, context classes, data sources, services, and</span>
+<span class="sd">        any other registered components. Components are loaded lazily using</span>
+<span class="sd">        the module_path and class_name metadata provided in the registrations.</span>
+
+<span class="sd">        Implementation Guidelines:</span>
+<span class="sd">            - Return a complete RegistryConfig with all application components</span>
+<span class="sd">            - Use descriptive names and clear documentation for all components</span>
+<span class="sd">            - Ensure provides/requires relationships are consistent across components</span>
+<span class="sd">            - Validate that all module paths and class names are correct</span>
+<span class="sd">            - Consider component initialization order when defining dependencies</span>
+
+<span class="sd">        :return: Complete registry configuration for this application including</span>
+<span class="sd">            all capabilities, context classes, data sources, services, and other</span>
+<span class="sd">            components that should be available in the framework</span>
+<span class="sd">        :rtype: RegistryConfig</span>
+<span class="sd">        :raises NotImplementedError: If not implemented by subclass (required by ABC)</span>
+<span class="sd">        :raises ImportError: If any component module paths are invalid</span>
+<span class="sd">        :raises AttributeError: If any component class names are not found</span>
+
+<span class="sd">        .. note::</span>
+<span class="sd">           This method is called exactly once during registry initialization.</span>
+<span class="sd">           The framework caches the returned configuration, so dynamic changes</span>
+<span class="sd">           after initialization are not supported.</span>
+
+<span class="sd">        .. warning::</span>
+<span class="sd">           All module paths must be importable and all class names must exist</span>
+<span class="sd">           in their respective modules. Invalid paths will cause registry</span>
+<span class="sd">           initialization to fail.</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Minimal application configuration::</span>
+
+<span class="sd">                &gt;&gt;&gt; def get_registry_config(self) -&gt; RegistryConfig:</span>
+<span class="sd">                ...     return RegistryConfig(</span>
+<span class="sd">                ...         capabilities=[</span>
+<span class="sd">                ...             CapabilityRegistration(</span>
+<span class="sd">                ...                 name=&quot;hello_world&quot;,</span>
+<span class="sd">                ...                 module_path=&quot;applications.myapp.capabilities.hello&quot;,</span>
+<span class="sd">                ...                 class_name=&quot;HelloWorldCapability&quot;,</span>
+<span class="sd">                ...                 description=&quot;Simple greeting capability&quot;,</span>
+<span class="sd">                ...                 provides=[&quot;GREETING&quot;],</span>
+<span class="sd">                ...                 requires=[]</span>
+<span class="sd">                ...             )</span>
+<span class="sd">                ...         ],</span>
+<span class="sd">                ...         context_classes=[</span>
+<span class="sd">                ...             ContextClassRegistration(</span>
+<span class="sd">                ...                 context_type=&quot;GREETING&quot;,</span>
+<span class="sd">                ...                 module_path=&quot;applications.myapp.context_classes&quot;,</span>
+<span class="sd">                ...                 class_name=&quot;GreetingContext&quot;</span>
+<span class="sd">                ...             )</span>
+<span class="sd">                ...         ]</span>
+<span class="sd">                ...     )</span>
+
+<span class="sd">            Complex application with all component types::</span>
+
+<span class="sd">                &gt;&gt;&gt; def get_registry_config(self) -&gt; RegistryConfig:</span>
+<span class="sd">                ...     return RegistryConfig(</span>
+<span class="sd">                ...         capabilities=[...],  # Domain-specific capabilities</span>
+<span class="sd">                ...         context_classes=[...],  # Data structures</span>
+<span class="sd">                ...         data_sources=[...],  # External data providers</span>
+<span class="sd">                ...         services=[...],  # Internal service graphs</span>
+<span class="sd">                ...         framework_prompt_providers=[...]  # Custom prompts</span>
+<span class="sd">                ...     )</span>
+
+<span class="sd">        .. seealso::</span>
+<span class="sd">           :class:`RegistryConfig` : Structure of the returned configuration</span>
+<span class="sd">           :class:`CapabilityRegistration` : Capability registration metadata</span>
+<span class="sd">           :class:`ContextClassRegistration` : Context class registration metadata</span>
+<span class="sd">           :doc:`/developer-guides/03_core-framework-systems/03_registry-and-discovery` : Component registration guide</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># This should never be called due to @abstractmethod, but provide helpful error</span>
+        <span class="c1"># in case someone bypasses the abstract enforcement or has implementation issues</span>
+        <span class="n">class_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span>
+
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">class_name</span><span class="si">}</span><span class="s2"> must implement get_registry_config() method. &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;This abstract method is required by RegistryConfigProvider interface.</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;Expected implementation:</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;class </span><span class="si">{</span><span class="n">class_name</span><span class="si">}</span><span class="s2">(RegistryConfigProvider):</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;    def get_registry_config(self) -&gt; RegistryConfig:</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;        return RegistryConfig(</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;            capabilities=[...],</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;            context_classes=[...]</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;        )&quot;</span>
+        <span class="p">)</span></div>
+</div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

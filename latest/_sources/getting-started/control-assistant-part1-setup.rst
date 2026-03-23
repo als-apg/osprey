@@ -1,0 +1,485 @@
+========================================
+Part 1: Getting Started
+========================================
+
+In this first part, you'll create your control assistant project and explore the generated architecture. The template includes two alternative channel finding pipelines (in-context and hierarchical), service layer patterns, database utilities, and comprehensive testing tools. You'll understand the configuration system that orchestrates all components, including model selection, safety controls, and service deployment. By the end of this section, you'll have a complete project structure ready for customization.
+
+**What You'll Accomplish:**
+
+- Create a control assistant project using the interactive CLI
+- Understand the complete project structure and architecture
+- Configure AI models, providers, and safety controls
+- Set up environment variables for your deployment
+- Learn configuration best practices for production deployment
+
+.. dropdown:: **Prerequisites**
+   :color: info
+   :icon: list-unordered
+
+   **Required:** :doc:`Installation of the framework <installation>` and a working development environment.
+
+   **Recommended:** Complete the :doc:`Hello World Tutorial <hello-world-tutorial>` first.
+
+Step 1: Create the Project
+==========================
+
+The interactive menu provides the best onboarding experience with channel finder mode selection:
+
+.. tab-set::
+
+   .. tab-item:: Interactive Mode (Recommended)
+
+      Launch the interactive menu:
+
+      .. code-block:: bash
+
+         osprey
+
+      The menu will guide you through:
+
+      1. **Main Menu** → Select ``[+] Create new project (interactive)``
+      2. **Template Selection** → Choose ``control_assistant``
+      3. **Project Name** → e.g., ``my-control-assistant``
+      4. **Channel Finder Mode** → Select pipeline approach:
+
+         .. code-block:: text
+
+            ○ in_context   - Semantic search (best for few hundred channels, faster)
+            ○ hierarchical - Pattern navigation (builds channel address from naming rules, scalable)
+            ○ middle_layer - Functional exploration (retrieves channel address by function, scalable)
+            ● all          - Include all three pipelines (maximum flexibility, comparison)
+
+      5. **Code Generator** → Choose ``basic`` or ``claude_code`` (recommended: basic)
+      6. **Registry Style** → Choose ``extend`` (recommended)
+      7. **Provider & Model** → Configure AI provider and model (recommended: Claude Haiku)
+      8. **API Key** → Automatic detection or secure input
+
+      **Result:** Complete project ready to run with Mock connector (tutorial mode).
+
+      Projects start in **Mock mode** by default for safe learning and development.
+      When ready for production, use the interactive config menu to switch to EPICS:
+      ``osprey`` → Your project → ``config`` → ``set-control-system``
+
+      See :ref:`Migrate to Production <migrate-to-production>` in Part 3 for details.
+
+   .. tab-item:: Direct CLI Command
+
+      For automation or when you know what you want:
+
+      .. code-block:: bash
+
+         # Create with all three pipelines enabled (default)
+         osprey init my-control-assistant --template control_assistant
+         cd my-control-assistant
+
+         # The channel finder mode can be changed later in config.yml
+
+**Generated Project Structure:**
+
+.. note::
+
+   Since v0.11, control system capabilities (channel finding, channel read/write, archiver
+   retrieval) and the channel finder service are provided **natively by the framework** — they
+   are not generated into your project. Your project only contains prompt customizations, data,
+   and a slim registry. Use :ref:`osprey eject <cli-eject>` if you need to customize
+   framework components beyond prompt overrides.
+
+.. code-block:: text
+
+   my-control-assistant/
+   ├── src/my_control_assistant/
+   │   ├── framework_prompts/              # ← Prompt customizations (override framework defaults)
+   │   │   ├── python.py                   # Python code generation prompts
+   │   │   ├── task_extraction.py          # Task extraction prompts
+   │   │   └── channel_finder/             # Channel finder prompt overrides
+   │   │       ├── in_context.py           # REQUIRED: Facility description for in-context pipeline
+   │   │       ├── hierarchical.py         # REQUIRED: Facility description for hierarchical pipeline
+   │   │       └── middle_layer.py         # REQUIRED: Facility description for middle layer pipeline
+   │   ├── data/                           # ← Your data goes here
+   │   │   ├── channel_databases/          # Generated databases
+   │   │   │   ├── in_context.json
+   │   │   │   ├── hierarchical.json
+   │   │   │   ├── middle_layer.json
+   │   │   │   └── TEMPLATE_EXAMPLE.json
+   │   │   ├── benchmarks/
+   │   │   │   ├── datasets/               # Test query datasets
+   │   │   │   │   ├── in_context_benchmark.json
+   │   │   │   │   └── hierarchical_benchmark.json
+   │   │   │   └── results/                # Benchmark output
+   │   │   ├── raw/                        # Raw address data (CSV files)
+   │   │   │   ├── CSV_EXAMPLE.csv         # Format reference with examples
+   │   │   │   └── address_list.csv        # Real UCSB FEL channel data
+   │   │   └── README.md                   # Data directory documentation
+   │   └── registry.py                     # Registry (prompt provider registrations only)
+   ├── services/                           # Docker services
+   │   ├── jupyter/                        # JupyterLab + EPICS kernels
+   │   ├── open-webui/                     # Chat interface + custom functions
+   │   └── pipelines/                      # Osprey backend API
+   ├── _agent_data/                        # Runtime data (auto-generated)
+   ├── config.yml                          # Main configuration
+   └── requirements.txt
+
+**Framework-Provided Capabilities** (ready to use, no code to write):
+
+.. tab-set::
+
+   .. tab-item:: Control System
+
+      - **Channel Finding** — Resolves natural language to channel addresses using three pipeline modes (see :doc:`Part 2 <control-assistant-part2-channel-finder>`)
+      - **Channel Read** — Reads live values via connector abstraction (mock/EPICS/Tango/LabVIEW)
+      - **Channel Write** — Sets values with four safety layers (master switch, approval, limits, verification)
+      - **Archiver Retrieval** — Queries historical time-series data from facility archivers
+
+   .. tab-item:: Analysis & Execution
+
+      - **Python Execution** — Generates and executes analysis code in sandboxed environments
+      - **Time Range Parsing** — Converts natural language time expressions (*"last 24 hours"*) to precise ranges
+
+   .. tab-item:: Knowledge Retrieval
+
+      - **Memory** — Stores and recalls information across conversations
+      - **Logbook Search (ARIEL)** — Searches facility electronic logbooks using keyword, semantic, RAG, or agentic retrieval modes. Uses demo data in tutorial mode; connect your facility's logbook for production. See :doc:`Logbook Search Service </developer-guides/05_production-systems/07_logbook-search-service/index>`.
+
+See :doc:`Built-in Capabilities Reference </developer-guides/03_core-framework-systems/07_built-in-capabilities>` for context types, configuration keys, and error handling for each capability.
+
+
+Step 2: Understanding Configuration
+=====================================
+
+The generated project includes a complete, self-contained configuration that orchestrates all components. Let's examine the key sections you'll customize for your facility.
+
+Configuration File (config.yml)
+--------------------------------
+
+The framework uses a **single configuration file** approach - all settings in one place. See :doc:`Configuration Architecture <../developer-guides/03_core-framework-systems/06_configuration-architecture>` for the complete philosophy.
+
+**Location:** ``my-control-assistant/config.yml``
+
+Model Configuration
+~~~~~~~~~~~~~~~~~~~~
+
+The framework uses **10 specialized AI models** for different roles. Each can use a different provider and model for optimal performance and cost:
+
+.. code-block:: yaml
+
+   models:
+     orchestrator:              # Creates execution plans
+       provider: cborg
+       model_id: anthropic/claude-haiku
+       max_tokens: 4096
+     response:                  # Generates final user responses
+       provider: cborg
+       model_id: anthropic/claude-haiku
+     classifier:                # Classifies tasks and selects capabilities
+       provider: cborg
+       model_id: anthropic/claude-haiku
+     # ... 7 more models (approval, task_extraction, memory,
+     #     python_code_generator, time_parsing, channel_write, channel_finder)
+
+**Recommended Starting Configuration:** Use **Claude Haiku for all 10 models**. It provides an excellent trade-off between capabilities and cost, and works exceptionally well with structured outputs - which the framework relies on heavily for task extraction, classification, and orchestration. While you can use different models for different roles as you optimize, Haiku is the best starting point for reliability and consistency. See :doc:`API Reference <../api_reference/01_core_framework/04_configuration_system>` for complete model configuration options.
+
+API Provider Configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Configure your AI/LLM providers with API keys from environment variables:
+
+.. code-block:: yaml
+
+   api:
+     providers:
+       cborg:                   # LBNL's internal service
+         api_key: ${CBORG_API_KEY}
+         base_url: https://api.cborg.lbl.gov/v1
+       stanford:                # Stanford AI Playground
+         api_key: ${STANFORD_API_KEY}
+         base_url: https://aiapi-prod.stanford.edu/v1
+       anthropic:
+         api_key: ${ANTHROPIC_API_KEY}
+         base_url: https://api.anthropic.com
+       openai:
+         api_key: ${OPENAI_API_KEY}
+         base_url: https://api.openai.com/v1
+      ollama:                  # Local models
+        api_key: ollama
+        base_url: http://localhost:11434
+
+The template includes CBorg (LBNL's service) by default. Simply update the providers to match your environment.
+
+.. admonition:: Custom Providers
+   :class: tip
+
+   Need to integrate your institution's AI service or a provider not listed above? You can register custom providers in your application registry. See :ref:`custom-ai-provider-registration` for complete implementation guidance including all required methods and metadata fields.
+
+Semantic Channel Finding Configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Control which pipeline mode is active and configure pipeline-specific settings:
+
+.. code-block:: yaml
+
+   channel_finder:
+     # Active pipeline mode - Options: "in_context" or "hierarchical"
+     pipeline_mode: hierarchical
+
+     pipelines:
+       in_context:
+         database:
+           type: template
+           path: src/my_control_assistant/data/channel_databases/in_context.json
+           presentation_mode: template
+         processing:
+           chunk_dictionary: false
+           max_correction_iterations: 2
+
+       hierarchical:
+         database:
+           type: hierarchical
+           path: src/my_control_assistant/data/channel_databases/hierarchical.json
+
+**Pipeline Selection:** Start with ``in_context`` for systems with few hundred channels, or ``hierarchical`` for larger systems. You'll explore both :doc:`in Part 2 <control-assistant-part2-channel-finder>`.
+
+Control System & Archiver Configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Key Innovation:** The framework provides a **connector abstraction** that enables development with mock connectors and seamless migration to production. This is a critical feature that lets you develop without hardware access, then deploy to real control systems by changing a single configuration line.
+
+.. tab-set::
+
+   .. tab-item:: Tutorial Mode (Recommended)
+
+      The template starts with **mock connectors** that simulate control system behavior:
+
+      .. code-block:: yaml
+
+         control_system:
+           type: mock                   # ← Mock connector (no hardware needed!)
+
+         archiver:
+           type: mock_archiver          # ← Mock archiver (synthetic data)
+
+      **Tutorial Mode Benefits:**
+
+      - Works with **any channel names** - no real PVs required
+      - Instant setup - no EPICS installation needed
+      - Safe experimentation - no risk to hardware
+      - Perfect for learning, demos, and development
+
+   .. tab-item:: Production Mode
+
+      Switch to real control systems by changing the ``type`` field. This is a simplified example to show the basic structure - for complete production configuration details including gateway options, SSH tunnels, and troubleshooting, see :ref:`Part 3: Production Deployment <deploy-containerized-services>`.
+
+      .. code-block:: yaml
+
+         control_system:
+           type: epics                  # ← Change to 'epics' for production!
+           connector:
+             epics:
+               gateways:
+                 read_only:
+                   address: cagw.facility.edu
+                   port: 5064
+                 read_write:
+                   address: cagw-rw.facility.edu
+                   port: 5065
+               timeout: 5.0
+
+         archiver:
+           type: epics_archiver         # ← EPICS Archiver Appliance
+           epics_archiver:
+             url: https://archiver.facility.edu:8443
+             timeout: 60
+
+      **Production Requirements:**
+
+      - Install ``pyepics``: ``pip install pyepics``
+      - Install ``archivertools``: ``pip install archivertools``
+      - Configure gateway addresses for your facility
+      - Real channel names must exist in your control system
+
+**The Power of Connectors:** Your capabilities use the ``ConnectorFactory`` API, which means the same code works in both modes. No capability changes needed when migrating from tutorial to production - just update the config! See :doc:`Control System Integration Guide <../developer-guides/05_production-systems/06_control-system-integration>` for implementing custom connectors.
+
+**Pattern Detection (Security Layer):** The framework automatically detects ALL control system operations in generated Python code - both approved API usage AND circumvention attempts. This is a critical security feature that ensures the approval workflow catches any attempt to bypass the connector's safety features.
+
+The framework detects:
+- ✅ **Approved API**: ``write_channel()``, ``read_channel()`` (has limits, verification)
+- 🔒 **Circumvention**: Direct library calls like ``epics.caput()``, ``tango.DeviceProxy().write_attribute()``
+
+.. code-block:: yaml
+
+   control_system:
+     type: epics  # Only controls runtime connector, not patterns!
+
+     # Pattern detection is automatic - comprehensive security coverage
+     # Catches: write_channel(), epics.caput(), tango writes, LabVIEW, etc.
+
+.. note::
+   The pattern detection includes both the unified ``osprey.runtime`` API (``write_channel``,
+   ``read_channel``) and legacy EPICS functions (``caput``, ``caget``) for backward compatibility.
+   Default patterns are used if none are configured.
+
+You'll see this pattern detection in action when you use the Python execution capability in :doc:`Part 3 <control-assistant-part3-production>`.
+
+.. seealso::
+   For more details about pattern detection and how it integrates with the approval system,
+   see :doc:`../developer-guides/05_production-systems/03_python-execution-service/index`.
+
+Safety Controls
+~~~~~~~~~~~~~~~~
+
+Critical for production deployments - control what code can execute:
+
+.. code-block:: yaml
+
+   # Approval workflow configuration
+   approval:
+     global_mode: "selective"     # disabled | selective | all_capabilities
+     capabilities:
+     python_execution:
+       enabled: true
+       mode: "control_writes"   # disabled | all_code | control_writes
+     memory:
+       enabled: true
+
+   # Execution limits and master safety switches
+   execution_control:
+     epics:
+       writes_enabled: false      # ⚠️ Set true only for production hardware
+
+     limits:
+       max_step_retries: 3
+       max_execution_time_seconds: 3000
+       graph_recursion_limit: 100
+
+**Safety Philosophy:** Fail-secure defaults. EPICS writes are disabled by default - only enable when you're ready to control hardware. See :doc:`Human Approval Workflows <../developer-guides/05_production-systems/01_human-approval-workflows>` for complete security patterns.
+
+Services Configuration
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Define which containerized services to deploy:
+
+.. code-block:: yaml
+
+   services:
+     jupyter:                     # Python execution environment
+       path: ./services/jupyter
+       containers:
+         read:                    # Read-only kernel
+           name: jupyter-read
+           port_host: 8088
+         write:                   # Write-enabled kernel
+           name: jupyter-write
+           port_host: 8089
+       copy_src: true
+
+     open_webui:                  # Chat interface
+       path: ./services/open-webui
+       port_host: 8080
+
+     pipelines:                   # Osprey backend
+       path: ./services/pipelines
+       port_host: 9099
+       copy_src: true
+
+   deployed_services:             # Which services to start
+     - jupyter
+     - open_webui
+     - pipelines
+
+The framework provides three core services. Add application-specific services (MongoDB, Redis, etc.) as needed. See :doc:`Container Deployment <../developer-guides/05_production-systems/05_container-and-deployment>` for advanced patterns.
+
+Environment Variables (.env)
+------------------------------
+
+Create a ``.env`` file in your project root for secrets and dynamic values:
+
+.. code-block:: bash
+
+   # Copy the example template
+   cp .env.example .env
+
+**Required Variables:**
+
+.. code-block:: bash
+
+   # API Keys (configure for your chosen provider)
+   CBORG_API_KEY=your-cborg-key           # If using CBorg
+   STANFORD_API_KEY=...                   # If using Stanford AI Playground
+   ANTHROPIC_API_KEY=sk-ant-...           # If using Anthropic
+   OPENAI_API_KEY=sk-...                  # If using OpenAI
+   GOOGLE_API_KEY=...                     # If using Google
+
+   # System configuration
+   TZ=America/Los_Angeles                 # Timezone for containers
+
+.. dropdown:: **Where do I get an API key?**
+   :color: info
+   :icon: key
+
+   Choose your provider for instructions on obtaining an API key:
+
+   **Anthropic (Claude)**
+
+   1. Visit: https://console.anthropic.com/
+   2. Sign up or log in with your account
+   3. Navigate to 'API Keys' in the settings
+   4. Click 'Create Key' and name your key
+   5. Copy the key (shown only once!)
+
+   **OpenAI (GPT)**
+
+   1. Visit: https://platform.openai.com/api-keys
+   2. Sign up or log in to your OpenAI account
+   3. Add billing information if not already set up
+   4. Click '+ Create new secret key'
+   5. Name your key and copy it (shown only once!)
+
+   **Google (Gemini)**
+
+   1. Visit: https://aistudio.google.com/app/apikey
+   2. Sign in with your Google account
+   3. Click 'Create API key'
+   4. Select a Google Cloud project or create a new one
+   5. Copy the generated API key
+
+   **LBNL CBorg**
+
+   1. Visit: https://cborg.lbl.gov
+   2. As a Berkeley Lab employee, click 'Request API Key'
+   3. Create an API key ($50/month per user allocation)
+   4. Copy the key provided
+
+   **Ollama (Local Models)**
+
+   Ollama runs locally and does not require an API key. Simply install Ollama and ensure it's running.
+
+**Optional Variables** (for advanced use cases):
+
+.. code-block:: bash
+
+   # Override project root from config.yml (for multi-environment deployments)
+   PROJECT_ROOT=/path/to/my-control-assistant
+
+   # Override Python environment path
+   LOCAL_PYTHON_VENV=/path/to/venv/bin/python
+
+**Security:** The ``.env`` file should be in ``.gitignore`` (already configured). Never commit API keys to version control.
+
+**Environment Variable Resolution:** The framework automatically resolves ``${VARIABLE_NAME}`` syntax in ``config.yml`` from your ``.env`` file. See :doc:`Configuration System API <../api_reference/01_core_framework/04_configuration_system>` for advanced patterns.
+
+Next Steps
+==========
+
+.. grid:: 1 1 2 2
+   :gutter: 3
+
+   .. grid-item-card:: ← Tutorial Home
+      :link: control-assistant
+      :link-type: doc
+
+      Return to tutorial overview
+
+   .. grid-item-card:: Part 2: Channel Finder →
+      :link: control-assistant-part2-channel-finder
+      :link-type: doc
+
+      Build and test your channel database

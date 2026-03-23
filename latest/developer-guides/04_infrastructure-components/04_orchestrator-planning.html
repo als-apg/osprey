@@ -1,0 +1,1142 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Orchestrator Planning &#8212; Osprey Framework 0.11.5 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'developer-guides/04_infrastructure-components/04_orchestrator-planning';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Message Generation" href="05_message-generation.html" />
+    <link rel="prev" title="Classification and Routing" href="03_classification-and-routing.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../01_understanding-the-framework/index.html">Understanding Osprey</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/01_infrastructure-architecture.html">Infrastructure Architecture: Classification-Orchestration Pipeline</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/02_convention-over-configuration.html">Convention over Configuration: Configuration-Driven Registry Patterns</a></li>
+
+
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/03_langgraph-integration.html">LangGraph Integration: Native StateGraph and Workflow Execution</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/04_orchestration-architecture.html">Orchestration Architecture</a></li>
+
+
+
+
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../02_quick-start-patterns/index.html">Quick Start Patterns</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/00_cli-reference.html">CLI Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/01_building-your-first-capability.html">Building Your First Capability</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/02_state-and-context-essentials.html">State and Context Essentials</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/03_running-and-testing.html">Running and Testing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/04_mcp-capability-generation.html">MCP Capability Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/05_soft-ioc-backends.html">Soft IOC Custom Backends</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../03_core-framework-systems/index.html">Core Framework Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/01_state-management-architecture.html">State Management Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/02_context-management-system.html">Context Management System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/03_registry-and-discovery.html">Registry and Discovery</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/04_prompt-customization.html">Prompt Customization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/05_message-and-execution-flow.html">Message and Execution Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/06_configuration-architecture.html">Configuration Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/07_built-in-capabilities.html">Built-in Capabilities</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Infrastructure Components</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="01_gateway-architecture.html">Gateway Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="02_task-extraction-system.html">Task Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="03_classification-and-routing.html">Classification and Routing</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Orchestrator Planning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="05_message-generation.html">Message Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="06_error-handling-infrastructure.html">Error Handling</a></li>
+</ul>
+</details></li>
+
+
+
+<li class="toctree-l1 has-children"><a class="reference internal" href="../05_production-systems/index.html">Production Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/01_human-approval-workflows.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/02_data-source-integration.html">Data Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../05_production-systems/03_python-execution-service/index.html">Python Execution</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/service-overview.html">Python Service Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-basic.html">Basic LLM Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-claude.html">Claude Code Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-mock.html">Mock Generator</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/04_memory-storage-service.html">Memory Storage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/05_container-and-deployment.html">Container Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/06_control-system-integration.html">Control System Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/search-modes.html">Search Modes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/web-interface.html">Web Interface</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Developer Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Infrastructure Components</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Orchestrator Planning</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="orchestrator-planning">
+<h1>Orchestrator Planning<a class="headerlink" href="#orchestrator-planning" title="Link to this heading">#</a></h1>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">📚 What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>Key Concepts:</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text">How the plan-first orchestrator creates execution plans from tasks and capabilities</p></li>
+<li><p class="sd-card-text">How the reactive orchestrator decides one step at a time</p></li>
+<li><p class="sd-card-text">Shared step validation (<code class="docutils literal notranslate"><span class="pre">validate_single_step</span></code>) across both modes</p></li>
+<li><p class="sd-card-text">LLM-powered planning with capability integration</p></li>
+<li><p class="sd-card-text">Approval workflow integration with plan validation</p></li>
+<li><p class="sd-card-text">Plan structure and execution coordination</p></li>
+</ul>
+<p class="sd-card-text"><strong>Prerequisites:</strong> Understanding of <a class="reference internal" href="03_classification-and-routing.html"><span class="doc">Classification and Routing</span></a> and <a class="reference internal" href="../05_production-systems/01_human-approval-workflows.html"><span class="doc">Human Approval</span></a></p>
+<p class="sd-card-text"><strong>Time Investment:</strong> 15 minutes for complete understanding</p>
+</div>
+</details><section id="core-concept">
+<h2>Core Concept<a class="headerlink" href="#core-concept" title="Link to this heading">#</a></h2>
+<p>Osprey supports two orchestration modes. This page focuses on the <strong>plan-first</strong> mode (default) which creates complete execution plans upfront. For the <strong>reactive</strong> mode (ReAct), see <a class="reference internal" href="#reactive-orchestration-planning"><span class="std std-ref">Reactive Orchestration</span></a> below.</p>
+<dl class="simple">
+<dt><strong>Plan-First Approach:</strong></dt><dd><p><code class="docutils literal notranslate"><span class="pre">User</span> <span class="pre">Query</span> <span class="pre">→</span> <span class="pre">Complete</span> <span class="pre">Plan</span> <span class="pre">Creation</span> <span class="pre">→</span> <span class="pre">Execute</span> <span class="pre">All</span> <span class="pre">Steps</span> <span class="pre">→</span> <span class="pre">Response</span></code></p>
+</dd>
+<dt><strong>Reactive Approach:</strong></dt><dd><p><code class="docutils literal notranslate"><span class="pre">User</span> <span class="pre">Query</span> <span class="pre">→</span> <span class="pre">Decide</span> <span class="pre">Step</span> <span class="pre">1</span> <span class="pre">→</span> <span class="pre">Execute</span> <span class="pre">→</span> <span class="pre">Observe</span> <span class="pre">→</span> <span class="pre">Decide</span> <span class="pre">Step</span> <span class="pre">2</span> <span class="pre">→</span> <span class="pre">Execute</span> <span class="pre">→</span> <span class="pre">...</span> <span class="pre">→</span> <span class="pre">Respond</span></code></p>
+</dd>
+</dl>
+<p><strong>Plan-first benefits:</strong> Single planning phase, full context utilization, human oversight integration, fewer LLM calls.</p>
+<p><strong>Reactive benefits:</strong> Dynamic adaptation, graceful error recovery, step-by-step observation.</p>
+<p>Both modes share the same <code class="docutils literal notranslate"><span class="pre">validate_single_step()</span></code> function and <code class="docutils literal notranslate"><span class="pre">PlannedStep</span></code> data model.</p>
+</section>
+<section id="architecture">
+<h2>Architecture<a class="headerlink" href="#architecture" title="Link to this heading">#</a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@infrastructure_node</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">OrchestrationNode</span><span class="p">(</span><span class="n">BaseInfrastructureNode</span><span class="p">):</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;orchestrator&quot;</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="s2">&quot;Execution Planning and Orchestration&quot;</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="c1"># Check for approved plan first (approval workflow)</span>
+        <span class="n">has_approval_resume</span><span class="p">,</span> <span class="n">approved_payload</span> <span class="o">=</span> <span class="n">get_approval_resume_data</span><span class="p">(</span>
+            <span class="n">state</span><span class="p">,</span> <span class="n">create_approval_type</span><span class="p">(</span><span class="s2">&quot;orchestrator&quot;</span><span class="p">,</span> <span class="s2">&quot;plan&quot;</span><span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">has_approval_resume</span> <span class="ow">and</span> <span class="n">approved_payload</span><span class="p">:</span>
+            <span class="n">approved_plan</span> <span class="o">=</span> <span class="n">approved_payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_plan&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">_create_state_updates</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">approved_plan</span><span class="p">,</span> <span class="s2">&quot;approved_from_state&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Generate new execution plan</span>
+        <span class="n">current_task</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">get_current_task</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+        <span class="n">active_capability_names</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;planning_active_capabilities&#39;</span><span class="p">)</span>
+
+        <span class="c1"># Get capability instances from registry</span>
+        <span class="n">active_capabilities</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">registry</span><span class="o">.</span><span class="n">get_capability</span><span class="p">(</span><span class="n">name</span><span class="p">)</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">active_capability_names</span>
+        <span class="p">]</span>
+
+        <span class="c1"># Generate execution plan using LLM</span>
+        <span class="n">execution_plan</span> <span class="o">=</span> <span class="k">await</span> <span class="n">_generate_plan_with_llm</span><span class="p">(</span>
+            <span class="n">current_task</span><span class="p">,</span> <span class="n">active_capabilities</span><span class="p">,</span> <span class="n">state</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Validate and fix execution plan</span>
+        <span class="n">execution_plan</span> <span class="o">=</span> <span class="n">_validate_and_fix_execution_plan</span><span class="p">(</span>
+            <span class="n">execution_plan</span><span class="p">,</span> <span class="n">current_task</span><span class="p">,</span> <span class="n">logger</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Handle planning mode (approval workflow)</span>
+        <span class="k">if</span> <span class="n">_is_planning_mode_enabled</span><span class="p">(</span><span class="n">state</span><span class="p">):</span>
+            <span class="k">await</span> <span class="n">_handle_planning_mode</span><span class="p">(</span><span class="n">execution_plan</span><span class="p">,</span> <span class="n">current_task</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;planning_execution_plan&quot;</span><span class="p">:</span> <span class="n">execution_plan</span><span class="p">,</span>
+            <span class="s2">&quot;planning_current_step_index&quot;</span><span class="p">:</span> <span class="mi">0</span>
+        <span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="execution-plan-structure">
+<h2>Execution Plan Structure<a class="headerlink" href="#execution-plan-structure" title="Link to this heading">#</a></h2>
+<p>Plans use structured TypedDict format for LangGraph compatibility:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">PlannedStep</span><span class="p">(</span><span class="n">TypedDict</span><span class="p">):</span>
+    <span class="n">context_key</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># Unique identifier for step output</span>
+    <span class="n">capability</span><span class="p">:</span> <span class="nb">str</span>           <span class="c1"># Capability name to execute</span>
+    <span class="n">task_objective</span><span class="p">:</span> <span class="nb">str</span>       <span class="c1"># What this step should accomplish</span>
+    <span class="n">expected_output</span><span class="p">:</span> <span class="nb">str</span>      <span class="c1"># Expected output description</span>
+    <span class="n">success_criteria</span><span class="p">:</span> <span class="nb">str</span>     <span class="c1"># How to determine success</span>
+    <span class="n">inputs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>         <span class="c1"># Input context keys from previous steps</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ExecutionPlan</span><span class="p">(</span><span class="n">TypedDict</span><span class="p">):</span>
+    <span class="n">steps</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">PlannedStep</span><span class="p">]</span>  <span class="c1"># Ordered list of execution steps</span>
+</pre></div>
+</div>
+<p><strong>Example Plan:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">execution_plan</span> <span class="o">=</span> <span class="n">ExecutionPlan</span><span class="p">(</span>
+    <span class="n">steps</span><span class="o">=</span><span class="p">[</span>
+        <span class="n">PlannedStep</span><span class="p">(</span>
+            <span class="n">context_key</span><span class="o">=</span><span class="s2">&quot;weather_data&quot;</span><span class="p">,</span>
+            <span class="n">capability</span><span class="o">=</span><span class="s2">&quot;current_weather&quot;</span><span class="p">,</span>
+            <span class="n">task_objective</span><span class="o">=</span><span class="s2">&quot;Retrieve current weather for San Francisco&quot;</span><span class="p">,</span>
+            <span class="n">success_criteria</span><span class="o">=</span><span class="s2">&quot;Weather data retrieved successfully&quot;</span><span class="p">,</span>
+            <span class="n">expected_output</span><span class="o">=</span><span class="s2">&quot;CURRENT_WEATHER&quot;</span><span class="p">,</span>
+            <span class="n">inputs</span><span class="o">=</span><span class="p">[]</span>
+        <span class="p">),</span>
+        <span class="n">PlannedStep</span><span class="p">(</span>
+            <span class="n">context_key</span><span class="o">=</span><span class="s2">&quot;user_response&quot;</span><span class="p">,</span>
+            <span class="n">capability</span><span class="o">=</span><span class="s2">&quot;respond&quot;</span><span class="p">,</span>
+            <span class="n">task_objective</span><span class="o">=</span><span class="s2">&quot;Present weather information to user&quot;</span><span class="p">,</span>
+            <span class="n">success_criteria</span><span class="o">=</span><span class="s2">&quot;User receives formatted weather data&quot;</span><span class="p">,</span>
+            <span class="n">expected_output</span><span class="o">=</span><span class="s2">&quot;user_response&quot;</span><span class="p">,</span>
+            <span class="n">inputs</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;weather_data&quot;</span><span class="p">]</span>
+        <span class="p">)</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="llm-powered-plan-generation">
+<h2>LLM-Powered Plan Generation<a class="headerlink" href="#llm-powered-plan-generation" title="Link to this heading">#</a></h2>
+<p>Orchestrator generates plans using comprehensive prompts with capability context:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_generate_plan_with_llm</span><span class="p">(</span><span class="n">current_task</span><span class="p">,</span> <span class="n">active_capabilities</span><span class="p">,</span> <span class="n">state</span><span class="p">):</span>
+    <span class="c1"># Create system prompt with capability guides</span>
+    <span class="n">context_manager</span> <span class="o">=</span> <span class="n">ContextManager</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+    <span class="n">orchestrator_builder</span> <span class="o">=</span> <span class="n">prompt_provider</span><span class="o">.</span><span class="n">get_orchestrator_prompt_builder</span><span class="p">()</span>
+
+    <span class="n">system_instructions</span> <span class="o">=</span> <span class="n">orchestrator_builder</span><span class="o">.</span><span class="n">get_planning_instructions</span><span class="p">(</span>
+        <span class="n">active_capabilities</span><span class="o">=</span><span class="n">active_capabilities</span><span class="p">,</span>
+        <span class="n">context_manager</span><span class="o">=</span><span class="n">context_manager</span><span class="p">,</span>
+        <span class="n">task_depends_on_chat_history</span><span class="o">=</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;task_depends_on_chat_history&#39;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Generate structured plan</span>
+    <span class="n">execution_plan</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
+        <span class="n">get_chat_completion</span><span class="p">,</span>
+        <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prompt</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">TASK TO PLAN: </span><span class="si">{</span><span class="n">current_task</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="n">model_config</span><span class="o">=</span><span class="n">get_model_config</span><span class="p">(</span><span class="s2">&quot;orchestrator&quot;</span><span class="p">),</span>
+        <span class="n">output_model</span><span class="o">=</span><span class="n">ExecutionPlan</span>
+    <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">execution_plan</span>
+</pre></div>
+</div>
+<p><strong>Key Features:</strong>
+- Structured output ensures consistent plan objects
+- Capability guides provide orchestration examples
+- Context integration includes conversation history
+- Dependency management between steps</p>
+</section>
+<section id="shared-step-validation">
+<h2>Shared Step Validation<a class="headerlink" href="#shared-step-validation" title="Link to this heading">#</a></h2>
+<p>Both plan-first and reactive orchestrators use the shared <code class="docutils literal notranslate"><span class="pre">validate_single_step()</span></code> function to validate individual execution steps:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.infrastructure.orchestration_node</span><span class="w"> </span><span class="kn">import</span> <span class="n">validate_single_step</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">validate_single_step</span><span class="p">(</span><span class="n">step</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">logger</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">available_keys</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">step_index</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Validate a single execution step for correctness.</span>
+
+<span class="sd">    Used by both plan-first and reactive orchestrators.</span>
+
+<span class="sd">    Checks:</span>
+<span class="sd">    1. The step&#39;s capability exists in the registry</span>
+<span class="sd">    2. Input context key references are valid</span>
+
+<span class="sd">    Raises ValueError for hallucinated capabilities,</span>
+<span class="sd">    InvalidContextKeyError for bad context references.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p><strong>Plan-first usage</strong>: Called inside <code class="docutils literal notranslate"><span class="pre">_validate_and_fix_execution_plan()</span></code> for each step, with <code class="docutils literal notranslate"><span class="pre">available_keys</span></code> pre-built from the plan</p></li>
+<li><p><strong>Reactive usage</strong>: Called directly on the single step, with <code class="docutils literal notranslate"><span class="pre">available_keys</span></code> built from existing state context</p></li>
+</ul>
+</section>
+<section id="plan-validation-and-fixing">
+<h2>Plan Validation and Fixing<a class="headerlink" href="#plan-validation-and-fixing" title="Link to this heading">#</a></h2>
+<p>The plan-first orchestrator applies additional plan-level validation on top of <code class="docutils literal notranslate"><span class="pre">validate_single_step()</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">_validate_and_fix_execution_plan</span><span class="p">(</span><span class="n">execution_plan</span><span class="p">,</span> <span class="n">current_task</span><span class="p">,</span> <span class="n">logger</span><span class="p">):</span>
+    <span class="n">steps</span> <span class="o">=</span> <span class="n">execution_plan</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;steps&#39;</span><span class="p">,</span> <span class="p">[])</span>
+
+    <span class="c1"># Check all capabilities exist in registry</span>
+    <span class="n">hallucinated_capabilities</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="n">steps</span><span class="p">:</span>
+        <span class="n">capability_name</span> <span class="o">=</span> <span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;capability&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_node</span><span class="p">(</span><span class="n">capability_name</span><span class="p">):</span>
+            <span class="n">hallucinated_capabilities</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">capability_name</span><span class="p">)</span>
+
+    <span class="c1"># If hallucinated capabilities found, trigger re-planning</span>
+    <span class="k">if</span> <span class="n">hallucinated_capabilities</span><span class="p">:</span>
+        <span class="n">available_capabilities</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_stats</span><span class="p">()[</span><span class="s1">&#39;capability_names&#39;</span><span class="p">]</span>
+        <span class="n">error_msg</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Orchestrator hallucinated non-existent capabilities: </span><span class="si">{</span><span class="n">hallucinated_capabilities</span><span class="si">}</span><span class="s2">. &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;Available capabilities: </span><span class="si">{</span><span class="n">available_capabilities</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">error_msg</span><span class="p">)</span>
+
+    <span class="c1"># Ensure plan ends with respond or clarify</span>
+    <span class="n">last_step</span> <span class="o">=</span> <span class="n">steps</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">last_step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;capability&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;respond&#39;</span><span class="p">,</span> <span class="s1">&#39;clarify&#39;</span><span class="p">]:</span>
+        <span class="c1"># Add respond step</span>
+        <span class="n">steps</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">_create_generic_respond_step</span><span class="p">(</span><span class="n">current_task</span><span class="p">))</span>
+
+    <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;steps&quot;</span><span class="p">:</span> <span class="n">steps</span><span class="p">}</span>
+</pre></div>
+</div>
+<p><strong>Validation Benefits:</strong>
+- Prevents execution failures from non-existent capabilities
+- Guarantees user response with respond/clarify steps
+- Enables re-planning with specific error context
+- Registry integration ensures accuracy</p>
+</section>
+<section id="approval-workflow-integration">
+<h2>Approval Workflow Integration<a class="headerlink" href="#approval-workflow-integration" title="Link to this heading">#</a></h2>
+<p>Orchestrator seamlessly integrates with LangGraph’s interrupt system:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_handle_planning_mode</span><span class="p">(</span><span class="n">execution_plan</span><span class="p">,</span> <span class="n">current_task</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Handle planning mode using structured approval system.&quot;&quot;&quot;</span>
+
+    <span class="c1"># Create structured plan approval interrupt</span>
+    <span class="n">interrupt_data</span> <span class="o">=</span> <span class="n">create_plan_approval_interrupt</span><span class="p">(</span>
+        <span class="n">execution_plan</span><span class="o">=</span><span class="n">execution_plan</span><span class="p">,</span>
+        <span class="n">step_objective</span><span class="o">=</span><span class="n">current_task</span>
+    <span class="p">)</span>
+
+    <span class="c1"># LangGraph interrupt - execution stops here until user responds</span>
+    <span class="n">interrupt</span><span class="p">(</span><span class="n">interrupt_data</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Approval Features:</strong>
+- Native LangGraph integration using interrupt system
+- Structured interrupts include complete plan details
+- Resume support extracts approved plans without re-planning
+- State management with proper cleanup</p>
+<p><strong>Approval Resume Handling:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Orchestrator checks for approved plans first</span>
+<span class="n">has_approval_resume</span><span class="p">,</span> <span class="n">approved_payload</span> <span class="o">=</span> <span class="n">get_approval_resume_data</span><span class="p">(</span>
+    <span class="n">state</span><span class="p">,</span> <span class="n">create_approval_type</span><span class="p">(</span><span class="s2">&quot;orchestrator&quot;</span><span class="p">,</span> <span class="s2">&quot;plan&quot;</span><span class="p">)</span>
+<span class="p">)</span>
+
+<span class="k">if</span> <span class="n">has_approval_resume</span> <span class="ow">and</span> <span class="n">approved_payload</span><span class="p">:</span>
+    <span class="n">approved_plan</span> <span class="o">=</span> <span class="n">approved_payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_plan&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">_create_state_updates</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">approved_plan</span><span class="p">,</span> <span class="s2">&quot;approved_from_state&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="state-updates-and-coordination">
+<h2>State Updates and Coordination<a class="headerlink" href="#state-updates-and-coordination" title="Link to this heading">#</a></h2>
+<p>Orchestrator creates comprehensive state updates for framework coordination:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">_create_state_updates</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">execution_plan</span><span class="p">,</span> <span class="n">approach</span><span class="p">):</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;planning_execution_plan&quot;</span><span class="p">:</span> <span class="n">execution_plan</span><span class="p">,</span>
+        <span class="s2">&quot;planning_current_step_index&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="s2">&quot;control_plans_created_count&quot;</span><span class="p">:</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;control_plans_created_count&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="c1"># Clear error state so router can execute new plan</span>
+        <span class="s2">&quot;control_has_error&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="s2">&quot;control_error_info&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;control_retry_count&quot;</span><span class="p">:</span> <span class="mi">0</span>
+    <span class="p">}</span>
+</pre></div>
+</div>
+<p><strong>State Update Benefits:</strong>
+- Router coordination through error state cleanup
+- Progress tracking with plan creation counters
+- Clean state for execution without interference</p>
+</section>
+<section id="error-handling">
+<h2>Error Handling<a class="headerlink" href="#error-handling" title="Link to this heading">#</a></h2>
+<p>Orchestrator includes robust error handling for LLM operations:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@staticmethod</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">classify_error</span><span class="p">(</span><span class="n">exc</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="nb">dict</span><span class="p">):</span>
+    <span class="c1"># Retry on network/API timeouts</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="p">(</span><span class="ne">ConnectionError</span><span class="p">,</span> <span class="ne">TimeoutError</span><span class="p">)):</span>
+        <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+            <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RETRIABLE</span><span class="p">,</span>
+            <span class="n">user_message</span><span class="o">=</span><span class="s2">&quot;Orchestration service timeout, retrying...&quot;</span>
+        <span class="p">)</span>
+
+    <span class="c1"># Don&#39;t retry on validation errors</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">)):</span>
+        <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+            <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">,</span>
+            <span class="n">user_message</span><span class="o">=</span><span class="s2">&quot;Orchestration configuration error&quot;</span>
+        <span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Retry Policy:</strong> 4 attempts with 2.0x backoff for LLM service reliability.</p>
+<p><strong>Error Scenarios:</strong>
+- <strong>Capability Hallucination:</strong> Triggers reclassification with specific error context
+- <strong>Empty Plans:</strong> Automatically adds respond step
+- <strong>Approval Failures:</strong> Handles rejection gracefully with state consistency</p>
+</section>
+<section id="integration-examples">
+<h2>Integration Examples<a class="headerlink" href="#integration-examples" title="Link to this heading">#</a></h2>
+<p><strong>Normal Planning Flow:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Input: Task + selected capabilities</span>
+<span class="n">current_task</span> <span class="o">=</span> <span class="s2">&quot;What&#39;s the weather in San Francisco?&quot;</span>
+<span class="n">active_capabilities</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;current_weather&quot;</span><span class="p">,</span> <span class="s2">&quot;respond&quot;</span><span class="p">]</span>
+
+<span class="c1"># Output: Validated execution plan</span>
+<span class="n">execution_plan</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;steps&quot;</span><span class="p">:</span> <span class="p">[</span>
+        <span class="p">{</span>
+            <span class="s2">&quot;context_key&quot;</span><span class="p">:</span> <span class="s2">&quot;sf_weather&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;capability&quot;</span><span class="p">:</span> <span class="s2">&quot;current_weather&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;task_objective&quot;</span><span class="p">:</span> <span class="s2">&quot;Retrieve weather for San Francisco&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;inputs&quot;</span><span class="p">:</span> <span class="p">[]</span>
+        <span class="p">},</span>
+        <span class="p">{</span>
+            <span class="s2">&quot;context_key&quot;</span><span class="p">:</span> <span class="s2">&quot;weather_response&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;capability&quot;</span><span class="p">:</span> <span class="s2">&quot;respond&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;task_objective&quot;</span><span class="p">:</span> <span class="s2">&quot;Present weather to user&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;inputs&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;sf_weather&quot;</span><span class="p">]</span>
+        <span class="p">}</span>
+    <span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><strong>Approval Mode Integration:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Enable planning mode</span>
+<span class="n">state</span><span class="p">[</span><span class="s2">&quot;agent_control&quot;</span><span class="p">][</span><span class="s2">&quot;planning_mode_enabled&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+
+<span class="c1"># Orchestrator automatically creates approval interrupt</span>
+<span class="c1"># Execution pauses until user approves/rejects plan</span>
+<span class="c1"># Approved plans resume execution without re-planning</span>
+</pre></div>
+</div>
+</section>
+<section id="reactive-orchestration">
+<span id="reactive-orchestration-planning"></span><h2>Reactive Orchestration<a class="headerlink" href="#reactive-orchestration" title="Link to this heading">#</a></h2>
+<p>The reactive orchestrator (<code class="docutils literal notranslate"><span class="pre">ReactiveOrchestratorNode</span></code>) implements the <strong>ReAct (Reasoning + Acting)</strong> pattern, deciding one step at a time and observing results between steps.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.infrastructure.reactive_orchestrator_node</span><span class="w"> </span><span class="kn">import</span> <span class="n">ReactiveOrchestratorNode</span>
+
+<span class="nd">@infrastructure_node</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ReactiveOrchestratorNode</span><span class="p">(</span><span class="n">BaseInfrastructureNode</span><span class="p">):</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;reactive_orchestrator&quot;</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="s2">&quot;Reactive step-by-step orchestration using ReAct pattern&quot;</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="c1"># 1. Resolve active capabilities from state</span>
+        <span class="c1"># 2. Build system prompt using shared prompt infrastructure</span>
+        <span class="c1"># 3. Build messages from react_messages + latest observation</span>
+        <span class="c1"># 4. Call LLM for next decision (output: ExecutionPlan with 1 step)</span>
+        <span class="c1"># 5. Validate step (internal retry loop for self-correction)</span>
+        <span class="c1"># 6. Create single-step execution plan for any capability (including respond/clarify)</span>
+</pre></div>
+</div>
+<p>It uses the same prompt builder infrastructure but calls <code class="docutils literal notranslate"><span class="pre">get_reactive_instructions()</span></code> instead of <code class="docutils literal notranslate"><span class="pre">get_planning_instructions()</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Reactive orchestrator prompt generation</span>
+<span class="n">builder</span> <span class="o">=</span> <span class="n">prompt_provider</span><span class="o">.</span><span class="n">get_orchestrator_prompt_builder</span><span class="p">()</span>
+<span class="n">system_prompt</span> <span class="o">=</span> <span class="n">builder</span><span class="o">.</span><span class="n">get_reactive_instructions</span><span class="p">(</span>
+    <span class="n">active_capabilities</span><span class="o">=</span><span class="n">active_capabilities</span><span class="p">,</span>
+    <span class="n">context_manager</span><span class="o">=</span><span class="n">context_manager</span><span class="p">,</span>
+    <span class="n">execution_history</span><span class="o">=</span><span class="n">execution_history</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Key differences from plan-first:</strong></p>
+<ul class="simple">
+<li><p>Produces a single-step <code class="docutils literal notranslate"><span class="pre">ExecutionPlan</span></code> per invocation (vs. a complete multi-step plan)</p></li>
+<li><p>Includes an internal validation-retry loop (up to 2 retries) that re-prompts the LLM with feedback on validation failures</p></li>
+<li><p>Auto-resolves capability inputs from available context data (vs. planned upfront)</p></li>
+<li><p>Accumulates reasoning history in <code class="docutils literal notranslate"><span class="pre">react_messages</span></code> state field</p></li>
+</ul>
+<p><strong>Reactive execution plan example (single step):</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Each reactive orchestrator invocation produces a plan with one step</span>
+<span class="n">single_step_plan</span> <span class="o">=</span> <span class="n">ExecutionPlan</span><span class="p">(</span>
+    <span class="n">steps</span><span class="o">=</span><span class="p">[</span>
+        <span class="n">PlannedStep</span><span class="p">(</span>
+            <span class="n">context_key</span><span class="o">=</span><span class="s2">&quot;beam_current_pvs&quot;</span><span class="p">,</span>
+            <span class="n">capability</span><span class="o">=</span><span class="s2">&quot;pv_address_finding&quot;</span><span class="p">,</span>
+            <span class="n">task_objective</span><span class="o">=</span><span class="s2">&quot;Find beam current PV addresses&quot;</span><span class="p">,</span>
+            <span class="n">expected_output</span><span class="o">=</span><span class="s2">&quot;PV_ADDRESSES&quot;</span><span class="p">,</span>
+            <span class="n">inputs</span><span class="o">=</span><span class="p">[]</span>  <span class="c1"># auto-resolved from context</span>
+        <span class="p">)</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<section id="auto-input-resolution">
+<h3>Auto-Input Resolution<a class="headerlink" href="#auto-input-resolution" title="Link to this heading">#</a></h3>
+<p>Unlike plan-first mode where input references are planned upfront, the reactive orchestrator automatically resolves inputs by matching a capability’s <code class="docutils literal notranslate"><span class="pre">requires</span></code> list against available context data in state:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">_resolve_inputs</span><span class="p">(</span><span class="n">capability_name</span><span class="p">,</span> <span class="n">state</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Match capability&#39;s requires list against available context data.&quot;&quot;&quot;</span>
+    <span class="n">cap_instance</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_capability</span><span class="p">(</span><span class="n">capability_name</span><span class="p">)</span>
+    <span class="n">requires</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">cap_instance</span><span class="p">,</span> <span class="s2">&quot;requires&quot;</span><span class="p">,</span> <span class="p">[])</span>
+
+    <span class="k">for</span> <span class="n">req</span> <span class="ow">in</span> <span class="n">requires</span><span class="p">:</span>
+        <span class="n">context_type</span> <span class="o">=</span> <span class="n">req</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">req</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)</span> <span class="k">else</span> <span class="n">req</span>
+        <span class="n">type_contexts</span> <span class="o">=</span> <span class="n">state</span><span class="p">[</span><span class="s2">&quot;capability_context_data&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">context_type</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="k">if</span> <span class="n">type_contexts</span><span class="p">:</span>
+            <span class="n">latest_key</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">type_contexts</span><span class="o">.</span><span class="n">keys</span><span class="p">())[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">inputs</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="n">context_type</span><span class="p">:</span> <span class="n">latest_key</span><span class="p">})</span>
+</pre></div>
+</div>
+</section>
+<section id="internal-validation-retry-loop">
+<h3>Internal Validation-Retry Loop<a class="headerlink" href="#internal-validation-retry-loop" title="Link to this heading">#</a></h3>
+<p>Before propagating errors to the infrastructure error system, the reactive orchestrator gives the LLM up to 2 additional attempts to self-correct validation failures (hallucinated capabilities, invalid context references, empty plans). Validation feedback is appended to the prompt so the LLM can fix its output.</p>
+</section>
+<section id="graceful-error-recovery">
+<h3>Graceful Error Recovery<a class="headerlink" href="#graceful-error-recovery" title="Link to this heading">#</a></h3>
+<p>When a capability fails, the router sends control back to the reactive orchestrator (instead of the error node). The orchestrator observes the error and can decide to retry a different approach, skip the step, or respond to the user. It clears the error state to enable this recovery.</p>
+</section>
+<section id="reactive-state-fields">
+<h3>Reactive State Fields<a class="headerlink" href="#reactive-state-fields" title="Link to this heading">#</a></h3>
+<p>The reactive orchestrator introduces two execution-scoped state fields:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 15.0%" />
+<col style="width: 55.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Field</p></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">react_messages</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">list[dict]</span></code></p></td>
+<td><p>Accumulated LLM reasoning messages (decisions + observations) for the ReAct loop</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">react_step_count</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">int</span></code></p></td>
+<td><p>Safety counter tracking completed steps (max iterations guard)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>These fields are execution-scoped (reset each invocation) and only used in reactive orchestration mode.</p>
+</section>
+<section id="reactive-routing">
+<h3>Reactive Routing<a class="headerlink" href="#reactive-routing" title="Link to this heading">#</a></h3>
+<p>When <code class="docutils literal notranslate"><span class="pre">orchestration_mode:</span> <span class="pre">react</span></code> is configured, the router uses a separate <code class="docutils literal notranslate"><span class="pre">_reactive_routing()</span></code> function with the following priority:</p>
+<ol class="arabic simple">
+<li><p><strong>Direct chat mode</strong> – same behavior as plan-first</p></li>
+<li><p><strong>Error handling</strong> – RETRIABLE errors retry the capability; all other severities route back to reactive orchestrator for re-evaluation</p></li>
+<li><p><strong>Max iterations guard</strong> – routes to error node if <code class="docutils literal notranslate"><span class="pre">react_step_count</span></code> exceeds <code class="docutils literal notranslate"><span class="pre">graph_recursion_limit</span></code> (default: 100)</p></li>
+<li><p><strong>Normal pipeline</strong> – <code class="docutils literal notranslate"><span class="pre">task_extraction</span> <span class="pre">-&gt;</span> <span class="pre">classifier</span> <span class="pre">-&gt;</span> <span class="pre">reactive_orchestrator</span></code></p></li>
+<li><p><strong>Execution plan dispatch</strong> – routes to the capability in the current execution plan step (including respond/clarify)</p></li>
+<li><p><strong>After capability execution</strong> – route back to reactive orchestrator for next decision</p></li>
+</ol>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../01_understanding-the-framework/04_orchestration-architecture.html"><span class="doc">Orchestration Architecture</span></a></dt><dd><p>High-level overview of orchestration modes and when to use each</p>
+</dd>
+<dt><a class="reference internal" href="../../api_reference/02_infrastructure/04_orchestration.html"><span class="doc">Orchestration</span></a></dt><dd><p>API reference for orchestration classes and functions</p>
+</dd>
+<dt><a class="reference internal" href="../05_production-systems/01_human-approval-workflows.html"><span class="doc">Human Approval</span></a></dt><dd><p>LLM-powered planning with approval workflow integration</p>
+</dd>
+<dt><a class="reference internal" href="03_classification-and-routing.html"><span class="doc">Classification and Routing</span></a></dt><dd><p>Capability selection and execution coordination patterns</p>
+</dd>
+<dt><a class="reference internal" href="05_message-generation.html"><span class="doc">Message Generation</span></a></dt><dd><p>How execution results become user responses</p>
+</dd>
+<dt><a class="reference internal" href="06_error-handling-infrastructure.html"><span class="doc">Error Handling</span></a></dt><dd><p>How orchestration errors are handled</p>
+</dd>
+</dl>
+</div>
+<p>Orchestrator Planning provides the strategic intelligence that converts capability selections into coherent, executable plans with comprehensive validation and approval integration.</p>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="03_classification-and-routing.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Classification and Routing</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="05_message-generation.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Message Generation</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#core-concept">Core Concept</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#architecture">Architecture</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#execution-plan-structure">Execution Plan Structure</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#llm-powered-plan-generation">LLM-Powered Plan Generation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#shared-step-validation">Shared Step Validation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#plan-validation-and-fixing">Plan Validation and Fixing</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#approval-workflow-integration">Approval Workflow Integration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#state-updates-and-coordination">State Updates and Coordination</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#error-handling">Error Handling</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#integration-examples">Integration Examples</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reactive-orchestration">Reactive Orchestration</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#auto-input-resolution">Auto-Input Resolution</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#internal-validation-retry-loop">Internal Validation-Retry Loop</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#graceful-error-recovery">Graceful Error Recovery</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#reactive-state-fields">Reactive State Fields</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#reactive-routing">Reactive Routing</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/developer-guides/04_infrastructure-components/04_orchestrator-planning.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

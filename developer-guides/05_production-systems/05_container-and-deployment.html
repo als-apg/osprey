@@ -1,0 +1,1690 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Container Deployment &#8212; Osprey Framework 0.11.5 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'developer-guides/05_production-systems/05_container-and-deployment';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Control System Integration" href="06_control-system-integration.html" />
+    <link rel="prev" title="Memory Storage" href="04_memory-storage-service.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../01_understanding-the-framework/index.html">Understanding Osprey</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/01_infrastructure-architecture.html">Infrastructure Architecture: Classification-Orchestration Pipeline</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/02_convention-over-configuration.html">Convention over Configuration: Configuration-Driven Registry Patterns</a></li>
+
+
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/03_langgraph-integration.html">LangGraph Integration: Native StateGraph and Workflow Execution</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/04_orchestration-architecture.html">Orchestration Architecture</a></li>
+
+
+
+
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../02_quick-start-patterns/index.html">Quick Start Patterns</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/00_cli-reference.html">CLI Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/01_building-your-first-capability.html">Building Your First Capability</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/02_state-and-context-essentials.html">State and Context Essentials</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/03_running-and-testing.html">Running and Testing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/04_mcp-capability-generation.html">MCP Capability Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/05_soft-ioc-backends.html">Soft IOC Custom Backends</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../03_core-framework-systems/index.html">Core Framework Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/01_state-management-architecture.html">State Management Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/02_context-management-system.html">Context Management System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/03_registry-and-discovery.html">Registry and Discovery</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/04_prompt-customization.html">Prompt Customization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/05_message-and-execution-flow.html">Message and Execution Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/06_configuration-architecture.html">Configuration Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/07_built-in-capabilities.html">Built-in Capabilities</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../04_infrastructure-components/index.html">Infrastructure Components</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/01_gateway-architecture.html">Gateway Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/02_task-extraction-system.html">Task Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/03_classification-and-routing.html">Classification and Routing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/04_orchestrator-planning.html">Orchestrator Planning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/05_message-generation.html">Message Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/06_error-handling-infrastructure.html">Error Handling</a></li>
+</ul>
+</details></li>
+
+
+
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Production Systems</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="01_human-approval-workflows.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="02_data-source-integration.html">Data Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="03_python-execution-service/index.html">Python Execution</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="03_python-execution-service/service-overview.html">Python Service Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="03_python-execution-service/generator-basic.html">Basic LLM Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="03_python-execution-service/generator-claude.html">Claude Code Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="03_python-execution-service/generator-mock.html">Mock Generator</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2"><a class="reference internal" href="04_memory-storage-service.html">Memory Storage</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Container Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="06_control-system-integration.html">Control System Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="07_logbook-search-service/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="07_logbook-search-service/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l3"><a class="reference internal" href="07_logbook-search-service/search-modes.html">Search Modes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="07_logbook-search-service/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="07_logbook-search-service/web-interface.html">Web Interface</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Developer Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Production Systems</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Container Deployment</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="container-deployment">
+<h1>Container Deployment<a class="headerlink" href="#container-deployment" title="Link to this heading">#</a></h1>
+<p><strong>What you’ll learn:</strong> How to deploy and manage containerized services using the Osprey Framework’s deployment CLI</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">📚 What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>Key Concepts:</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text">Using <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> CLI for service deployment and orchestration</p></li>
+<li><p class="sd-card-text">Configuring services in your project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p></li>
+<li><p class="sd-card-text">Managing Jinja2 template rendering with <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code> files</p></li>
+<li><p class="sd-card-text">Understanding build directory management and source code copying</p></li>
+<li><p class="sd-card-text">Implementing development vs production deployment patterns</p></li>
+</ul>
+<p class="sd-card-text"><strong>Prerequisites:</strong> Understanding of Docker/container concepts and <a class="reference internal" href="../../api_reference/01_core_framework/04_configuration_system.html"><span class="doc">Configuration System</span></a></p>
+<p class="sd-card-text"><strong>Time Investment:</strong> 30-45 minutes for complete understanding</p>
+</div>
+</details><section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
+<p>The Osprey Framework provides a container management system for deploying services. The system handles service discovery, Docker Compose template rendering, and container orchestration using Docker or Podman with native compose support.</p>
+<p><strong>Core Features:</strong></p>
+<ul class="simple">
+<li><p><strong>Runtime Flexibility</strong>: Automatic detection and use of Docker or Podman</p></li>
+<li><p><strong>Simple Service Configuration</strong>: All services defined in a flat <code class="docutils literal notranslate"><span class="pre">services:</span></code> section</p></li>
+<li><p><strong>Template Rendering</strong>: Jinja2 processing of Docker Compose templates with full configuration context</p></li>
+<li><p><strong>Build Management</strong>: Automated build directory creation with source code and configuration copying</p></li>
+<li><p><strong>Container Orchestration</strong>: Docker Compose or Podman Compose integration for multi-service deployment</p></li>
+</ul>
+</section>
+<section id="architecture">
+<h2>Architecture<a class="headerlink" href="#architecture" title="Link to this heading">#</a></h2>
+<p>The container management system uses a simple, flat directory structure. All services live in your project’s <code class="docutils literal notranslate"><span class="pre">services/</span></code> directory and are configured the same way.</p>
+<p><strong>Common Services:</strong></p>
+<dl class="simple">
+<dt><em>Framework Infrastructure Services:</em></dt><dd><p>Core services used across applications:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">jupyter</span></code>: Python execution environment with EPICS support</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">open-webui</span></code>: Web interface for agent interaction</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pipelines</span></code>: Processing pipeline infrastructure</p></li>
+</ul>
+</dd>
+<dt><em>Application-Specific Services:</em></dt><dd><p>Custom services for your particular application. Examples from the <a class="reference internal" href="../../example-applications/als-assistant.html"><span class="doc">ALS Accelerator Assistant</span></a>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">mongo</span></code>: MongoDB database for ALS operations data</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pv_finder</span></code>: EPICS Process Variable discovery MCP server</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">langfuse</span></code>: LLM observability and monitoring</p></li>
+<li><p>Any custom services you create</p></li>
+</ul>
+</dd>
+</dl>
+<p>All services are defined in the same <code class="docutils literal notranslate"><span class="pre">services:</span></code> section of your <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, regardless of whether they’re framework infrastructure or application-specific.</p>
+</section>
+<section id="service-configuration">
+<h2>Service Configuration<a class="headerlink" href="#service-configuration" title="Link to this heading">#</a></h2>
+<p>Services are configured in your project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> using a simple, flat structure. All services—whether framework infrastructure or application-specific—use the same configuration format.</p>
+<section id="basic-configuration-pattern">
+<h3>Basic Configuration Pattern<a class="headerlink" href="#basic-configuration-pattern" title="Link to this heading">#</a></h3>
+<p>Here’s the standard pattern used by all framework projects:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># config.yml - Your project configuration</span>
+
+<span class="c1"># Define all services in a flat structure</span>
+<span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># Jupyter - Python execution environment</span>
+<span class="w">  </span><span class="nt">jupyter</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/jupyter</span>
+<span class="w">    </span><span class="nt">containers</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">read</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter-read</span>
+<span class="w">        </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter-read</span>
+<span class="w">        </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8088</span>
+<span class="w">        </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8088</span>
+<span class="w">        </span><span class="nt">execution_modes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;read_only&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">      </span><span class="nt">write</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter-write</span>
+<span class="w">        </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter-write</span>
+<span class="w">        </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8089</span>
+<span class="w">        </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8088</span>
+<span class="w">        </span><span class="nt">execution_modes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;write_access&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">copy_src</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">render_kernel_templates</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="w">  </span><span class="c1"># Open WebUI - User interface frontend</span>
+<span class="w">  </span><span class="nt">open_webui</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/open-webui</span>
+<span class="w">    </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
+<span class="w">    </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8080</span>
+<span class="w">    </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8080</span>
+
+<span class="w">  </span><span class="c1"># Pipelines - Processing infrastructure</span>
+<span class="w">  </span><span class="nt">pipelines</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/pipelines</span>
+<span class="w">    </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9099</span>
+<span class="w">    </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9099</span>
+<span class="w">    </span><span class="nt">copy_src</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="w">  </span><span class="c1"># Application-specific service example (optional)</span>
+<span class="w">  </span><span class="c1"># Example: MongoDB for your application data</span>
+<span class="w">  </span><span class="nt">mongo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongo</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/mongo</span>
+<span class="w">    </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">27017</span>
+<span class="w">    </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">27017</span>
+<span class="w">    </span><span class="nt">copy_src</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+
+<span class="c1"># Control which services to deploy</span>
+<span class="nt">deployed_services</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">open_webui</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pipelines</span>
+<span class="w">  </span><span class="c1"># - mongo  # Add your application services as needed</span>
+</pre></div>
+</div>
+<p><strong>Key Configuration Options:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">path</span></code>: Directory containing the service’s Docker Compose template (<code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">name</span></code>: Container name (defaults to service key if not specified)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">hostname</span></code>: Container hostname for networking</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">port_host/port_container</span></code>: Port mapping between host and container</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">copy_src</span></code>: Whether to copy <code class="docutils literal notranslate"><span class="pre">src/</span></code> directory into the build directory (default: false)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">additional_dirs</span></code>: Extra directories to copy to build environment (list)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">render_kernel_templates</span></code>: Process Jupyter kernel templates (for Jupyter services only)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">containers</span></code>: Multi-container configuration (for services like Jupyter with read/write variants)</p></li>
+</ul>
+</section>
+<section id="service-directory-organization">
+<h3>Service Directory Organization<a class="headerlink" href="#service-directory-organization" title="Link to this heading">#</a></h3>
+<p>Your project organizes services in a flat directory structure:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>your-project/
+├── services/
+│   ├── docker-compose.yml.j2          # Root network configuration
+│   ├── jupyter/                        # Jupyter service
+│   │   ├── docker-compose.yml.j2
+│   │   ├── Dockerfile
+│   │   ├── custom_start.sh
+│   │   └── python3-epics-readonly/
+│   ├── open-webui/                     # Web UI service
+│   │   ├── docker-compose.yml.j2
+│   │   ├── Dockerfile
+│   │   └── functions/
+│   ├── pipelines/                      # Processing pipeline service
+│   │   ├── docker-compose.yml.j2
+│   │   └── main.py
+│   └── mongo/                          # (Optional) Application services
+│       ├── docker-compose.yml.j2      # E.g., MongoDB for ALS Assistant
+│       └── Dockerfile
+├── config.yml
+└── src/
+    └── your_app/
+</pre></div>
+</div>
+<dl class="simple">
+<dt>Each service directory contains:</dt><dd><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code> (required): Jinja2 template for Docker Compose</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Dockerfile</span></code> (optional): If the service needs a custom image</p></li>
+<li><p>Other service-specific files (scripts, configs, etc.)</p></li>
+</ul>
+</dd>
+</dl>
+<p>The <code class="docutils literal notranslate"><span class="pre">path</span></code> field in your configuration points to these service directories.</p>
+</section>
+</section>
+<section id="deployment-workflow">
+<h2>Deployment Workflow<a class="headerlink" href="#deployment-workflow" title="Link to this heading">#</a></h2>
+<p>The container management system supports both development and production deployment patterns.</p>
+<div class="version-07plus-change admonition">
+<p class="admonition-title">New in v0.7+: Framework CLI Commands</p>
+<p>Service deployment is now managed through the <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> CLI command.</p>
+</div>
+<section id="development-pattern">
+<h3>Development Pattern<a class="headerlink" href="#development-pattern" title="Link to this heading">#</a></h3>
+<p>For development and debugging, start services incrementally:</p>
+<ol class="arabic">
+<li><p><strong>Configure services incrementally</strong> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">deployed_services</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">open_webui</span><span class="w">  </span><span class="c1"># Start with one service</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>Start in non-detached mode</strong> to monitor logs:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up
+</pre></div>
+</div>
+</li>
+<li><p><strong>Add additional services</strong> after verifying each one works correctly</p></li>
+</ol>
+</section>
+<section id="production-pattern">
+<h3>Production Pattern<a class="headerlink" href="#production-pattern" title="Link to this heading">#</a></h3>
+<p>For production deployment:</p>
+<ol class="arabic">
+<li><p><strong>Configure all required services</strong> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">deployed_services</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">open_webui</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pipelines</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>Start all services in detached mode</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--detached
+</pre></div>
+</div>
+</li>
+<li><p><strong>Verify services are running</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>podman<span class="w"> </span>ps
+</pre></div>
+</div>
+</li>
+</ol>
+</section>
+<section id="development-mode">
+<h3>Development Mode<a class="headerlink" href="#development-mode" title="Link to this heading">#</a></h3>
+<p><strong>Development mode</strong> enables testing Osprey framework changes in containers without publishing to PyPI. When enabled with the <code class="docutils literal notranslate"><span class="pre">--dev</span></code> flag, containers use your locally installed Osprey instead of the PyPI version.</p>
+<p><strong>When to Use:</strong></p>
+<ul class="simple">
+<li><p>Testing framework modifications before release</p></li>
+<li><p>Debugging framework internals within container environments</p></li>
+<li><p>Contributing to framework development</p></li>
+<li><p>Validating framework changes across containerized services</p></li>
+</ul>
+<p><strong>How It Works:</strong></p>
+<p>The deployment system automatically:</p>
+<ol class="arabic simple">
+<li><p>Locates your locally installed framework package</p></li>
+<li><p>Copies the framework source code to the build directory</p></li>
+<li><p>Sets the <code class="docutils literal notranslate"><span class="pre">DEV_MODE</span></code> environment variable for containers</p></li>
+<li><p>Containers install the local framework copy instead of PyPI version</p></li>
+</ol>
+<p><strong>Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Deploy with local framework (foreground)</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--dev
+
+<span class="c1"># Deploy with local framework (background)</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--detached<span class="w"> </span>--dev
+</pre></div>
+</div>
+<p><strong>Verification:</strong></p>
+<p>After deploying in development mode, verify the framework source was copied:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Check for osprey override directory</span>
+ls<span class="w"> </span>build/services/jupyter/osprey_override/
+
+<span class="c1"># Check environment variable in container</span>
+podman<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>jupyter-read<span class="w"> </span>env<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>DEV_MODE
+</pre></div>
+</div>
+<p><strong>Fallback Behavior:</strong></p>
+<p>If the local framework cannot be located or copied:</p>
+<ul class="simple">
+<li><p>The system prints a warning message</p></li>
+<li><p>Containers fall back to installing from PyPI</p></li>
+<li><p>Deployment continues normally</p></li>
+</ul>
+<p>This ensures deployments succeed even if development mode setup fails.</p>
+</section>
+</section>
+<section id="docker-compose-templates">
+<h2>Docker Compose Templates<a class="headerlink" href="#docker-compose-templates" title="Link to this heading">#</a></h2>
+<p>Services use Jinja2 templates for Docker Compose file generation. Templates have access to your complete configuration context.</p>
+<section id="template-structure">
+<h3>Template Structure<a class="headerlink" href="#template-structure" title="Link to this heading">#</a></h3>
+<p>Templates are located at <code class="docutils literal notranslate"><span class="pre">{service_path}/docker-compose.yml.j2</span></code>. Here’s a complete example:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># services/jupyter/docker-compose.yml.j2</span>
+<span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">jupyter-read</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{{</span><span class="nv">services.jupyter.containers.read.name</span><span class="p p-Indicator">}}</span>
+<span class="w">    </span><span class="nt">build</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">context</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./jupyter</span>
+<span class="w">      </span><span class="nt">dockerfile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Dockerfile</span>
+<span class="w">    </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
+<span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;{{services.jupyter.containers.read.port_host}}:{{services.jupyter.containers.read.port_container}}&quot;</span>
+<span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./jupyter:/jupyter</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{{</span><span class="nv">project_root</span><span class="p p-Indicator">}}</span><span class="l l-Scalar l-Scalar-Plain">/{{file_paths.agent_data_dir}}/{{file_paths.executed_python_scripts_dir}}:/home/jovyan/work/executed_scripts/</span>
+<span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">NOTEBOOK_DIR=/home/jovyan/work</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">JUPYTER_ENABLE_LAB=yes</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PYTHONPATH=/jupyter/repo_src</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TZ={{system.timezone}}</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">HTTP_PROXY=${HTTP_PROXY}</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">NO_PROXY=${NO_PROXY}</span>
+<span class="w">    </span><span class="nt">networks</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey-network</span>
+</pre></div>
+</div>
+<p><strong>Template Features:</strong></p>
+<ul class="simple">
+<li><p><strong>Configuration Access</strong>: Full configuration available as Jinja2 variables</p>
+<ul>
+<li><p>Access services: <code class="docutils literal notranslate"><span class="pre">{{services.service_name.option}}</span></code></p></li>
+<li><p>Access file paths: <code class="docutils literal notranslate"><span class="pre">{{file_paths.agent_data_dir}}</span></code></p></li>
+<li><p>Access system config: <code class="docutils literal notranslate"><span class="pre">{{system.timezone}}</span></code></p></li>
+<li><p>Access project root: <code class="docutils literal notranslate"><span class="pre">{{project_root}}</span></code></p></li>
+</ul>
+</li>
+<li><p><strong>Environment Variables</strong>: Reference host environment via <code class="docutils literal notranslate"><span class="pre">${VAR_NAME}</span></code></p></li>
+<li><p><strong>Networking</strong>: All services automatically join the <code class="docutils literal notranslate"><span class="pre">osprey-network</span></code></p></li>
+<li><p><strong>Volume Management</strong>: Dynamic volume mounting based on configuration</p></li>
+</ul>
+</section>
+<section id="template-access-patterns">
+<h3>Template Access Patterns<a class="headerlink" href="#template-access-patterns" title="Link to this heading">#</a></h3>
+<p>Common template patterns for accessing configuration:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># Access service configuration</span>
+<span class="nt">ports</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;{{services.my_service.port_host}}:{{services.my_service.port_container}}&quot;</span>
+
+<span class="c1"># Access nested service config (like Jupyter containers)</span>
+<span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{{</span><span class="nv">services.jupyter.containers.read.name</span><span class="p p-Indicator">}}</span>
+
+<span class="c1"># Access file paths</span>
+<span class="nt">volumes</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{{</span><span class="nv">project_root</span><span class="p p-Indicator">}}</span><span class="l l-Scalar l-Scalar-Plain">/{{file_paths.agent_data_dir}}:/data</span>
+
+<span class="c1"># Access system configuration</span>
+<span class="nt">environment</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TZ={{system.timezone}}</span>
+
+<span class="c1"># Access custom configuration</span>
+<span class="nt">environment</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DATABASE_URL={{database.connection_string}}</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="deployment-cli-usage">
+<h2>Deployment CLI Usage<a class="headerlink" href="#deployment-cli-usage" title="Link to this heading">#</a></h2>
+<p>Deploy services using the <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> command.</p>
+<section id="basic-commands">
+<h3>Basic Commands<a class="headerlink" href="#basic-commands" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Start services in foreground (see logs in terminal)</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>up
+
+<span class="c1"># Start services in background (detached mode)</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--detached
+
+<span class="c1"># Stop services</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>down
+
+<span class="c1"># Restart services</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>restart
+
+<span class="c1"># Show service status</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>status
+
+<span class="c1"># Clean deployment (remove containers and volumes)</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>clean
+
+<span class="c1"># Rebuild containers from scratch</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>rebuild
+</pre></div>
+</div>
+</section>
+<section id="service-status-display">
+<h3>Service Status Display<a class="headerlink" href="#service-status-display" title="Link to this heading">#</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">status</span></code> command displays detailed information about all deployed services in a formatted table with visual indicators:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>status
+</pre></div>
+</div>
+<p><strong>Example Output:</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Service Deployment Status
+
+┏━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┓
+┃ Service       ┃ Project     ┃ Status         ┃ Ports          ┃ Image          ┃
+┡━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━┩
+│ open-webui    │ weather-ag… │ ● Running      │ 8080→8080      │ ghcr.io/...    │
+│ pipelines     │ weather-ag… │ ● Running      │ 9099→9099      │ local/...      │
+│ jupyter-read  │ weather-ag… │ ● Running      │ 8088→8088      │ local/...      │
+│ jupyter-write │ weather-ag… │ ● Running      │ 8089→8088      │ local/...      │
+│ mongo         │ als-assist… │ ● Stopped      │ 27017→27017    │ mongo:latest   │
+└───────────────┴─────────────┴────────────────┴────────────────┴────────────────┘
+</pre></div>
+</div>
+<div class="version-08plus-change admonition">
+<p class="admonition-title">New in v0.8.2: Project Tracking</p>
+<p>The status display now includes project ownership tracking using Docker labels. This enables multi-project deployments where you can identify which project/agent owns each container.</p>
+</div>
+<p>The status display includes:</p>
+<ul class="simple">
+<li><p><strong>Service</strong>: Container name</p></li>
+<li><p><strong>Project</strong>: Project/agent name (from <code class="docutils literal notranslate"><span class="pre">project_name</span></code> in config.yml)</p></li>
+<li><p><strong>Status</strong>: Running (●) or Stopped (●) with visual indicator</p></li>
+<li><p><strong>Ports</strong>: Port mappings (host→container)</p></li>
+<li><p><strong>Image</strong>: Container image used</p></li>
+<li><p><strong>Health</strong>: Health check status (if configured)</p></li>
+</ul>
+<p><strong>Multi-Project Status:</strong></p>
+<p>You can check status for specific projects using the <code class="docutils literal notranslate"><span class="pre">--project</span></code> flag:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Check status of specific project</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>status<span class="w"> </span>--project<span class="w"> </span>~/projects/weather-agent
+
+<span class="c1"># Check multiple projects</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>status<span class="w"> </span>--project<span class="w"> </span>~/projects/agent1
+osprey<span class="w"> </span>deploy<span class="w"> </span>status<span class="w"> </span>--project<span class="w"> </span>~/projects/agent2
+</pre></div>
+</div>
+</section>
+<section id="container-labels-and-filtering">
+<h3>Container Labels and Filtering<a class="headerlink" href="#container-labels-and-filtering" title="Link to this heading">#</a></h3>
+<p>All deployed containers are automatically labeled with project metadata using Docker labels. This enables advanced container management and filtering.</p>
+<p><strong>Container Labels:</strong></p>
+<p>Each container gets three automatic labels:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey.project.name</span></code> - Project identifier (from <code class="docutils literal notranslate"><span class="pre">project_name</span></code> in config.yml)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey.project.root</span></code> - Absolute path to project directory</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey.deployed.at</span></code> - ISO 8601 timestamp of deployment</p></li>
+</ul>
+<p><strong>Query Containers by Project:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># List all Osprey containers</span>
+podman<span class="w"> </span>ps<span class="w"> </span>--filter<span class="w"> </span><span class="nv">label</span><span class="o">=</span>osprey.project.name
+
+<span class="c1"># List containers for specific project</span>
+podman<span class="w"> </span>ps<span class="w"> </span>--filter<span class="w"> </span><span class="nv">label</span><span class="o">=</span>osprey.project.name<span class="o">=</span>weather-agent
+
+<span class="c1"># Inspect container labels</span>
+podman<span class="w"> </span>inspect<span class="w"> </span>jupyter-read<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>osprey
+</pre></div>
+</div>
+<p><strong>Use Cases:</strong></p>
+<ul class="simple">
+<li><p><strong>Multi-project deployments</strong>: Run multiple agent projects simultaneously</p></li>
+<li><p><strong>Container identification</strong>: Quickly identify which project owns containers</p></li>
+<li><p><strong>Automation</strong>: Script container management based on project labels</p></li>
+<li><p><strong>Debugging</strong>: Filter logs and status by project</p></li>
+</ul>
+</section>
+<section id="command-options">
+<h3>Command Options<a class="headerlink" href="#command-options" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Use custom configuration file</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--config<span class="w"> </span>my-config.yml
+
+<span class="c1"># Deploy with local framework (development mode)</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--dev
+
+<span class="c1"># Expose services to all network interfaces (use with caution!)</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--expose
+
+<span class="c1"># Restart in detached mode</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>restart<span class="w"> </span>--detached
+
+<span class="c1"># Rebuild and start in detached mode with local framework</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>rebuild<span class="w"> </span>--detached<span class="w"> </span>--dev
+</pre></div>
+</div>
+</section>
+<section id="deployment-workflow-details">
+<h3>Deployment Workflow Details<a class="headerlink" href="#deployment-workflow-details" title="Link to this heading">#</a></h3>
+<p>When you run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>, the container manager follows this workflow:</p>
+<ol class="arabic simple">
+<li><p><strong>Configuration Loading</strong>: Load and merge configuration files</p></li>
+<li><p><strong>Service Discovery</strong>: Read <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> list to identify active services</p></li>
+<li><p><strong>Build Directory Creation</strong>: Create clean build directories for each service</p></li>
+<li><p><strong>Template Processing</strong>: Render Jinja2 templates with complete configuration context</p></li>
+<li><p><strong>File Copying</strong>: Copy service files, source code, and additional directories</p></li>
+<li><p><strong>Configuration Flattening</strong>: Generate self-contained config files for containers</p></li>
+<li><p><strong>Container Orchestration</strong>: Execute Docker/Podman Compose with generated files</p></li>
+</ol>
+<p><strong>Generated Build Directory:</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>build/services/
+├── docker-compose.yml           # Root network configuration
+├── jupyter/
+│   ├── docker-compose.yml       # Rendered Jupyter service config
+│   ├── Dockerfile
+│   ├── custom_start.sh
+│   ├── python3-epics-readonly/
+│   │   └── kernel.json          # Rendered kernel config
+│   ├── python3-epics-write/
+│   │   └── kernel.json
+│   ├── repo_src/                # Copied source code (if copy_src: true)
+│   │   ├── your_app/
+│   │   └── requirements.txt
+│   └── config.yml               # Flattened configuration
+├── open-webui/
+│   ├── docker-compose.yml
+│   └── ...
+└── pipelines/
+    ├── docker-compose.yml
+    ├── repo_src/                # Copied source code
+    └── config.yml
+</pre></div>
+</div>
+</section>
+</section>
+<section id="container-networking">
+<h2>Container Networking<a class="headerlink" href="#container-networking" title="Link to this heading">#</a></h2>
+<p>Services communicate through container networks using service names as hostnames.</p>
+<section id="service-communication">
+<h3>Service Communication<a class="headerlink" href="#service-communication" title="Link to this heading">#</a></h3>
+<p>Container-to-container communication uses service names:</p>
+<ul class="simple">
+<li><p><strong>OpenWebUI to Pipelines</strong>: <code class="docutils literal notranslate"><span class="pre">http://pipelines:9099</span></code></p></li>
+<li><p><strong>Pipelines to Jupyter</strong>: <code class="docutils literal notranslate"><span class="pre">http://jupyter-read:8088</span></code></p></li>
+<li><p><strong>Application to MongoDB</strong> (ALS Assistant): <code class="docutils literal notranslate"><span class="pre">mongodb://mongo:27017</span></code></p></li>
+<li><p><strong>Application to PV Finder</strong> (ALS Assistant): <code class="docutils literal notranslate"><span class="pre">http://pv-finder:8051</span></code></p></li>
+</ul>
+</section>
+<section id="host-access-from-containers">
+<h3>Host Access from Containers<a class="headerlink" href="#host-access-from-containers" title="Link to this heading">#</a></h3>
+<p>For containers to access services running on the host (like Ollama):</p>
+<ul class="simple">
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">host.docker.internal</span></code> instead of <code class="docutils literal notranslate"><span class="pre">localhost</span></code> (Docker on macOS/Windows)</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">host.containers.internal</span></code> on Linux with Podman</p></li>
+<li><p>Example: <code class="docutils literal notranslate"><span class="pre">http://host.docker.internal:11434</span></code> for Ollama</p></li>
+</ul>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># In docker-compose.yml.j2</span>
+<span class="nt">environment</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OLLAMA_BASE_URL=http://host.docker.internal:11434</span><span class="w">  </span><span class="c1"># Use host.containers.internal for Podman</span>
+</pre></div>
+</div>
+</section>
+<section id="network-binding-and-security">
+<span id="network-binding-security"></span><h3>Network Binding and Security<a class="headerlink" href="#network-binding-and-security" title="Link to this heading">#</a></h3>
+<div class="versionchanged">
+<p><span class="versionmodified changed">Changed in version 0.10.7: </span>Services now bind to <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> (localhost only) by default. Previous versions bound to <code class="docutils literal notranslate"><span class="pre">0.0.0.0</span></code>, exposing services to all network interfaces.</p>
+</div>
+<p>By default, all deployed services bind to <strong>localhost only</strong> (<code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>). This means services are only accessible from the machine running the containers, not from external hosts on the network.</p>
+<div class="admonition danger">
+<p class="admonition-title">Danger</p>
+<p><strong>Versions v0.10.6 and earlier</strong> bound services to <code class="docutils literal notranslate"><span class="pre">0.0.0.0</span></code> by default, exposing them to all network interfaces. If you were running an earlier version:</p>
+<ul class="simple">
+<li><p>Stop all Osprey-related containers immediately</p></li>
+<li><p>Update your Osprey installation</p></li>
+<li><p>Redeploy from scratch so the new secure defaults take effect</p></li>
+<li><p>Rotate any API keys (OpenAI, Anthropic, CBorg, etc.) that were configured as environment variables</p></li>
+<li><p>Consider running a security scan on machines that were deployed on public networks</p></li>
+</ul>
+</div>
+<section id="exposing-services-to-the-network">
+<h4>Exposing Services to the Network<a class="headerlink" href="#exposing-services-to-the-network" title="Link to this heading">#</a></h4>
+<p>If you intentionally need services accessible from external hosts (e.g., cloud deployments, shared lab servers), use the <code class="docutils literal notranslate"><span class="pre">--expose</span></code> flag:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Expose services to all network interfaces (0.0.0.0)</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--expose
+
+<span class="c1"># Combine with other flags</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--detached<span class="w"> </span>--expose
+osprey<span class="w"> </span>deploy<span class="w"> </span>rebuild<span class="w"> </span>--expose
+</pre></div>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">--expose</span></code> flag binds services to <code class="docutils literal notranslate"><span class="pre">0.0.0.0</span></code>, making them accessible from <strong>any machine on the network</strong>. Only use this when:</p>
+<ul class="simple">
+<li><p>You have proper authentication configured on all exposed services</p></li>
+<li><p>Your deployment is behind a firewall or in an isolated network</p></li>
+<li><p>You understand the security implications of exposing open ports</p></li>
+</ul>
+<p><strong>Do not use this flag in development</strong> unless you specifically need network access from other machines.</p>
+</div>
+<p>You can also set the bind address persistently in your <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># config.yml</span>
+<span class="nt">deployment</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">bind_address</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;127.0.0.1&quot;</span><span class="w">  </span><span class="c1"># Default: localhost only</span>
+<span class="w">  </span><span class="c1"># bind_address: &quot;0.0.0.0&quot;  # Caution: exposes to all interfaces</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">--expose</span></code> CLI flag overrides the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> setting for that invocation.</p>
+</section>
+<section id="docker-compose-deployments-only">
+<h4>Docker Compose Deployments Only<a class="headerlink" href="#docker-compose-deployments-only" title="Link to this heading">#</a></h4>
+<p>The <code class="docutils literal notranslate"><span class="pre">--expose</span></code> flag only applies to <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> (Docker/Podman Compose deployments). If you manage containers through other orchestration systems (e.g., Kubernetes, Rancher), network binding is controlled by your orchestrator’s configuration instead.</p>
+</section>
+</section>
+<section id="port-mapping">
+<h3>Port Mapping<a class="headerlink" href="#port-mapping" title="Link to this heading">#</a></h3>
+<p>Services expose ports to the host system for external access:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># Host access through mapped ports</span>
+<span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">open_webui</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;8080:8080&quot;</span><span class="w">  </span><span class="c1"># Access at http://localhost:8080</span>
+</pre></div>
+</div>
+<p>Common port mappings:</p>
+<ul class="simple">
+<li><p><strong>OpenWebUI</strong>: <code class="docutils literal notranslate"><span class="pre">8080:8080</span></code> → <code class="docutils literal notranslate"><span class="pre">http://localhost:8080</span></code></p></li>
+<li><p><strong>Jupyter Read</strong>: <code class="docutils literal notranslate"><span class="pre">8088:8088</span></code> → <code class="docutils literal notranslate"><span class="pre">http://localhost:8088</span></code></p></li>
+<li><p><strong>Jupyter Write</strong>: <code class="docutils literal notranslate"><span class="pre">8089:8088</span></code> → <code class="docutils literal notranslate"><span class="pre">http://localhost:8089</span></code></p></li>
+<li><p><strong>Pipelines</strong>: <code class="docutils literal notranslate"><span class="pre">9099:9099</span></code> → <code class="docutils literal notranslate"><span class="pre">http://localhost:9099</span></code></p></li>
+</ul>
+</section>
+</section>
+<section id="advanced-configuration">
+<h2>Advanced Configuration<a class="headerlink" href="#advanced-configuration" title="Link to this heading">#</a></h2>
+<section id="environment-variables">
+<h3>Environment Variables<a class="headerlink" href="#environment-variables" title="Link to this heading">#</a></h3>
+<p>The container manager automatically loads environment variables from <code class="docutils literal notranslate"><span class="pre">.env</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># .env file - Services will have access to these variables</span>
+<span class="nv">OPENAI_API_KEY</span><span class="o">=</span>your_key_here
+<span class="nv">ANTHROPIC_API_KEY</span><span class="o">=</span>your_key_here
+<span class="nv">CBORG_API_KEY</span><span class="o">=</span>your_key_here
+<span class="nv">PROJECT_ROOT</span><span class="o">=</span>/absolute/path/to/project
+<span class="nv">LOCAL_PYTHON_VENV</span><span class="o">=</span>/path/to/venv/bin/python
+</pre></div>
+</div>
+<p>These variables are:</p>
+<ol class="arabic simple">
+<li><p>Available to Docker Compose via <code class="docutils literal notranslate"><span class="pre">${VAR_NAME}</span></code> syntax</p></li>
+<li><p>Can be passed to containers via <code class="docutils literal notranslate"><span class="pre">environment:</span></code> sections</p></li>
+<li><p>Used by configuration system for variable expansion</p></li>
+</ol>
+</section>
+<section id="build-directory-customization">
+<h3>Build Directory Customization<a class="headerlink" href="#build-directory-customization" title="Link to this heading">#</a></h3>
+<p>Change the build output directory:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># config.yml</span>
+<span class="nt">build_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;./custom_build&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="source-code-integration">
+<h3>Source Code Integration<a class="headerlink" href="#source-code-integration" title="Link to this heading">#</a></h3>
+<p>Control whether services get a copy of your <code class="docutils literal notranslate"><span class="pre">src/</span></code> directory:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">pipelines</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">copy_src</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">  </span><span class="c1"># Copies src/ to build/services/pipelines/repo_src/</span>
+</pre></div>
+</div>
+<p>This is useful for:</p>
+<ul class="simple">
+<li><p>Pipelines server (needs access to your application code)</p></li>
+<li><p>Jupyter containers (needs your application for interactive development)</p></li>
+<li><p>Services that execute your application code</p></li>
+</ul>
+<p>Services that don’t need source code (databases, UI-only services) should set <code class="docutils literal notranslate"><span class="pre">copy_src:</span> <span class="pre">false</span></code>.</p>
+</section>
+<section id="additional-directories">
+<h3>Additional Directories<a class="headerlink" href="#additional-directories" title="Link to this heading">#</a></h3>
+<p>Copy extra directories into service build environments:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">jupyter</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">additional_dirs</span><span class="p">:</span>
+<span class="w">      </span><span class="c1"># Simple directory copy</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">docs</span>
+
+<span class="w">      </span><span class="c1"># Custom source -&gt; destination mapping</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">src</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;_agent_data&quot;</span>
+<span class="w">        </span><span class="nt">dst</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;agent_data&quot;</span>
+
+<span class="w">      </span><span class="c1"># Copy framework source (useful during development)</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">src</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">../osprey/src/osprey</span>
+<span class="w">        </span><span class="nt">dst</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey_src/src/osprey</span>
+</pre></div>
+</div>
+<p>This is commonly used for:</p>
+<ul class="simple">
+<li><p>Documentation that services need</p></li>
+<li><p>Data directories</p></li>
+<li><p>Configuration files</p></li>
+<li><p>Osprey source during development (before osprey is pip-installable)</p></li>
+</ul>
+</section>
+</section>
+<section id="build-directory-management">
+<h2>Build Directory Management<a class="headerlink" href="#build-directory-management" title="Link to this heading">#</a></h2>
+<p>The container manager creates complete, self-contained build environments for each service.</p>
+<section id="build-process">
+<h3>Build Process<a class="headerlink" href="#build-process" title="Link to this heading">#</a></h3>
+<p>For each deployed service, the build process:</p>
+<ol class="arabic simple">
+<li><p><strong>Clean Build Directory</strong>: Remove existing build directory for clean deployment</p></li>
+<li><p><strong>Render Docker Compose Template</strong>: Process Jinja2 template with configuration</p></li>
+<li><p><strong>Copy Service Files</strong>: Copy all files from service directory (except <code class="docutils literal notranslate"><span class="pre">.j2</span></code> templates)</p></li>
+<li><p><strong>Copy Source Code</strong>: If <code class="docutils literal notranslate"><span class="pre">copy_src:</span> <span class="pre">true</span></code>, copy entire <code class="docutils literal notranslate"><span class="pre">src/</span></code> directory</p></li>
+<li><p><strong>Copy Additional Directories</strong>: Copy any directories specified in <code class="docutils literal notranslate"><span class="pre">additional_dirs</span></code></p></li>
+<li><p><strong>Create Flattened Configuration</strong>: Generate self-contained <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> for the container</p></li>
+<li><p><strong>Process Kernel Templates</strong>: If <code class="docutils literal notranslate"><span class="pre">render_kernel_templates:</span> <span class="pre">true</span></code>, render Jupyter kernel configs</p></li>
+</ol>
+<p><strong>Source Code Handling:</strong></p>
+<p>When <code class="docutils literal notranslate"><span class="pre">copy_src:</span> <span class="pre">true</span></code>:</p>
+<ul class="simple">
+<li><p>Source code is copied to <code class="docutils literal notranslate"><span class="pre">build/services/{service}/repo_src/</span></code></p></li>
+<li><p>Global <code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code> is automatically copied</p></li>
+<li><p>Project’s <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> is copied as <code class="docutils literal notranslate"><span class="pre">pyproject_user.toml</span></code></p></li>
+<li><p>Containers set <code class="docutils literal notranslate"><span class="pre">PYTHONPATH</span></code> to include the copied source</p></li>
+</ul>
+<p><strong>Configuration Flattening:</strong></p>
+<p>Each service gets a <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> with:</p>
+<ul class="simple">
+<li><p>All imports resolved and merged</p></li>
+<li><p>Complete, self-contained configuration</p></li>
+<li><p>Registry paths adjusted for container environment</p></li>
+<li><p>No import directives (everything is flattened)</p></li>
+</ul>
+</section>
+</section>
+<section id="working-examples">
+<h2>Working Examples<a class="headerlink" href="#working-examples" title="Link to this heading">#</a></h2>
+<section id="complete-control-assistant-example">
+<h3>Complete Control Assistant Example<a class="headerlink" href="#complete-control-assistant-example" title="Link to this heading">#</a></h3>
+<p>This example shows a complete working configuration from the Control Assistant tutorial:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># config.yml</span>
+<span class="nt">project_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;my-control-assistant&quot;</span>
+<span class="nt">build_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./build</span>
+<span class="nt">project_root</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/home/user/my-control-assistant</span>
+<span class="nt">registry_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./src/my_control_assistant/registry.py</span>
+
+<span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">jupyter</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/jupyter</span>
+<span class="w">    </span><span class="nt">containers</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">read</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter-read</span>
+<span class="w">        </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter-read</span>
+<span class="w">        </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8088</span>
+<span class="w">        </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8088</span>
+<span class="w">        </span><span class="nt">execution_modes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;read_only&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">      </span><span class="nt">write</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter-write</span>
+<span class="w">        </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter-write</span>
+<span class="w">        </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8089</span>
+<span class="w">        </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8088</span>
+<span class="w">        </span><span class="nt">execution_modes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;write_access&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">copy_src</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">render_kernel_templates</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="w">  </span><span class="nt">open_webui</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/open-webui</span>
+<span class="w">    </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
+<span class="w">    </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8080</span>
+<span class="w">    </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8080</span>
+
+<span class="w">  </span><span class="nt">pipelines</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/pipelines</span>
+<span class="w">    </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9099</span>
+<span class="w">    </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9099</span>
+<span class="w">    </span><span class="nt">copy_src</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="nt">deployed_services</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">open_webui</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pipelines</span>
+
+<span class="nt">system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">timezone</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${TZ:-America/Los_Angeles}</span>
+
+<span class="nt">file_paths</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">agent_data_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">_agent_data</span>
+<span class="w">  </span><span class="nt">executed_python_scripts_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">executed_scripts</span>
+</pre></div>
+</div>
+<p>Deploy this configuration:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--detached
+
+<span class="c1"># Services available:</span>
+<span class="c1"># - OpenWebUI: http://localhost:8080</span>
+<span class="c1"># - Jupyter Read: http://localhost:8088</span>
+<span class="c1"># - Jupyter Write: http://localhost:8089</span>
+<span class="c1"># - Pipelines: http://localhost:9099</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-0">
+Common Issues</label><div class="sd-tab-content docutils">
+<p><strong>Services fail to start:</strong></p>
+<ol class="arabic simple">
+<li><p>Check individual service logs: <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">logs</span> <span class="pre">&lt;container_name&gt;</span></code></p></li>
+<li><p>Verify configuration syntax in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p></li>
+<li><p>Ensure required environment variables are set in <code class="docutils literal notranslate"><span class="pre">.env</span></code></p></li>
+<li><p>Try starting services individually to isolate issues</p></li>
+<li><p>Check that service paths exist and contain <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code></p></li>
+</ol>
+<p><strong>Port conflicts:</strong></p>
+<ol class="arabic simple">
+<li><p>Check for processes using required ports: <code class="docutils literal notranslate"><span class="pre">lsof</span> <span class="pre">-i</span> <span class="pre">:8080</span></code></p></li>
+<li><p>Update port mappings in service configurations</p></li>
+<li><p>Ensure no other containers are using the same ports</p></li>
+<li><p>Verify <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> doesn’t have duplicate services</p></li>
+</ol>
+<p><strong>Container networking issues:</strong></p>
+<ol class="arabic simple">
+<li><p>Verify service names match configuration</p></li>
+<li><p>Use container network names (e.g., <code class="docutils literal notranslate"><span class="pre">pipelines</span></code>) not <code class="docutils literal notranslate"><span class="pre">localhost</span></code></p></li>
+<li><p>Check firewall settings if accessing from external systems</p></li>
+<li><p>Ensure all services use the <code class="docutils literal notranslate"><span class="pre">osprey-network</span></code></p></li>
+</ol>
+<p><strong>Template rendering errors:</strong></p>
+<ol class="arabic simple">
+<li><p>Verify Jinja2 syntax in template files (<code class="docutils literal notranslate"><span class="pre">{{variable}}</span></code> not <code class="docutils literal notranslate"><span class="pre">{variable}</span></code>)</p></li>
+<li><p>Check that configuration values exist before accessing them</p></li>
+<li><p>Review template paths in error messages</p></li>
+<li><p>Inspect generated files in <code class="docutils literal notranslate"><span class="pre">build/</span></code> directory</p></li>
+</ol>
+<p><strong>Service not found in configuration:</strong></p>
+<ul class="simple">
+<li><p>Verify service is defined in <code class="docutils literal notranslate"><span class="pre">services:</span></code> section</p></li>
+<li><p>Check service name matches between <code class="docutils literal notranslate"><span class="pre">services:</span></code> and <code class="docutils literal notranslate"><span class="pre">deployed_services:</span></code></p></li>
+<li><p>Ensure <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> list uses correct service names</p></li>
+</ul>
+<p><strong>Template file not found:</strong></p>
+<ul class="simple">
+<li><p>Verify <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code> exists at the <code class="docutils literal notranslate"><span class="pre">path</span></code> location</p></li>
+<li><p>Check that the service <code class="docutils literal notranslate"><span class="pre">path</span></code> is correct relative to your project root</p></li>
+<li><p>Ensure you haven’t accidentally specified a directory that doesn’t exist</p></li>
+</ul>
+<p><strong>Copy source failures:</strong></p>
+<ul class="simple">
+<li><p>Verify <code class="docutils literal notranslate"><span class="pre">src/</span></code> directory exists if <code class="docutils literal notranslate"><span class="pre">copy_src:</span> <span class="pre">true</span></code></p></li>
+<li><p>Check permissions on source directories</p></li>
+<li><p>Ensure additional_dirs paths exist</p></li>
+</ul>
+<p><strong>Development mode issues:</strong></p>
+<ul class="simple">
+<li><p>Verify osprey is installed in your active virtual environment</p></li>
+<li><p>Check that <code class="docutils literal notranslate"><span class="pre">osprey_override/</span></code> directory exists in build after deployment</p></li>
+<li><p>Confirm <code class="docutils literal notranslate"><span class="pre">DEV_MODE=true</span></code> is set in container environment</p></li>
+<li><p>If osprey source not found, containers will fall back to PyPI version</p></li>
+<li><p>Review console output for osprey copy warnings during deployment</p></li>
+</ul>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-1">
+Debugging Commands</label><div class="sd-tab-content docutils">
+<p><strong>List running containers:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>podman<span class="w"> </span>ps
+</pre></div>
+</div>
+<p><strong>View container logs:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>podman<span class="w"> </span>logs<span class="w"> </span>&lt;container_name&gt;
+podman<span class="w"> </span>logs<span class="w"> </span>-f<span class="w"> </span>&lt;container_name&gt;<span class="w">  </span><span class="c1"># Follow logs in real-time</span>
+</pre></div>
+</div>
+<p><strong>Inspect container configuration:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>podman<span class="w"> </span>inspect<span class="w"> </span>&lt;container_name&gt;
+</pre></div>
+</div>
+<p><strong>Network inspection:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>podman<span class="w"> </span>network<span class="w"> </span>ls
+podman<span class="w"> </span>network<span class="w"> </span>inspect<span class="w"> </span>osprey-network
+</pre></div>
+</div>
+<p><strong>Check generated configuration:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Review rendered Docker Compose files</span>
+cat<span class="w"> </span>build/services/jupyter/docker-compose.yml
+
+<span class="c1"># Check flattened configuration</span>
+cat<span class="w"> </span>build/services/pipelines/config.yml
+</pre></div>
+</div>
+<p><strong>Check for port conflicts:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>lsof<span class="w"> </span>-i<span class="w"> </span>:8080<span class="w">  </span><span class="c1"># Check specific port</span>
+netstat<span class="w"> </span>-tulpn<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>:8080<span class="w">  </span><span class="c1"># Alternative method</span>
+</pre></div>
+</div>
+<p><strong>Test network connectivity:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Test container-to-container communication</span>
+podman<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>pipelines<span class="w"> </span>ping<span class="w"> </span>jupyter-read
+podman<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>pipelines<span class="w"> </span>curl<span class="w"> </span>http://open-webui:8080
+</pre></div>
+</div>
+<p><strong>Rebuild after configuration changes:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Full rebuild (safest after config changes)</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>clean
+osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--detached
+
+<span class="c1"># Or use rebuild command (clean + up in one step)</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>rebuild<span class="w"> </span>--detached
+</pre></div>
+</div>
+<p><strong>Verify development mode:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Check if osprey override was copied</span>
+ls<span class="w"> </span>-la<span class="w"> </span>build/services/jupyter/osprey_override/
+
+<span class="c1"># Verify DEV_MODE environment variable in container</span>
+podman<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>jupyter-read<span class="w"> </span>env<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>DEV_MODE
+
+<span class="c1"># Check osprey installation in container</span>
+podman<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>jupyter-read<span class="w"> </span>pip<span class="w"> </span>show<span class="w"> </span>osprey-framework
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-2">
+Quick Reference</label><div class="sd-tab-content docutils">
+<p><strong>Common Commands:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Start services (localhost only by default)</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>up
+osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--detached
+
+<span class="c1"># Start services exposed to network (use with caution!)</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--expose
+
+<span class="c1"># Stop services</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>down
+
+<span class="c1"># Check status</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>status
+podman<span class="w"> </span>ps
+
+<span class="c1"># View logs</span>
+podman<span class="w"> </span>logs<span class="w"> </span>&lt;container_name&gt;
+podman<span class="w"> </span>logs<span class="w"> </span>-f<span class="w"> </span>&lt;container_name&gt;
+
+<span class="c1"># Clean restart</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>clean
+osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--detached
+</pre></div>
+</div>
+<p><strong>Common Service Names:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">jupyter-read</span></code> - Jupyter read-only container</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">jupyter-write</span></code> - Jupyter write-access container</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">open-webui</span></code> - Web interface</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pipelines</span></code> - Processing pipeline</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mongo</span></code> - MongoDB (ALS Assistant)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pv-finder</span></code> - PV Finder MCP (ALS Assistant)</p></li>
+</ul>
+<p><strong>Common Ports:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">8080</span></code> - OpenWebUI</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">8088</span></code> - Jupyter (read-only)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">8089</span></code> - Jupyter (write-access)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">9099</span></code> - Pipelines</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">27017</span></code> - MongoDB</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">8051</span></code> - PV Finder</p></li>
+</ul>
+</div>
+<input id="sd-tab-item-3" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-3">
+Best Practices</label><div class="sd-tab-content docutils">
+<p><strong>Development:</strong></p>
+<ul class="simple">
+<li><p><strong>Start minimal</strong>: Begin with one service, verify it works, then add more</p></li>
+<li><p><strong>Use foreground mode</strong>: Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> (not detached) during development to see logs</p></li>
+<li><p><strong>Test services individually</strong>: Deploy services one at a time to isolate issues</p></li>
+<li><p><strong>Keep build directory in .gitignore</strong>: Build artifacts shouldn’t be version controlled</p></li>
+<li><p><strong>Use meaningful container names</strong>: Makes logs and debugging easier</p></li>
+<li><p><strong>Use development mode for framework changes</strong>: Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span> <span class="pre">--dev</span></code> when testing osprey modifications</p></li>
+<li><p><strong>Verify development mode</strong>: Check console output for osprey copy messages</p></li>
+</ul>
+<p><strong>Production:</strong></p>
+<ul class="simple">
+<li><p><strong>Use detached mode</strong>: Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span> <span class="pre">--detached</span></code> for production</p></li>
+<li><p><strong>Keep services on localhost by default</strong>: Only use <code class="docutils literal notranslate"><span class="pre">--expose</span></code> when you need network access and have authentication configured</p></li>
+<li><p><strong>Monitor container resources</strong>: Use <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">stats</span></code> to watch resource usage</p></li>
+<li><p><strong>Implement health checks</strong>: Add health check configurations to your docker-compose templates</p></li>
+<li><p><strong>Plan restart policies</strong>: Use <code class="docutils literal notranslate"><span class="pre">restart:</span> <span class="pre">unless-stopped</span></code> in production templates</p></li>
+<li><p><strong>Regular backups</strong>: Back up data volumes for database services</p></li>
+<li><p><strong>Document deployment</strong>: Keep notes on deployment procedures and configurations</p></li>
+</ul>
+<p><strong>Configuration:</strong></p>
+<ul class="simple">
+<li><p><strong>Keep secrets in .env</strong>: Never commit API keys or passwords to version control</p></li>
+<li><p><strong>Use absolute paths</strong>: Set <code class="docutils literal notranslate"><span class="pre">project_root</span></code> as absolute path in config</p></li>
+<li><p><strong>Test changes incrementally</strong>: Test configuration changes in development first</p></li>
+<li><p><strong>Version control configs</strong>: Track <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and templates in git</p></li>
+<li><p><strong>Document custom modifications</strong>: Comment any non-standard template changes</p></li>
+<li><p><strong>Validate before deploying</strong>: Check YAML syntax before running deploy commands</p></li>
+</ul>
+<p><strong>Template Development:</strong></p>
+<ul class="simple">
+<li><p><strong>Test templates incrementally</strong>: Verify each configuration value exists</p></li>
+<li><p><strong>Use descriptive variable names</strong>: Clear naming makes templates maintainable</p></li>
+<li><p><strong>Add comments</strong>: Document non-obvious template logic</p></li>
+<li><p><strong>Check rendered output</strong>: Review files in <code class="docutils literal notranslate"><span class="pre">build/</span></code> after changes</p></li>
+<li><p><strong>Handle missing values gracefully</strong>: Use Jinja2 defaults: <code class="docutils literal notranslate"><span class="pre">{{value|default('fallback')}}</span></code></p></li>
+</ul>
+</div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../../api_reference/01_core_framework/04_configuration_system.html"><span class="doc">Configuration System</span></a></dt><dd><p>Advanced configuration patterns and variable expansion</p>
+</dd>
+<dt><a class="reference internal" href="../../api_reference/03_production_systems/05_container-management.html"><span class="doc">Container Management</span></a></dt><dd><p>Container management API reference</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="04_memory-storage-service.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Memory Storage</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="06_control-system-integration.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Control System Integration</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#architecture">Architecture</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#service-configuration">Service Configuration</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#basic-configuration-pattern">Basic Configuration Pattern</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#service-directory-organization">Service Directory Organization</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-workflow">Deployment Workflow</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#development-pattern">Development Pattern</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#production-pattern">Production Pattern</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#development-mode">Development Mode</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#docker-compose-templates">Docker Compose Templates</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#template-structure">Template Structure</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#template-access-patterns">Template Access Patterns</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-cli-usage">Deployment CLI Usage</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#basic-commands">Basic Commands</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#service-status-display">Service Status Display</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#container-labels-and-filtering">Container Labels and Filtering</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#command-options">Command Options</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-workflow-details">Deployment Workflow Details</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#container-networking">Container Networking</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#service-communication">Service Communication</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#host-access-from-containers">Host Access from Containers</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#network-binding-and-security">Network Binding and Security</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#exposing-services-to-the-network">Exposing Services to the Network</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#docker-compose-deployments-only">Docker Compose Deployments Only</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#port-mapping">Port Mapping</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#advanced-configuration">Advanced Configuration</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#build-directory-customization">Build Directory Customization</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#source-code-integration">Source Code Integration</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#additional-directories">Additional Directories</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-directory-management">Build Directory Management</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#build-process">Build Process</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#working-examples">Working Examples</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#complete-control-assistant-example">Complete Control Assistant Example</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/developer-guides/05_production-systems/05_container-and-deployment.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

@@ -1,0 +1,1749 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Execution Control &#8212; Osprey Framework 0.11.5 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'api_reference/02_infrastructure/05_execution-control';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Message Generation" href="06_message-generation.html" />
+    <link rel="prev" title="Orchestration" href="04_orchestration.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../01_core_framework/index.html">Core Framework</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/01_base_components.html">Base Components</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/02_state_and_context.html">State and Context Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/03_registry_system.html">Registry System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/04_configuration_system.html">Configuration System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/05_prompt_management.html">Prompt System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/06_command_system.html">Command System</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Infrastructure</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="01_gateway.html">Gateway</a></li>
+<li class="toctree-l2"><a class="reference internal" href="02_task-extraction.html">Task Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="03_classification.html">Classification</a></li>
+<li class="toctree-l2"><a class="reference internal" href="04_orchestration.html">Orchestration</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Execution Control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="06_message-generation.html">Message Generation</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../03_production_systems/index.html">Production Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/01_human-approval.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/02_data-management.html">Data Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/03_python-execution.html">Python Execution</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/04_memory-storage.html">Memory Storage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/05_container-management.html">Container Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/06_control-system-connectors.html">Control System Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/07_ariel-search.html">ARIEL Search Service</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../04_error_handling/index.html">Error Handling</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/01_classification_system.html">Classification System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/02_exception_reference.html">Exception Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/03_recovery_coordination.html">Recovery Coordination</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../05_framework_utilities/index.html">Framework Utilities</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">API Reference</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Infrastructure</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Execution Control</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="execution-control">
+<h1>Execution Control<a class="headerlink" href="#execution-control" title="Link to this heading">#</a></h1>
+<p>Infrastructure components that control the flow of execution including routing decisions, error handling, and conditional logic.</p>
+<section id="router-node">
+<h2>Router Node<a class="headerlink" href="#router-node" title="Link to this heading">#</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey.infrastructure.router_node.RouterNode">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.infrastructure.router_node.</span></span><span class="sig-name descname"><span class="pre">RouterNode</span></span><a class="reference internal" href="../../_modules/osprey/infrastructure/router_node.html#RouterNode"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.router_node.RouterNode" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.BaseInfrastructureNode" title="osprey.base.nodes.BaseInfrastructureNode"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseInfrastructureNode</span></code></a></p>
+<p>Central routing decision node for the Osprey Agent Framework.</p>
+<p>This node serves as the single decision-making authority that determines
+what should happen next based on the current agent state. It does no business
+logic - only routing decisions and metadata management.</p>
+<p>The actual routing is handled by the router_conditional_edge function.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.router_node.RouterNode.name">
+<span class="sig-name descname"><span class="pre">name</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'router'</span></span><a class="headerlink" href="#osprey.infrastructure.router_node.RouterNode.name" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.router_node.RouterNode.description">
+<span class="sig-name descname"><span class="pre">description</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'Central</span> <span class="pre">routing</span> <span class="pre">decision</span> <span class="pre">authority'</span></span><a class="headerlink" href="#osprey.infrastructure.router_node.RouterNode.description" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.router_node.RouterNode.execute">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">execute</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/router_node.html#RouterNode.execute"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.router_node.RouterNode.execute" title="Link to this definition">#</a></dt>
+<dd><p>Router node execution - updates routing metadata only.</p>
+<p>This node serves as the entry point and routing hub, but does no routing logic itself.
+The actual routing decision is made by the conditional edge function.
+This keeps the logic DRY and avoids duplication.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Dictionary of state updates for routing metadata</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dict[str, Any]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.router_node.RouterNode.__repr__">
+<span class="sig-name descname"><span class="pre">__repr__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.router_node.RouterNode.__repr__" title="Link to this definition">#</a></dt>
+<dd><p>Return a string representation of the infrastructure node for debugging.</p>
+<p>Provides a concise string representation that includes both the Python
+class name and the infrastructure node’s registered name. This is useful
+for debugging, logging, and development workflows where infrastructure
+nodes need to be identified clearly.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>String representation including class name and node name</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">node</span> <span class="o">=</span> <span class="n">TaskExtractionNode</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">repr</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+<span class="go">&#39;&lt;TaskExtractionNode: task_extraction&gt;&#39;</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The format follows the pattern ‘&lt;ClassName: node_name&gt;’ for
+consistency across all framework components.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.router_node.RouterNode.classify_error">
+<span class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">classify_error</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">exc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.router_node.RouterNode.classify_error" title="Link to this definition">#</a></dt>
+<dd><p>Classify errors for infrastructure-specific error handling and recovery.</p>
+<p>This method provides default error classification for all infrastructure
+nodes with a conservative approach that treats most errors as critical.
+Infrastructure nodes handle system-critical functions like orchestration
+and routing, so failures typically require immediate attention rather than
+automatic retry attempts.</p>
+<p>The default implementation prioritizes system stability by failing fast
+with clear error messages. Subclasses should override this method only
+when specific infrastructure components can benefit from retry logic
+(e.g., LLM-based orchestrators that may encounter temporary API issues).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>exc</strong> (<em>Exception</em>) – The exception that occurred during infrastructure operation</p></li>
+<li><p><strong>context</strong> (<em>dict</em>) – Error context including node info, execution state, and timing</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Error classification with severity and recovery strategy</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="../04_error_handling/01_classification_system.html#osprey.base.errors.ErrorClassification" title="osprey.base.errors.ErrorClassification">ErrorClassification</a></p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The context dictionary includes:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">infrastructure_node</span></code>: node name for identification</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">execution_time</span></code>: time spent before failure</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">current_state</span></code>: agent state at time of error</p></li>
+</ul>
+</div>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="nd">@staticmethod</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">classify_error</span><span class="p">(</span><span class="n">exc</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ErrorClassification</span><span class="p">:</span>
+    <span class="c1"># Retry network timeouts for LLM-based infrastructure</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="p">(</span><span class="ne">ConnectionError</span><span class="p">,</span> <span class="ne">TimeoutError</span><span class="p">)):</span>
+        <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+            <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RETRIABLE</span><span class="p">,</span>
+            <span class="n">user_message</span><span class="o">=</span><span class="s2">&quot;Network timeout, retrying...&quot;</span><span class="p">,</span>
+            <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)}</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+        <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">,</span>
+        <span class="n">user_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Infrastructure error: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)}</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Infrastructure nodes should generally fail fast, so the default
+implementation treats most errors as critical. Override this method
+for infrastructure that can benefit from retries (e.g., LLM-based nodes).</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.router_node.RouterNode.get_current_step">
+<span class="sig-name descname"><span class="pre">get_current_step</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.router_node.RouterNode.get_current_step" title="Link to this definition">#</a></dt>
+<dd><p>Get current execution step from state.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Current step dictionary with capability, task_objective, etc.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.PlannedStep" title="osprey.base.PlannedStep">PlannedStep</a></p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>RuntimeError</strong> – If execution plan is missing or step index is invalid</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id1"><span class="problematic" id="id2">``</span></a><a href="#id3"><span class="problematic" id="id4">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p>step = self.get_current_step()
+task_objective = step.get(‘task_objective’)</p>
+</div></blockquote>
+<p><a href="#id5"><span class="problematic" id="id6">``</span></a><a href="#id7"><span class="problematic" id="id8">`</span></a></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.router_node.RouterNode.get_current_step_index">
+<span class="sig-name descname"><span class="pre">get_current_step_index</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.router_node.RouterNode.get_current_step_index" title="Link to this definition">#</a></dt>
+<dd><p>Get current step index from state.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Current step index (defaults to 0 if not set)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>int</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id9"><span class="problematic" id="id10">``</span></a><a href="#id11"><span class="problematic" id="id12">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p>current_index = self.get_current_step_index()</p>
+</div></blockquote>
+<p><a href="#id13"><span class="problematic" id="id14">``</span></a><a href="#id15"><span class="problematic" id="id16">`</span></a></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.router_node.RouterNode.get_current_task">
+<span class="sig-name descname"><span class="pre">get_current_task</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.router_node.RouterNode.get_current_task" title="Link to this definition">#</a></dt>
+<dd><p>Get current task from state.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Current task string, or None if not set</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str | None</p>
+</dd>
+</dl>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="n">current_task</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_current_task</span><span class="p">()</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">current_task</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;No current task available&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.router_node.RouterNode.get_execution_plan">
+<span class="sig-name descname"><span class="pre">get_execution_plan</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.router_node.RouterNode.get_execution_plan" title="Link to this definition">#</a></dt>
+<dd><p>Get current execution plan from state with type validation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>ExecutionPlan if available and valid, None otherwise</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id17"><span class="problematic" id="id18">``</span></a><a href="#id19"><span class="problematic" id="id20">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p>execution_plan = self.get_execution_plan()
+if not execution_plan:</p>
+<blockquote>
+<div><p># Route to orchestrator</p>
+</div></blockquote>
+</div></blockquote>
+<p><a href="#id21"><span class="problematic" id="id22">``</span></a><a href="#id23"><span class="problematic" id="id24">`</span></a></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.router_node.RouterNode.get_logger">
+<span class="sig-name descname"><span class="pre">get_logger</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.router_node.RouterNode.get_logger" title="Link to this definition">#</a></dt>
+<dd><p>Get unified logger with automatic streaming support.</p>
+<p>Creates a logger that:
+- Uses this infrastructure node’s name automatically
+- Has access to state for streaming via self._state
+- Streams high-level messages automatically when in LangGraph context
+- Logs to CLI with Rich formatting</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>ComponentLogger instance with streaming capability</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.router_node.RouterNode.get_retry_policy">
+<span class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">get_retry_policy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.router_node.RouterNode.get_retry_policy" title="Link to this definition">#</a></dt>
+<dd><p>Get conservative retry policy configuration for infrastructure operations.</p>
+<p>This method provides retry configuration optimized for infrastructure
+nodes that handle system-critical functions. The default policy uses
+conservative settings with minimal retry attempts and fast failure
+detection to maintain system stability.</p>
+<p>Infrastructure nodes should generally fail fast rather than retry
+extensively, since failures often indicate system-level issues that
+require immediate attention. Override this method only for specific
+infrastructure components that can benefit from retry logic.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Dictionary containing conservative retry configuration parameters</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dict[str, Any]</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Infrastructure default policy: 2 attempts, 0.2s delay, minimal backoff.
+This prioritizes fast failure detection over retry persistence.</p>
+</div>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="nd">@staticmethod</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_retry_policy</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;max_attempts&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>  <span class="c1"># More retries for LLM-based infrastructure</span>
+        <span class="s2">&quot;delay_seconds&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>  <span class="c1"># Longer delay for external service calls</span>
+        <span class="s2">&quot;backoff_factor&quot;</span><span class="p">:</span> <span class="mf">2.0</span>  <span class="c1"># Exponential backoff</span>
+    <span class="p">}</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The router uses this configuration to determine retry behavior.
+Infrastructure default: 2 attempts, 0.2s delay, minimal backoff.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.router_node.RouterNode.get_user_query">
+<span class="sig-name descname"><span class="pre">get_user_query</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.router_node.RouterNode.get_user_query" title="Link to this definition">#</a></dt>
+<dd><p>Get the user’s query from the current conversation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The user’s query string, or None if no user messages exist</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str | None</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id25"><span class="problematic" id="id26">``</span></a><a href="#id27"><span class="problematic" id="id28">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p>original_query = self.get_user_query()</p>
+</div></blockquote>
+<p><a href="#id29"><span class="problematic" id="id30">``</span></a><a href="#id31"><span class="problematic" id="id32">`</span></a></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.router_node.RouterNode.langgraph_node">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">langgraph_node</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.router_node.RouterNode.langgraph_node" title="Link to this definition">#</a></dt>
+<dd><p>LangGraph-native node function with manual error handling.</p>
+<p>This function is called by LangGraph during execution. Infrastructure nodes
+now use get_stream_writer() and get_config() directly for pure LangGraph integration.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>state</strong> (<a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.state.AgentState" title="osprey.state.AgentState"><em>AgentState</em></a>) – Current agent state</p></li>
+<li><p><strong>kwargs</strong> – Additional parameters from LangGraph</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>State updates dictionary</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Dict[str, Any]</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.infrastructure.router_node.router_conditional_edge">
+<span class="sig-prename descclassname"><span class="pre">osprey.infrastructure.router_node.</span></span><span class="sig-name descname"><span class="pre">router_conditional_edge</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">state</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/router_node.html#router_conditional_edge"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.router_node.router_conditional_edge" title="Link to this definition">#</a></dt>
+<dd><p>LangGraph conditional edge function for dynamic routing.</p>
+<p>This is the main export of this module - a pure conditional edge function
+that determines which node should execute next based on agent state.</p>
+<p>Follows LangGraph native patterns where conditional edge functions take only
+the state parameter and handle logging internally.</p>
+<p>Routing priority:
+1. Direct chat mode - routes directly to capability, bypassing pipeline
+2. Manual retry handling - checks errors and retry count
+3. Normal routing - task extraction → classification → orchestration → execution</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>state</strong> (<a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.state.AgentState" title="osprey.state.AgentState"><em>AgentState</em></a>) – Current agent state containing all execution context</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Name of next node to execute or “END” to terminate</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>When <code class="docutils literal notranslate"><span class="pre">orchestration_mode</span></code> is set to <code class="docutils literal notranslate"><span class="pre">react</span></code>, <code class="docutils literal notranslate"><span class="pre">router_conditional_edge</span></code> delegates to the
+internal <code class="docutils literal notranslate"><span class="pre">_reactive_routing()</span></code> function which implements reactive-specific routing logic
+(max iterations guard, execution plan dispatch, routing errors back to
+<code class="docutils literal notranslate"><span class="pre">reactive_orchestrator</span></code>). See <a class="reference internal" href="../../developer-guides/04_infrastructure-components/03_classification-and-routing.html"><span class="doc">Classification and Routing</span></a>
+for details on both routing modes.</p>
+</div>
+</section>
+<section id="error-node">
+<h2>Error Node<a class="headerlink" href="#error-node" title="Link to this heading">#</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorNode">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.infrastructure.error_node.</span></span><span class="sig-name descname"><span class="pre">ErrorNode</span></span><a class="reference internal" href="../../_modules/osprey/infrastructure/error_node.html#ErrorNode"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorNode" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.BaseInfrastructureNode" title="osprey.base.nodes.BaseInfrastructureNode"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseInfrastructureNode</span></code></a></p>
+<p>Generate comprehensive, user-friendly error responses with intelligent analysis.</p>
+<p>The ErrorNode serves as the centralized error response generation system for the
+Osprey Agent Framework. It transforms technical error information into
+comprehensive user responses by combining structured factual reports with
+context-aware LLM analysis and recovery suggestions.</p>
+<p>This infrastructure node operates as the final destination in the error handling
+pipeline, ensuring that all system failures result in meaningful, actionable
+information for users. The node implements a robust two-phase approach to error
+response generation with multiple fallback mechanisms to guarantee response
+delivery even under adverse conditions.</p>
+<dl class="simple">
+<dt>Architecture Overview:</dt><dd><p>The error response generation follows a structured two-phase approach:</p>
+<ol class="arabic simple">
+<li><p><strong>Structured Report Generation</strong>:
+- Extracts error details from agent state control_error_info
+- Formats using ErrorClassification.format_for_llm() for consistency
+- Adds execution statistics, timing data, and retry information
+- Generates step-by-step execution summaries with success/failure tracking</p></li>
+<li><p><strong>LLM Analysis Phase</strong>:
+- Provides error context and available system capabilities to LLM
+- Generates intelligent explanations of failure causes
+- Produces context-aware recovery suggestions and next steps
+- Integrates with framework prompt system for consistent analysis quality</p></li>
+</ol>
+</dd>
+<dt>Error Recovery Strategy:</dt><dd><p>The node implements multiple layers of error handling to ensure reliability:
+- Comprehensive fallback response if LLM generation fails
+- Self-classification of internal errors as FATAL to prevent infinite loops
+- Structured logging of all error generation attempts for monitoring
+- Guaranteed response delivery through robust exception handling</p>
+</dd>
+<dt>Integration Points:</dt><dd><ul class="simple">
+<li><p><strong>Input</strong>: Pre-classified errors from capability decorators via agent state</p></li>
+<li><p><strong>Logging</strong>: Unified logger system for status updates and streaming</p></li>
+<li><p><strong>Output</strong>: AIMessage objects formatted for direct user presentation</p></li>
+<li><p><strong>Monitoring</strong>: Comprehensive logging integration for operational visibility</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The ErrorNode must never raise unhandled exceptions as it serves as the
+final error handling mechanism. All internal errors are caught and result
+in structured fallback responses.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Error classification within this node always uses FATAL severity to prevent
+recursive error handling that could lead to infinite loops or system instability.</p>
+</div>
+<p class="rubric">Examples</p>
+<p>The ErrorNode is typically invoked automatically by the framework, but can
+be tested with manual state construction:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">AgentState</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ErrorClassification</span><span class="p">,</span> <span class="n">ErrorSeverity</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Construct agent state with error information</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">state</span> <span class="o">=</span> <span class="n">AgentState</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">state</span><span class="p">[</span><span class="s1">&#39;control_error_info&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+<span class="gp">... </span>    <span class="s1">&#39;classification&#39;</span><span class="p">:</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="n">user_message</span><span class="o">=</span><span class="s2">&quot;Database connection timeout&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;timeout&quot;</span><span class="p">:</span> <span class="mi">30</span><span class="p">,</span> <span class="s2">&quot;host&quot;</span><span class="p">:</span> <span class="s2">&quot;db.example.com&quot;</span><span class="p">}</span>
+<span class="gp">... </span>    <span class="p">),</span>
+<span class="gp">... </span>    <span class="s1">&#39;capability_name&#39;</span><span class="p">:</span> <span class="s1">&#39;database_query&#39;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="s1">&#39;execution_time&#39;</span><span class="p">:</span> <span class="mf">31.5</span>
+<span class="gp">... </span><span class="p">}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">state</span><span class="p">[</span><span class="s1">&#39;task_current_task&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;Retrieve user profile data&quot;</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Execute error response generation</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ErrorNode</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Response type: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;messages&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">])</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="go">&lt;class &#39;langchain_core.messages.ai.AIMessage&#39;&gt;</span>
+</pre></div>
+</div>
+<p>Framework integration through error decorator:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="nd">@capability</span><span class="p">(</span><span class="s2">&quot;database_operations&quot;</span><span class="p">)</span>
+<span class="gp">... </span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">query_user_data</span><span class="p">(</span><span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">):</span>
+<span class="gp">... </span>    <span class="c1"># This will automatically route to ErrorNode on failure</span>
+<span class="gp">... </span>    <span class="n">connection</span> <span class="o">=</span> <span class="k">await</span> <span class="n">get_db_connection</span><span class="p">()</span>
+<span class="gp">... </span>    <span class="k">return</span> <span class="k">await</span> <span class="n">connection</span><span class="o">.</span><span class="n">fetch_user</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><a class="reference internal" href="#osprey.infrastructure.error_node.ErrorContext" title="osprey.infrastructure.error_node.ErrorContext"><code class="xref py py-class docutils literal notranslate"><span class="pre">ErrorContext</span></code></a> : Data structure for error response generation
+<a class="reference internal" href="../04_error_handling/01_classification_system.html#osprey.base.errors.ErrorClassification" title="osprey.base.errors.ErrorClassification"><code class="xref py py-class docutils literal notranslate"><span class="pre">osprey.base.errors.ErrorClassification</span></code></a> : Error classification system
+<code class="xref py py-func docutils literal notranslate"><span class="pre">osprey.base.decorators.capability()</span></code> : Capability decorator with error handling
+<a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.state.AgentState" title="osprey.state.AgentState"><code class="xref py py-class docutils literal notranslate"><span class="pre">osprey.state.AgentState</span></code></a> : Agent state management system</p>
+</div>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorNode.name">
+<span class="sig-name descname"><span class="pre">name</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'error'</span></span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorNode.name" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorNode.description">
+<span class="sig-name descname"><span class="pre">description</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'Error</span> <span class="pre">Response</span> <span class="pre">Generation'</span></span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorNode.description" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorNode.classify_error">
+<span class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">classify_error</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">exc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/error_node.html#ErrorNode.classify_error"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorNode.classify_error" title="Link to this definition">#</a></dt>
+<dd><p>Classify internal ErrorNode failures with FATAL severity to prevent infinite loops.</p>
+<p>This method handles the critical responsibility of classifying errors that occur
+within the error response generation system itself. All such errors are automatically
+classified as FATAL to ensure clean termination and prevent recursive error handling
+scenarios that could destabilize the entire system.</p>
+<p>The FATAL classification ensures that if the error response generation mechanism
+fails, execution terminates immediately rather than attempting additional error
+recovery operations that could compound the original problem or create infinite
+error handling loops.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>exc</strong> (<em>Exception</em>) – Exception that occurred during error response generation process</p></li>
+<li><p><strong>context</strong> (<em>dict</em>) – Execution context containing node information, timing data, and state</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Error classification with FATAL severity and diagnostic metadata</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="../04_error_handling/01_classification_system.html#osprey.base.errors.ErrorClassification" title="osprey.base.errors.ErrorClassification">ErrorClassification</a></p>
+</dd>
+</dl>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>This method should only be called by the framework’s error handling system.
+Manual invocation could disrupt the error classification hierarchy.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The FATAL severity ensures immediate execution termination without further
+error recovery attempts, preventing system instability.</p>
+</div>
+<p class="rubric">Examples</p>
+<p>Framework automatic error classification:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">try</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="c1"># ErrorNode internal operation fails</span>
+<span class="gp">... </span>    <span class="k">await</span> <span class="n">ErrorNode</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+<span class="gp">... </span><span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="n">classification</span> <span class="o">=</span> <span class="n">ErrorNode</span><span class="o">.</span><span class="n">classify_error</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Severity: </span><span class="si">{</span><span class="n">classification</span><span class="o">.</span><span class="n">severity</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="go">fatal</span>
+</pre></div>
+</div>
+<p>Error classification structure:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">context</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;node_name&quot;</span><span class="p">:</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;execution_time&quot;</span><span class="p">:</span> <span class="mf">1.2</span><span class="p">}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">exc</span> <span class="o">=</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;LLM generation failed&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">classification</span> <span class="o">=</span> <span class="n">ErrorNode</span><span class="o">.</span><span class="n">classify_error</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">classification</span><span class="o">.</span><span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;technical_details&quot;</span><span class="p">])</span>
+<span class="go">Error node failure: LLM generation failed</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorNode.execute">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">execute</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/error_node.html#ErrorNode.execute"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorNode.execute" title="Link to this definition">#</a></dt>
+<dd><p>Generate comprehensive error response with structured analysis and LLM insights.</p>
+<p>This method orchestrates the complete error response generation pipeline,
+transforming technical error information into user-friendly responses with
+actionable recovery suggestions. The process combines factual error reporting
+with intelligent analysis to provide maximum value to users encountering issues.</p>
+<p>The execution follows a carefully designed two-phase approach that ensures
+robust error handling even when components of the error generation system
+itself experience failures.</p>
+<dl class="simple">
+<dt>Processing Pipeline:</dt><dd><ol class="arabic simple">
+<li><p><strong>Context Extraction</strong>: Reads error details from agent state including
+error classification, execution statistics, and step-by-step history</p></li>
+<li><p><strong>Context Population</strong>: Enriches error context with execution timeline,
+successful operations, and failure categorization</p></li>
+<li><p><strong>Structured Report Generation</strong>: Creates factual error report using
+standardized formatting and execution statistics</p></li>
+<li><p><strong>LLM Analysis</strong>: Generates intelligent explanations and recovery
+suggestions based on error context and available capabilities</p></li>
+<li><p><strong>Response Assembly</strong>: Combines structured report with LLM analysis
+into coherent user response</p></li>
+</ol>
+</dd>
+<dt>Error Handling Strategy:</dt><dd><ul class="simple">
+<li><p>Comprehensive exception handling prevents method failure</p></li>
+<li><p>Automatic fallback to structured response if LLM generation fails</p></li>
+<li><p>All failures logged for operational monitoring and debugging</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>state</strong> (<a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.state.AgentState" title="osprey.state.AgentState"><em>AgentState</em></a>) – Agent state containing error information in control_error_info field</p></li>
+<li><p><strong>kwargs</strong> (<em>dict</em>) – Additional LangGraph execution parameters including config and streaming</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dictionary containing AIMessage with formatted error response for user presentation</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict[str, list[AIMessage]]</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This method is designed to never raise exceptions. All internal errors
+result in structured fallback responses to ensure users receive meaningful
+information regardless of system state.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The method expects error information to be present in state[‘control_error_info’].
+Missing error information will result in fallback responses with generic messaging.</p>
+</div>
+<p class="rubric">Examples</p>
+<p>Standard error response generation:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">AgentState</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ErrorClassification</span><span class="p">,</span> <span class="n">ErrorSeverity</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Prepare agent state with error information</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">state</span> <span class="o">=</span> <span class="n">AgentState</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">state</span><span class="p">[</span><span class="s1">&#39;control_error_info&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+<span class="gp">... </span>    <span class="s1">&#39;classification&#39;</span><span class="p">:</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">REPLANNING</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="n">user_message</span><span class="o">=</span><span class="s2">&quot;API rate limit exceeded&quot;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;retry_after&quot;</span><span class="p">:</span> <span class="mi">300</span><span class="p">}</span>
+<span class="gp">... </span>    <span class="p">),</span>
+<span class="gp">... </span>    <span class="s1">&#39;capability_name&#39;</span><span class="p">:</span> <span class="s1">&#39;external_api_call&#39;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="s1">&#39;execution_time&#39;</span><span class="p">:</span> <span class="mf">5.2</span>
+<span class="gp">... </span><span class="p">}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">state</span><span class="p">[</span><span class="s1">&#39;task_current_task&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;Fetch weather data&quot;</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Generate error response</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ErrorNode</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">message</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s1">&#39;messages&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Response length: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">message</span><span class="o">.</span><span class="n">content</span><span class="p">)</span><span class="si">}</span><span class="s2"> characters&quot;</span><span class="p">)</span>
+<span class="go">Response length: 847 characters</span>
+</pre></div>
+</div>
+<p>Error response with execution history:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">state</span><span class="p">[</span><span class="s1">&#39;execution_step_results&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+<span class="gp">... </span>    <span class="s1">&#39;step_0&#39;</span><span class="p">:</span> <span class="p">{</span>
+<span class="gp">... </span>        <span class="s1">&#39;step_index&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s1">&#39;capability&#39;</span><span class="p">:</span> <span class="s1">&#39;input_validation&#39;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s1">&#39;task_objective&#39;</span><span class="p">:</span> <span class="s1">&#39;Validate API parameters&#39;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s1">&#39;success&#39;</span><span class="p">:</span> <span class="kc">True</span>
+<span class="gp">... </span>    <span class="p">},</span>
+<span class="gp">... </span>    <span class="s1">&#39;step_1&#39;</span><span class="p">:</span> <span class="p">{</span>
+<span class="gp">... </span>        <span class="s1">&#39;step_index&#39;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s1">&#39;capability&#39;</span><span class="p">:</span> <span class="s1">&#39;external_api_call&#39;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s1">&#39;task_objective&#39;</span><span class="p">:</span> <span class="s1">&#39;Fetch weather data&#39;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s1">&#39;success&#39;</span><span class="p">:</span> <span class="kc">False</span>
+<span class="gp">... </span>    <span class="p">}</span>
+<span class="gp">... </span><span class="p">}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ErrorNode</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Response includes execution summary with successful/failed steps</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><code class="xref py py-func docutils literal notranslate"><span class="pre">_create_error_context_from_state()</span></code> : Error context extraction
+<code class="xref py py-func docutils literal notranslate"><span class="pre">_generate_error_response()</span></code> : Response generation pipeline
+<code class="xref py py-class docutils literal notranslate"><span class="pre">AIMessage</span></code> : Response message format</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorNode.__repr__">
+<span class="sig-name descname"><span class="pre">__repr__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorNode.__repr__" title="Link to this definition">#</a></dt>
+<dd><p>Return a string representation of the infrastructure node for debugging.</p>
+<p>Provides a concise string representation that includes both the Python
+class name and the infrastructure node’s registered name. This is useful
+for debugging, logging, and development workflows where infrastructure
+nodes need to be identified clearly.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>String representation including class name and node name</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">node</span> <span class="o">=</span> <span class="n">TaskExtractionNode</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">repr</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+<span class="go">&#39;&lt;TaskExtractionNode: task_extraction&gt;&#39;</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The format follows the pattern ‘&lt;ClassName: node_name&gt;’ for
+consistency across all framework components.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorNode.get_current_step">
+<span class="sig-name descname"><span class="pre">get_current_step</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorNode.get_current_step" title="Link to this definition">#</a></dt>
+<dd><p>Get current execution step from state.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Current step dictionary with capability, task_objective, etc.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.PlannedStep" title="osprey.base.PlannedStep">PlannedStep</a></p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>RuntimeError</strong> – If execution plan is missing or step index is invalid</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id33"><span class="problematic" id="id34">``</span></a><a href="#id35"><span class="problematic" id="id36">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p>step = self.get_current_step()
+task_objective = step.get(‘task_objective’)</p>
+</div></blockquote>
+<p><a href="#id37"><span class="problematic" id="id38">``</span></a><a href="#id39"><span class="problematic" id="id40">`</span></a></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorNode.get_current_step_index">
+<span class="sig-name descname"><span class="pre">get_current_step_index</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorNode.get_current_step_index" title="Link to this definition">#</a></dt>
+<dd><p>Get current step index from state.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Current step index (defaults to 0 if not set)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>int</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id41"><span class="problematic" id="id42">``</span></a><a href="#id43"><span class="problematic" id="id44">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p>current_index = self.get_current_step_index()</p>
+</div></blockquote>
+<p><a href="#id45"><span class="problematic" id="id46">``</span></a><a href="#id47"><span class="problematic" id="id48">`</span></a></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorNode.get_current_task">
+<span class="sig-name descname"><span class="pre">get_current_task</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorNode.get_current_task" title="Link to this definition">#</a></dt>
+<dd><p>Get current task from state.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Current task string, or None if not set</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str | None</p>
+</dd>
+</dl>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="n">current_task</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_current_task</span><span class="p">()</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">current_task</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;No current task available&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorNode.get_execution_plan">
+<span class="sig-name descname"><span class="pre">get_execution_plan</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorNode.get_execution_plan" title="Link to this definition">#</a></dt>
+<dd><p>Get current execution plan from state with type validation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>ExecutionPlan if available and valid, None otherwise</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id49"><span class="problematic" id="id50">``</span></a><a href="#id51"><span class="problematic" id="id52">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p>execution_plan = self.get_execution_plan()
+if not execution_plan:</p>
+<blockquote>
+<div><p># Route to orchestrator</p>
+</div></blockquote>
+</div></blockquote>
+<p><a href="#id53"><span class="problematic" id="id54">``</span></a><a href="#id55"><span class="problematic" id="id56">`</span></a></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorNode.get_logger">
+<span class="sig-name descname"><span class="pre">get_logger</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorNode.get_logger" title="Link to this definition">#</a></dt>
+<dd><p>Get unified logger with automatic streaming support.</p>
+<p>Creates a logger that:
+- Uses this infrastructure node’s name automatically
+- Has access to state for streaming via self._state
+- Streams high-level messages automatically when in LangGraph context
+- Logs to CLI with Rich formatting</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>ComponentLogger instance with streaming capability</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorNode.get_retry_policy">
+<span class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">get_retry_policy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorNode.get_retry_policy" title="Link to this definition">#</a></dt>
+<dd><p>Get conservative retry policy configuration for infrastructure operations.</p>
+<p>This method provides retry configuration optimized for infrastructure
+nodes that handle system-critical functions. The default policy uses
+conservative settings with minimal retry attempts and fast failure
+detection to maintain system stability.</p>
+<p>Infrastructure nodes should generally fail fast rather than retry
+extensively, since failures often indicate system-level issues that
+require immediate attention. Override this method only for specific
+infrastructure components that can benefit from retry logic.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Dictionary containing conservative retry configuration parameters</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dict[str, Any]</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Infrastructure default policy: 2 attempts, 0.2s delay, minimal backoff.
+This prioritizes fast failure detection over retry persistence.</p>
+</div>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="nd">@staticmethod</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_retry_policy</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;max_attempts&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>  <span class="c1"># More retries for LLM-based infrastructure</span>
+        <span class="s2">&quot;delay_seconds&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>  <span class="c1"># Longer delay for external service calls</span>
+        <span class="s2">&quot;backoff_factor&quot;</span><span class="p">:</span> <span class="mf">2.0</span>  <span class="c1"># Exponential backoff</span>
+    <span class="p">}</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The router uses this configuration to determine retry behavior.
+Infrastructure default: 2 attempts, 0.2s delay, minimal backoff.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorNode.get_user_query">
+<span class="sig-name descname"><span class="pre">get_user_query</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorNode.get_user_query" title="Link to this definition">#</a></dt>
+<dd><p>Get the user’s query from the current conversation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The user’s query string, or None if no user messages exist</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str | None</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id57"><span class="problematic" id="id58">``</span></a><a href="#id59"><span class="problematic" id="id60">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p>original_query = self.get_user_query()</p>
+</div></blockquote>
+<p><a href="#id61"><span class="problematic" id="id62">``</span></a><a href="#id63"><span class="problematic" id="id64">`</span></a></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorNode.langgraph_node">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">langgraph_node</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorNode.langgraph_node" title="Link to this definition">#</a></dt>
+<dd><p>LangGraph-native node function with manual error handling.</p>
+<p>This function is called by LangGraph during execution. Infrastructure nodes
+now use get_stream_writer() and get_config() directly for pure LangGraph integration.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>state</strong> (<a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.state.AgentState" title="osprey.state.AgentState"><em>AgentState</em></a>) – Current agent state</p></li>
+<li><p><strong>kwargs</strong> – Additional parameters from LangGraph</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>State updates dictionary</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Dict[str, Any]</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorContext">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.infrastructure.error_node.</span></span><span class="sig-name descname"><span class="pre">ErrorContext</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">error_classification</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">current_task</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">failed_operation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">total_operations</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">execution_time</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">retry_count</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">successful_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">failed_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/error_node.html#ErrorContext"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorContext" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Comprehensive error context for generating detailed error responses.</p>
+<p>This data structure encapsulates all information required to generate meaningful
+error reports including original error classification, execution statistics, and
+step-by-step execution history. The class serves as the primary data container
+for the error response generation pipeline, ensuring consistent access to error
+details and execution context across all error handling components.</p>
+<p>The ErrorContext integrates with the ErrorClassification system to maintain
+authoritative error information while adding execution-specific details such as
+timing, retry attempts, and step-by-step progress tracking.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>error_classification</strong> (<a class="reference internal" href="../04_error_handling/01_classification_system.html#osprey.base.errors.ErrorClassification" title="osprey.base.errors.ErrorClassification"><em>ErrorClassification</em></a>) – Complete error classification with severity, messages, and metadata</p></li>
+<li><p><strong>current_task</strong> (<em>str</em>) – Human-readable description of the high-level task being executed</p></li>
+<li><p><strong>failed_operation</strong> (<em>str</em>) – Specific operation or capability name that encountered the error</p></li>
+<li><p><strong>total_operations</strong> (<em>int</em>) – Total number of operations attempted in current execution cycle</p></li>
+<li><p><strong>execution_time</strong> (<em>float</em><em>, </em><em>optional</em>) – Duration in seconds from start to error occurrence</p></li>
+<li><p><strong>retry_count</strong> (<em>int</em><em>, </em><em>optional</em>) – Number of retry attempts made before final failure</p></li>
+<li><p><strong>successful_steps</strong> (<em>list</em><em>[</em><em>str</em><em>]</em><em>, </em><em>optional</em>) – Chronological list of execution steps that completed successfully</p></li>
+<li><p><strong>failed_steps</strong> (<em>list</em><em>[</em><em>str</em><em>]</em><em>, </em><em>optional</em>) – Chronological list of execution steps that failed during execution</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The class automatically initializes list fields to empty lists if None is provided,
+ensuring safe iteration over step results in error report generation.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>This class is designed for read-only access during error response generation.
+Modifying fields after creation may lead to inconsistent error reports.</p>
+</div>
+<p class="rubric">Examples</p>
+<p>Basic error context creation:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ErrorClassification</span><span class="p">,</span> <span class="n">ErrorSeverity</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">classification</span> <span class="o">=</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">user_message</span><span class="o">=</span><span class="s2">&quot;Database connection failed&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;host&quot;</span><span class="p">:</span> <span class="s2">&quot;db.example.com&quot;</span><span class="p">}</span>
+<span class="gp">... </span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">context</span> <span class="o">=</span> <span class="n">ErrorContext</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">error_classification</span><span class="o">=</span><span class="n">classification</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">current_task</span><span class="o">=</span><span class="s2">&quot;Fetch user data&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">failed_operation</span><span class="o">=</span><span class="s2">&quot;database_query&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">execution_time</span><span class="o">=</span><span class="mf">2.5</span>
+<span class="gp">... </span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Severity: </span><span class="si">{</span><span class="n">context</span><span class="o">.</span><span class="n">error_severity</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="go">critical</span>
+</pre></div>
+</div>
+<p>Context with execution history:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">context</span> <span class="o">=</span> <span class="n">ErrorContext</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">error_classification</span><span class="o">=</span><span class="n">classification</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">current_task</span><span class="o">=</span><span class="s2">&quot;Process user request&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">failed_operation</span><span class="o">=</span><span class="s2">&quot;user_authentication&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">total_operations</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">successful_steps</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Step 1: Validate input&quot;</span><span class="p">,</span> <span class="s2">&quot;Step 2: Load config&quot;</span><span class="p">],</span>
+<span class="gp">... </span>    <span class="n">failed_steps</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Step 3: Authenticate user - Failed&quot;</span><span class="p">]</span>
+<span class="gp">... </span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Progress: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">context</span><span class="o">.</span><span class="n">successful_steps</span><span class="p">)</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">context</span><span class="o">.</span><span class="n">total_operations</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="go">Progress: 2/3</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><a class="reference internal" href="../04_error_handling/01_classification_system.html#osprey.base.errors.ErrorClassification" title="osprey.base.errors.ErrorClassification"><code class="xref py py-class docutils literal notranslate"><span class="pre">osprey.base.errors.ErrorClassification</span></code></a> : Error classification system
+<a class="reference internal" href="../04_error_handling/03_recovery_coordination.html#osprey.infrastructure.error_node.ErrorNode" title="osprey.infrastructure.error_node.ErrorNode"><code class="xref py py-class docutils literal notranslate"><span class="pre">ErrorNode</span></code></a> : Primary consumer of ErrorContext instances</p>
+</div>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorContext.error_classification">
+<span class="sig-name descname"><span class="pre">error_classification</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="../04_error_handling/01_classification_system.html#osprey.base.errors.ErrorClassification" title="osprey.base.errors.ErrorClassification"><span class="pre">ErrorClassification</span></a></span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorContext.error_classification" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorContext.current_task">
+<span class="sig-name descname"><span class="pre">current_task</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorContext.current_task" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorContext.failed_operation">
+<span class="sig-name descname"><span class="pre">failed_operation</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorContext.failed_operation" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorContext.total_operations">
+<span class="sig-name descname"><span class="pre">total_operations</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0</span></span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorContext.total_operations" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorContext.execution_time">
+<span class="sig-name descname"><span class="pre">execution_time</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorContext.execution_time" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorContext.retry_count">
+<span class="sig-name descname"><span class="pre">retry_count</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorContext.retry_count" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorContext.successful_steps">
+<span class="sig-name descname"><span class="pre">successful_steps</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorContext.successful_steps" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorContext.failed_steps">
+<span class="sig-name descname"><span class="pre">failed_steps</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorContext.failed_steps" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorContext.__post_init__">
+<span class="sig-name descname"><span class="pre">__post_init__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/error_node.html#ErrorContext.__post_init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorContext.__post_init__" title="Link to this definition">#</a></dt>
+<dd><p>Initialize list fields to empty lists if None.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorContext.error_severity">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">error_severity</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="../04_error_handling/01_classification_system.html#osprey.base.errors.ErrorSeverity" title="osprey.base.errors.ErrorSeverity"><span class="pre">ErrorSeverity</span></a></span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorContext.error_severity" title="Link to this definition">#</a></dt>
+<dd><p>Extract error severity level from the underlying error classification.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Severity level indicating error impact and recovery strategy</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.ErrorSeverity" title="osprey.base.ErrorSeverity">ErrorSeverity</a></p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Severity levels guide error handling strategy: RETRIABLE errors may be
+retried, REPLANNING errors require task modification, CRITICAL errors
+need user intervention, and FATAL errors terminate execution.</p>
+</div>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorContext.error_message">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">error_message</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorContext.error_message" title="Link to this definition">#</a></dt>
+<dd><p>Extract user-friendly error message from the error classification.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Human-readable error message suitable for user presentation,
+with automatic fallback to generic message if none provided</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This property ensures that error responses always contain a meaningful
+message even when the original error classification lacks user-facing text.</p>
+</div>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorContext.capability_name">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">capability_name</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorContext.capability_name" title="Link to this definition">#</a></dt>
+<dd><p>Extract the name of the specific capability that encountered the error.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Name of the failing capability if available in context, None otherwise</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str, optional</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This property accesses a dynamically set attribute (_capability_name)
+that is populated during error context creation from agent state.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.error_node.ErrorContext.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">error_classification</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">current_task</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">failed_operation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">total_operations</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">execution_time</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">retry_count</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">successful_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">failed_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.error_node.ErrorContext.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="core-models">
+<h2>Core Models<a class="headerlink" href="#core-models" title="Link to this heading">#</a></h2>
+<p>Execution control uses models defined in the core framework:</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><code class="xref py py-class docutils literal notranslate"><span class="pre">ErrorClassification</span></code></dt><dd><p>Error classification system</p>
+</dd>
+<dt><a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.ErrorSeverity" title="osprey.base.ErrorSeverity"><code class="xref py py-class docutils literal notranslate"><span class="pre">ErrorSeverity</span></code></a></dt><dd><p>Error severity levels</p>
+</dd>
+<dt><a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.BaseInfrastructureNode" title="osprey.base.BaseInfrastructureNode"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseInfrastructureNode</span></code></a></dt><dd><p>Base class for infrastructure components</p>
+</dd>
+</dl>
+</div>
+</section>
+<section id="registration">
+<h2>Registration<a class="headerlink" href="#registration" title="Link to this heading">#</a></h2>
+<p><strong>RouterNode</strong> is automatically registered as:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">NodeRegistration</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;router&quot;</span><span class="p">,</span>
+    <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;osprey.infrastructure.router_node&quot;</span><span class="p">,</span>
+    <span class="n">function_name</span><span class="o">=</span><span class="s2">&quot;RouterNode&quot;</span><span class="p">,</span>
+    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Central routing decision authority&quot;</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>ErrorNode</strong> is automatically registered as:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">NodeRegistration</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;error&quot;</span><span class="p">,</span>
+    <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;osprey.infrastructure.error_node&quot;</span><span class="p">,</span>
+    <span class="n">function_name</span><span class="o">=</span><span class="s2">&quot;ErrorNode&quot;</span><span class="p">,</span>
+    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Error response generation&quot;</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../01_core_framework/05_prompt_management.html"><span class="doc">Prompt System</span></a></dt><dd><p>Prompt customization system</p>
+</dd>
+<dt><a class="reference internal" href="../../developer-guides/04_infrastructure-components/06_error-handling-infrastructure.html"><span class="doc">Error Handling</span></a></dt><dd><p>Implementation details and usage patterns</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="04_orchestration.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Orchestration</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="06_message-generation.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Message Generation</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#router-node">Router Node</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.router_node.RouterNode"><code class="docutils literal notranslate"><span class="pre">RouterNode</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.router_node.RouterNode.name"><code class="docutils literal notranslate"><span class="pre">RouterNode.name</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.router_node.RouterNode.description"><code class="docutils literal notranslate"><span class="pre">RouterNode.description</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.router_node.RouterNode.execute"><code class="docutils literal notranslate"><span class="pre">RouterNode.execute()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.router_node.RouterNode.__repr__"><code class="docutils literal notranslate"><span class="pre">RouterNode.__repr__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.router_node.RouterNode.classify_error"><code class="docutils literal notranslate"><span class="pre">RouterNode.classify_error()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.router_node.RouterNode.get_current_step"><code class="docutils literal notranslate"><span class="pre">RouterNode.get_current_step()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.router_node.RouterNode.get_current_step_index"><code class="docutils literal notranslate"><span class="pre">RouterNode.get_current_step_index()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.router_node.RouterNode.get_current_task"><code class="docutils literal notranslate"><span class="pre">RouterNode.get_current_task()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.router_node.RouterNode.get_execution_plan"><code class="docutils literal notranslate"><span class="pre">RouterNode.get_execution_plan()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.router_node.RouterNode.get_logger"><code class="docutils literal notranslate"><span class="pre">RouterNode.get_logger()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.router_node.RouterNode.get_retry_policy"><code class="docutils literal notranslate"><span class="pre">RouterNode.get_retry_policy()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.router_node.RouterNode.get_user_query"><code class="docutils literal notranslate"><span class="pre">RouterNode.get_user_query()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.router_node.RouterNode.langgraph_node"><code class="docutils literal notranslate"><span class="pre">RouterNode.langgraph_node()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.router_node.router_conditional_edge"><code class="docutils literal notranslate"><span class="pre">router_conditional_edge()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#error-node">Error Node</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorNode"><code class="docutils literal notranslate"><span class="pre">ErrorNode</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorNode.name"><code class="docutils literal notranslate"><span class="pre">ErrorNode.name</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorNode.description"><code class="docutils literal notranslate"><span class="pre">ErrorNode.description</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorNode.classify_error"><code class="docutils literal notranslate"><span class="pre">ErrorNode.classify_error()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorNode.execute"><code class="docutils literal notranslate"><span class="pre">ErrorNode.execute()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorNode.__repr__"><code class="docutils literal notranslate"><span class="pre">ErrorNode.__repr__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorNode.get_current_step"><code class="docutils literal notranslate"><span class="pre">ErrorNode.get_current_step()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorNode.get_current_step_index"><code class="docutils literal notranslate"><span class="pre">ErrorNode.get_current_step_index()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorNode.get_current_task"><code class="docutils literal notranslate"><span class="pre">ErrorNode.get_current_task()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorNode.get_execution_plan"><code class="docutils literal notranslate"><span class="pre">ErrorNode.get_execution_plan()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorNode.get_logger"><code class="docutils literal notranslate"><span class="pre">ErrorNode.get_logger()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorNode.get_retry_policy"><code class="docutils literal notranslate"><span class="pre">ErrorNode.get_retry_policy()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorNode.get_user_query"><code class="docutils literal notranslate"><span class="pre">ErrorNode.get_user_query()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorNode.langgraph_node"><code class="docutils literal notranslate"><span class="pre">ErrorNode.langgraph_node()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorContext"><code class="docutils literal notranslate"><span class="pre">ErrorContext</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorContext.error_classification"><code class="docutils literal notranslate"><span class="pre">ErrorContext.error_classification</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorContext.current_task"><code class="docutils literal notranslate"><span class="pre">ErrorContext.current_task</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorContext.failed_operation"><code class="docutils literal notranslate"><span class="pre">ErrorContext.failed_operation</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorContext.total_operations"><code class="docutils literal notranslate"><span class="pre">ErrorContext.total_operations</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorContext.execution_time"><code class="docutils literal notranslate"><span class="pre">ErrorContext.execution_time</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorContext.retry_count"><code class="docutils literal notranslate"><span class="pre">ErrorContext.retry_count</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorContext.successful_steps"><code class="docutils literal notranslate"><span class="pre">ErrorContext.successful_steps</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorContext.failed_steps"><code class="docutils literal notranslate"><span class="pre">ErrorContext.failed_steps</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorContext.__post_init__"><code class="docutils literal notranslate"><span class="pre">ErrorContext.__post_init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorContext.error_severity"><code class="docutils literal notranslate"><span class="pre">ErrorContext.error_severity</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorContext.error_message"><code class="docutils literal notranslate"><span class="pre">ErrorContext.error_message</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorContext.capability_name"><code class="docutils literal notranslate"><span class="pre">ErrorContext.capability_name</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.error_node.ErrorContext.__init__"><code class="docutils literal notranslate"><span class="pre">ErrorContext.__init__()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#core-models">Core Models</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#registration">Registration</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/api_reference/02_infrastructure/05_execution-control.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

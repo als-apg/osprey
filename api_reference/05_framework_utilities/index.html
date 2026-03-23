@@ -1,0 +1,1123 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Framework Utilities &#8212; Osprey Framework 0.11.5 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'api_reference/05_framework_utilities/index';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Example Applications" href="../../example-applications/index.html" />
+    <link rel="prev" title="Recovery Coordination" href="../04_error_handling/03_recovery_coordination.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../01_core_framework/index.html">Core Framework</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/01_base_components.html">Base Components</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/02_state_and_context.html">State and Context Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/03_registry_system.html">Registry System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/04_configuration_system.html">Configuration System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/05_prompt_management.html">Prompt System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/06_command_system.html">Command System</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../02_infrastructure/index.html">Infrastructure</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/01_gateway.html">Gateway</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/02_task-extraction.html">Task Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/03_classification.html">Classification</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/04_orchestration.html">Orchestration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/05_execution-control.html">Execution Control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/06_message-generation.html">Message Generation</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../03_production_systems/index.html">Production Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/01_human-approval.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/02_data-management.html">Data Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/03_python-execution.html">Python Execution</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/04_memory-storage.html">Memory Storage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/05_container-management.html">Container Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/06_control-system-connectors.html">Control System Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/07_ariel-search.html">ARIEL Search Service</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../04_error_handling/index.html">Error Handling</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/01_classification_system.html">Classification System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/02_exception_reference.html">Exception Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/03_recovery_coordination.html">Recovery Coordination</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Framework Utilities</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">API Reference</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Framework Utilities</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="framework-utilities">
+<h1>Framework Utilities<a class="headerlink" href="#framework-utilities" title="Link to this heading">#</a></h1>
+<p>Supporting systems for advanced usage and development tooling.</p>
+<section id="llm-completion-interface">
+<h2>LLM Completion Interface<a class="headerlink" href="#llm-completion-interface" title="Link to this heading">#</a></h2>
+<p>Multi-provider LLM completions via LiteLLM for structured generation and direct completions.</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.models.get_chat_completion">
+<span class="sig-prename descclassname"><span class="pre">osprey.models.</span></span><span class="sig-name descname"><span class="pre">get_chat_completion</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_tokens</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1024</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model_config</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">provider</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">budget_tokens</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enable_thinking</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_model</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">base_url</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">provider_config</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">temperature</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chat_request</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tools</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tool_choice</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/models/completion.html#get_chat_completion"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.models.get_chat_completion" title="Link to this definition">#</a></dt>
+<dd><p>Execute direct chat completion requests across multiple AI providers via LiteLLM.</p>
+<p>This function provides immediate access to LLM model inference with support for
+advanced features including extended thinking, structured outputs, and automatic
+TypedDict conversion.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> (<em>str</em>) – Input prompt or message for the LLM model</p></li>
+<li><p><strong>max_tokens</strong> (<em>int</em>) – Maximum tokens to generate in the response</p></li>
+<li><p><strong>model_config</strong> (<em>dict</em><em> | </em><em>None</em>) – Configuration dictionary with provider and model settings</p></li>
+<li><p><strong>provider</strong> (<em>str</em><em> | </em><em>None</em>) – AI provider name (‘anthropic’, ‘google’, ‘openai’, ‘ollama’, ‘cborg’, etc.)</p></li>
+<li><p><strong>model_id</strong> (<em>str</em><em> | </em><em>None</em>) – Specific model identifier recognized by the provider</p></li>
+<li><p><strong>budget_tokens</strong> (<em>int</em><em> | </em><em>None</em>) – Thinking budget for Anthropic/Google extended reasoning</p></li>
+<li><p><strong>enable_thinking</strong> (<em>bool</em>) – Enable extended thinking capabilities where supported</p></li>
+<li><p><strong>output_model</strong> (<em>type</em><em>[</em><em>BaseModel</em><em>] </em><em>| </em><em>None</em>) – Pydantic model or TypedDict for structured output validation</p></li>
+<li><p><strong>base_url</strong> (<em>str</em><em> | </em><em>None</em>) – Custom API endpoint, required for Ollama and CBORG providers</p></li>
+<li><p><strong>provider_config</strong> (<em>dict</em><em> | </em><em>None</em>) – Optional provider configuration dict with api_key, base_url, etc.</p></li>
+<li><p><strong>temperature</strong> (<em>float</em>) – Sampling temperature (0.0-2.0)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>ValueError</strong> – If required provider, model_id, api_key, or base_url are missing</p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Model response (str, Pydantic model, or list of content blocks for thinking)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str | BaseModel | list</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Simple text completion:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_chat_completion</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">response</span> <span class="o">=</span> <span class="n">get_chat_completion</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Explain quantum computing&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">provider</span><span class="o">=</span><span class="s2">&quot;anthropic&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">model_id</span><span class="o">=</span><span class="s2">&quot;claude-sonnet-4&quot;</span><span class="p">,</span>
+<span class="gp">... </span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Structured output:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">class</span><span class="w"> </span><span class="nc">Result</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<span class="gp">... </span>    <span class="n">summary</span><span class="p">:</span> <span class="nb">str</span>
+<span class="gp">... </span>    <span class="n">confidence</span><span class="p">:</span> <span class="nb">float</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">result</span> <span class="o">=</span> <span class="n">get_chat_completion</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Analyze this data&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">provider</span><span class="o">=</span><span class="s2">&quot;openai&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">model_id</span><span class="o">=</span><span class="s2">&quot;gpt-4o&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">output_model</span><span class="o">=</span><span class="n">Result</span>
+<span class="gp">... </span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</section>
+<section id="developer-tools">
+<h2>Developer Tools<a class="headerlink" href="#developer-tools" title="Link to this heading">#</a></h2>
+<p>Unified logging system with automatic LangGraph streaming support for framework development.</p>
+<section id="logging-and-streaming">
+<h3>Logging and Streaming<a class="headerlink" href="#logging-and-streaming" title="Link to this heading">#</a></h3>
+<p>The framework provides a unified logging API that automatically handles both CLI output
+and web UI streaming. Use <code class="docutils literal notranslate"><span class="pre">logger.status()</span></code> for high-level updates that should appear
+in both interfaces, and standard logging methods (<code class="docutils literal notranslate"><span class="pre">info()</span></code>, <code class="docutils literal notranslate"><span class="pre">debug()</span></code>) for detailed
+CLI-only output.</p>
+<p><strong>Recommended Pattern:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># In capabilities - automatic streaming</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="s2">&quot;Creating execution plan...&quot;</span><span class="p">)</span>  <span class="c1"># Logs + streams</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Active capabilities: [...]&quot;</span><span class="p">)</span>   <span class="c1"># Logs only</span>
+
+<span class="c1"># In other nodes with state</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;orchestrator&quot;</span><span class="p">,</span> <span class="n">state</span><span class="o">=</span><span class="n">state</span><span class="p">)</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="s2">&quot;Processing...&quot;</span><span class="p">)</span>  <span class="c1"># Logs + streams</span>
+</pre></div>
+</div>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.utils.logger.get_logger">
+<span class="sig-prename descclassname"><span class="pre">osprey.utils.logger.</span></span><span class="sig-name descname"><span class="pre">get_logger</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">component_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">level</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">logging.INFO</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">state</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">color</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">source</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#get_logger"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.get_logger" title="Link to this definition">#</a></dt>
+<dd><p>Get a unified logger that handles both CLI logging and LangGraph streaming.</p>
+<dl class="simple">
+<dt>Primary API (recommended - use via BaseCapability.get_logger()):</dt><dd><p>component_name: Component name (e.g., ‘orchestrator’, ‘data_analysis’)
+state: Optional AgentState for streaming context and step tracking
+level: Logging level</p>
+</dd>
+<dt>Explicit API (for custom loggers or module-level usage):</dt><dd><p>name: Direct logger name (keyword-only)
+color: Direct color specification (keyword-only)
+level: Logging level</p>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>ComponentLogger instance that logs to CLI and optionally streams</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#osprey.utils.logger.ComponentLogger" title="osprey.utils.logger.ComponentLogger"><em>ComponentLogger</em></a></p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p># Recommended: Use via BaseCapability
+class MyCapability(BaseCapability):</p>
+<blockquote>
+<div><dl class="simple">
+<dt>async def execute(self):</dt><dd><p>logger = self.get_logger()  # Auto-streams!
+logger.status(“Working…”)</p>
+</dd>
+</dl>
+</div></blockquote>
+<p># Module-level (no streaming)
+logger = get_logger(“orchestrator”)
+logger.info(“Planning started”)</p>
+<p># With streaming (when you have state)
+logger = get_logger(“orchestrator”, state=state)
+logger.status(“Creating execution plan…”)  # Logs + streams
+logger.info(“Active capabilities: […]”)   # Logs only
+logger.error(“Failed!”)                      # Logs + streams</p>
+<p># Custom logger
+logger = get_logger(name=”test_logger”, color=”blue”)</p>
+<div class="deprecated">
+<p><span class="versionmodified deprecated">Deprecated since version The: </span>two-parameter API get_logger(source, component_name) is deprecated.
+Use get_logger(component_name) instead. The flat configuration structure
+(logging.logging_colors.{component_name}) replaces the old nested structure.</p>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.utils.logger.</span></span><span class="sig-name descname"><span class="pre">ComponentLogger</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">base_logger</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">component_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">color</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'white'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">state</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Rich-formatted logger for Osprey and application components with color coding and message hierarchy.</p>
+<p>Now includes optional LangGraph streaming support via lazy initialization.</p>
+<p>Message Types:
+- status: High-level status updates (logs + streams automatically)
+- key_info: Important operational information
+- info: Normal operational messages
+- debug: Detailed tracing information
+- warning: Warning messages
+- error: Error messages (logs + streams automatically)
+- success: Success messages (logs + streams by default)
+- timing: Timing information
+- approval: Approval messages
+- resume: Resume messages</p>
+<p>Initialize component logger.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>base_logger</strong> (<em>Logger</em>) – Underlying Python logger</p></li>
+<li><p><strong>component_name</strong> (<em>str</em>) – Name of the component (e.g., ‘data_analysis’, ‘router’, ‘mongo’)</p></li>
+<li><p><strong>color</strong> (<em>str</em>) – Rich color name for this component</p></li>
+<li><p><strong>state</strong> (<em>Any</em>) – Optional AgentState for streaming context</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">base_logger</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">component_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">color</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'white'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">state</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.__init__" title="Link to this definition">#</a></dt>
+<dd><p>Initialize component logger.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>base_logger</strong> (<em>Logger</em>) – Underlying Python logger</p></li>
+<li><p><strong>component_name</strong> (<em>str</em>) – Name of the component (e.g., ‘data_analysis’, ‘router’, ‘mongo’)</p></li>
+<li><p><strong>color</strong> (<em>str</em>) – Rich color name for this component</p></li>
+<li><p><strong>state</strong> (<em>Any</em>) – Optional AgentState for streaming context</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.emit_event">
+<span class="sig-name descname"><span class="pre">emit_event</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">event</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger.emit_event"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.emit_event" title="Link to this definition">#</a></dt>
+<dd><p>Emit a typed OspreyEvent directly.</p>
+<p>Use this for structured events like PhaseStartEvent, CapabilityStartEvent, etc.
+that don’t fit the standard logging pattern.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>event</strong> (<em>StatusEvent</em><em> | </em><em>PhaseStartEvent</em><em> | </em><em>PhaseCompleteEvent</em><em> | </em><em>TaskExtractedEvent</em><em> | </em><em>CapabilitiesSelectedEvent</em><em> | </em><em>PlanCreatedEvent</em><em> | </em><em>CapabilityStartEvent</em><em> | </em><em>CapabilityCompleteEvent</em><em> | </em><em>LLMRequestEvent</em><em> | </em><em>LLMResponseEvent</em><em> | </em><em>ToolUseEvent</em><em> | </em><em>ToolResultEvent</em><em> | </em><em>CodeGeneratedEvent</em><em> | </em><em>CodeExecutedEvent</em><em> | </em><em>CodeGenerationStartEvent</em><em> | </em><em>ApprovalRequiredEvent</em><em> | </em><em>ApprovalReceivedEvent</em><em> | </em><em>ResultEvent</em><em> | </em><em>ErrorEvent</em>) – The typed event to emit</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p>from osprey.events import PhaseStartEvent
+logger.emit_event(PhaseStartEvent(</p>
+<blockquote>
+<div><p>phase=”task_extraction”,
+description=”Extracting task from query”</p>
+</div></blockquote>
+<p>))</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.emit_llm_request">
+<span class="sig-name descname"><span class="pre">emit_llm_request</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">prompt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">provider</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger.emit_llm_request"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.emit_llm_request" title="Link to this definition">#</a></dt>
+<dd><p>Emit LLMRequestEvent with full prompt for TUI display.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>prompt</strong> (<em>str</em>) – The complete LLM prompt text</p></li>
+<li><p><strong>key</strong> (<em>str</em>) – Optional key for accumulating multiple prompts (e.g., capability name)</p></li>
+<li><p><strong>model</strong> (<em>str</em>) – Model identifier (e.g., “gpt-4”, “claude-3-opus”)</p></li>
+<li><p><strong>provider</strong> (<em>str</em>) – Provider name (e.g., “openai”, “anthropic”)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.emit_llm_response">
+<span class="sig-name descname"><span class="pre">emit_llm_response</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">response</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">duration_ms</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">input_tokens</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_tokens</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger.emit_llm_response"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.emit_llm_response" title="Link to this definition">#</a></dt>
+<dd><p>Emit LLMResponseEvent with full response for TUI display.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>response</strong> (<em>str</em>) – The complete LLM response text</p></li>
+<li><p><strong>key</strong> (<em>str</em>) – Optional key for accumulating multiple responses (e.g., capability name)</p></li>
+<li><p><strong>duration_ms</strong> (<em>int</em>) – How long the request took in milliseconds</p></li>
+<li><p><strong>input_tokens</strong> (<em>int</em>) – Number of input tokens</p></li>
+<li><p><strong>output_tokens</strong> (<em>int</em>) – Number of output tokens</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.status">
+<span class="sig-name descname"><span class="pre">status</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger.status"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.status" title="Link to this definition">#</a></dt>
+<dd><p>Status update - emits StatusEvent.</p>
+<p>User-facing output. Transport is automatic:
+- During graph.astream(): LangGraph streaming
+- Outside graph execution: fallback transport → TypedEventHandler</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> (<em>str</em>) – Status message</p></li>
+<li><p><strong>*args</strong> – Optional %-style format args (stdlib compat)</p></li>
+<li><p><strong>**kwargs</strong> – Additional metadata for streaming event</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p>logger.status(“Creating execution plan…”)
+logger.status(“Processing batch 2/5”, batch=2, total=5)</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.key_info">
+<span class="sig-name descname"><span class="pre">key_info</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger.key_info"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.key_info" title="Link to this definition">#</a></dt>
+<dd><p>Important operational information - emits StatusEvent with info level.</p>
+<p>User-facing output. Transport is automatic.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> (<em>str</em>) – Info message</p></li>
+<li><p><strong>*args</strong> – Optional %-style format args (stdlib compat)</p></li>
+<li><p><strong>**kwargs</strong> – Additional metadata for streaming event</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.info">
+<span class="sig-name descname"><span class="pre">info</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger.info"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.info" title="Link to this definition">#</a></dt>
+<dd><p>Info message - emits StatusEvent with info level.</p>
+<p>User-facing output. Transport is automatic.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> (<em>str</em>) – Info message</p></li>
+<li><p><strong>*args</strong> – Optional %-style format args (stdlib compat)</p></li>
+<li><p><strong>**kwargs</strong> – Additional metadata for streaming event</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p>logger.info(“Active capabilities: […]”)
+logger.info(“Step completed”)</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.debug">
+<span class="sig-name descname"><span class="pre">debug</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger.debug"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.debug" title="Link to this definition">#</a></dt>
+<dd><p>Debug message - emits StatusEvent with debug level.</p>
+<p>User-facing output (filtered by client if not needed).
+Transport is automatic.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> (<em>str</em>) – Debug message</p></li>
+<li><p><strong>*args</strong> – Optional %-style format args (stdlib compat)</p></li>
+<li><p><strong>**kwargs</strong> – Additional metadata for streaming event</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.warning">
+<span class="sig-name descname"><span class="pre">warning</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger.warning"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.warning" title="Link to this definition">#</a></dt>
+<dd><p>Warning message - emits StatusEvent with warning level.</p>
+<p>User-facing output. Transport is automatic.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> (<em>str</em>) – Warning message</p></li>
+<li><p><strong>*args</strong> – Optional %-style format args (stdlib compat)</p></li>
+<li><p><strong>**kwargs</strong> – Additional metadata for streaming event</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.error">
+<span class="sig-name descname"><span class="pre">error</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">exc_info</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger.error"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.error" title="Link to this definition">#</a></dt>
+<dd><p>Error message - emits ErrorEvent.</p>
+<p>User-facing output. Transport is automatic.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> (<em>str</em>) – Error message</p></li>
+<li><p><strong>*args</strong> – Optional %-style format args (stdlib compat)</p></li>
+<li><p><strong>exc_info</strong> (<em>bool</em>) – Whether to include exception traceback in ErrorEvent</p></li>
+<li><p><strong>**kwargs</strong> – Additional error metadata for streaming event</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.success">
+<span class="sig-name descname"><span class="pre">success</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger.success"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.success" title="Link to this definition">#</a></dt>
+<dd><p>Success message - emits StatusEvent with success level.</p>
+<p>User-facing output. Transport is automatic.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> (<em>str</em>) – Success message</p></li>
+<li><p><strong>*args</strong> – Optional %-style format args (stdlib compat)</p></li>
+<li><p><strong>**kwargs</strong> – Additional metadata for streaming event</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.timing">
+<span class="sig-name descname"><span class="pre">timing</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger.timing"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.timing" title="Link to this definition">#</a></dt>
+<dd><p>Timing information - emits StatusEvent with timing level.</p>
+<p>User-facing output. Transport is automatic.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> (<em>str</em>) – Timing message</p></li>
+<li><p><strong>*args</strong> – Optional %-style format args (stdlib compat)</p></li>
+<li><p><strong>**kwargs</strong> – Additional metadata for streaming event</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.approval">
+<span class="sig-name descname"><span class="pre">approval</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger.approval"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.approval" title="Link to this definition">#</a></dt>
+<dd><p>Approval message - emits StatusEvent with approval level.</p>
+<p>User-facing output. Transport is automatic.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> (<em>str</em>) – Approval message</p></li>
+<li><p><strong>*args</strong> – Optional %-style format args (stdlib compat)</p></li>
+<li><p><strong>**kwargs</strong> – Additional metadata for streaming event</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.resume">
+<span class="sig-name descname"><span class="pre">resume</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger.resume"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.resume" title="Link to this definition">#</a></dt>
+<dd><p>Resume message - emits StatusEvent with resume level.</p>
+<p>User-facing output. Transport is automatic.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> (<em>str</em>) – Resume message</p></li>
+<li><p><strong>*args</strong> – Optional %-style format args (stdlib compat)</p></li>
+<li><p><strong>**kwargs</strong> – Additional metadata for streaming event</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.critical">
+<span class="sig-name descname"><span class="pre">critical</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger.critical"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.critical" title="Link to this definition">#</a></dt>
+<dd><p>Critical error - emits ErrorEvent.</p>
+<p>User-facing output. Transport is automatic.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> (<em>str</em>) – Critical error message</p></li>
+<li><p><strong>*args</strong> – Optional %-style format args (stdlib compat)</p></li>
+<li><p><strong>**kwargs</strong> – Additional error metadata for streaming event</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.exception">
+<span class="sig-name descname"><span class="pre">exception</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger.exception"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.exception" title="Link to this definition">#</a></dt>
+<dd><p>Exception with traceback - emits ErrorEvent with stack trace.</p>
+<p>User-facing output. Transport is automatic.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> (<em>str</em>) – Exception message</p></li>
+<li><p><strong>*args</strong> – Optional %-style format args (stdlib compat)</p></li>
+<li><p><strong>**kwargs</strong> – Additional error metadata for streaming event</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.level">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">level</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></span><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.level" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.name">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">name</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.name" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.setLevel">
+<span class="sig-name descname"><span class="pre">setLevel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">level</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger.setLevel"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.setLevel" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.logger.ComponentLogger.isEnabledFor">
+<span class="sig-name descname"><span class="pre">isEnabledFor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">level</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/logger.html#ComponentLogger.isEnabledFor"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.logger.ComponentLogger.isEnabledFor" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="legacy-streaming-api-deprecated">
+<h3>Legacy Streaming API (Deprecated)<a class="headerlink" href="#legacy-streaming-api-deprecated" title="Link to this heading">#</a></h3>
+<div class="deprecated">
+<p><span class="versionmodified deprecated">Deprecated since version 0.9.2: </span>The separate streaming API is deprecated in favor of the unified logging system.
+Use <code class="xref py py-meth docutils literal notranslate"><span class="pre">osprey.base.capability.BaseCapability.get_logger()</span></code> in capabilities or
+<a class="reference internal" href="#osprey.utils.logger.get_logger" title="osprey.utils.logger.get_logger"><code class="xref py py-func docutils literal notranslate"><span class="pre">get_logger()</span></code></a> with <code class="docutils literal notranslate"><span class="pre">state</span></code> parameter for automatic streaming support.</p>
+</div>
+<p>For backward compatibility only. New code should use the unified logging system above.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../../developer-guides/01_understanding-the-framework/04_orchestration-architecture.html"><span class="doc">Orchestration Architecture</span></a></dt><dd><p>Development utilities integration patterns and configuration conventions</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="../04_error_handling/03_recovery_coordination.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Recovery Coordination</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../../example-applications/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Example Applications</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#llm-completion-interface">LLM Completion Interface</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.models.get_chat_completion"><code class="docutils literal notranslate"><span class="pre">get_chat_completion()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#developer-tools">Developer Tools</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#logging-and-streaming">Logging and Streaming</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.get_logger"><code class="docutils literal notranslate"><span class="pre">get_logger()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger"><code class="docutils literal notranslate"><span class="pre">ComponentLogger</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.__init__"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.__init__()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.emit_event"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.emit_event()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.emit_llm_request"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.emit_llm_request()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.emit_llm_response"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.emit_llm_response()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.status"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.status()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.key_info"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.key_info()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.info"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.info()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.debug"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.debug()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.warning"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.warning()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.error"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.error()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.success"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.success()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.timing"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.timing()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.approval"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.approval()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.resume"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.resume()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.critical"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.critical()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.exception"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.exception()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.level"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.level</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.name"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.name</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.setLevel"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.setLevel()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.logger.ComponentLogger.isEnabledFor"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.isEnabledFor()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#legacy-streaming-api-deprecated">Legacy Streaming API (Deprecated)</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/api_reference/05_framework_utilities/index.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
