@@ -1,0 +1,1204 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>ALS Accelerator Assistant &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'example-applications/als-assistant';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Contributing to Osprey" href="../contributing/index.html" />
+    <link rel="prev" title="Example Applications" href="index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">ALS Accelerator Assistant</a></li>
+
+
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Example Applications</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">ALS Accelerator Assistant</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="als-accelerator-assistant">
+<h1>ALS Accelerator Assistant<a class="headerlink" href="#als-accelerator-assistant" title="Link to this heading">#</a></h1>
+<div class="note admonition">
+<p class="admonition-title">Research Publication</p>
+<p>This system is described in detail in the research paper <a class="reference external" href="https://link.aps.org/doi/10.1103/jtqy-9jz1">“Agentic artificial intelligence for multistage physics experiments at a large-scale user facility particle accelerator”</a> published in Physical Review Research <strong>8</strong>, L012017 (2026), which presents the first deployment of a language-model-driven agentic AI system executing multi-stage physics experiments on a production synchrotron light source.</p>
+</div>
+<div class="tip admonition">
+<p class="admonition-title">🎓 Learn by Building</p>
+<p>Want to build your own control system assistant? The <a class="reference internal" href="../getting-started/control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a> provides a comprehensive walkthrough using a production-ready template based on this deployment. You’ll learn:</p>
+<ul class="simple">
+<li><p>Channel finding with in-context and hierarchical pipelines</p></li>
+<li><p>Service layer architecture patterns</p></li>
+<li><p>Mock services for hardware-free development</p></li>
+<li><p>Comprehensive benchmarking and CLI tools</p></li>
+</ul>
+<p>Perfect for particle accelerators, and other large-scale scientific control systems.</p>
+</div>
+<section id="production-deployment-in-high-stakes-scientific-environments">
+<h2>Production Deployment in High-Stakes Scientific Environments<a class="headerlink" href="#production-deployment-in-high-stakes-scientific-environments" title="Link to this heading">#</a></h2>
+<p>The ALS Accelerator Assistant demonstrates production-grade patterns for deploying agentic AI in scientific facilities. Operating at the <a class="reference external" href="https://als.lbl.gov">Advanced Light Source</a> at Lawrence Berkeley National Laboratory, this system integrates with EPICS control systems managing 230,000+ process variables (PVs) and serving 40+ beamlines. It demonstrates safe operation in safety-critical environments where beam interruptions can impact dozens of concurrent experiments, providing practical patterns for integrating agentic AI into large-scale scientific facilities.</p>
+<p>Particle accelerator facilities like the Advanced Light Source present unique challenges for AI deployment. The operational environment demands both high availability and strict safety constraints:</p>
+<p><strong>Operational Complexity:</strong></p>
+<ul class="simple">
+<li><p><strong>Scale</strong>: Over 230,000 PVs across all accelerator subsystems require management</p></li>
+<li><p><strong>Distributed Expertise</strong>: Subsystem knowledge spans accelerator physics, RF systems, magnets, vacuum, diagnostics, and controls</p></li>
+<li><p><strong>Time Pressure</strong>: Troubleshooting unexpected faults lacks predefined solutions, forcing operators to identify relevant channels and assemble analysis under pressure</p></li>
+<li><p><strong>Multi-User Impact</strong>: Any beam interruption typically imposes downtime of at least 30 minutes, immediately affecting dozens of concurrent experiments across 40+ beamlines</p></li>
+</ul>
+<p><strong>System Response to Operational Challenges:</strong></p>
+<p>To address these demanding operational requirements, the ALS Accelerator Assistant implements a comprehensive suite of specialized capabilities that bridge the gap between natural language requests and executable scientific procedures. Unlike simpler tutorial examples like the <a class="reference internal" href="../getting-started/hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a>, this system demonstrates production-grade patterns at scale:</p>
+<ul class="simple">
+<li><p><strong>External Service Integration</strong>: Microservices architecture with MongoDB and specialized PV discovery services</p></li>
+<li><p><strong>Complex Data Orchestration</strong>: 7 interconnected capabilities managing real-time and historical scientific data</p></li>
+<li><p><strong>Sophisticated Context Management</strong>: Rich Pydantic models providing LLM-optimized access patterns and human-readable summaries for complex scientific data</p></li>
+<li><p><strong>PV Discovery &amp; Access</strong>: Natural language queries to identify and retrieve accelerator control system addresses, a process that can otherwise demand significant experience, especially where naming conventions are complex or have evolved over time.</p></li>
+<li><p><strong>Historical Data Analysis</strong>: Statistical analysis of beam performance and operational trends</p></li>
+<li><p><strong>Operational Support</strong>: Diagnostic assistance and performance monitoring for accelerator systems</p></li>
+</ul>
+<p>This production deployment demonstrates our proposed architecture for advanced agentic AI systems, validating that they can operate safely and effectively in demanding scientific facilities while maintaining the transparency and reliability required for production use.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3 sd-border-0 sd-shadow-sm" id="transferability-discussion">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-text">🌐 Transferability to Other Scientific Facilities</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>Broader Applicability Beyond ALS</strong></p>
+<p class="sd-card-text">The ALS Accelerator Assistant demonstrates architectural patterns and design principles that extend well beyond the Advanced Light Source, providing a blueprint for agentic AI integration across diverse scientific infrastructures.</p>
+<p class="sd-card-text">The majority of the system’s codebase is designed for direct deployment across different facilities with minimal modifications. The core framework capabilities, orchestration logic, data analysis workflows, and user interfaces require no facility-specific changes. <strong>The primary adaptation requirement centers on the PV Address Finder subsystem</strong>, which handles the translation between natural language queries and facility-specific control system addresses.</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" data-sync-group="tab" data-sync-id="mml-integration" for="sd-tab-item-0">
+MML-Based Integration</label><div class="sd-tab-content docutils">
+<p class="sd-card-text">For synchrotron light source facilities, the system’s foundation on the <a class="reference external" href="https://www2.als.lbl.gov/als_physics/csteier/uspas15/lectures/Intro_Matlab_MiddleLayer.pdf">MATLAB Middle Layer (MML)</a> Accelerator Object provides the most direct transferability route for facilities already using MML:</p>
+<ul class="simple">
+<li><p class="sd-card-text"><strong>Established Infrastructure</strong>: MML is implemented at most synchrotron light sources worldwide, providing a consistent data model</p></li>
+<li><p class="sd-card-text"><strong>Direct Database Integration</strong>: The normalized PV database structure from MML can be adapted with minimal refinement for the <a class="reference internal" href="#pv-address-finder">PV Address Finder</a></p></li>
+<li><p class="sd-card-text"><strong>Proven Patterns</strong>: The same PV discovery and resolution algorithms apply across different MML-enabled facilities</p></li>
+</ul>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" data-sync-group="tab" data-sync-id="alternative-strategies" for="sd-tab-item-1">
+Non-MML Facilities</label><div class="sd-tab-content docutils">
+<p class="sd-card-text">For facilities without the MATLAB Middle Layer available, several adaptation approaches can provide the required address organization and metadata. While “PV” terminology is EPICS-specific, the underlying address resolution patterns translate directly to other control systems (TANGO, DOOCS, etc.):</p>
+<ul class="simple">
+<li><p class="sd-card-text"><strong>Consistent Naming Schemes</strong>: Facilities with well-structured control system naming conventions can bypass complex PV discovery through direct semantic matching</p></li>
+<li><p class="sd-card-text"><strong>Other Middle Layer Frameworks</strong>: The MML-based approach is directly transferable to other accelerator middle layer implementations that provide similar address organization and metadata</p></li>
+<li><p class="sd-card-text"><strong>Simple Dictionary Approach</strong>: Small control systems with just a few hundred PVs can use a straightforward dictionary mapping each address to descriptive sentences, with a simple search engine (e.g. RAG) built on top for natural language queries</p></li>
+<li><p class="sd-card-text"><strong>Knowledge Graph-Based Organization</strong>: Large control systems can implement knowledge graphs to organize control system address structures, enabling sophisticated semantic queries and relationship discovery</p></li>
+</ul>
+</div>
+</div>
+<p class="sd-card-text"><strong>Large-Scale Scientific Infrastructure Applications</strong></p>
+<p class="sd-card-text">The core architectural principles demonstrated here apply to other complex scientific facilities:</p>
+<ul class="simple">
+<li><p class="sd-card-text"><strong>Multi-Domain Expertise</strong>: Any facility requiring coordination across specialized subsystems</p></li>
+<li><p class="sd-card-text"><strong>Safety-Critical Operations</strong>: Environments where mistakes have high operational costs</p></li>
+<li><p class="sd-card-text"><strong>Complex Control Systems</strong>: Facilities with large numbers of controllable parameters and monitoring points</p></li>
+<li><p class="sd-card-text"><strong>Time-Critical Decision Making</strong>: Operations requiring rapid response to changing conditions</p></li>
+</ul>
+<p class="sd-card-text">The Osprey Framework’s architecture ensures that these patterns can be implemented across diverse scientific domains while maintaining the transparency, safety, and reliability demonstrated at the ALS. In practice, deploying the ALS Assistant to a new facility primarily involves adapting the PV Address Finder’s data sources and query resolution logic—the vast majority of the system’s capabilities, user interfaces, and orchestration components should transfer directly without modification.</p>
+</div>
+</details></section>
+<section id="from-query-to-scientific-insight">
+<h2>From Query to Scientific Insight<a class="headerlink" href="#from-query-to-scientific-insight" title="Link to this heading">#</a></h2>
+<p>The following example demonstrates a non-routine but practically important machine physics task—the type of complex procedure that typically requires custom scripting and deep subsystem knowledge, yet occurs too infrequently for dedicated solutions to exist.</p>
+<p>Such procedures present several operational challenges:</p>
+<ul class="simple">
+<li><p><strong>Custom Scripting Required</strong>: Each experiment is unique, requiring bespoke code combining data retrieval, analysis, and machine control</p></li>
+<li><p><strong>Distributed Expertise</strong>: Operators often need to discuss with domain specialists for advanced procedures, creating bottlenecks</p></li>
+<li><p><strong>Time-Critical Preparation</strong>: Under operational pressure, assembling the necessary scripts, PV addresses, and analysis workflows can take hours</p></li>
+<li><p><strong>Safety Coordination</strong>: Machine interaction requires careful coordination with safety systems and approval workflows</p></li>
+</ul>
+<p><strong>Operator Request: Insertion Device (ID) Impact Study:</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>&quot;Get the minimum and maximum value of all ID gap values in the last three days.
+Then write a script which moves each ID from maximum to minimum gap and back
+while measuring the vertical beam size at beamline 3.1. Sample the gap range
+with 30 points, wait 5s after each new setpoint for the ID to settle and
+measure the beam size 5 times at 5Hz. Return a hysteresis plot beam size vs gap.&quot;
+</pre></div>
+</div>
+<p><strong>Automated Framework Execution:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Time Range Parsing</strong> → Converts “last three days” to precise datetime range</p></li>
+<li><p><strong>PV Discovery</strong> → Resolves “ID gap” and “beam size” to specific EPICS channels via structured PV finder workflow (see detailed process below)</p></li>
+<li><p><strong>Archive Retrieval</strong> → Extracts historical gap ranges for all insertion devices from the ALS EPICS archiver appliance</p></li>
+<li><p><strong>Data Analysis</strong> → Creates Python script to analyze historical ranges and determine optimal measurement parameters</p></li>
+<li><p><strong>Machine Operation</strong> → Executes 30-point bidirectional gap sweep with synchronized measurements using analysis-derived parameters</p></li>
+<li><p><strong>Data Visualization</strong> → Produces professional, annotated hysteresis plots from collected measurement data</p></li>
+</ol>
+<figure class="align-center" id="id1">
+<a class="reference internal image-reference" href="../_images/fig_ALS_experiment.png"><img alt="ALS Accelerator Assistant Multi-Stage Physics Experiment Results" src="../_images/fig_ALS_experiment.png" style="width: 90%;" />
+</a>
+<figcaption>
+<p><span class="caption-text"><strong>Automated Physics Experiment Results</strong>: Hysteresis plots showing beam size variations across insertion device gap ranges, demonstrating the framework’s ability to orchestrate complex multi-stage physics experiments from natural language instructions.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p><strong>Result:</strong> Complete experimental procedure automated from natural language while maintaining operator-standard safety protocols. In this representative case, preparation time was reduced by two orders of magnitude compared to manual scripting, demonstrating the system’s ability to bridge the gap between complex user objectives and executable scientific procedures.</p>
+</section>
+<section id="system-architecture">
+<h2>System Architecture<a class="headerlink" href="#system-architecture" title="Link to this heading">#</a></h2>
+<p>The ALS Accelerator Assistant demonstrates a production-grade architecture for scientific facility integration:</p>
+<figure class="align-center" id="id2">
+<a class="reference internal image-reference" href="../_images/fig_ALS_setup.pdf"><img alt="ALS Accelerator Assistant System Architecture" src="../_images/fig_ALS_setup.pdf" style="width: 90%;" />
+</a>
+<figcaption>
+<p><span class="caption-text"><strong>System Architecture</strong>: Multiple users can access the same system simultaneously either remotely or from the control room via web interface (Open WebUI) or command line interface (CLI). The agent orchestrates connections to the PV database, archive data, and execution environments. Model inference uses either local Ollama or cloud providers via <a class="reference external" href="https://cborg.lbl.gov">CBorg</a> gateway, with EPICS integration ensuring safe hardware interaction.</span><a class="headerlink" href="#id2" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p><strong>Key Architectural Components:</strong></p>
+<ul class="simple">
+<li><p><strong>Multi-Interface Access</strong>: Web UI (Open WebUI) and command line for different user preferences</p></li>
+<li><p><strong>Hybrid Inference</strong>: Local GPU (H100) for low-latency + cloud models for advanced reasoning</p></li>
+<li><p><strong>Service Integration</strong>: PV database, archiver, and Jupyter execution environments</p></li>
+<li><p><strong>Safety Integration</strong>: EPICS-enforced operator-standard constraints for hardware interaction</p></li>
+<li><p><strong>Authentication</strong>: User identity management with personalized context and memory across sessions</p></li>
+</ul>
+</section>
+<section id="pv-address-finder">
+<h2>PV Address Finder<a class="headerlink" href="#pv-address-finder" title="Link to this heading">#</a></h2>
+<p>A critical challenge in accelerator control is translating natural language descriptions like “ID gap” or “beam current” into specific EPICS process variable names. The ALS Accelerator Assistant solves this through a structured PV Finder subsystem.</p>
+<div class="tip admonition">
+<p class="admonition-title">🔍 Deep Dive: Channel Finding Pipelines</p>
+<p>The <a class="reference internal" href="../getting-started/control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a> tutorial provides an in-depth exploration of two different channel finding pipeline architectures:</p>
+<ul class="simple">
+<li><p><strong>In-Context Pipeline</strong>: Semantic search for &lt;1,000 channels (1-2s latency)</p></li>
+<li><p><strong>Hierarchical Pipeline</strong>: Structured navigation for &gt;1,000 channels (5-7s latency)</p></li>
+</ul>
+<p>Includes complete implementations, comparative benchmarking, and adaptation guides for your facility.</p>
+</div>
+<figure class="align-center" id="id3">
+<a class="reference internal image-reference" href="../_images/fig_ALS_PV_finder.pdf"><img alt="PV Address Finder Subsystem Workflow" src="../_images/fig_ALS_PV_finder.pdf" style="width: 90%;" />
+</a>
+<figcaption>
+<p><span class="caption-text"><strong>PV Address Finder Workflow</strong>: Natural language queries are split into atomic intents, preprocessed to extract systems and keywords, then resolved into specific EPICS PVs through a tool-bounded ReAct agent exploring a normalized MATLAB Middle Layer database.</span><a class="headerlink" href="#id3" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p><strong>Technical Implementation:</strong></p>
+<ul class="simple">
+<li><p><strong>Data Foundation</strong>: ~10,000 key PVs from normalized MATLAB Middle Layer (MML) export</p></li>
+<li><p><strong>Query Processing</strong>: Atomic intent splitting with system/keyword extraction</p></li>
+<li><p><strong>Bounded Exploration</strong>: ReAct-style agent with strictly limited API access for auditability</p></li>
+<li><p><strong>Transferability</strong>: MML foundation enables adaptation to other synchrotron facilities</p></li>
+</ul>
+<p>This approach provides <strong>auditability</strong> through bounded tool access while <strong>grounding ambiguous terminology</strong> into precise EPICS channel names.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3 sd-border-0 sd-shadow-sm" id="mcp-service-integration">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-text">🔧 PV Finder MCP Service Integration (Optional)</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>What is MCP (Model Context Protocol)?</strong></p>
+<p class="sd-card-text"><a class="reference external" href="https://modelcontextprotocol.io">Model Context Protocol</a> is an open standard for connecting Language Models with tool-calling capabilities with external data sources and tools. It enables AI applications like Claude Desktop, VS Code extensions, and other MCP-compatible clients to access specialized services through a standardized interface.</p>
+<p class="sd-card-text"><strong>PV Finder as Standalone MCP Service</strong></p>
+<p class="sd-card-text">The ALS Assistant’s PV Finder service can be deployed as a standalone MCP server, making the specialized knowledge of ALS control systems available to any MCP-compatible application:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># === MCP SERVER WRAPPER ===</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mcp.server.fastmcp</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastMCP</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">applications.als_assistant.services.pv_finder.agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_pv_finder_graph</span>
+
+<span class="c1"># Initialize MCP server with service integration</span>
+<span class="n">mcp</span> <span class="o">=</span> <span class="n">FastMCP</span><span class="p">(</span>
+    <span class="s2">&quot;[MCP] PV Finder&quot;</span><span class="p">,</span>
+    <span class="n">lifespan</span><span class="o">=</span><span class="n">app_lifespan</span><span class="p">,</span>
+    <span class="n">host</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;HOST&quot;</span><span class="p">,</span> <span class="s2">&quot;localhost&quot;</span><span class="p">),</span>
+    <span class="n">port</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;PORT&quot;</span><span class="p">,</span> <span class="s2">&quot;8051&quot;</span><span class="p">))</span>
+<span class="p">)</span>
+
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run_pv_finder</span><span class="p">(</span><span class="n">query</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Send a query to the PV Finder Agent to handle queries about the ALS control system.</span>
+<span class="sd">    Use this tool when you need a PV address.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># Delegate to framework service layer</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">run_pv_finder_graph</span><span class="p">(</span><span class="n">user_query</span><span class="o">=</span><span class="n">query</span><span class="p">)</span>
+
+        <span class="c1"># Normalize for MCP protocol</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="s2">&quot;model_dump&quot;</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">result</span><span class="o">.</span><span class="n">model_dump</span><span class="p">()</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;pvs&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">pvs</span><span class="p">,</span> <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">description</span><span class="p">}</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;pvs&quot;</span><span class="p">:</span> <span class="p">[],</span> <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Error: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">}</span>
+</pre></div>
+</div>
+<p class="sd-card-text"><strong>Key Benefits:</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text"><strong>Ecosystem Integration</strong>: Use ALS PV knowledge in Claude Desktop, VS Code, and other MCP clients</p></li>
+<li><p class="sd-card-text"><strong>Service Reusability</strong>: Same service logic serves both framework capabilities and external integrations</p></li>
+<li><p class="sd-card-text"><strong>Independent Deployment</strong>: MCP server runs separately from main framework application</p></li>
+</ul>
+<p class="sd-card-text"><strong>Claude Desktop Integration Example</strong></p>
+<p class="sd-card-text">The following figure demonstrates the PV Finder MCP server successfully integrated with Claude Desktop, where a user asks “what’s the beam current PV address?” and Claude Desktop correctly responds using the PV Finder tool:</p>
+<figure class="align-center" id="id4">
+<a class="reference internal image-reference" href="../_images/fig_ALS_PV_Finder_MCP.pdf"><img alt="PV Finder MCP Server Integration with Claude Desktop" src="../_images/fig_ALS_PV_Finder_MCP.pdf" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">PV Finder MCP server integration with Claude Desktop showing successful PV address lookup for beam current.</span><a class="headerlink" href="#id4" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p class="sd-card-text"><strong>Setting Up PV Finder MCP Service through the Framework’s Container Deployment System</strong></p>
+<p class="sd-card-text">The Osprey Framework includes integrated deployment for the PV Finder MCP service alongside other application services.</p>
+<ol class="arabic">
+<li><p class="sd-card-text"><strong>Add PV Finder MCP Service to Configuration</strong>: Include the service in your <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">deployed_services</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">applications.als_assistant.pv_finder</span><span class="w">    </span><span class="c1"># PV Finder MCP service</span>
+<span class="w">  </span><span class="c1"># ... other services</span>
+</pre></div>
+</div>
+</li>
+<li><p class="sd-card-text"><strong>Deploy Using Container Manager</strong>: Use the framework’s container deployment system:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Deploy all configured services including PV Finder MCP</span>
+python3<span class="w"> </span>deployment/container_manager.py<span class="w"> </span>config.yml<span class="w"> </span>up<span class="w"> </span>-d
+</pre></div>
+</div>
+<p class="sd-card-text">The container manager will automatically:</p>
+<ul class="simple">
+<li><p class="sd-card-text">Render the PV Finder Docker Compose template with your configuration</p></li>
+<li><p class="sd-card-text">Set up the MCP service with proper networking and dependencies</p></li>
+<li><p class="sd-card-text">Configure transport protocols (stdio/SSE) based on environment settings</p></li>
+<li><p class="sd-card-text">Start the service ready for MCP client connections</p></li>
+</ul>
+</li>
+<li><p class="sd-card-text"><strong>Service Integration</strong>: The deployed service becomes available for:</p>
+<ul class="simple">
+<li><p class="sd-card-text"><strong>Claude Desktop Integration</strong>: Configure as MCP server in Claude Desktop settings</p></li>
+<li><p class="sd-card-text"><strong>VS Code Extensions</strong>: Connect through MCP protocol for PV discovery in development environments</p></li>
+<li><p class="sd-card-text"><strong>Custom Applications</strong>: Access via stdio or SSE transport protocols</p></li>
+</ul>
+</li>
+</ol>
+<p class="sd-card-text"><strong>Deployment Options:</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text"><strong>Stdio Transport</strong>: Direct integration with MCP-compatible applications like Claude Desktop</p></li>
+<li><p class="sd-card-text"><strong>SSE Transport</strong>: HTTP-based integration for web applications and remote clients</p></li>
+<li><p class="sd-card-text"><strong>Containerized Deployment</strong>: Docker-based deployment managed by the framework’s container system</p></li>
+</ul>
+<p class="sd-card-text">The MCP server implementation is located in <code class="docutils literal notranslate"><span class="pre">services/applications/als_assistant/pv_finder/src/main.py</span></code> and demonstrates how framework services can participate in the broader AI ecosystem while maintaining clean architectural boundaries.</p>
+</div>
+</details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3 sd-border-0 sd-shadow-sm">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-text">🔍 Langfuse Observability Setup (Optional)</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>What is Langfuse?</strong></p>
+<p class="sd-card-text"><a class="reference external" href="https://langfuse.com">Langfuse</a> is an open-source platform designed for Language Model observability, providing comprehensive tracing and monitoring capabilities. It enables developers to debug, analyze, and optimize AI applications by capturing detailed execution traces, token usage, latencies, and model interactions.</p>
+<p class="sd-card-text"><strong>Langfuse in the ALS Accelerator Assistant Framework</strong></p>
+<p class="sd-card-text">The PV Finder service integrates Langfuse to provide detailed observability into agent execution workflows, including:</p>
+<ul class="simple">
+<li><p class="sd-card-text"><strong>PV Discovery Traces</strong>: Complete workflow visibility from natural language query to EPICS address resolution</p></li>
+<li><p class="sd-card-text"><strong>Performance Monitoring</strong>: Track execution times, token usage, and system performance metrics</p></li>
+<li><p class="sd-card-text"><strong>Debug Support</strong>: Detailed step-by-step execution traces for troubleshooting complex agent behaviors</p></li>
+</ul>
+<figure class="align-center" id="id5">
+<a class="reference internal image-reference" href="../_images/fig_ALS_langfuse.pdf"><img alt="PV Finder Service Trace in Langfuse Dashboard" src="../_images/fig_ALS_langfuse.pdf" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text"><strong>Langfuse Dashboard Example</strong>: PV Finder service trace showing the complete workflow from natural language query to EPICS PV resolution, with detailed timing and execution context including all function calls, their arguments, and return values and model details.</span><a class="headerlink" href="#id5" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p class="sd-card-text"><strong>Setting Up Langfuse through the Framework’s Container Deployment System</strong></p>
+<p class="sd-card-text">The Osprey Framework includes a production-ready Langfuse deployment with enterprise features including ClickHouse for high-performance analytics, Redis for caching, and MinIO for object storage.</p>
+<ol class="arabic">
+<li><p class="sd-card-text"><strong>Add Langfuse to Configuration</strong>: Include the Langfuse service in your <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">deployed_services</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">applications.als_assistant.langfuse</span><span class="w">  </span><span class="c1"># Add this line</span>
+<span class="w">  </span><span class="c1"># ... other services</span>
+</pre></div>
+</div>
+</li>
+<li><p class="sd-card-text"><strong>Deploy Using Container Manager</strong>: Use the framework’s container deployment system (see detailed documentation in <a class="reference internal" href="../developer-guides/05_production-systems/05_container-and-deployment.html"><span class="doc">Container Deployment</span></a>):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Deploy all configured services including Langfuse</span>
+python3<span class="w"> </span>deployment/container_manager.py<span class="w"> </span>config.yml<span class="w"> </span>up<span class="w"> </span>-d
+</pre></div>
+</div>
+<p class="sd-card-text">The container manager will automatically:</p>
+<ul class="simple">
+<li><p class="sd-card-text">Render the Langfuse Docker Compose template with your configuration</p></li>
+<li><p class="sd-card-text">Set up PostgreSQL, ClickHouse, Redis, and MinIO services</p></li>
+<li><p class="sd-card-text">Configure networking between all services</p></li>
+<li><p class="sd-card-text">Start Langfuse web interface on port <strong>3001</strong></p></li>
+</ul>
+</li>
+<li><p class="sd-card-text"><strong>Access Langfuse Dashboard</strong>: Open your browser and navigate to <code class="docutils literal notranslate"><span class="pre">http://localhost:3001</span></code></p></li>
+<li><p class="sd-card-text"><strong>Complete Initial Setup Flow</strong>: Follow the setup wizard:</p>
+<p class="sd-card-text"><strong>Step 1: Create Organization</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text">You’ll see: “Create an organization to get started”</p></li>
+<li><p class="sd-card-text">Click “New Organization” and provide an organization name</p></li>
+</ul>
+<p class="sd-card-text"><strong>Step 2: Invite Members (Optional)</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text">Add team members or skip this step for now</p></li>
+<li><p class="sd-card-text">You can always add members later</p></li>
+</ul>
+<p class="sd-card-text"><strong>Step 3: Create Project</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text">Enter a project name (e.g., “ALS Assistant”)</p></li>
+<li><p class="sd-card-text">Projects group traces, datasets, and prompts</p></li>
+<li><p class="sd-card-text">Click “Create”</p></li>
+</ul>
+<p class="sd-card-text"><strong>Step 4: Generate API Keys</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text">Click “Create API Key”</p></li>
+<li><p class="sd-card-text"><strong>Important</strong>: Copy both keys immediately - the secret key is only shown once:</p>
+<ul>
+<li><p class="sd-card-text"><strong>Secret Key</strong>: <code class="docutils literal notranslate"><span class="pre">sk-lf-42e6...</span></code> (example)</p></li>
+<li><p class="sd-card-text"><strong>Public Key</strong>: <code class="docutils literal notranslate"><span class="pre">pk-lf-d6f9...</span></code> (example)</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ol>
+<p class="sd-card-text"><strong>Framework Configuration</strong></p>
+<p class="sd-card-text">Add the API keys to your <code class="docutils literal notranslate"><span class="pre">.env</span></code> file:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Enable Langfuse observability</span>
+<span class="nv">LANGFUSE_ENABLED</span><span class="o">=</span><span class="nb">true</span>
+
+<span class="c1"># API Keys from your Langfuse project settings (replace with your actual keys)</span>
+<span class="nv">LANGFUSE_PUBLIC_KEY</span><span class="o">=</span>pk-lf-d6f9...
+<span class="nv">LANGFUSE_SECRET_KEY</span><span class="o">=</span>sk-lf-42e6...
+</pre></div>
+</div>
+<p class="sd-card-text"><strong>Enterprise Deployment Features</strong></p>
+<p class="sd-card-text">The framework’s Langfuse deployment includes advanced features for production use:</p>
+<ul class="simple">
+<li><p class="sd-card-text"><strong>ClickHouse Analytics</strong>: High-performance columnar database for fast trace queries and analytics</p></li>
+<li><p class="sd-card-text"><strong>Redis Caching</strong>: In-memory caching for improved response times</p></li>
+<li><p class="sd-card-text"><strong>MinIO Object Storage</strong>: S3-compatible storage for large trace data and media files</p></li>
+<li><p class="sd-card-text"><strong>PostgreSQL</strong>: Primary database for metadata and configuration</p></li>
+<li><p class="sd-card-text"><strong>Health Monitoring</strong>: Built-in health checks for all services</p></li>
+<li><p class="sd-card-text"><strong>Enterprise License</strong>: Includes advanced features like RBAC and custom integrations</p></li>
+</ul>
+<p class="sd-card-text">The Docker Compose template (<code class="docutils literal notranslate"><span class="pre">services/applications/als_assistant/langfuse/docker-compose.yml.j2</span></code>) orchestrates these services with proper networking, dependency management, and volume persistence.</p>
+<p class="sd-card-text">The framework’s observability implementation in <code class="docutils literal notranslate"><span class="pre">src/applications/als_assistant/utils/observability.py</span></code> provides seamless integration with OpenTelemetry and automatic trace export to your Langfuse instance. Since Langfuse supports OpenTelemetry-based instrumentation, this observability setup can be used with any language model or provider that supports <a class="reference external" href="https://opentelemetry.io">OpenTelemetry</a> tracing.</p>
+</div>
+</details></section>
+<section id="robust-python-code-execution-from-natural-language-to-scientific-scripts">
+<h2>Robust Python Code Execution: From Natural Language to Scientific Scripts<a class="headerlink" href="#robust-python-code-execution-from-natural-language-to-scientific-scripts" title="Link to this heading">#</a></h2>
+<p>The ALS Accelerator Assistant translates natural language objectives into reliable, executable code through a structured approach that prioritizes robustness over direct translation. Rather than attempting to directly convert user requests into code—which can be brittle and prone to over-design—the system employs a three-stage pipeline designed for reliability in production environments:</p>
+<figure class="align-center" id="id6">
+<a class="reference internal image-reference" href="../_images/fig_ALS_python.pdf"><img alt="Python Execution Pipeline" src="../_images/fig_ALS_python.pdf" style="width: 90%;" />
+</a>
+<figcaption>
+<p><span class="caption-text"><strong>Python Execution Pipeline</strong>: Natural language tasks are translated into a plan, results schema, and then Python code, which can dynamically access the agent context, is statically analyzed, and may be reviewed by a human operator. Execution is typically confined to containerized Jupyter kernels with strict read/write policies, and every run produces session artifacts (context, notebooks, JSON) for full reproducibility.</span><a class="headerlink" href="#id6" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p><strong>Three-Stage Code Generation Process:</strong></p>
+<p>This decomposition improves reliability by separating concerns and enabling validation at each stage:</p>
+<ol class="arabic simple">
+<li><p><strong>High-Level Planning</strong> → Strategic plan of script objectives and approach</p></li>
+<li><p><strong>Schema Generation</strong> → Structured JSON schema specifying expected results and data formats</p></li>
+<li><p><strong>Code Production</strong> → Python code generated, conditioned on both plan and schema for consistency</p></li>
+</ol>
+<p><strong>Safety and Reliability Features:</strong></p>
+<ul class="simple">
+<li><p><strong>Containerized Execution</strong>: Isolated Jupyter kernels with strict read/write policies prevent unintended system access</p></li>
+<li><p><strong>Dual Modes</strong>: Read-only (analysis/visualization) vs. write-enabled (machine interaction with mandatory approval)</p></li>
+<li><p><strong>Static Analysis</strong>: Code is analyzed before execution to identify potential issues</p></li>
+<li><p><strong>Human Review</strong>: Operators can inspect generated code before execution, particularly for write operations</p></li>
+<li><p><strong>Full Provenance</strong>: Every run produces structured artifacts (notebooks, JSON, figures) enabling complete reproducibility</p></li>
+<li><p><strong>Approval Workflows</strong>: Write operations require explicit operator approval, maintaining safety standards</p></li>
+<li><p><strong>Modular Architecture</strong>: Specialized capabilities (Data Analysis, Machine Operations, Visualization) share the same execution flow with domain-specific prompts</p></li>
+</ul>
+</section>
+</section>
+<section id="framework-patterns-reference">
+<h1>Framework Patterns Reference<a class="headerlink" href="#framework-patterns-reference" title="Link to this heading">#</a></h1>
+<p>The ALS Accelerator Assistant demonstrates key production patterns for scaling the Osprey Framework to complex scientific applications:</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-2" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" data-sync-group="tab" data-sync-id="standard-implementation" for="sd-tab-item-2">
+Capability Implementation</label><div class="sd-tab-content docutils">
+<p><strong>Pattern:</strong> Consistent 4-step structure for all capabilities</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@capability_node</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ExampleCapability</span><span class="p">(</span><span class="n">BaseCapability</span><span class="p">):</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;capability_name&quot;</span>
+    <span class="n">provides</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;OUTPUT&quot;</span><span class="p">]</span>
+    <span class="n">requires</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;INPUT&quot;</span><span class="p">]</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="c1"># Step 1: Get required inputs (automatically extracted)</span>
+        <span class="n">input_data</span><span class="p">,</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">()</span>
+
+        <span class="c1"># Step 2: Process data (delegate to service layer if complex)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_process_data</span><span class="p">(</span><span class="n">input_data</span><span class="p">)</span>
+
+        <span class="c1"># Step 3: Create framework context object</span>
+        <span class="n">output_context</span> <span class="o">=</span> <span class="n">OutputContext</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">result</span><span class="p">)</span>
+
+        <span class="c1"># Step 4: Store context and return state updates</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">output_context</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Result:</strong> Consistent, testable, and maintainable capability implementation across all framework operations.</p>
+</div>
+<input id="sd-tab-item-3" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" data-sync-group="tab" data-sync-id="service-separation" for="sd-tab-item-3">
+Service Layer Separation</label><div class="sd-tab-content docutils">
+<p><strong>Pattern:</strong> Clean separation between framework orchestration and external system complexity</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span> <span class="c1"># === SERVICE LAYER ===</span>
+ <span class="c1"># Handles complex business logic, NLP, and database operations</span>
+ <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run_pv_finder_graph</span><span class="p">(</span><span class="n">user_query</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PVSearchResult</span><span class="p">:</span>
+<span class="w">     </span><span class="sd">&quot;&quot;&quot;Resolve natural language to specific EPICS PVs via Middle Layer database.&quot;&quot;&quot;</span>
+     <span class="c1"># Complex NLP processing, database queries, semantic matching</span>
+     <span class="k">return</span> <span class="n">PVSearchResult</span><span class="p">(</span><span class="n">pvs</span><span class="o">=</span><span class="n">found_addresses</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="n">query_context</span><span class="p">)</span>
+
+ <span class="c1"># === FRAMEWORK CAPABILITY ===</span>
+ <span class="c1"># Focuses purely on framework orchestration and state management</span>
+<span class="nd">@capability_node</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">PVAddressFindingCapability</span><span class="p">(</span><span class="n">BaseCapability</span><span class="p">):</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;pv_address_finding&quot;</span>
+    <span class="n">provides</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;PV_ADDRESSES&quot;</span><span class="p">]</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="c1"># Get task objective using helper method</span>
+        <span class="n">search_query</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_task_objective</span><span class="p">()</span>
+
+        <span class="c1"># Delegate complex logic to service layer</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">run_pv_finder_graph</span><span class="p">(</span><span class="n">user_query</span><span class="o">=</span><span class="n">search_query</span><span class="p">)</span>
+
+        <span class="c1"># Create framework context object</span>
+        <span class="n">pv_finder_context</span> <span class="o">=</span> <span class="n">PVAddresses</span><span class="p">(</span>
+            <span class="n">pvs</span><span class="o">=</span><span class="n">response</span><span class="o">.</span><span class="n">pvs</span><span class="p">,</span>
+            <span class="n">description</span><span class="o">=</span><span class="n">response</span><span class="o">.</span><span class="n">description</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Store context using helper method</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">pv_finder_context</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Result:</strong> Independent testing, scaling, and maintenance of business logic vs. framework integration. This architecture also enables individual services to be deployed as standalone MCP servers for broader AI ecosystem integration (see <a class="reference internal" href="#mcp-service-integration"><span class="std std-ref">PV Finder MCP Service Integration</span></a>).</p>
+</div>
+<input id="sd-tab-item-4" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" data-sync-group="tab" data-sync-id="rich-context" for="sd-tab-item-4">
+Rich Context Classes</label><div class="sd-tab-content docutils">
+<p><strong>Pattern:</strong> LLM-optimized access patterns for complex scientific data structures</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">ArchiverDataContext</span><span class="p">(</span><span class="n">CapabilityContext</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Historical time series from ALS EPICS archiver.&quot;&quot;&quot;</span>
+    <span class="n">timestamps</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">datetime</span><span class="p">]</span>                    <span class="c1"># Full datetime objects for analysis</span>
+    <span class="n">precision_ms</span><span class="p">:</span> <span class="nb">int</span>                             <span class="c1"># Data precision in milliseconds</span>
+    <span class="n">time_series_data</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">]]</span>      <span class="c1"># PV name -&gt; time series values</span>
+    <span class="n">available_pvs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>                      <span class="c1"># List of available PV names</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_access_details</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Rich description of the archiver data structure.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;total_points&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timestamps</span><span class="p">),</span>
+            <span class="s2">&quot;precision_ms&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">precision_ms</span><span class="p">,</span>
+            <span class="s2">&quot;pv_count&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">available_pvs</span><span class="p">),</span>
+            <span class="s2">&quot;available_pvs&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">available_pvs</span><span class="p">,</span>
+            <span class="s2">&quot;CRITICAL_ACCESS_PATTERNS&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;get_pv_data&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;data = context.</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">CONTEXT_TYPE</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.time_series_data[&#39;PV_NAME&#39;]&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;get_timestamps&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;timestamps = context.</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">CONTEXT_TYPE</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.timestamps&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;get_single_value&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;value = context.</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">CONTEXT_TYPE</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.time_series_data[&#39;PV_NAME&#39;][index]&quot;</span>
+            <span class="p">},</span>
+            <span class="s2">&quot;datetime_features&quot;</span><span class="p">:</span> <span class="s2">&quot;Full datetime functionality: arithmetic, comparison, formatting with .strftime(), timezone operations&quot;</span>
+        <span class="p">}</span>
+</pre></div>
+</div>
+<p><strong>Result:</strong> Enables complex physics analysis while providing clear, discoverable access patterns for AI agents.</p>
+</div>
+<input id="sd-tab-item-5" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" data-sync-group="tab" data-sync-id="approval-workflows" for="sd-tab-item-5">
+Approval Workflows</label><div class="sd-tab-content docutils">
+<p><strong>Pattern:</strong> Human approval workflows for operations requiring oversight</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@capability_node</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">DataAnalysisCapability</span><span class="p">(</span><span class="n">BaseCapability</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Data analysis capability with human approval workflow.&quot;&quot;&quot;</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;data_analysis&quot;</span>
+    <span class="n">provides</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;ANALYSIS_RESULTS&quot;</span><span class="p">]</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="n">python_service</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_service</span><span class="p">(</span><span class="s2">&quot;python_executor&quot;</span><span class="p">)</span>
+
+        <span class="c1"># ===== CHECK FOR APPROVAL RESUME =====</span>
+        <span class="n">has_approval_resume</span><span class="p">,</span> <span class="n">approved_payload</span> <span class="o">=</span> <span class="n">get_approval_resume_data</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">,</span> <span class="n">create_approval_type</span><span class="p">(</span><span class="s2">&quot;data_analysis&quot;</span><span class="p">)</span>
+        <span class="p">)</span>
+
+         <span class="k">if</span> <span class="n">has_approval_resume</span><span class="p">:</span>
+             <span class="c1"># Resume execution with user&#39;s approval decision</span>
+             <span class="n">resume_response</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;approved&quot;</span><span class="p">:</span> <span class="nb">bool</span><span class="p">(</span><span class="n">approved_payload</span><span class="p">)}</span>
+             <span class="k">if</span> <span class="n">approved_payload</span><span class="p">:</span>
+                 <span class="n">resume_response</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">approved_payload</span><span class="p">)</span>
+
+             <span class="n">service_result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">python_service</span><span class="o">.</span><span class="n">ainvoke</span><span class="p">(</span>
+                 <span class="n">Command</span><span class="p">(</span><span class="n">resume</span><span class="o">=</span><span class="n">resume_response</span><span class="p">),</span> <span class="n">config</span><span class="o">=</span><span class="n">service_config</span>
+             <span class="p">)</span>
+             <span class="n">approval_cleanup</span> <span class="o">=</span> <span class="n">clear_approval_state</span><span class="p">()</span>
+         <span class="k">else</span><span class="p">:</span>
+             <span class="c1"># ===== NORMAL EXECUTION PATH =====</span>
+
+            <span class="c1"># Prepare execution request (details omitted for brevity)</span>
+            <span class="n">execution_request</span> <span class="o">=</span> <span class="n">PythonExecutionRequest</span><span class="p">(</span>
+                <span class="n">user_query</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;input_output&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;user_query&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">),</span>
+                <span class="n">task_objective</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">get_task_objective</span><span class="p">(),</span>
+                <span class="n">capability_prompts</span><span class="o">=</span><span class="n">prompts</span><span class="p">,</span>  <span class="c1"># Generated elsewhere</span>
+                <span class="n">expected_results</span><span class="o">=</span><span class="n">expected_results</span><span class="p">,</span>  <span class="c1"># Generated elsewhere</span>
+                <span class="n">execution_folder_name</span><span class="o">=</span><span class="s2">&quot;data_analysis&quot;</span><span class="p">,</span>
+                <span class="n">capability_context_data</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;capability_context_data&#39;</span><span class="p">,</span> <span class="p">{}),</span>
+                <span class="n">config</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;config&quot;</span><span class="p">,</span> <span class="p">{})</span>
+            <span class="p">)</span>
+
+             <span class="c1"># Execute with centralized approval handling</span>
+             <span class="n">service_result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">handle_service_with_interrupts</span><span class="p">(</span>
+                 <span class="n">service</span><span class="o">=</span><span class="n">python_service</span><span class="p">,</span>
+                 <span class="n">request</span><span class="o">=</span><span class="n">execution_request</span><span class="p">,</span>
+                 <span class="n">config</span><span class="o">=</span><span class="n">service_config</span><span class="p">,</span>
+                 <span class="n">logger</span><span class="o">=</span><span class="n">logger</span><span class="p">,</span>
+                 <span class="n">capability_name</span><span class="o">=</span><span class="s2">&quot;DataAnalysis&quot;</span>
+             <span class="p">)</span>
+             <span class="n">approval_cleanup</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="c1"># ===== BOTH PATHS CONVERGE HERE =====</span>
+        <span class="n">analysis_context</span> <span class="o">=</span> <span class="n">_create_analysis_context</span><span class="p">(</span><span class="n">service_result</span><span class="p">)</span>
+        <span class="n">context_updates</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">analysis_context</span><span class="p">)</span>
+
+        <span class="c1"># Clean up approval state if needed</span>
+        <span class="k">if</span> <span class="n">approval_cleanup</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">{</span><span class="o">**</span><span class="n">context_updates</span><span class="p">,</span> <span class="o">**</span><span class="n">approval_cleanup</span><span class="p">}</span>
+        <span class="k">return</span> <span class="n">context_updates</span>
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-6" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" data-sync-group="tab" data-sync-id="external-database" for="sd-tab-item-6">
+Database Integration</label><div class="sd-tab-content docutils">
+<p><strong>Pattern:</strong> Integrating external databases as data source providers for enhanced context. This results in enhanced decision-making while maintaining clean separation between framework orchestration and database complexity.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Demonstration Implementation</strong>: The current experimental database is a mock implementation designed to showcase the integration pattern. A comprehensive database with real ALS operational data is under development and will be added in future releases.</p>
+</div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># === DATA SOURCE PROVIDER ===</span>
+<span class="c1"># Implements the framework&#39;s DataSourceProvider interface</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ExperimentDatabaseProvider</span><span class="p">(</span><span class="n">DataSourceProvider</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Application-specific data source for experimental data and maintenance logs.&quot;&quot;&quot;</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">retrieve_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">:</span> <span class="n">DataSourceRequest</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">DataSourceContext</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Retrieve relevant database records for task context.&quot;&quot;&quot;</span>
+        <span class="c1"># Query all equipment status and baseline measurements</span>
+        <span class="n">equipment_status</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="s2">&quot;equipment_status&quot;</span><span class="p">)</span>
+        <span class="n">baseline_data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="s2">&quot;baseline_data&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="n">equipment_status</span> <span class="ow">or</span> <span class="n">baseline_data</span><span class="p">):</span>
+            <span class="k">return</span> <span class="kc">None</span>
+
+        <span class="c1"># Package data for LLM consumption</span>
+        <span class="n">db_data</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;equipment_status&quot;</span><span class="p">:</span> <span class="n">equipment_status</span><span class="p">,</span>
+            <span class="s2">&quot;baseline_data&quot;</span><span class="p">:</span> <span class="n">baseline_data</span><span class="p">,</span>
+        <span class="p">}</span>
+
+        <span class="k">return</span> <span class="n">DataSourceContext</span><span class="p">(</span>
+            <span class="n">source_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+            <span class="n">context_type</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">context_type</span><span class="p">,</span>
+            <span class="n">data</span><span class="o">=</span><span class="n">db_data</span><span class="p">,</span>
+            <span class="n">metadata</span><span class="o">=</span><span class="p">{</span>
+                <span class="s2">&quot;equipment_count&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">equipment_status</span><span class="p">),</span>
+                <span class="s2">&quot;baseline_count&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">baseline_data</span><span class="p">),</span>
+                <span class="s2">&quot;source_description&quot;</span><span class="p">:</span> <span class="s2">&quot;ALS experimental and maintenance database&quot;</span>
+            <span class="p">},</span>
+            <span class="n">provider</span><span class="o">=</span><span class="bp">self</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">format_for_prompt</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">DataSourceContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Custom formatting optimized for LLM interpretation.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">context</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">context</span><span class="o">.</span><span class="n">data</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s2">&quot;&quot;</span>
+
+        <span class="n">sections</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">db_data</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">data</span>
+
+        <span class="c1"># Equipment status with visual indicators</span>
+        <span class="k">if</span> <span class="s1">&#39;equipment_status&#39;</span> <span class="ow">in</span> <span class="n">db_data</span><span class="p">:</span>
+            <span class="n">sections</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;**📊 Critical Equipment Status:**&quot;</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">eq</span> <span class="ow">in</span> <span class="n">db_data</span><span class="p">[</span><span class="s1">&#39;equipment_status&#39;</span><span class="p">]:</span>
+                <span class="n">status_emoji</span> <span class="o">=</span> <span class="s2">&quot;✅&quot;</span> <span class="k">if</span> <span class="n">eq</span><span class="p">[</span><span class="s1">&#39;status&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="s1">&#39;operational&#39;</span> <span class="k">else</span> <span class="s2">&quot;⚠️&quot;</span>
+                <span class="n">sections</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">status_emoji</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">eq</span><span class="p">[</span><span class="s1">&#39;device&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">eq</span><span class="p">[</span><span class="s1">&#39;status&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Baseline data for comparative analysis</span>
+        <span class="k">if</span> <span class="s1">&#39;baseline_data&#39;</span> <span class="ow">in</span> <span class="n">db_data</span><span class="p">:</span>
+            <span class="n">sections</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;**📏 Baseline References:**&quot;</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">baseline</span> <span class="ow">in</span> <span class="n">db_data</span><span class="p">[</span><span class="s1">&#39;baseline_data&#39;</span><span class="p">]:</span>
+                <span class="n">sections</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  • </span><span class="si">{</span><span class="n">baseline</span><span class="p">[</span><span class="s1">&#39;parameter&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">baseline</span><span class="p">[</span><span class="s1">&#39;baseline_value&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sections</span><span class="p">)</span>
+
+<span class="c1"># === REGISTRATION ===</span>
+<span class="c1"># Register provider with the framework&#39;s data source management system</span>
+<span class="n">experiment_db_provider</span> <span class="o">=</span> <span class="n">ExperimentDatabaseProvider</span><span class="p">()</span>
+</pre></div>
+</div>
+<p><strong>Key Integration Benefits:</strong></p>
+<ul class="simple">
+<li><p><strong>Contextual Task Guidance</strong>: Database records inform task extraction and execution planning</p></li>
+<li><p><strong>Baseline Comparisons</strong>: Historical data provides reference points for analysis and troubleshooting</p></li>
+<li><p><strong>Equipment Status Awareness</strong>: Real-time status information guides operational decisions</p></li>
+<li><p><strong>Extensible Architecture</strong>: Framework’s DataSourceProvider interface supports any database backend</p></li>
+</ul>
+</div>
+</div>
+</section>
+<section id="acknowledgments">
+<h1>Acknowledgments<a class="headerlink" href="#acknowledgments" title="Link to this heading">#</a></h1>
+<p>This work leveraged the <a class="reference external" href="https://cborg.lbl.gov">CBorg AI platform</a> and resources provided by the IT Division at Lawrence Berkeley National Laboratory. We gratefully acknowledge Andrew Schmeder for his consistent responsiveness and support, ensuring CBorg served as an invaluable resource for the development of this framework.</p>
+<p>We are grateful to Alex Hexemer, Hiroshi Nishimura, Fernando Sannibale, and Tom Scarvie (LBNL) for stimulating discussions and continued support, and to Frank Mayet (DESY) for sharing insights from his pioneering GAIA prototype, which guided the early development of agentic AI at the ALS.</p>
+<p>This work was supported by the Director of the Office of Science of the U.S. Department of Energy under Contract No. DE-AC02-05CH11231.</p>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Example Applications</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../contributing/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Contributing to Osprey</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#">ALS Accelerator Assistant</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#production-deployment-in-high-stakes-scientific-environments">Production Deployment in High-Stakes Scientific Environments</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#from-query-to-scientific-insight">From Query to Scientific Insight</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#system-architecture">System Architecture</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pv-address-finder">PV Address Finder</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#robust-python-code-execution-from-natural-language-to-scientific-scripts">Robust Python Code Execution: From Natural Language to Scientific Scripts</a></li>
+</ul>
+</li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#framework-patterns-reference">Framework Patterns Reference</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#acknowledgments">Acknowledgments</a></li>
+</ul>
+
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/example-applications/als-assistant.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

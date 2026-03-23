@@ -1,0 +1,1791 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey.infrastructure.gateway &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
+
+
+
+
+
+const initStyles = () => {
+    const defaultStyle = document.createElement('style');
+    defaultStyle.textContent = `pre.mermaid {
+    /* Same as .mermaid-container > pre */
+    display: block;
+    width: 100%;
+}
+
+pre.mermaid > svg {
+    /* Same as .mermaid-container > pre > svg */
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}`;
+    document.head.appendChild(defaultStyle);
+
+    const fullscreenStyle = document.createElement('style');
+    fullscreenStyle.textContent = `.mermaid-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.mermaid-container > pre {
+    display: block;
+    width: 100%;
+}
+
+.mermaid-container > pre > svg {
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}
+
+.mermaid-fullscreen-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    color: #333;
+}
+
+.mermaid-fullscreen-btn:hover {
+    opacity: 100% !important;
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-btn.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-btn.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 95vw;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.98);
+    z-index: 9999;
+    padding: 20px;
+    overflow: auto;
+}
+
+.mermaid-fullscreen-modal.dark-theme {
+    background: rgba(0, 0, 0, 0.98);
+}
+
+.mermaid-fullscreen-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen {
+    position: relative;
+    width: 95vw;
+    height: 90vh;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen.dark-theme {
+    background: #1a1a1a;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-container-fullscreen pre.mermaid {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen .mermaid svg {
+    height: 100% !important;
+    width: 100% !important;
+    cursor: grab;
+}
+
+.mermaid-fullscreen-close {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    font-size: 24px;
+    line-height: 1;
+    color: #333;
+}
+
+.mermaid-fullscreen-close:hover {
+    background: white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-close.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-close.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
+    display: none !important;
+}`;
+    document.head.appendChild(fullscreenStyle);
+}
+
+// Detect if page has dark background
+const isDarkTheme = () => {
+    // We use a set of heuristics:
+    // 1. Check for common dark mode classes or attributes
+    // 2. Check computed background color brightness
+    if (document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        document.body.getAttribute('data-theme') === 'dark') {
+        // console.log("Dark theme detected via class/attribute");
+        return true;
+    }
+    if (document.documentElement.classList.contains('light') ||
+        document.documentElement.getAttribute('data-theme') === 'light' ||
+        document.body.classList.contains('light') ||
+        document.body.getAttribute('data-theme') === 'light') {
+        // console.log("Light theme detected via class/attribute");
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // console.log("Dark theme detected via prefers-color-scheme");
+        return true;
+    }
+    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        // console.log("Background color brightness:", brightness);
+        return brightness < 128;
+    }
+    // console.log("No dark or light theme detected, defaulting to light theme");
+    return false;
+};
+
+let darkTheme = isDarkTheme();
+let modal = null;
+let modalContent = null;
+let previousScrollOffset = [window.scrollX, window.scrollY];
+
+const runMermaid = async (rerun) => {
+    console.log("Running mermaid diagrams, rerun =", rerun);
+    // clear all existing mermaid charts
+    let all_mermaids = document.querySelectorAll(".mermaid");
+
+    if (rerun) {
+        all_mermaids.forEach((el) => {
+            if(!el.hasAttribute("data-original-code")) {
+                // store original code
+                // console.log(`Storing original code for first run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+            if(el.getAttribute("data-processed") === "true") {
+                // remove and restore original
+                el.removeAttribute("data-processed");
+                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
+                el.innerHTML = el.getAttribute('data-original-code');
+            } else {
+                // store original code
+                // console.log(`Storing original code for re-run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+        });
+        await mermaid.run();
+    }
+
+    all_mermaids = document.querySelectorAll(".mermaid");
+    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
+
+    if ("False" === "True") {
+        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
+        if(mermaids_to_add_zoom > 0) {
+            var svgs = d3.selectAll("");
+            if(all_mermaids.length !== mermaids_processed.length) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else if(svgs.size() !== mermaids_to_add_zoom) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else {
+                svgs.each(function() {
+                    var svg = d3.select(this);
+                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
+                    var inner = svg.select("g");
+                    var zoom = d3.zoom().on("zoom", function(event) {
+                        inner.attr("transform", event.transform);
+                    });
+                    svg.call(zoom);
+                });
+            }
+        }
+    } else if(all_mermaids.length !== mermaids_processed.length) {
+        // Wait for mermaid to process all diagrams
+        setTimeout(() => runMermaid(false), 200);
+        return;
+    }
+
+    // Stop here if not adding fullscreen capability
+    if ("True" !== "True") return;
+
+    if (modal !== null ) {
+        // Destroy existing modal
+        modal.remove();
+        modal = null;
+        modalContent = null;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
+    modal.innerHTML = `
+        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
+        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
+    `;
+    document.body.appendChild(modal);
+
+    modalContent = modal.querySelector('.mermaid-container-fullscreen');
+    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
+
+    const closeModal = () => {
+        modal.classList.remove('active');
+        modalContent.innerHTML = '';
+        document.body.style.overflow = ''
+        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+        }
+    });
+
+    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
+        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
+            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
+            // Already processed, adjust button class if needed
+            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
+            if (existingBtn) {
+                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+            }
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.className = 'mermaid-container';
+        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
+        container.appendChild(mermaidDiv);
+
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
+        fullscreenBtn.textContent = '⛶';
+        fullscreenBtn.style.opacity = '50%';
+
+        // Calculate dynamic position based on diagram's margin and padding
+        const diagramStyle = window.getComputedStyle(mermaidDiv);
+        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
+        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
+        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
+        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
+        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
+        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
+
+        fullscreenBtn.addEventListener('click', () => {
+            previousScrollOffset = [window.scroll, window.scrollY];
+            const clone = mermaidDiv.cloneNode(true);
+            modalContent.innerHTML = '';
+            modalContent.appendChild(clone);
+
+            const svg = clone.querySelector('svg');
+            if (svg) {
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxWidth = '100%';
+                svg.style.sdisplay = 'block';
+
+                if ("False" === "True") {
+                    setTimeout(() => {
+                        const g = svg.querySelector('g');
+                        if (g) {
+                            var svgD3 = d3.select(svg);
+                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
+                            var inner = svgD3.select("g");
+                            var zoom = d3.zoom().on("zoom", function(event) {
+                                inner.attr("transform", event.transform);
+                            });
+                            svgD3.call(zoom);
+                        }
+                    }, 100);
+                }
+            }
+
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+        container.appendChild(fullscreenBtn);
+    });
+};
+
+const load = async () => {
+    initStyles();
+
+    await runMermaid(true);
+
+    const reRunIfThemeChanges = async () => {
+        const newDarkTheme = isDarkTheme();
+        if (newDarkTheme !== darkTheme) {
+            darkTheme = newDarkTheme;
+            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
+            await mermaid.initialize(
+                {...JSON.parse(
+                    `{"startOnLoad": false}`
+                ),
+                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+                }
+            );
+            await runMermaid(true);
+        }
+    };
+
+    // Update theme classes when theme changes
+    const themeObserver = new MutationObserver(reRunIfThemeChanges);
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+    themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+};
+
+
+
+
+
+console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
+mermaid.initialize(
+    {...JSON.parse(
+        `{"startOnLoad": false}`
+    ),
+    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+    }
+);
+
+window.addEventListener("load", load);</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey/infrastructure/gateway';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey.infrastructure.gateway</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey.infrastructure.gateway</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Gateway for Osprey Agent Framework</span>
+
+<span class="sd">This module provides the single entry point for all message processing.</span>
+<span class="sd">All interfaces (CLI, OpenWebUI, etc.) should call Gateway.process_message().</span>
+
+<span class="sd">The Gateway handles:</span>
+<span class="sd">- State reset for new conversation turns</span>
+<span class="sd">- Slash command parsing and application</span>
+<span class="sd">- Approval response detection and resume commands</span>
+<span class="sd">- Message preprocessing and state updates</span>
+
+<span class="sd">Architecture:</span>
+<span class="sd">- Gateway is the only component that creates state updates</span>
+<span class="sd">- Interfaces handle presentation only</span>
+<span class="sd">- Clean separation of concerns with single responsibility</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">traceback</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">langgraph.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">Command</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.commands</span><span class="w"> </span><span class="kn">import</span> <span class="n">CommandContext</span><span class="p">,</span> <span class="n">CommandResult</span><span class="p">,</span> <span class="n">get_command_registry</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.events</span><span class="w"> </span><span class="kn">import</span> <span class="n">ErrorEvent</span><span class="p">,</span> <span class="n">EventEmitter</span><span class="p">,</span> <span class="n">StatusEvent</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_chat_completion</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">StateManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_model_config</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ApprovalResponse</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Structured response for approval detection.&quot;&quot;&quot;</span>
+
+    <span class="n">approved</span><span class="p">:</span> <span class="nb">bool</span>
+
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;gateway&quot;</span><span class="p">)</span>
+<span class="n">emitter</span> <span class="o">=</span> <span class="n">EventEmitter</span><span class="p">(</span><span class="s2">&quot;gateway&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="GatewayResult">
+<a class="viewcode-back" href="../../../api_reference/02_infrastructure/01_gateway.html#osprey.infrastructure.gateway.GatewayResult">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">GatewayResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Result of gateway message processing.</span>
+
+<span class="sd">    This is the interface between Gateway and all other components.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># For normal conversation flow</span>
+    <span class="n">agent_state</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="c1"># For interrupt/approval flow</span>
+    <span class="n">resume_command</span><span class="p">:</span> <span class="n">Command</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="c1"># Processing metadata</span>
+    <span class="n">slash_commands_processed</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">approval_detected</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">is_interrupt_resume</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+
+    <span class="c1"># State-only update flag - when True, caller should use update_state() not ainvoke()</span>
+    <span class="c1"># This is for mode switches (entering/exiting direct chat) with no message to process</span>
+    <span class="n">is_state_only_update</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+
+    <span class="c1"># Exit interface signal - when True, interface should terminate (CLI exits, etc.)</span>
+    <span class="c1"># This is returned when /exit is used outside of direct chat mode</span>
+    <span class="n">exit_interface</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+
+    <span class="c1"># Error handling</span>
+    <span class="n">error</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">slash_commands_processed</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">slash_commands_processed</span> <span class="o">=</span> <span class="p">[]</span></div>
+
+
+
+<div class="viewcode-block" id="Gateway">
+<a class="viewcode-back" href="../../../api_reference/02_infrastructure/01_gateway.html#osprey.infrastructure.gateway.Gateway">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Gateway</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Gateway - Single Entry Point for All Message Processing</span>
+
+<span class="sd">    This is the only component that interfaces should call for message processing.</span>
+<span class="sd">    All state management, slash commands, and approval handling is centralized here.</span>
+
+<span class="sd">    Usage::</span>
+
+<span class="sd">        gateway = Gateway()</span>
+<span class="sd">        result = await gateway.process_message(user_input, graph, config)</span>
+
+<span class="sd">        # Execute the result</span>
+<span class="sd">        if result.resume_command:</span>
+<span class="sd">            await graph.ainvoke(result.resume_command, config=config)</span>
+<span class="sd">        elif result.state_updates:</span>
+<span class="sd">            await graph.ainvoke(result.state_updates, config=config)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="Gateway.__init__">
+<a class="viewcode-back" href="../../../api_reference/02_infrastructure/01_gateway.html#osprey.infrastructure.gateway.Gateway.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the gateway.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            config: Optional configuration dictionary</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span> <span class="ow">or</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">logger</span>
+
+        <span class="c1"># Initialize global configuration</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># Using config - no need to store config instance</span>
+            <span class="k">pass</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Could not load config system: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Agent control commands are now registered by default in CommandRegistry</span>
+        <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span><span class="n">StatusEvent</span><span class="p">(</span><span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span> <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Gateway initialized&quot;</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">))</span></div>
+
+
+<div class="viewcode-block" id="Gateway.process_message">
+<a class="viewcode-back" href="../../../api_reference/02_infrastructure/01_gateway.html#osprey.infrastructure.gateway.Gateway.process_message">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">process_message</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">user_input</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">compiled_graph</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GatewayResult</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Single entry point for all message processing.</span>
+
+<span class="sd">        This method handles the complete message processing flow:</span>
+<span class="sd">        1. Check for pending interrupts (approval flow)</span>
+<span class="sd">        2. Process new messages (normal flow)</span>
+<span class="sd">        3. Apply state reset and slash commands</span>
+<span class="sd">        4. Return complete result ready for execution</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            user_input: The raw user message</span>
+<span class="sd">            compiled_graph: The compiled LangGraph instance</span>
+<span class="sd">            config: LangGraph execution configuration</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            GatewayResult: Complete processing result ready for execution</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+            <span class="n">StatusEvent</span><span class="p">(</span>
+                <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Processing message: &#39;</span><span class="si">{</span><span class="n">user_input</span><span class="p">[:</span><span class="mi">50</span><span class="p">]</span><span class="si">}</span><span class="s2">...&#39;&quot;</span><span class="p">,</span>
+                <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># Check for pending interrupts first</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_has_pending_interrupts</span><span class="p">(</span><span class="n">compiled_graph</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
+                <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                    <span class="n">StatusEvent</span><span class="p">(</span>
+                        <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                        <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Pending interrupt detected - processing as approval response&quot;</span><span class="p">,</span>
+                        <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+                <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_handle_interrupt_flow</span><span class="p">(</span><span class="n">user_input</span><span class="p">,</span> <span class="n">compiled_graph</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+
+            <span class="c1"># Process as new conversation turn</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Processing as new conversation turn&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_handle_new_message_flow</span><span class="p">(</span><span class="n">user_input</span><span class="p">,</span> <span class="n">compiled_graph</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">ErrorEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                    <span class="n">error_type</span><span class="o">=</span><span class="s2">&quot;message_processing_error&quot;</span><span class="p">,</span>
+                    <span class="n">error_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Error in message processing: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                    <span class="n">stack_trace</span><span class="o">=</span><span class="n">traceback</span><span class="o">.</span><span class="n">format_exc</span><span class="p">(),</span>
+                    <span class="n">recoverable</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="n">GatewayResult</span><span class="p">(</span><span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span></div>
+
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_handle_interrupt_flow</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">user_input</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">compiled_graph</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GatewayResult</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Handle interrupt/approval flow generically.</span>
+
+<span class="sd">        Gateway detects approval/rejection and uses Command(update=...) to inject</span>
+<span class="sd">        interrupt payload into agent state while resuming execution.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="c1"># Detect approval or rejection</span>
+        <span class="n">approval_data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_detect_approval_response</span><span class="p">(</span><span class="n">user_input</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">approval_data</span><span class="p">:</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Detected </span><span class="si">{</span><span class="n">approval_data</span><span class="p">[</span><span class="s1">&#39;type&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> response&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+
+            <span class="c1"># Get interrupt payload and extract just the business data</span>
+            <span class="n">success</span><span class="p">,</span> <span class="n">interrupt_payload</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extract_resume_payload</span><span class="p">(</span><span class="n">compiled_graph</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">success</span><span class="p">:</span>
+                <span class="n">resume_payload</span> <span class="o">=</span> <span class="n">interrupt_payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;resume_payload&quot;</span><span class="p">,</span> <span class="p">{})</span>
+
+                <span class="c1"># Create resume command that injects approval data into agent state</span>
+                <span class="n">resume_command</span> <span class="o">=</span> <span class="n">Command</span><span class="p">(</span>
+                    <span class="n">update</span><span class="o">=</span><span class="p">{</span>
+                        <span class="s2">&quot;approval_approved&quot;</span><span class="p">:</span> <span class="n">approval_data</span><span class="p">[</span><span class="s2">&quot;approved&quot;</span><span class="p">],</span>
+                        <span class="s2">&quot;approved_payload&quot;</span><span class="p">:</span> <span class="n">resume_payload</span> <span class="k">if</span> <span class="n">approval_data</span><span class="p">[</span><span class="s2">&quot;approved&quot;</span><span class="p">]</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+                    <span class="p">}</span>
+                <span class="p">)</span>
+
+                <span class="k">return</span> <span class="n">GatewayResult</span><span class="p">(</span>
+                    <span class="n">resume_command</span><span class="o">=</span><span class="n">resume_command</span><span class="p">,</span> <span class="n">approval_detected</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">is_interrupt_resume</span><span class="o">=</span><span class="kc">True</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                    <span class="n">StatusEvent</span><span class="p">(</span>
+                        <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                        <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Could not extract resume payload, proceeding without resume command.&quot;</span><span class="p">,</span>
+                        <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+                <span class="k">return</span> <span class="n">GatewayResult</span><span class="p">(</span>
+                    <span class="n">error</span><span class="o">=</span><span class="s2">&quot;Could not extract resume payload, please try again or provide a clear approval/rejection response.&quot;</span>
+                <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="s2">&quot;No clear approval/rejection detected in interrupt context&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="n">GatewayResult</span><span class="p">(</span>
+                <span class="n">error</span><span class="o">=</span><span class="s2">&quot;Please provide a clear approval (yes/ok/approve) or rejection (no/cancel/reject) response&quot;</span>
+            <span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_handle_new_message_flow</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">user_input</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">compiled_graph</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GatewayResult</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Handle new message flow with fresh state creation or direct chat mode.&quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">MessageUtils</span>
+
+        <span class="c1"># Get current state FIRST (needed for slash command processing like /exit)</span>
+        <span class="n">current_state</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">compiled_graph</span> <span class="ow">and</span> <span class="n">config</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">graph_state</span> <span class="o">=</span> <span class="n">compiled_graph</span><span class="o">.</span><span class="n">get_state</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+                <span class="n">current_state</span> <span class="o">=</span> <span class="n">graph_state</span><span class="o">.</span><span class="n">values</span> <span class="k">if</span> <span class="n">graph_state</span> <span class="k">else</span> <span class="kc">None</span>
+                <span class="c1"># Show what we&#39;re starting with</span>
+                <span class="k">if</span> <span class="n">current_state</span><span class="p">:</span>
+                    <span class="n">exec_history</span> <span class="o">=</span> <span class="n">current_state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_history&quot;</span><span class="p">,</span> <span class="p">[])</span>
+                    <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                        <span class="n">StatusEvent</span><span class="p">(</span>
+                            <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                            <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Previous state has </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">exec_history</span><span class="p">)</span><span class="si">}</span><span class="s2"> execution records&quot;</span><span class="p">,</span>
+                            <span class="n">level</span><span class="o">=</span><span class="s2">&quot;debug&quot;</span><span class="p">,</span>
+                        <span class="p">)</span>
+                    <span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                    <span class="n">StatusEvent</span><span class="p">(</span>
+                        <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                        <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Could not get current state: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                        <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+
+        <span class="c1"># Parse and execute slash commands using centralized system</span>
+        <span class="c1"># Pass current_state so commands like /exit can check direct chat mode</span>
+        <span class="p">(</span>
+            <span class="n">slash_commands</span><span class="p">,</span>
+            <span class="n">cleaned_message</span><span class="p">,</span>
+            <span class="n">exit_requested</span><span class="p">,</span>
+            <span class="n">capability_commands</span><span class="p">,</span>
+        <span class="p">)</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_process_slash_commands</span><span class="p">(</span><span class="n">user_input</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">current_state</span><span class="p">)</span>
+
+        <span class="c1"># Handle exit_interface request (e.g., /exit outside direct chat mode)</span>
+        <span class="k">if</span> <span class="n">exit_requested</span><span class="p">:</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span><span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span> <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Exit interface requested&quot;</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="n">GatewayResult</span><span class="p">(</span>
+                <span class="n">slash_commands_processed</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;/exit&quot;</span><span class="p">],</span>
+                <span class="n">exit_interface</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Check for session state changes from slash commands (e.g., /chat:capability_name)</span>
+        <span class="n">session_state_changes</span> <span class="o">=</span> <span class="n">slash_commands</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;session_state&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+
+        <span class="c1"># Check if we&#39;re in direct chat mode</span>
+        <span class="n">session_state</span> <span class="o">=</span> <span class="n">current_state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;session_state&quot;</span><span class="p">,</span> <span class="p">{})</span> <span class="k">if</span> <span class="n">current_state</span> <span class="k">else</span> <span class="p">{}</span>
+        <span class="c1"># Apply session state changes from this turn&#39;s commands</span>
+        <span class="k">if</span> <span class="n">session_state_changes</span><span class="p">:</span>
+            <span class="n">session_state</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">session_state</span><span class="p">,</span> <span class="o">**</span><span class="n">session_state_changes</span><span class="p">}</span>
+
+        <span class="n">in_direct_chat</span> <span class="o">=</span> <span class="n">session_state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;direct_chat_capability&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="n">is_mode_switch</span> <span class="o">=</span> <span class="n">session_state_changes</span> <span class="ow">and</span> <span class="s2">&quot;direct_chat_capability&quot;</span> <span class="ow">in</span> <span class="n">session_state_changes</span>
+
+        <span class="c1"># Mode switch only: entering/exiting direct chat with no actual message</span>
+        <span class="c1"># Use is_state_only_update=True so callers use update_state() instead of ainvoke()</span>
+        <span class="k">if</span> <span class="n">is_mode_switch</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">cleaned_message</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Direct chat mode switch only - no message to process&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="c1"># Build processed commands list based on the actual switch</span>
+            <span class="k">if</span> <span class="n">in_direct_chat</span><span class="p">:</span>
+                <span class="n">processed</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;/chat:</span><span class="si">{</span><span class="n">session_state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;direct_chat_capability&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">processed</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;/exit&quot;</span><span class="p">]</span>
+
+            <span class="c1"># Reset execution state for clean mode transition</span>
+            <span class="n">mode_switch_state</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">&quot;session_state&quot;</span><span class="p">:</span> <span class="n">session_state</span><span class="p">,</span>
+                <span class="s2">&quot;planning_current_step_index&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+                <span class="s2">&quot;planning_execution_plan&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+                <span class="s2">&quot;execution_last_result&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+                <span class="s2">&quot;execution_start_time&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># Signals no active execution</span>
+            <span class="p">}</span>
+
+            <span class="k">return</span> <span class="n">GatewayResult</span><span class="p">(</span>
+                <span class="n">agent_state</span><span class="o">=</span><span class="n">mode_switch_state</span><span class="p">,</span>
+                <span class="n">slash_commands_processed</span><span class="o">=</span><span class="n">processed</span><span class="p">,</span>
+                <span class="n">is_state_only_update</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">in_direct_chat</span><span class="p">:</span>
+            <span class="c1"># Direct chat mode: preserve message history for multi-turn conversation</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Direct chat mode: preserving message history&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+
+            <span class="c1"># Create new user message</span>
+            <span class="n">message_content</span> <span class="o">=</span> <span class="n">cleaned_message</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">if</span> <span class="n">cleaned_message</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">else</span> <span class="n">user_input</span>
+            <span class="n">new_message</span> <span class="o">=</span> <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="n">message_content</span><span class="p">)</span>
+
+            <span class="c1"># Direct chat bypasses orchestration - reset plan state, preserve messages</span>
+            <span class="n">state_update</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">&quot;messages&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">new_message</span><span class="p">],</span>
+                <span class="s2">&quot;session_state&quot;</span><span class="p">:</span> <span class="n">session_state</span><span class="p">,</span>
+                <span class="s2">&quot;execution_start_time&quot;</span><span class="p">:</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">(),</span>
+                <span class="s2">&quot;execution_last_result&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+                <span class="s2">&quot;planning_current_step_index&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+                <span class="s2">&quot;planning_execution_plan&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="p">}</span>
+
+            <span class="c1"># Apply agent control changes if any</span>
+            <span class="k">if</span> <span class="n">slash_commands</span><span class="p">:</span>
+                <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">apply_slash_commands_to_agent_control_state</span>
+
+                <span class="c1"># Get current agent control or defaults</span>
+                <span class="n">current_agent_control</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="n">current_state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;agent_control&quot;</span><span class="p">,</span> <span class="p">{})</span> <span class="k">if</span> <span class="n">current_state</span> <span class="k">else</span> <span class="p">{}</span>
+                <span class="p">)</span>
+                <span class="n">state_update</span><span class="p">[</span><span class="s2">&quot;agent_control&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">apply_slash_commands_to_agent_control_state</span><span class="p">(</span>
+                    <span class="n">current_agent_control</span><span class="p">,</span> <span class="n">slash_commands</span>
+                <span class="p">)</span>
+                <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                    <span class="n">StatusEvent</span><span class="p">(</span>
+                        <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                        <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Applied agent control changes from slash commands&quot;</span><span class="p">,</span>
+                        <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+
+            <span class="c1"># Create readable command list for user feedback</span>
+            <span class="n">processed_commands</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">if</span> <span class="n">slash_commands</span><span class="p">:</span>
+                <span class="n">change_descriptions</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">slash_commands</span><span class="o">.</span><span class="n">items</span><span class="p">()]</span>
+                <span class="n">processed_commands</span> <span class="o">=</span> <span class="p">[</span>
+                    <span class="sa">f</span><span class="s2">&quot;Applied agent control changes: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">change_descriptions</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">]</span>
+
+            <span class="k">return</span> <span class="n">GatewayResult</span><span class="p">(</span>
+                <span class="n">agent_state</span><span class="o">=</span><span class="n">state_update</span><span class="p">,</span> <span class="n">slash_commands_processed</span><span class="o">=</span><span class="n">processed_commands</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Check if command was handled locally with no remaining message and no state changes</span>
+        <span class="c1"># This handles cases like &quot;/chat&quot; (without args) which displays info but shouldn&#39;t</span>
+        <span class="c1"># trigger graph execution</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="n">user_input</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">)</span>
+            <span class="ow">and</span> <span class="ow">not</span> <span class="n">cleaned_message</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+            <span class="ow">and</span> <span class="ow">not</span> <span class="n">slash_commands</span>
+            <span class="ow">and</span> <span class="ow">not</span> <span class="n">session_state_changes</span>
+        <span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Command handled locally - no execution needed&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">GatewayResult</span><span class="p">(</span>
+                <span class="n">slash_commands_processed</span><span class="o">=</span><span class="p">[</span><span class="n">user_input</span><span class="o">.</span><span class="n">split</span><span class="p">()[</span><span class="mi">0</span><span class="p">]],</span>  <span class="c1"># Extract command name</span>
+                <span class="n">is_state_only_update</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Normal mode: create completely fresh state (not partial updates)</span>
+        <span class="n">message_content</span> <span class="o">=</span> <span class="n">cleaned_message</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">if</span> <span class="n">cleaned_message</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">else</span> <span class="n">user_input</span>
+        <span class="n">fresh_state</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">create_fresh_state</span><span class="p">(</span>
+            <span class="n">user_input</span><span class="o">=</span><span class="n">message_content</span><span class="p">,</span> <span class="n">current_state</span><span class="o">=</span><span class="n">current_state</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Apply session state changes from slash commands</span>
+        <span class="k">if</span> <span class="n">session_state_changes</span><span class="p">:</span>
+            <span class="n">fresh_state</span><span class="p">[</span><span class="s2">&quot;session_state&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="o">**</span><span class="n">fresh_state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;session_state&quot;</span><span class="p">,</span> <span class="p">{}),</span>
+                <span class="o">**</span><span class="n">session_state_changes</span><span class="p">,</span>
+            <span class="p">}</span>
+
+        <span class="c1"># Show fresh state execution history</span>
+        <span class="n">fresh_exec_history</span> <span class="o">=</span> <span class="n">fresh_state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_history&quot;</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+            <span class="n">StatusEvent</span><span class="p">(</span>
+                <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Fresh state created with </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">fresh_exec_history</span><span class="p">)</span><span class="si">}</span><span class="s2"> execution records&quot;</span><span class="p">,</span>
+                <span class="n">level</span><span class="o">=</span><span class="s2">&quot;debug&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Apply agent control changes from slash commands if any</span>
+        <span class="k">if</span> <span class="n">slash_commands</span><span class="p">:</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">apply_slash_commands_to_agent_control_state</span>
+
+            <span class="n">fresh_state</span><span class="p">[</span><span class="s2">&quot;agent_control&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">apply_slash_commands_to_agent_control_state</span><span class="p">(</span>
+                <span class="n">fresh_state</span><span class="p">[</span><span class="s2">&quot;agent_control&quot;</span><span class="p">],</span> <span class="n">slash_commands</span>
+            <span class="p">)</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Applied agent control changes from slash commands&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Apply capability commands for downstream capability handling</span>
+        <span class="k">if</span> <span class="n">capability_commands</span><span class="p">:</span>
+            <span class="n">fresh_state</span><span class="p">[</span><span class="s2">&quot;_capability_slash_commands&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">capability_commands</span>
+
+        <span class="c1"># Add execution metadata</span>
+        <span class="n">fresh_state</span><span class="p">[</span><span class="s2">&quot;execution_start_time&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+
+        <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+            <span class="n">StatusEvent</span><span class="p">(</span>
+                <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Created fresh state for new conversation turn&quot;</span><span class="p">,</span>
+                <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Create readable command list for user feedback with detailed changes</span>
+        <span class="n">processed_commands</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="n">slash_commands</span><span class="p">:</span>
+            <span class="n">change_descriptions</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">slash_commands</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="n">change_descriptions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">processed_commands</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="sa">f</span><span class="s2">&quot;Applied agent control changes: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">change_descriptions</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">]</span>
+
+        <span class="k">return</span> <span class="n">GatewayResult</span><span class="p">(</span><span class="n">agent_state</span><span class="o">=</span><span class="n">fresh_state</span><span class="p">,</span> <span class="n">slash_commands_processed</span><span class="o">=</span><span class="n">processed_commands</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_has_pending_interrupts</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">compiled_graph</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Check if there are pending interrupts.</span>
+
+<span class="sd">        CRITICAL: Check state.interrupts (actual pending human approvals)</span>
+<span class="sd">        NOT state.next (scheduled nodes to execute).</span>
+
+<span class="sd">        When graphs crash during routing, state.next can remain populated with</span>
+<span class="sd">        failed transitions, causing false interrupt detection.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">compiled_graph</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">config</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">graph_state</span> <span class="o">=</span> <span class="n">compiled_graph</span><span class="o">.</span><span class="n">get_state</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+            <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="n">graph_state</span> <span class="ow">and</span> <span class="n">graph_state</span><span class="o">.</span><span class="n">interrupts</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Could not check graph interrupts: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="kc">False</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_detect_approval_response</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">user_input</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Detect approval or rejection in user input.</span>
+
+<span class="sd">        First checks for explicit yes/no responses, then falls back to LLM classification</span>
+<span class="sd">        for more complex responses.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># First check for explicit yes/no responses (fast path)</span>
+            <span class="n">normalized_input</span> <span class="o">=</span> <span class="n">user_input</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+            <span class="c1"># Remove common trailing punctuation</span>
+            <span class="n">normalized_input</span> <span class="o">=</span> <span class="n">normalized_input</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s2">&quot;.!?&quot;</span><span class="p">)</span>
+
+            <span class="c1"># Check for explicit &quot;yes&quot; responses</span>
+            <span class="k">if</span> <span class="n">normalized_input</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;yes&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;yep&quot;</span><span class="p">,</span> <span class="s2">&quot;yeah&quot;</span><span class="p">,</span> <span class="s2">&quot;ok&quot;</span><span class="p">,</span> <span class="s2">&quot;okay&quot;</span><span class="p">]:</span>
+                <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                    <span class="n">StatusEvent</span><span class="p">(</span>
+                        <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                        <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Detected explicit approval: &#39;</span><span class="si">{</span><span class="n">user_input</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">,</span>
+                        <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+                <span class="k">return</span> <span class="p">{</span>
+                    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;approval&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;approved&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                    <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">user_input</span><span class="p">,</span>
+                    <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">(),</span>
+                <span class="p">}</span>
+
+            <span class="c1"># Check for explicit &quot;no&quot; responses</span>
+            <span class="k">if</span> <span class="n">normalized_input</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;no&quot;</span><span class="p">,</span> <span class="s2">&quot;n&quot;</span><span class="p">,</span> <span class="s2">&quot;nope&quot;</span><span class="p">,</span> <span class="s2">&quot;nah&quot;</span><span class="p">,</span> <span class="s2">&quot;cancel&quot;</span><span class="p">]:</span>
+                <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                    <span class="n">StatusEvent</span><span class="p">(</span>
+                        <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                        <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Detected explicit rejection: &#39;</span><span class="si">{</span><span class="n">user_input</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">,</span>
+                        <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+                <span class="k">return</span> <span class="p">{</span>
+                    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;rejection&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;approved&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                    <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">user_input</span><span class="p">,</span>
+                    <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">(),</span>
+                <span class="p">}</span>
+
+            <span class="c1"># If not a simple yes/no, use LLM-based detection for complex responses</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Using LLM-based approval detection for: &#39;</span><span class="si">{</span><span class="n">user_input</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+
+            <span class="c1"># Get approval model configuration from framework config</span>
+            <span class="n">approval_config</span> <span class="o">=</span> <span class="n">get_model_config</span><span class="p">(</span><span class="s2">&quot;approval&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">approval_config</span><span class="p">:</span>
+                <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                    <span class="n">StatusEvent</span><span class="p">(</span>
+                        <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                        <span class="n">message</span><span class="o">=</span><span class="s2">&quot;No approval model configuration found - defaulting to not approved&quot;</span><span class="p">,</span>
+                        <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+                <span class="k">return</span> <span class="p">{</span>
+                    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;rejection&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;approved&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                    <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">user_input</span><span class="p">,</span>
+                    <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">(),</span>
+                <span class="p">}</span>
+
+            <span class="c1"># Create minimal prompt for approval detection</span>
+            <span class="n">prompt</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;Analyze this user message and determine if it indicates approval or rejection of a request.</span>
+
+<span class="s2">User message: &quot;</span><span class="si">{</span><span class="n">user_input</span><span class="si">}</span><span class="s2">&quot;</span>
+
+<span class="s2">Respond with true if the message indicates approval (yes, okay, proceed, continue, etc.) or false if it indicates rejection (no, cancel, stop, etc.) or is unclear.&quot;&quot;&quot;</span>
+
+            <span class="c1"># Get structured response from LLM</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">get_chat_completion</span><span class="p">(</span>
+                <span class="n">message</span><span class="o">=</span><span class="n">prompt</span><span class="p">,</span>
+                <span class="n">model_config</span><span class="o">=</span><span class="n">approval_config</span><span class="p">,</span>
+                <span class="n">output_model</span><span class="o">=</span><span class="n">ApprovalResponse</span><span class="p">,</span>
+                <span class="n">max_tokens</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>  <span class="c1"># Enough tokens for structured JSON output</span>
+            <span class="p">)</span>
+
+            <span class="c1"># Convert to expected format</span>
+            <span class="k">return</span> <span class="p">{</span>
+                <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;approval&quot;</span> <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">approved</span> <span class="k">else</span> <span class="s2">&quot;rejection&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;approved&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">approved</span><span class="p">,</span>
+                <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">user_input</span><span class="p">,</span>
+                <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">(),</span>
+            <span class="p">}</span>
+
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Approval detection failed: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2"> - defaulting to not approved&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="p">{</span>
+                <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;rejection&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;approved&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">user_input</span><span class="p">,</span>
+                <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">(),</span>
+            <span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_extract_resume_payload</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">compiled_graph</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">bool</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Extract interrupt payload from current LangGraph state.</span>
+
+<span class="sd">        Gets the interrupt data from graph state and extracts the payload</span>
+<span class="sd">        that contains the execution plan or other approval data.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            compiled_graph: The compiled LangGraph instance</span>
+<span class="sd">            config: LangGraph configuration</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Tuple of (success, payload) where success indicates if extraction worked</span>
+<span class="sd">            and payload contains interrupt data or empty dict if failed</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># Get current graph state</span>
+            <span class="n">graph_state</span> <span class="o">=</span> <span class="n">compiled_graph</span><span class="o">.</span><span class="n">get_state</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">graph_state</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">graph_state</span><span class="p">,</span> <span class="s2">&quot;interrupts&quot;</span><span class="p">):</span>
+                <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                    <span class="n">StatusEvent</span><span class="p">(</span>
+                        <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                        <span class="n">message</span><span class="o">=</span><span class="s2">&quot;No graph state or interrupts available&quot;</span><span class="p">,</span>
+                        <span class="n">level</span><span class="o">=</span><span class="s2">&quot;debug&quot;</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+                <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="p">{}</span>
+
+            <span class="c1"># Check if there are any interrupts in the graph state</span>
+            <span class="k">if</span> <span class="n">graph_state</span><span class="o">.</span><span class="n">interrupts</span><span class="p">:</span>
+                <span class="c1"># Get the latest interrupt</span>
+                <span class="n">latest_interrupt</span> <span class="o">=</span> <span class="n">graph_state</span><span class="o">.</span><span class="n">interrupts</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+
+                <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">latest_interrupt</span><span class="p">,</span> <span class="s2">&quot;value&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">latest_interrupt</span><span class="o">.</span><span class="n">value</span><span class="p">:</span>
+                    <span class="n">interrupt_payload</span> <span class="o">=</span> <span class="n">latest_interrupt</span><span class="o">.</span><span class="n">value</span>
+
+                    <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                        <span class="n">StatusEvent</span><span class="p">(</span>
+                            <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                            <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Successfully extracted interrupt payload: </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">interrupt_payload</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                            <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                        <span class="p">)</span>
+                    <span class="p">)</span>
+                    <span class="k">return</span> <span class="kc">True</span><span class="p">,</span> <span class="n">interrupt_payload</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                        <span class="n">StatusEvent</span><span class="p">(</span>
+                            <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                            <span class="n">message</span><span class="o">=</span><span class="s2">&quot;No value found in interrupt data&quot;</span><span class="p">,</span>
+                            <span class="n">level</span><span class="o">=</span><span class="s2">&quot;debug&quot;</span><span class="p">,</span>
+                        <span class="p">)</span>
+                    <span class="p">)</span>
+                    <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="p">{}</span>
+
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="s2">&quot;No interrupts found in graph state&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;debug&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="p">{}</span>
+
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">ErrorEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                    <span class="n">error_type</span><span class="o">=</span><span class="s2">&quot;resume_payload_extraction_error&quot;</span><span class="p">,</span>
+                    <span class="n">error_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Failed to extract resume payload: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                    <span class="n">recoverable</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="p">{}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_clear_approval_state</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Clear approval state to prevent pollution in subsequent interrupts.</span>
+
+<span class="sd">        This utility ensures that approval state from previous interrupts</span>
+<span class="sd">        doesn&#39;t leak into subsequent operations, maintaining clean state hygiene.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Dictionary with approval state fields set to None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;approval_approved&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;approved_payload&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">}</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_process_slash_commands</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">user_input</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">current_state</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="nb">str</span><span class="p">,</span> <span class="nb">bool</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">bool</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Process slash commands using the centralized command system.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            user_input: Raw user input potentially containing slash commands</span>
+<span class="sd">            config: LangGraph execution configuration</span>
+<span class="sd">            current_state: Current agent state (for commands like /exit that need state context)</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Tuple of (agent_control_changes, remaining_message, exit_interface, capability_commands)</span>
+<span class="sd">            - agent_control_changes: dict of state changes from commands</span>
+<span class="sd">            - remaining_message: message text after removing commands</span>
+<span class="sd">            - exit_interface: True if interface should terminate (e.g., /exit outside direct chat)</span>
+<span class="sd">            - capability_commands: dict of unregistered commands for capability handling</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">user_input</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">):</span>
+            <span class="k">return</span> <span class="p">{},</span> <span class="n">user_input</span><span class="p">,</span> <span class="kc">False</span><span class="p">,</span> <span class="p">{}</span>
+
+        <span class="c1"># Create command context for gateway execution with current state</span>
+        <span class="n">context</span> <span class="o">=</span> <span class="n">CommandContext</span><span class="p">(</span>
+            <span class="n">interface_type</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span> <span class="n">gateway</span><span class="o">=</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent_state</span><span class="o">=</span><span class="n">current_state</span>
+        <span class="p">)</span>
+
+        <span class="n">registry</span> <span class="o">=</span> <span class="n">get_command_registry</span><span class="p">()</span>
+        <span class="n">agent_control_changes</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">capability_commands</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">bool</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">remaining_parts</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">processed_commands</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">exit_interface</span> <span class="o">=</span> <span class="kc">False</span>
+
+        <span class="c1"># Split message into parts to handle multiple commands</span>
+        <span class="n">parts</span> <span class="o">=</span> <span class="n">user_input</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+
+        <span class="k">for</span> <span class="n">part</span> <span class="ow">in</span> <span class="n">parts</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">part</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">):</span>
+                <span class="c1"># Parse the command to extract name and option</span>
+                <span class="n">command_part</span> <span class="o">=</span> <span class="n">part</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>  <span class="c1"># Remove leading slash</span>
+                <span class="k">if</span> <span class="s2">&quot;:&quot;</span> <span class="ow">in</span> <span class="n">command_part</span><span class="p">:</span>
+                    <span class="n">cmd_name</span><span class="p">,</span> <span class="n">cmd_value</span> <span class="o">=</span> <span class="n">command_part</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">cmd_name</span> <span class="o">=</span> <span class="n">command_part</span>
+                    <span class="n">cmd_value</span> <span class="o">=</span> <span class="kc">None</span>
+
+                <span class="c1"># Check if command is registered</span>
+                <span class="k">if</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_command</span><span class="p">(</span><span class="n">cmd_name</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="c1"># Unregistered command - store for capability handling</span>
+                    <span class="n">capability_commands</span><span class="p">[</span><span class="n">cmd_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">cmd_value</span> <span class="k">if</span> <span class="n">cmd_value</span> <span class="k">else</span> <span class="kc">True</span>
+                    <span class="n">processed_commands</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">part</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Stored capability command: </span><span class="si">{</span><span class="n">cmd_name</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">cmd_value</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="kc">True</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                    <span class="k">continue</span>
+
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">registry</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">part</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
+
+                    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                        <span class="c1"># Agent control command returned state changes</span>
+                        <span class="n">agent_control_changes</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+                        <span class="n">processed_commands</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">part</span><span class="p">)</span>
+
+                        <span class="c1"># Verbose logging for each specific change</span>
+                        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                                <span class="n">StatusEvent</span><span class="p">(</span>
+                                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                                    <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Set </span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2"> via slash command </span><span class="si">{</span><span class="n">part</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                                <span class="p">)</span>
+                            <span class="p">)</span>
+
+                    <span class="k">elif</span> <span class="n">result</span> <span class="o">==</span> <span class="n">CommandResult</span><span class="o">.</span><span class="n">EXIT</span><span class="p">:</span>
+                        <span class="c1"># Interface should terminate (e.g., /exit outside direct chat)</span>
+                        <span class="n">processed_commands</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">part</span><span class="p">)</span>
+                        <span class="n">exit_interface</span> <span class="o">=</span> <span class="kc">True</span>
+                        <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                            <span class="n">StatusEvent</span><span class="p">(</span>
+                                <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                                <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Exit interface requested by command: </span><span class="si">{</span><span class="n">part</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                                <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                            <span class="p">)</span>
+                        <span class="p">)</span>
+                    <span class="k">elif</span> <span class="n">result</span> <span class="o">==</span> <span class="n">CommandResult</span><span class="o">.</span><span class="n">AGENT_STATE_CHANGED</span><span class="p">:</span>
+                        <span class="n">processed_commands</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">part</span><span class="p">)</span>
+                        <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                            <span class="n">StatusEvent</span><span class="p">(</span>
+                                <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                                <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Agent state changed by command: </span><span class="si">{</span><span class="n">part</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                                <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                            <span class="p">)</span>
+                        <span class="p">)</span>
+                    <span class="k">elif</span> <span class="n">result</span> <span class="ow">in</span> <span class="p">[</span><span class="n">CommandResult</span><span class="o">.</span><span class="n">HANDLED</span><span class="p">,</span> <span class="n">CommandResult</span><span class="o">.</span><span class="n">CONTINUE</span><span class="p">]:</span>
+                        <span class="n">processed_commands</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">part</span><span class="p">)</span>
+                        <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                            <span class="n">StatusEvent</span><span class="p">(</span>
+                                <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                                <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Command handled: </span><span class="si">{</span><span class="n">part</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                                <span class="n">level</span><span class="o">=</span><span class="s2">&quot;debug&quot;</span><span class="p">,</span>
+                            <span class="p">)</span>
+                        <span class="p">)</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                            <span class="n">StatusEvent</span><span class="p">(</span>
+                                <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                                <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Unexpected command result for </span><span class="si">{</span><span class="n">part</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">result</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                                <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+                            <span class="p">)</span>
+                        <span class="p">)</span>
+
+                <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                    <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                        <span class="n">ErrorEvent</span><span class="p">(</span>
+                            <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                            <span class="n">error_type</span><span class="o">=</span><span class="s2">&quot;command_processing_error&quot;</span><span class="p">,</span>
+                            <span class="n">error_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Error processing command </span><span class="si">{</span><span class="n">part</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                            <span class="n">recoverable</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                        <span class="p">)</span>
+                    <span class="p">)</span>
+                    <span class="n">remaining_parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">part</span><span class="p">)</span>  <span class="c1"># Keep invalid commands in message</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">remaining_parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">part</span><span class="p">)</span>
+
+        <span class="c1"># Log summary of processed commands</span>
+        <span class="k">if</span> <span class="n">processed_commands</span><span class="p">:</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Processing slash commands: </span><span class="si">{</span><span class="n">processed_commands</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="n">capability_commands</span><span class="p">:</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;gateway&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Capability commands for downstream handling: </span><span class="si">{</span><span class="n">capability_commands</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+
+        <span class="n">remaining_message</span> <span class="o">=</span> <span class="s2">&quot; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">remaining_parts</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">agent_control_changes</span><span class="p">,</span> <span class="n">remaining_message</span><span class="p">,</span> <span class="n">exit_interface</span><span class="p">,</span> <span class="n">capability_commands</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

@@ -1,0 +1,2280 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Python Execution &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'api_reference/03_production_systems/03_python-execution';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Memory Storage" href="04_memory-storage.html" />
+    <link rel="prev" title="Data Management" href="02_data-management.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../01_core_framework/index.html">Core Framework</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/01_base_components.html">Base Components</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/02_state_and_context.html">State and Context Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/03_registry_system.html">Registry System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/04_configuration_system.html">Configuration System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/05_prompt_management.html">Prompt System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/06_command_system.html">Command System</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../02_infrastructure/index.html">Infrastructure</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/01_gateway.html">Gateway</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/02_task-extraction.html">Task Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/03_classification.html">Classification</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/04_orchestration.html">Orchestration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/05_execution-control.html">Execution Control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/06_message-generation.html">Message Generation</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Production Systems</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="01_human-approval.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="02_data-management.html">Data Management</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Python Execution</a></li>
+<li class="toctree-l2"><a class="reference internal" href="04_memory-storage.html">Memory Storage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="05_container-management.html">Container Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="06_control-system-connectors.html">Control System Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="07_ariel-search.html">ARIEL Search Service</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../04_error_handling/index.html">Error Handling</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/01_classification_system.html">Classification System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/02_exception_reference.html">Exception Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/03_recovery_coordination.html">Recovery Coordination</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../05_framework_utilities/index.html">Framework Utilities</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">API Reference</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Production Systems</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Python Execution</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="python-execution">
+<h1>Python Execution<a class="headerlink" href="#python-execution" title="Link to this heading">#</a></h1>
+<p>Python code generation and execution service with LangGraph-based workflow, approval integration, and flexible deployment options.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>For implementation tutorials and usage examples, see <a class="reference internal" href="../../developer-guides/05_production-systems/03_python-execution-service/index.html"><span class="doc">Python Execution</span></a>.</p>
+</div>
+<section id="service-interface">
+<h2>Service Interface<a class="headerlink" href="#service-interface" title="Link to this heading">#</a></h2>
+</section>
+<section id="request-and-response-models">
+<h2>Request and Response Models<a class="headerlink" href="#request-and-response-models" title="Link to this heading">#</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.models.</span></span><span class="sig-name descname"><span class="pre">PythonExecutionRequest</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_query</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">task_objective</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expected_results</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">capability_prompts</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">execution_folder_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">retries</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">planning_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">PlanningMode.GENERATOR_DRIVEN</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">structured_plan</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">capability_context_data</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">approved_code</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">existing_execution_folder</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">session_context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">execution_folder_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/models.html#PythonExecutionRequest"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">BaseModel</span></code></p>
+<p>Type-safe, serializable request model for Python code execution services.</p>
+<blockquote>
+<div><p>This Pydantic model defines the complete interface for requesting Python code
+generation and execution through the Python executor service. It encapsulates
+all necessary information for the service to understand the user’s intent,
+generate appropriate code, and execute it within the proper security context.</p>
+<p>The request model is designed to be fully serializable and compatible with
+LangGraph’s state management system. It separates serializable request data
+from configuration objects, which are accessed through LangGraph’s configurable
+system for proper dependency injection and configuration management.</p>
+<p>The model supports both fresh execution requests and continuation of existing
+execution sessions, with optional pre-approved code for bypassing the
+generation and analysis phases when code has already been validated.</p>
+<dl class="field-list simple">
+<dt class="field-odd">param user_query<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The original user query or task description that initiated this request (provides overall context)</p>
+</dd>
+<dt class="field-even">type user_query<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+<dt class="field-odd">param task_objective<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Step-specific goal from the orchestrator’s execution plan - self-sufficient description of what THIS specific step must accomplish</p>
+</dd>
+<dt class="field-even">type task_objective<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+<dt class="field-odd">param expected_results<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Dictionary describing expected outputs, success criteria, or result structure</p>
+</dd>
+<dt class="field-even">type expected_results<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dict[str, Any]</p>
+</dd>
+<dt class="field-odd">param capability_prompts<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Additional prompts or guidance for code generation context</p>
+</dd>
+<dt class="field-even">type capability_prompts<span class="colon">:</span></dt>
+<dd class="field-even"><p>List[str]</p>
+</dd>
+<dt class="field-odd">param execution_folder_name<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Base name for the execution folder to be created</p>
+</dd>
+<dt class="field-even">type execution_folder_name<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+<dt class="field-odd">param retries<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Maximum number of retry attempts for code generation and execution</p>
+</dd>
+<dt class="field-even">type retries<span class="colon">:</span></dt>
+<dd class="field-even"><p>int</p>
+</dd>
+<dt class="field-odd">param capability_context_data<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Context data from other capabilities for cross-capability integration</p>
+</dd>
+<dt class="field-even">type capability_context_data<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dict[str, Any], optional</p>
+</dd>
+<dt class="field-odd">param approved_code<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Pre-validated code to execute directly, bypassing generation</p>
+</dd>
+<dt class="field-even">type approved_code<span class="colon">:</span></dt>
+<dd class="field-even"><p>str, optional</p>
+</dd>
+<dt class="field-odd">param existing_execution_folder<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Path to existing execution folder for session continuation</p>
+</dd>
+<dt class="field-even">type existing_execution_folder<span class="colon">:</span></dt>
+<dd class="field-even"><p>str, optional</p>
+</dd>
+<dt class="field-odd">param session_context<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Session metadata including user and chat identifiers</p>
+</dd>
+<dt class="field-even">type session_context<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dict[str, Any], optional</p>
+</dd>
+<dt class="field-odd">param planning_mode<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Code generation planning mode (generator_driven or capability_driven)</p>
+</dd>
+<dt class="field-even">type planning_mode<span class="colon">:</span></dt>
+<dd class="field-even"><p>PlanningMode, optional</p>
+</dd>
+<dt class="field-odd">param structured_plan<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Pre-built plan from capability (for capability_driven mode)</p>
+</dd>
+<dt class="field-even">type structured_plan<span class="colon">:</span></dt>
+<dd class="field-even"><p>StructuredPlan, optional</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The request model uses Pydantic for validation and serialization. All
+Path objects are represented as strings to ensure JSON compatibility.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>When providing <cite>approved_code</cite>, ensure it has been properly validated
+through appropriate security and policy checks before submission.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><code class="xref py py-class docutils literal notranslate"><span class="pre">PythonExecutorService</span></code> : Service that processes these requests
+<code class="xref py py-class docutils literal notranslate"><span class="pre">PythonExecutionState</span></code> : LangGraph state containing request data
+<code class="xref py py-class docutils literal notranslate"><span class="pre">PythonServiceResult</span></code> : Structured response from successful execution</p>
+</div>
+<dl>
+<dt>Examples:</dt><dd><p>Basic execution request for data analysis:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Example: Multi-step analysis where this is step 2 (the actual analysis)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">request</span> <span class="o">=</span> <span class="n">PythonExecutionRequest</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">user_query</span><span class="o">=</span><span class="s2">&quot;Analyze the sensor data trends and create report&quot;</span><span class="p">,</span>  <span class="c1"># Original user request</span>
+<span class="gp">... </span>    <span class="n">task_objective</span><span class="o">=</span><span class="s2">&quot;Calculate statistical trends from retrieved sensor data&quot;</span><span class="p">,</span>  <span class="c1"># This step&#39;s goal</span>
+<span class="gp">... </span>    <span class="n">expected_results</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;statistics&quot;</span><span class="p">:</span> <span class="s2">&quot;dict&quot;</span><span class="p">,</span> <span class="s2">&quot;plot&quot;</span><span class="p">:</span> <span class="s2">&quot;matplotlib figure&quot;</span><span class="p">},</span>
+<span class="gp">... </span>    <span class="n">execution_folder_name</span><span class="o">=</span><span class="s2">&quot;sensor_analysis&quot;</span>
+<span class="gp">... </span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Request with pre-approved code:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">request</span> <span class="o">=</span> <span class="n">PythonExecutionRequest</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">user_query</span><span class="o">=</span><span class="s2">&quot;Execute validated analysis code&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">task_objective</span><span class="o">=</span><span class="s2">&quot;Run pre-approved statistical analysis&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">execution_folder_name</span><span class="o">=</span><span class="s2">&quot;approved_analysis&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">approved_code</span><span class="o">=</span><span class="s2">&quot;import pandas as pd</span>
+</pre></div>
+</div>
+</dd>
+</dl>
+</div></blockquote>
+<dl>
+<dt>df.describe()”</dt><dd><blockquote>
+<div><p>… )</p>
+</div></blockquote>
+<p>Request with capability context integration:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">request</span> <span class="o">=</span> <span class="n">PythonExecutionRequest</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">user_query</span><span class="o">=</span><span class="s2">&quot;Process archiver data&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">task_objective</span><span class="o">=</span><span class="s2">&quot;Analyze retrieved EPICS data&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">execution_folder_name</span><span class="o">=</span><span class="s2">&quot;epics_analysis&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">capability_context_data</span><span class="o">=</span><span class="p">{</span>
+<span class="gp">... </span>        <span class="s2">&quot;archiver_data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;pv_data&quot;</span><span class="p">:</span> <span class="p">[</span><span class="o">...</span><span class="p">],</span> <span class="s2">&quot;timestamps&quot;</span><span class="p">:</span> <span class="p">[</span><span class="o">...</span><span class="p">]}</span>
+<span class="gp">... </span>    <span class="p">}</span>
+<span class="gp">... </span><span class="p">)</span>
+</pre></div>
+</div>
+</dd>
+</dl>
+<p>Create a new model by parsing and validating input data from keyword arguments.</p>
+<p>Raises [<cite>ValidationError</cite>][pydantic_core.ValidationError] if the input data cannot be
+validated to form a valid model.</p>
+<p><cite>self</cite> is explicitly positional-only to allow <cite>self</cite> as a field name.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">user_query</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">task_objective</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">expected_results</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">capability_prompts</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">execution_folder_name</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">retries</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">planning_mode</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">PlanningMode</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">structured_plan</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">StructuredPlan</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">capability_context_data</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">approved_code</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">existing_execution_folder</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">session_context</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">execution_folder_path</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">model_config</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{}</span></span></dt>
+<dd><p>Configuration for the model, should be a dictionary conforming to [<cite>ConfigDict</cite>][pydantic.config.ConfigDict].</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.models.</span></span><span class="sig-name descname"><span class="pre">PythonServiceResult</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">execution_result</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">generated_code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">generation_attempt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">analysis_warnings</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/models.html#PythonServiceResult"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Structured, type-safe result from Python executor service.</p>
+<p>This eliminates the need for validation and error checking in capabilities.
+The service guarantees this structure is always returned on success.
+On failure, the service raises appropriate exceptions.</p>
+<p>Following LangGraph patterns with frozen dataclasses for immutable results.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">execution_result</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">PythonExecutionSuccess</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">generated_code</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">generation_attempt</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">analysis_warnings</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">execution_result</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">generated_code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">generation_attempt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">analysis_warnings</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.models.</span></span><span class="sig-name descname"><span class="pre">PythonExecutionSuccess</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">results</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stdout</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">execution_time</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">folder_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">notebook_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">notebook_link</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">figure_paths</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/models.html#PythonExecutionSuccess"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Comprehensive result data from successful Python code execution.</p>
+<p>This dataclass encapsulates all outputs and artifacts produced by successful
+Python code execution, including computational results, execution metadata,
+performance metrics, and file system artifacts. It serves as the primary
+payload within PythonServiceResult and provides capabilities with structured
+access to execution outcomes.</p>
+<p>The class captures both the logical results (computed data) and physical
+artifacts (notebooks, figures) produced during execution, along with
+execution metadata for monitoring and debugging purposes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>results</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – Dictionary containing the main computational results from code execution</p></li>
+<li><p><strong>stdout</strong> (<em>str</em>) – Complete stdout output captured during code execution</p></li>
+<li><p><strong>execution_time</strong> (<em>float</em>) – Total execution time in seconds</p></li>
+<li><p><strong>folder_path</strong> (<em>Path</em>) – File system path to the execution folder containing all artifacts</p></li>
+<li><p><strong>notebook_path</strong> (<em>Path</em>) – Path to the final notebook containing executed code and results</p></li>
+<li><p><strong>notebook_link</strong> (<em>str</em>) – Jupyter-accessible URL for viewing the execution notebook</p></li>
+<li><p><strong>figure_paths</strong> (<em>List</em><em>[</em><em>Path</em><em>]</em>) – List of paths to any figures or plots generated during execution</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The <cite>results</cite> dictionary contains the primary computational outputs that
+other capabilities can use for further processing or analysis.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><code class="xref py py-class docutils literal notranslate"><span class="pre">PythonServiceResult</span></code> : Container class that includes this execution data
+<code class="xref py py-class docutils literal notranslate"><span class="pre">PythonExecutionEngineResult</span></code> : Internal engine result structure</p>
+</div>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">results</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">stdout</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">execution_time</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">float</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">folder_path</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Path</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">notebook_path</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Path</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">notebook_link</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">figure_paths</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">Path</span><span class="p"><span class="pre">]</span></span></span></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">to_dict</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/models.html#PythonExecutionSuccess.to_dict"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Convert execution success data to dictionary for serialization and compatibility.</p>
+<p>Transforms the execution result into a dictionary format suitable for
+JSON serialization, logging, or integration with systems that expect
+dictionary-based data structures. All Path objects are converted to
+strings for compatibility.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Dictionary representation with standardized field names</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dict[str, Any]</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This method provides backward compatibility with existing code that
+expects dictionary-based execution results.</p>
+</div>
+<p class="rubric">Examples</p>
+<p>Converting execution results for logging:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">success</span> <span class="o">=</span> <span class="n">PythonExecutionSuccess</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">results</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;mean&quot;</span><span class="p">:</span> <span class="mf">42.0</span><span class="p">,</span> <span class="s2">&quot;count&quot;</span><span class="p">:</span> <span class="mi">100</span><span class="p">},</span>
+<span class="gp">... </span>    <span class="n">stdout</span><span class="o">=</span><span class="s2">&quot;Calculation completed successfully&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">execution_time</span><span class="o">=</span><span class="mf">2.5</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">folder_path</span><span class="o">=</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;/tmp/execution&quot;</span><span class="p">),</span>
+<span class="gp">... </span>    <span class="n">notebook_path</span><span class="o">=</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;/tmp/execution/notebook.ipynb&quot;</span><span class="p">),</span>
+<span class="gp">... </span>    <span class="n">notebook_link</span><span class="o">=</span><span class="s2">&quot;http://jupyter/notebooks/notebook.ipynb&quot;</span>
+<span class="gp">... </span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">data</span> <span class="o">=</span> <span class="n">success</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Execution took </span><span class="si">{</span><span class="n">data</span><span class="p">[</span><span class="s1">&#39;execution_time_seconds&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> seconds&quot;</span><span class="p">)</span>
+<span class="go">Execution took 2.5 seconds</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">results</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stdout</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">execution_time</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">folder_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">notebook_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">notebook_link</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">figure_paths</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="state-management">
+<h2>State Management<a class="headerlink" href="#state-management" title="Link to this heading">#</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.models.</span></span><span class="sig-name descname"><span class="pre">PythonExecutionState</span></span><a class="reference internal" href="../../_modules/osprey/services/python_executor/models.html#PythonExecutionState"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">TypedDict</span></code></p>
+<p>LangGraph state for Python executor service.</p>
+<p>This state is used internally by the service and includes both the
+original request and execution tracking fields.</p>
+<p>CRITICAL: The ‘request’ field preserves the existing interface, allowing
+service nodes to access all original request data via state.request.field_name</p>
+<p>The ‘request’ field uses the preserve_once_set reducer to ensure it’s never
+lost during state updates or checkpoint resumption (e.g., approval workflows).</p>
+<p>NOTE: capability_context_data is extracted to top level for ContextManager compatibility</p>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">request</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">PythonExecutionRequest,</span> <span class="pre">&lt;function</span> <span class="pre">preserve_once_set</span> <span class="pre">at</span> <span class="pre">0x7ff2b5b584a0&gt;]</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">capability_context_data</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">generation_attempt</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">error_chain</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">ExecutionError</span><span class="p"><span class="pre">]</span></span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">current_stage</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">requires_approval</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">approval_interrupt_data</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">approval_result</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">approved</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">generated_code</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">analysis_result</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Any</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">analysis_failed</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">execution_failed</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">execution_result</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Any</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">execution_folder</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Any</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">code_generator_metadata</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">is_successful</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">is_failed</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">failure_reason</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.models.</span></span><span class="sig-name descname"><span class="pre">PythonExecutionContext</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">folder_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">folder_url</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">attempts_folder</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context_file_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">notebook_attempts</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/models.html#PythonExecutionContext"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Execution context container managing file system resources and notebook tracking.</p>
+<p>This class provides a centralized container for managing all file system
+resources, paths, and metadata associated with a Python execution session.
+It tracks the execution folder structure, notebook creation attempts, and
+provides convenient access to execution artifacts.</p>
+<p>The context maintains a flat, simple structure that can be easily serialized
+and passed between different components of the execution pipeline. It serves
+as the primary coordination point for file operations and artifact management.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>folder_path</strong> (<em>Path</em><em>, </em><em>optional</em>) – Main execution folder path where all artifacts are stored</p></li>
+<li><p><strong>folder_url</strong> (<em>str</em><em>, </em><em>optional</em>) – Jupyter-accessible URL for the execution folder</p></li>
+<li><p><strong>attempts_folder</strong> (<em>Path</em><em>, </em><em>optional</em>) – Subfolder containing individual execution attempts</p></li>
+<li><p><strong>context_file_path</strong> (<em>Path</em><em>, </em><em>optional</em>) – Path to the serialized context file for the execution</p></li>
+<li><p><strong>notebook_attempts</strong> (<em>List</em><em>[</em><em>NotebookAttempt</em><em>]</em>) – List of all notebook creation attempts for this execution</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The context is typically created by the FileManager during execution
+folder setup and is passed through the execution pipeline to coordinate
+file operations.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><code class="xref py py-class docutils literal notranslate"><span class="pre">FileManager</span></code> : Creates and manages execution contexts
+<code class="xref py py-class docutils literal notranslate"><span class="pre">NotebookAttempt</span></code> : Individual notebook tracking records</p>
+</div>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">folder_path</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">folder_url</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">attempts_folder</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">context_file_path</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">notebook_attempts</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">NotebookAttempt</span><span class="p"><span class="pre">]</span></span></span></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">is_initialized</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></span></dt>
+<dd><p>Check if execution folder has been properly initialized.</p>
+<p>Determines whether the execution context has been set up with a valid
+folder path, indicating that the file system resources are ready for
+use by the execution pipeline.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if folder_path is set, False otherwise</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>bool</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Checking context initialization before use:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">context</span> <span class="o">=</span> <span class="n">PythonExecutionContext</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Ready: </span><span class="si">{</span><span class="n">context</span><span class="o">.</span><span class="n">is_initialized</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="go">Ready: False</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">context</span><span class="o">.</span><span class="n">folder_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;/tmp/execution&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Ready: </span><span class="si">{</span><span class="n">context</span><span class="o">.</span><span class="n">is_initialized</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="go">Ready: True</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">add_notebook_attempt</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">attempt</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/models.html#PythonExecutionContext.add_notebook_attempt"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Add a notebook creation attempt to the tracking list.</p>
+<p>Records a new notebook attempt in the execution context, maintaining
+a complete audit trail of all notebooks created during the execution
+session. This supports debugging and provides visibility into the
+execution workflow.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>attempt</strong> (<em>NotebookAttempt</em>) – Notebook attempt metadata to add to tracking</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Adding a notebook attempt to context:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">context</span> <span class="o">=</span> <span class="n">PythonExecutionContext</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">attempt</span> <span class="o">=</span> <span class="n">NotebookAttempt</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">notebook_type</span><span class="o">=</span><span class="n">NotebookType</span><span class="o">.</span><span class="n">FINAL_SUCCESS</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">attempt_number</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">stage</span><span class="o">=</span><span class="s2">&quot;execution&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">notebook_path</span><span class="o">=</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;/path/to/notebook.ipynb&quot;</span><span class="p">),</span>
+<span class="gp">... </span>    <span class="n">notebook_link</span><span class="o">=</span><span class="s2">&quot;http://jupyter/notebooks/notebook.ipynb&quot;</span>
+<span class="gp">... </span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">context</span><span class="o">.</span><span class="n">add_notebook_attempt</span><span class="p">(</span><span class="n">attempt</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Total attempts: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">context</span><span class="o">.</span><span class="n">notebook_attempts</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="go">Total attempts: 1</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">get_next_attempt_number</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/models.html#PythonExecutionContext.get_next_attempt_number"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Get the next sequential attempt number for notebook naming.</p>
+<p>Calculates the next attempt number based on the current number of
+tracked notebook attempts. This ensures consistent, sequential
+numbering of notebooks throughout the execution session.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Next attempt number (1-based indexing)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>int</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Getting attempt number for new notebook:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">context</span> <span class="o">=</span> <span class="n">PythonExecutionContext</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;First attempt: </span><span class="si">{</span><span class="n">context</span><span class="o">.</span><span class="n">get_next_attempt_number</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="go">First attempt: 1</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># After adding one attempt...</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Next attempt: </span><span class="si">{</span><span class="n">context</span><span class="o">.</span><span class="n">get_next_attempt_number</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="go">Next attempt: 2</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">folder_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">folder_url</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">attempts_folder</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context_file_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">notebook_attempts</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="configuration-models">
+<h2>Configuration Models<a class="headerlink" href="#configuration-models" title="Link to this heading">#</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.config.</span></span><span class="sig-name descname"><span class="pre">PythonExecutorConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">configurable</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/config.html#PythonExecutorConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Configuration for Python Executor Service.</p>
+<p>Manages essential configuration settings for the Python executor service,
+including retry limits and execution timeouts. Values can be overridden
+via framework configuration.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">configurable</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/config.html#PythonExecutorConfig.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">limits_validator</span></span></dt>
+<dd><p>Get limits validator (lazy-loaded from config).</p>
+<p>Returns the LimitsValidator instance if runtime channel limits checking
+is enabled in the configuration, or None if disabled. The validator is
+loaded only once and cached for subsequent accesses.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>LimitsValidator instance or None if disabled</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>LimitsValidator | None</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.models.</span></span><span class="sig-name descname"><span class="pre">ExecutionModeConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mode_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">allows_writes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">requires_approval</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">description</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">environment</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">epics_gateway</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/models.html#ExecutionModeConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Simple execution mode configuration.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">mode_name</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">kernel_name</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">allows_writes</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">requires_approval</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">description</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">environment</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">epics_gateway</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mode_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">allows_writes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">requires_approval</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">description</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">environment</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">epics_gateway</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.models.</span></span><span class="sig-name descname"><span class="pre">ContainerEndpointConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">host</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">port</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_https</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/models.html#ContainerEndpointConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Container endpoint configuration.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">host</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">port</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">kernel_name</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">use_https</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">base_url</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">host</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">port</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_https</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.execution.control.</span></span><span class="sig-name descname"><span class="pre">ExecutionControlConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">epics_writes_enabled</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">control_system_writes_enabled</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">control_system_type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'epics'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/execution/control.html#ExecutionControlConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Configuration class for control system execution control and security policy management.</p>
+<p>This configuration class encapsulates the security policies and settings that
+determine how Python code execution is controlled within the system. It provides
+the logic for automatically selecting appropriate execution environments based
+on code analysis results and configured security policies.</p>
+<p>The configuration implements a conservative security approach where write
+operations are only permitted when explicitly enabled and detected in the
+code. This ensures that potentially dangerous operations require both
+configuration permission and explicit code intent.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>epics_writes_enabled</strong> (<em>bool</em>) – (Deprecated) Whether EPICS write operations are permitted.
+Use control_system_writes_enabled instead.</p></li>
+<li><p><strong>control_system_writes_enabled</strong> (<em>bool</em>) – Whether control system write operations are permitted in this deployment</p></li>
+<li><p><strong>control_system_type</strong> (<em>str</em>) – Type of control system (epics, mock, tango, etc.)</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This configuration should be set based on the deployment environment and
+security requirements. Production control systems should carefully consider
+the implications of enabling write access.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Enabling control system writes allows executed code to potentially affect physical
+systems. Ensure appropriate approval workflows and monitoring are in place.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><code class="xref py py-class docutils literal notranslate"><span class="pre">ExecutionMode</span></code> : Available execution environment modes
+<code class="xref py py-func docutils literal notranslate"><span class="pre">get_execution_control_config()</span></code> : Factory function for creating configurations</p>
+</div>
+<p class="rubric">Examples</p>
+<p>Creating a read-only configuration for safe analysis:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">config</span> <span class="o">=</span> <span class="n">ExecutionControlConfig</span><span class="p">(</span><span class="n">control_system_writes_enabled</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">mode</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get_execution_mode</span><span class="p">(</span><span class="n">has_epics_writes</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">has_epics_reads</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Mode: </span><span class="si">{</span><span class="n">mode</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>  <span class="c1"># Always READ_ONLY when writes disabled</span>
+<span class="go">Mode: ExecutionMode.READ_ONLY</span>
+</pre></div>
+</div>
+<p>Enabling controlled write access:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">write_config</span> <span class="o">=</span> <span class="n">ExecutionControlConfig</span><span class="p">(</span><span class="n">control_system_writes_enabled</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Only grants write access when code actually contains write operations</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">read_mode</span> <span class="o">=</span> <span class="n">write_config</span><span class="o">.</span><span class="n">get_execution_mode</span><span class="p">(</span><span class="n">has_epics_writes</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">has_epics_reads</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">write_mode</span> <span class="o">=</span> <span class="n">write_config</span><span class="o">.</span><span class="n">get_execution_mode</span><span class="p">(</span><span class="n">has_epics_writes</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">has_epics_reads</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Read mode: </span><span class="si">{</span><span class="n">read_mode</span><span class="si">}</span><span class="s2">, Write mode: </span><span class="si">{</span><span class="n">write_mode</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">epics_writes_enabled</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">control_system_writes_enabled</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">control_system_type</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'epics'</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__post_init__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/execution/control.html#ExecutionControlConfig.__post_init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Handle backward compatibility for epics_writes_enabled.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">get_execution_mode</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">has_epics_writes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">has_epics_reads</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/execution/control.html#ExecutionControlConfig.get_execution_mode"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Determine appropriate execution mode based on code analysis and security policy.</p>
+<p>Analyzes the detected operations in the code (from static analysis) and
+applies the configured security policy to determine the most appropriate
+execution environment. The method implements a conservative approach where
+write access is only granted when both the code requires it and the
+configuration permits it.</p>
+<p>The decision logic prioritizes security by defaulting to read-only access
+unless write operations are both detected in the code and explicitly
+enabled in the configuration.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>has_epics_writes</strong> (<em>bool</em>) – Whether static analysis detected EPICS write operations in the code</p></li>
+<li><p><strong>has_epics_reads</strong> (<em>bool</em>) – Whether static analysis detected EPICS read operations in the code</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Execution mode appropriate for the detected operations and security policy</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>ExecutionMode</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The has_epics_reads parameter is provided for future extensibility but
+currently does not affect mode selection since read operations are
+permitted in all execution modes.</p>
+</div>
+<p class="rubric">Examples</p>
+<p>Mode selection with different code patterns:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">config</span> <span class="o">=</span> <span class="n">ExecutionControlConfig</span><span class="p">(</span><span class="n">epics_writes_enabled</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Code with only read operations</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">mode</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get_execution_mode</span><span class="p">(</span><span class="n">has_epics_writes</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">has_epics_reads</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Read-only code: </span><span class="si">{</span><span class="n">mode</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="go">Read-only code: ExecutionMode.READ_ONLY</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Code with write operations (and writes enabled)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">mode</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get_execution_mode</span><span class="p">(</span><span class="n">has_epics_writes</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">has_epics_reads</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Write code: </span><span class="si">{</span><span class="n">mode</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="go">Write code: ExecutionMode.WRITE_ACCESS</span>
+</pre></div>
+</div>
+<p>Security policy enforcement:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">secure_config</span> <span class="o">=</span> <span class="n">ExecutionControlConfig</span><span class="p">(</span><span class="n">epics_writes_enabled</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Write operations detected but not permitted by policy</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">mode</span> <span class="o">=</span> <span class="n">secure_config</span><span class="o">.</span><span class="n">get_execution_mode</span><span class="p">(</span><span class="n">has_epics_writes</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">has_epics_reads</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Secured mode: </span><span class="si">{</span><span class="n">mode</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>  <span class="c1"># Always READ_ONLY when writes disabled</span>
+<span class="go">Secured mode: ExecutionMode.READ_ONLY</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">validate</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/execution/control.html#ExecutionControlConfig.validate"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Validate configuration for logical consistency.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>List of validation warnings/errors</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>list[str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">epics_writes_enabled</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">control_system_writes_enabled</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">control_system_type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'epics'</span></span></em><span class="sig-paren">)</span></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="notebook-management">
+<h2>Notebook Management<a class="headerlink" href="#notebook-management" title="Link to this heading">#</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.models.</span></span><span class="sig-name descname"><span class="pre">NotebookAttempt</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">notebook_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">attempt_number</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stage</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">notebook_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">notebook_link</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">error_context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">created_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/models.html#NotebookAttempt"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Tracks metadata for a single notebook creation attempt during execution workflow.</p>
+<p>This dataclass captures comprehensive information about each notebook created
+during the Python execution process, including its type, creation context,
+file system location, and any associated error information. It provides
+audit trails and debugging support for the execution workflow.</p>
+<p>The class supports serialization for persistence and provides structured
+access to notebook metadata for both internal tracking and external
+reporting purposes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>notebook_type</strong> (<em>NotebookType</em>) – Type of notebook created (generation, execution, final, etc.)</p></li>
+<li><p><strong>attempt_number</strong> (<em>int</em>) – Sequential attempt number for this execution session</p></li>
+<li><p><strong>stage</strong> (<em>str</em>) – Execution stage when notebook was created</p></li>
+<li><p><strong>notebook_path</strong> (<em>Path</em>) – File system path to the created notebook</p></li>
+<li><p><strong>notebook_link</strong> (<em>str</em>) – URL link for accessing the notebook in Jupyter interface</p></li>
+<li><p><strong>error_context</strong> (<em>str</em><em>, </em><em>optional</em>) – Optional error information if notebook creation failed</p></li>
+<li><p><strong>created_at</strong> (<em>str</em><em>, </em><em>optional</em>) – Timestamp when notebook was created</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The <cite>notebook_link</cite> provides direct access to view the notebook in the
+Jupyter interface, making it easy to inspect execution results.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><code class="xref py py-class docutils literal notranslate"><span class="pre">NotebookType</span></code> : Enumeration of supported notebook types
+<code class="xref py py-class docutils literal notranslate"><span class="pre">PythonExecutionContext</span></code> : Container for execution context and attempts</p>
+</div>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">notebook_type</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">NotebookType</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">attempt_number</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">stage</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">notebook_path</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Path</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">notebook_link</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">error_context</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">created_at</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">to_dict</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/models.html#NotebookAttempt.to_dict"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Convert notebook attempt to dictionary for serialization and storage.</p>
+<p>Transforms the notebook attempt data into a serializable dictionary
+format suitable for JSON storage, logging, or transmission. All Path
+objects are converted to strings and enum values are converted to
+their string representations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Dictionary representation with all fields as serializable types</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dict[str, Any]</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Converting attempt to dictionary for logging:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">attempt</span> <span class="o">=</span> <span class="n">NotebookAttempt</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">notebook_type</span><span class="o">=</span><span class="n">NotebookType</span><span class="o">.</span><span class="n">FINAL_SUCCESS</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">attempt_number</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">stage</span><span class="o">=</span><span class="s2">&quot;execution&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">notebook_path</span><span class="o">=</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;/path/to/notebook.ipynb&quot;</span><span class="p">),</span>
+<span class="gp">... </span>    <span class="n">notebook_link</span><span class="o">=</span><span class="s2">&quot;http://jupyter/notebooks/notebook.ipynb&quot;</span>
+<span class="gp">... </span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">data</span> <span class="o">=</span> <span class="n">attempt</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Notebook type:&quot;</span><span class="p">,</span> <span class="n">data</span><span class="p">[</span><span class="s1">&#39;notebook_type&#39;</span><span class="p">])</span>
+<span class="go">Notebook type: final_success</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">notebook_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">attempt_number</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stage</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">notebook_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">notebook_link</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">error_context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">created_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.models.</span></span><span class="sig-name descname"><span class="pre">NotebookType</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/models.html#NotebookType"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Enum</span></code></p>
+<p>Enumeration of notebook types created during Python execution workflow.</p>
+<p>This enum categorizes the different types of Jupyter notebooks that are
+created throughout the Python execution lifecycle. Each notebook type
+serves a specific purpose in the execution workflow and provides different
+levels of detail for debugging and audit purposes.</p>
+<p>The notebooks are created at key stages to provide comprehensive visibility
+into the execution process, from initial code generation through final
+execution results or failure analysis.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Variables<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>CODE_GENERATION_ATTEMPT</strong> – Notebook created after code generation but before analysis</p></li>
+<li><p><strong>PRE_EXECUTION</strong> – Notebook created after analysis approval but before execution</p></li>
+<li><p><strong>EXECUTION_ATTEMPT</strong> – Notebook created during or immediately after code execution</p></li>
+<li><p><strong>FINAL_SUCCESS</strong> – Final notebook created after successful execution completion</p></li>
+<li><p><strong>FINAL_FAILURE</strong> – Final notebook created after execution failure for debugging</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Each notebook type includes different metadata and context information
+appropriate for its stage in the execution workflow.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><code class="xref py py-class docutils literal notranslate"><span class="pre">NotebookAttempt</span></code> : Tracks individual notebook creation attempts
+<code class="xref py py-class docutils literal notranslate"><span class="pre">NotebookManager</span></code> : Manages notebook creation and lifecycle</p>
+</div>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">CODE_GENERATION_ATTEMPT</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'code_generation_attempt'</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">PRE_EXECUTION</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'pre_execution'</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">EXECUTION_ATTEMPT</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'execution_attempt'</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">FINAL_SUCCESS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'final_success'</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">FINAL_FAILURE</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'final_failure'</span></span></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="exceptions">
+<h2>Exceptions<a class="headerlink" href="#exceptions" title="Link to this heading">#</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.exceptions.</span></span><span class="sig-name descname"><span class="pre">PythonExecutorException</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">category</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">technical_details</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">folder_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#PythonExecutorException"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Exception</span></code></p>
+<p>Base exception class for all Python executor service operations.</p>
+<p>This abstract base class provides common functionality for all Python executor
+exceptions, including error categorization, context management, and retry logic
+determination. It serves as the foundation for the entire exception hierarchy
+and enables consistent error handling across the service.</p>
+<p>The class implements a category-based approach to error handling that allows
+the service to automatically determine appropriate recovery strategies without
+requiring explicit exception type checking in the retry logic.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> (<em>str</em>) – Human-readable error description</p></li>
+<li><p><strong>category</strong> (<a class="reference internal" href="../04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.ErrorCategory" title="osprey.services.python_executor.exceptions.ErrorCategory"><em>ErrorCategory</em></a>) – Error category that determines recovery strategy</p></li>
+<li><p><strong>technical_details</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>, </em><em>optional</em>) – Additional technical information for debugging</p></li>
+<li><p><strong>folder_path</strong> (<em>Path</em><em>, </em><em>optional</em>) – Path to execution folder if available for debugging</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This base class should not be raised directly. Use specific exception
+subclasses that provide more detailed error information.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><a class="reference internal" href="../04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.ErrorCategory" title="osprey.services.python_executor.exceptions.ErrorCategory"><code class="xref py py-class docutils literal notranslate"><span class="pre">ErrorCategory</span></code></a> : Error categorization for recovery strategies
+<a class="reference internal" href="../04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.ContainerConnectivityError" title="osprey.services.python_executor.exceptions.ContainerConnectivityError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ContainerConnectivityError</span></code></a> : Infrastructure error example
+<a class="reference internal" href="../04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.CodeRuntimeError" title="osprey.services.python_executor.exceptions.CodeRuntimeError"><code class="xref py py-class docutils literal notranslate"><span class="pre">CodeRuntimeError</span></code></a> : Code-related error example</p>
+</div>
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">category</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">technical_details</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">folder_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#PythonExecutorException.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">is_infrastructure_error</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#PythonExecutorException.is_infrastructure_error"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Check if this is an infrastructure or connectivity error.</p>
+<p>Infrastructure errors indicate problems with external dependencies like
+container connectivity, network issues, or service availability. These
+errors typically warrant retrying the same operation after a delay.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if this is an infrastructure error</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>bool</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Checking error type for retry logic:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">try</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="k">await</span> <span class="n">execute_code</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+<span class="gp">... </span><span class="k">except</span> <span class="n">PythonExecutorException</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">is_infrastructure_error</span><span class="p">():</span>
+<span class="gp">... </span>        <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>  <span class="c1"># Brief delay</span>
+<span class="gp">... </span>        <span class="k">await</span> <span class="n">execute_code</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>  <span class="c1"># Retry same code</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">is_code_error</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#PythonExecutorException.is_code_error"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Check if this is a code-related error requiring code regeneration.</p>
+<p>Code errors indicate problems with the generated or provided Python code,
+including syntax errors, runtime failures, or logical issues. These errors
+typically require regenerating the code with error feedback.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if this is a code-related error</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>bool</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Handling code errors with regeneration:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">try</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="k">await</span> <span class="n">execute_code</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+<span class="gp">... </span><span class="k">except</span> <span class="n">PythonExecutorException</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">is_code_error</span><span class="p">():</span>
+<span class="gp">... </span>        <span class="n">new_code</span> <span class="o">=</span> <span class="k">await</span> <span class="n">regenerate_code</span><span class="p">(</span><span class="n">error_feedback</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
+<span class="gp">... </span>        <span class="k">await</span> <span class="n">execute_code</span><span class="p">(</span><span class="n">new_code</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">is_workflow_error</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#PythonExecutorException.is_workflow_error"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Check if this is a workflow control error requiring special handling.</p>
+<p>Workflow errors indicate issues with the service’s execution workflow,
+such as timeouts, maximum retry limits, or approval requirements. These
+errors typically require user intervention or service configuration changes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if this is a workflow control error</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>bool</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Handling workflow errors with user notification:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">try</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="k">await</span> <span class="n">execute_code</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+<span class="gp">... </span><span class="k">except</span> <span class="n">PythonExecutorException</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">is_workflow_error</span><span class="p">():</span>
+<span class="gp">... </span>        <span class="k">await</span> <span class="n">notify_user</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Execution failed: </span><span class="si">{</span><span class="n">e</span><span class="o">.</span><span class="n">message</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">should_retry_execution</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#PythonExecutorException.should_retry_execution"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Determine if the same code execution should be retried.</p>
+<p>Returns True for infrastructure errors where the code itself is likely
+correct but external dependencies (containers, network) caused the failure.
+This enables automatic retry of the same code without regeneration.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if execution should be retried with the same code</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>bool</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Automatic retry logic based on error category:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">if</span> <span class="n">exception</span><span class="o">.</span><span class="n">should_retry_execution</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Infrastructure issue, retrying execution...&quot;</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="k">await</span> <span class="n">retry_execution_with_backoff</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">should_retry_code_generation</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#PythonExecutorException.should_retry_code_generation"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Determine if code should be regenerated and execution retried.</p>
+<p>Returns True for code-related errors where the generated code has issues
+that require regeneration with error feedback. This enables automatic
+code improvement through iterative generation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if code should be regenerated and execution retried</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>bool</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Code regeneration retry logic:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">if</span> <span class="n">exception</span><span class="o">.</span><span class="n">should_retry_code_generation</span><span class="p">():</span>
+<span class="gp">... </span>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Code issue, regenerating with feedback...&quot;</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="n">improved_code</span> <span class="o">=</span> <span class="k">await</span> <span class="n">regenerate_with_feedback</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">exception</span><span class="p">))</span>
+<span class="gp">... </span>    <span class="k">await</span> <span class="n">execute_code</span><span class="p">(</span><span class="n">improved_code</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.exceptions.</span></span><span class="sig-name descname"><span class="pre">CodeRuntimeError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">traceback_info</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">execution_attempt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">technical_details</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">folder_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#CodeRuntimeError"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <a class="reference internal" href="../04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.PythonExecutorException" title="osprey.services.python_executor.exceptions.PythonExecutorException"><code class="xref py py-class docutils literal notranslate"><span class="pre">PythonExecutorException</span></code></a></p>
+<p>Code failed during execution due to runtime errors</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">traceback_info</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">execution_attempt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">technical_details</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">folder_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#CodeRuntimeError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.exceptions.</span></span><span class="sig-name descname"><span class="pre">CodeGenerationError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">generation_attempt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">error_chain</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">technical_details</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#CodeGenerationError"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <a class="reference internal" href="../04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.PythonExecutorException" title="osprey.services.python_executor.exceptions.PythonExecutorException"><code class="xref py py-class docutils literal notranslate"><span class="pre">PythonExecutorException</span></code></a></p>
+<p>LLM failed to generate valid code</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">generation_attempt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">error_chain</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">technical_details</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#CodeGenerationError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.exceptions.</span></span><span class="sig-name descname"><span class="pre">ContainerConnectivityError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">host</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">port</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">technical_details</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#ContainerConnectivityError"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <a class="reference internal" href="../04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.PythonExecutorException" title="osprey.services.python_executor.exceptions.PythonExecutorException"><code class="xref py py-class docutils literal notranslate"><span class="pre">PythonExecutorException</span></code></a></p>
+<p>Exception raised when Jupyter container is unreachable or connection fails.</p>
+<p>This infrastructure error indicates that the Python executor service cannot
+establish communication with the configured Jupyter container endpoint. This
+typically occurs due to network issues, container startup problems, or
+configuration mismatches.</p>
+<p>The error provides both technical details for debugging and user-friendly
+messages that abstract the underlying infrastructure complexity while
+preserving essential information for troubleshooting.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> (<em>str</em>) – Technical error description for debugging</p></li>
+<li><p><strong>host</strong> (<em>str</em>) – Container host address that failed to connect</p></li>
+<li><p><strong>port</strong> (<em>int</em>) – Container port that failed to connect</p></li>
+<li><p><strong>technical_details</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>, </em><em>optional</em>) – Additional technical information for debugging</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This error triggers automatic retry logic since the code itself is likely
+correct and the issue is with external infrastructure.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><a class="reference internal" href="../04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.ContainerConfigurationError" title="osprey.services.python_executor.exceptions.ContainerConfigurationError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ContainerConfigurationError</span></code></a> : Configuration-related container issues
+<a class="reference internal" href="../04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.PythonExecutorException.should_retry_execution" title="osprey.services.python_executor.exceptions.PythonExecutorException.should_retry_execution"><code class="xref py py-class docutils literal notranslate"><span class="pre">PythonExecutorException.should_retry_execution</span></code></a> : Retry logic for infrastructure errors</p>
+</div>
+<p class="rubric">Examples</p>
+<p>Handling container connectivity issues:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">try</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">container_executor</span><span class="o">.</span><span class="n">execute_code</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+<span class="gp">... </span><span class="k">except</span> <span class="n">ContainerConnectivityError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Container issue: </span><span class="si">{</span><span class="n">e</span><span class="o">.</span><span class="n">get_user_message</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="c1"># Automatic retry or fallback to local execution</span>
+<span class="gp">... </span>    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">local_executor</span><span class="o">.</span><span class="n">execute_code</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+</pre></div>
+</div>
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">host</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">port</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">technical_details</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#ContainerConnectivityError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">get_user_message</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#ContainerConnectivityError.get_user_message"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Get user-friendly error message abstracting technical details.</p>
+<p>Provides a clear, non-technical explanation of the connectivity issue
+that users can understand without needing to know about container
+infrastructure details.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>User-friendly error description</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Displaying user-friendly error messages:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">error</span> <span class="o">=</span> <span class="n">ContainerConnectivityError</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="s2">&quot;Connection refused&quot;</span><span class="p">,</span> <span class="s2">&quot;localhost&quot;</span><span class="p">,</span> <span class="mi">8888</span>
+<span class="gp">... </span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">error</span><span class="o">.</span><span class="n">get_user_message</span><span class="p">())</span>
+<span class="go">Python execution environment is not reachable at localhost:8888</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.exceptions.</span></span><span class="sig-name descname"><span class="pre">ExecutionTimeoutError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">timeout_seconds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">technical_details</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">folder_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#ExecutionTimeoutError"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <a class="reference internal" href="../04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.PythonExecutorException" title="osprey.services.python_executor.exceptions.PythonExecutorException"><code class="xref py py-class docutils literal notranslate"><span class="pre">PythonExecutorException</span></code></a></p>
+<p>Code execution exceeded timeout</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">timeout_seconds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">technical_details</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">folder_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#ExecutionTimeoutError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.exceptions.</span></span><span class="sig-name descname"><span class="pre">ChannelLimitsViolationError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel_address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">violation_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">violation_reason</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_step</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">current_value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#ChannelLimitsViolationError"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <a class="reference internal" href="../04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.PythonExecutorException" title="osprey.services.python_executor.exceptions.PythonExecutorException"><code class="xref py py-class docutils literal notranslate"><span class="pre">PythonExecutorException</span></code></a></p>
+<p>Raised when a channel write violates configured limits.</p>
+<p>This code-related error indicates that generated or user code attempted to
+write a value to a channel that violates safety limits defined in the
+limits database. This includes min/max limit violations, read-only channel
+writes, excessive step sizes, or writes to unlisted channels.</p>
+<p>The error provides comprehensive details about the violation including the
+channel address, attempted value, current value (for step violations), and the
+configured limits to help users understand why the write was blocked.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>channel_address</strong> (<em>str</em>) – Channel address that was accessed</p></li>
+<li><p><strong>value</strong> (<em>Any</em>) – The value that was attempted to be written</p></li>
+<li><p><strong>violation_type</strong> (<em>str</em>) – Type of violation (MIN_EXCEEDED, MAX_EXCEEDED, READ_ONLY_CHANNEL,
+UNLISTED_CHANNEL, MAX_STEP_EXCEEDED, STEP_CHECK_FAILED)</p></li>
+<li><p><strong>violation_reason</strong> (<em>str</em>) – Human-readable explanation of the violation</p></li>
+<li><p><strong>min_value</strong> (<em>float</em><em>, </em><em>optional</em>) – Configured minimum value for the channel</p></li>
+<li><p><strong>max_value</strong> (<em>float</em><em>, </em><em>optional</em>) – Configured maximum value for the channel</p></li>
+<li><p><strong>max_step</strong> (<em>float</em><em>, </em><em>optional</em>) – Configured maximum step size for the channel</p></li>
+<li><p><strong>current_value</strong> (<em>Any</em><em>, </em><em>optional</em>) – Current channel value (for step violations)</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This error is raised during code execution when runtime channel limits
+checking is enabled and detects a safety violation.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><code class="xref py py-class docutils literal notranslate"><span class="pre">LimitsValidator</span></code> : Validation engine that raises this exception
+<code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelLimitsConfig</span></code> : Configuration for channel limits</p>
+</div>
+<p class="rubric">Examples</p>
+<p>Handling channel limits violations:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">try</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="k">await</span> <span class="n">executor</span><span class="o">.</span><span class="n">execute_code</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+<span class="gp">... </span><span class="k">except</span> <span class="n">ChannelLimitsViolationError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Safety violation: </span><span class="si">{</span><span class="n">e</span><span class="o">.</span><span class="n">violation_reason</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Attempted to write </span><span class="si">{</span><span class="n">e</span><span class="o">.</span><span class="n">attempted_value</span><span class="si">}</span><span class="s2"> to </span><span class="si">{</span><span class="n">e</span><span class="o">.</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="c1"># Code should be regenerated with safer values</span>
+</pre></div>
+</div>
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel_address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">violation_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">violation_reason</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_step</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">current_value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#ChannelLimitsViolationError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.exceptions.</span></span><span class="sig-name descname"><span class="pre">ErrorCategory</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/exceptions.html#ErrorCategory"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Enum</span></code></p>
+<p>High-level error categories that determine appropriate recovery strategies.</p>
+<p>This enumeration classifies all Python executor errors into categories that
+directly correspond to different recovery and retry strategies. The categorization
+enables intelligent error handling that can automatically determine whether to
+retry execution, regenerate code, or require user intervention.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Variables<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>INFRASTRUCTURE</strong> – Container connectivity, network, or external service issues</p></li>
+<li><p><strong>CODE_RELATED</strong> – Syntax errors, runtime failures, or logical issues in generated code</p></li>
+<li><p><strong>WORKFLOW</strong> – Service workflow control issues like timeouts or retry limits</p></li>
+<li><p><strong>CONFIGURATION</strong> – Invalid or missing configuration settings</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Error categories are used by the service’s retry logic to determine the
+appropriate recovery strategy without requiring explicit error type checking.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><a class="reference internal" href="../04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.PythonExecutorException" title="osprey.services.python_executor.exceptions.PythonExecutorException"><code class="xref py py-class docutils literal notranslate"><span class="pre">PythonExecutorException</span></code></a> : Base exception class using these categories
+<a class="reference internal" href="../04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.PythonExecutorException.should_retry_execution" title="osprey.services.python_executor.exceptions.PythonExecutorException.should_retry_execution"><code class="xref py py-meth docutils literal notranslate"><span class="pre">PythonExecutorException.should_retry_execution()</span></code></a> : Infrastructure retry logic
+<a class="reference internal" href="../04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.PythonExecutorException.should_retry_code_generation" title="osprey.services.python_executor.exceptions.PythonExecutorException.should_retry_code_generation"><code class="xref py py-meth docutils literal notranslate"><span class="pre">PythonExecutorException.should_retry_code_generation()</span></code></a> : Code regeneration logic</p>
+</div>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">INFRASTRUCTURE</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'infrastructure'</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">CODE_RELATED</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'code_related'</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">WORKFLOW</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'workflow'</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">CONFIGURATION</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'configuration'</span></span></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="utility-functions">
+<h2>Utility Functions<a class="headerlink" href="#utility-functions" title="Link to this heading">#</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.services.python_executor.models.get_execution_control_config_from_configurable">
+<span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.models.</span></span><span class="sig-name descname"><span class="pre">get_execution_control_config_from_configurable</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">configurable</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/models.html#get_execution_control_config_from_configurable"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.services.python_executor.models.get_execution_control_config_from_configurable" title="Link to this definition">#</a></dt>
+<dd><p>Get execution control configuration from LangGraph configurable - raises exceptions on failure.</p>
+<p>This provides a consistent way to access control system execution control settings from the configurable
+that is passed to the Python executor service, ensuring security-critical settings like
+control_system_writes_enabled are accessed consistently.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>configurable</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The LangGraph configurable dictionary</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Execution control configuration</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>ExecutionControlConfig</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="../04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.ContainerConfigurationError" title="osprey.services.python_executor.exceptions.ContainerConfigurationError"><strong>ContainerConfigurationError</strong></a> – If configuration is missing or invalid</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.services.python_executor.models.get_execution_mode_config_from_configurable">
+<span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.models.</span></span><span class="sig-name descname"><span class="pre">get_execution_mode_config_from_configurable</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">configurable</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mode_name</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/models.html#get_execution_mode_config_from_configurable"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.services.python_executor.models.get_execution_mode_config_from_configurable" title="Link to this definition">#</a></dt>
+<dd><p>Create execution mode config from LangGraph configurable - raises exceptions on failure</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><em>ExecutionModeConfig</em></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.services.python_executor.models.get_container_endpoint_config_from_configurable">
+<span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.models.</span></span><span class="sig-name descname"><span class="pre">get_container_endpoint_config_from_configurable</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">configurable</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">execution_mode</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/models.html#get_container_endpoint_config_from_configurable"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.services.python_executor.models.get_container_endpoint_config_from_configurable" title="Link to this definition">#</a></dt>
+<dd><p>Create container endpoint config from LangGraph configurable - raises exceptions on failure</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><em>ContainerEndpointConfig</em></p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="serialization-utilities">
+<h2>Serialization Utilities<a class="headerlink" href="#serialization-utilities" title="Link to this heading">#</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.services.python_executor.services.make_json_serializable">
+<span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.services.</span></span><span class="sig-name descname"><span class="pre">make_json_serializable</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">obj</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/services.html#make_json_serializable"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.services.python_executor.services.make_json_serializable" title="Link to this definition">#</a></dt>
+<dd><p>Convert complex objects to JSON-serializable format using modern Python patterns.</p>
+<p>This is a standalone function that can be imported and used by execution wrappers
+and other components that need robust JSON serialization.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>obj</strong> (<em>Any</em>) – Any Python object to make JSON-serializable</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>JSON-serializable representation of the object</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><em>Any</em></p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Handle numpy arrays</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">serializable</span> <span class="o">=</span> <span class="n">make_json_serializable</span><span class="p">(</span><span class="n">arr</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">serializable</span><span class="p">)</span>  <span class="c1"># [1, 2, 3]</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Handle matplotlib figures</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">ax</span><span class="o">.</span><span class="n">plot</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">serializable</span> <span class="o">=</span> <span class="n">make_json_serializable</span><span class="p">(</span><span class="n">fig</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">serializable</span><span class="p">[</span><span class="s1">&#39;_type&#39;</span><span class="p">])</span>  <span class="c1"># &#39;matplotlib_figure&#39;</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.services.python_executor.services.serialize_results_to_file">
+<span class="sig-prename descclassname"><span class="pre">osprey.services.python_executor.services.</span></span><span class="sig-name descname"><span class="pre">serialize_results_to_file</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">results</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">file_path</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/services/python_executor/services.html#serialize_results_to_file"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.services.python_executor.services.serialize_results_to_file" title="Link to this definition">#</a></dt>
+<dd><p>Serialize results and save to JSON file with comprehensive error handling.</p>
+<p>This function is designed to be called from execution wrappers and provides
+robust serialization with detailed error reporting.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>results</strong> (<em>Any</em>) – The results object to serialize</p></li>
+<li><p><strong>file_path</strong> (<em>str</em>) – Path where to save the JSON file</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Metadata about the serialization operation</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Called from execution wrapper</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">metadata</span> <span class="o">=</span> <span class="n">serialize_results_to_file</span><span class="p">(</span><span class="n">results</span><span class="p">,</span> <span class="s1">&#39;results.json&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">if</span> <span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;success&#39;</span><span class="p">]:</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Results saved successfully to </span><span class="si">{</span><span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;file_path&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">else</span><span class="p">:</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Serialization failed: </span><span class="si">{</span><span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;error&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../../developer-guides/05_production-systems/03_python-execution-service/index.html"><span class="doc">Python Execution</span></a></dt><dd><p>Complete implementation guide and examples</p>
+</dd>
+<dt><code class="xref py py-class docutils literal notranslate"><span class="pre">osprey.capabilities.python.PythonCapability</span></code></dt><dd><p>Capability interface that uses this service</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="02_data-management.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Data Management</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="04_memory-storage.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Memory Storage</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#service-interface">Service Interface</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#request-and-response-models">Request and Response Models</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#state-management">State Management</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-models">Configuration Models</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#notebook-management">Notebook Management</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#exceptions">Exceptions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#utility-functions">Utility Functions</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.services.python_executor.models.get_execution_control_config_from_configurable"><code class="docutils literal notranslate"><span class="pre">get_execution_control_config_from_configurable()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.services.python_executor.models.get_execution_mode_config_from_configurable"><code class="docutils literal notranslate"><span class="pre">get_execution_mode_config_from_configurable()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.services.python_executor.models.get_container_endpoint_config_from_configurable"><code class="docutils literal notranslate"><span class="pre">get_container_endpoint_config_from_configurable()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serialization-utilities">Serialization Utilities</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.services.python_executor.services.make_json_serializable"><code class="docutils literal notranslate"><span class="pre">make_json_serializable()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.services.python_executor.services.serialize_results_to_file"><code class="docutils literal notranslate"><span class="pre">serialize_results_to_file()</span></code></a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/api_reference/03_production_systems/03_python-execution.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

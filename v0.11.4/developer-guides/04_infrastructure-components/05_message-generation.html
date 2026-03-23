@@ -1,0 +1,980 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Message Generation &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'developer-guides/04_infrastructure-components/05_message-generation';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Error Handling" href="06_error-handling-infrastructure.html" />
+    <link rel="prev" title="Orchestrator Planning" href="04_orchestrator-planning.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../01_understanding-the-framework/index.html">Understanding Osprey</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/01_infrastructure-architecture.html">Infrastructure Architecture: Classification-Orchestration Pipeline</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/02_convention-over-configuration.html">Convention over Configuration: Configuration-Driven Registry Patterns</a></li>
+
+
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/03_langgraph-integration.html">LangGraph Integration: Native StateGraph and Workflow Execution</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/04_orchestration-architecture.html">Orchestration Architecture</a></li>
+
+
+
+
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../02_quick-start-patterns/index.html">Quick Start Patterns</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/00_cli-reference.html">CLI Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/01_building-your-first-capability.html">Building Your First Capability</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/02_state-and-context-essentials.html">State and Context Essentials</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/03_running-and-testing.html">Running and Testing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/04_mcp-capability-generation.html">MCP Capability Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/05_soft-ioc-backends.html">Soft IOC Custom Backends</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../03_core-framework-systems/index.html">Core Framework Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/01_state-management-architecture.html">State Management Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/02_context-management-system.html">Context Management System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/03_registry-and-discovery.html">Registry and Discovery</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/04_prompt-customization.html">Prompt Customization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/05_message-and-execution-flow.html">Message and Execution Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/06_configuration-architecture.html">Configuration Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/07_built-in-capabilities.html">Built-in Capabilities</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Infrastructure Components</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="01_gateway-architecture.html">Gateway Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="02_task-extraction-system.html">Task Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="03_classification-and-routing.html">Classification and Routing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="04_orchestrator-planning.html">Orchestrator Planning</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Message Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="06_error-handling-infrastructure.html">Error Handling</a></li>
+</ul>
+</details></li>
+
+
+
+<li class="toctree-l1 has-children"><a class="reference internal" href="../05_production-systems/index.html">Production Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/01_human-approval-workflows.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/02_data-source-integration.html">Data Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../05_production-systems/03_python-execution-service/index.html">Python Execution</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/service-overview.html">Python Service Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-basic.html">Basic LLM Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-claude.html">Claude Code Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-mock.html">Mock Generator</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/04_memory-storage-service.html">Memory Storage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/05_container-and-deployment.html">Container Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/06_control-system-integration.html">Control System Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/search-modes.html">Search Modes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/web-interface.html">Web Interface</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Developer Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Infrastructure Components</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Message Generation</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="message-generation">
+<h1>Message Generation<a class="headerlink" href="#message-generation" title="Link to this heading">#</a></h1>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">📚 What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>Key Concepts:</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text">How the framework generates responses for technical and conversational queries</p></li>
+<li><p class="sd-card-text">Response mode detection and context integration</p></li>
+<li><p class="sd-card-text">Clarification workflows for ambiguous requests</p></li>
+<li><p class="sd-card-text">Prompt builder customization patterns</p></li>
+</ul>
+<p class="sd-card-text"><strong>Prerequisites:</strong> Understanding of <a class="reference internal" href="../03_core-framework-systems/02_context-management-system.html"><span class="doc">Context Management System</span></a></p>
+<p class="sd-card-text"><strong>Time Investment:</strong> 10 minutes for complete understanding</p>
+</div>
+</details><section id="core-capabilities">
+<h2>Core Capabilities<a class="headerlink" href="#core-capabilities" title="Link to this heading">#</a></h2>
+<p>The framework provides two message generation capabilities:</p>
+<dl class="simple">
+<dt><strong>RespondCapability</strong></dt><dd><p>Generates final responses using execution context and conversation history</p>
+</dd>
+<dt><strong>ClarifyCapability</strong></dt><dd><p>Asks targeted questions when user requests lack sufficient detail</p>
+</dd>
+</dl>
+<p>Both capabilities adapt their behavior based on available context and use the framework’s prompt builder system for consistent responses.</p>
+</section>
+<section id="respondcapability">
+<span id="respond-capability"></span><h2>RespondCapability<a class="headerlink" href="#respondcapability" title="Link to this heading">#</a></h2>
+<p>Generates responses by analyzing available context and using appropriate prompts:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@capability_node</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">RespondCapability</span><span class="p">(</span><span class="n">BaseCapability</span><span class="p">):</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;respond&quot;</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="s2">&quot;Generate responses for technical and conversational questions&quot;</span>
+    <span class="n">provides</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;FINAL_RESPONSE&quot;</span><span class="p">]</span>
+    <span class="n">requires</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c1"># Works with any context or none</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># Gather response information</span>
+        <span class="n">response_context</span> <span class="o">=</span> <span class="n">_gather_information</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">)</span>
+
+        <span class="c1"># Build dynamic prompt</span>
+        <span class="n">prompt</span> <span class="o">=</span> <span class="n">_get_base_system_prompt</span><span class="p">(</span>
+            <span class="n">response_context</span><span class="o">.</span><span class="n">current_task</span><span class="p">,</span> <span class="n">response_context</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Generate response</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
+            <span class="n">get_chat_completion</span><span class="p">,</span>
+            <span class="n">model_config</span><span class="o">=</span><span class="n">get_model_config</span><span class="p">(</span><span class="s2">&quot;response&quot;</span><span class="p">),</span>
+            <span class="n">message</span><span class="o">=</span><span class="n">prompt</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;messages&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">AIMessage</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="n">response</span><span class="p">)]}</span>
+</pre></div>
+</div>
+<p><strong>Response Mode Detection:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">_determine_response_mode</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">current_step</span><span class="p">):</span>
+    <span class="n">has_step_inputs</span> <span class="o">=</span> <span class="n">current_step</span> <span class="ow">and</span> <span class="n">current_step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;inputs&quot;</span><span class="p">)</span>
+    <span class="n">has_capability_data</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;capability_context_data&quot;</span><span class="p">,</span> <span class="p">{}))</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">has_step_inputs</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">has_capability_data</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;conversational&quot;</span>      <span class="c1"># General assistance</span>
+    <span class="k">elif</span> <span class="n">has_step_inputs</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;specific_context&quot;</span>    <span class="c1"># Technical response with step data</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;general_context&quot;</span>     <span class="c1"># Context-aware response</span>
+</pre></div>
+</div>
+</section>
+<section id="responsecontext-structure">
+<h2>ResponseContext Structure<a class="headerlink" href="#responsecontext-structure" title="Link to this heading">#</a></h2>
+<p>System aggregates information using structured context:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ResponseContext</span><span class="p">:</span>
+    <span class="n">current_task</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">execution_history</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span>
+    <span class="n">relevant_context</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+    <span class="n">is_killed</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">kill_reason</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+    <span class="n">capabilities_overview</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+    <span class="n">total_steps_executed</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">reclassification_count</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">current_date</span><span class="p">:</span> <span class="nb">str</span>
+</pre></div>
+</div>
+<p><strong>Context Assembly:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">_gather_information</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ResponseContext</span><span class="p">:</span>
+    <span class="n">context_manager</span> <span class="o">=</span> <span class="n">ContextManager</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+    <span class="n">current_step</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">get_current_step</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+    <span class="n">relevant_context</span> <span class="o">=</span> <span class="n">context_manager</span><span class="o">.</span><span class="n">get_summaries</span><span class="p">(</span><span class="n">current_step</span><span class="p">)</span>
+
+    <span class="n">response_mode</span> <span class="o">=</span> <span class="n">_determine_response_mode</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">current_step</span><span class="p">)</span>
+
+    <span class="c1"># Adapt data based on response mode</span>
+    <span class="k">if</span> <span class="n">response_mode</span> <span class="o">==</span> <span class="s2">&quot;conversational&quot;</span><span class="p">:</span>
+        <span class="n">execution_history</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">capabilities_overview</span> <span class="o">=</span> <span class="n">_get_capabilities_overview</span><span class="p">()</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">execution_history</span> <span class="o">=</span> <span class="n">_get_execution_history</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+        <span class="n">capabilities_overview</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">return</span> <span class="n">ResponseContext</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="clarifycapability">
+<span id="clarify-capability"></span><h2>ClarifyCapability<a class="headerlink" href="#clarifycapability" title="Link to this heading">#</a></h2>
+<p>Generates targeted questions for ambiguous user requests:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@capability_node</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ClarifyCapability</span><span class="p">(</span><span class="n">BaseCapability</span><span class="p">):</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;clarify&quot;</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="s2">&quot;Ask questions when queries are ambiguous or incomplete&quot;</span>
+    <span class="n">provides</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c1"># Communication capability</span>
+    <span class="n">requires</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c1"># Works with any context</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># Generate clarifying questions</span>
+        <span class="n">questions_response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
+            <span class="n">_generate_clarifying_questions</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">get_task_objective</span><span class="p">()</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Format for user interaction</span>
+        <span class="n">formatted_questions</span> <span class="o">=</span> <span class="n">_format_questions_for_user</span><span class="p">(</span><span class="n">questions_response</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;messages&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">AIMessage</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="n">formatted_questions</span><span class="p">)]}</span>
+</pre></div>
+</div>
+<p><strong>Structured Question Generation:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">ClarifyingQuestionsResponse</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Why clarification is needed&quot;</span><span class="p">)</span>
+    <span class="n">questions</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
+        <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Specific, targeted questions&quot;</span><span class="p">,</span>
+        <span class="n">min_items</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">max_items</span><span class="o">=</span><span class="mi">4</span>
+    <span class="p">)</span>
+    <span class="n">missing_info</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
+        <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Types of missing information&quot;</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="p">[]</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Question Generation Process:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">_generate_clarifying_questions</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">task_objective</span><span class="p">):</span>
+    <span class="c1"># Format conversation history</span>
+    <span class="n">messages</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;input_output&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;messages&quot;</span><span class="p">,</span> <span class="p">[])</span>
+    <span class="n">chat_history_str</span> <span class="o">=</span> <span class="n">ChatHistoryFormatter</span><span class="o">.</span><span class="n">format_for_llm</span><span class="p">(</span><span class="n">messages</span><span class="p">)</span>
+
+    <span class="c1"># Get clarification prompt</span>
+    <span class="n">clarification_builder</span> <span class="o">=</span> <span class="n">prompt_provider</span><span class="o">.</span><span class="n">get_clarification_prompt_builder</span><span class="p">()</span>
+    <span class="n">prompt</span> <span class="o">=</span> <span class="n">clarification_builder</span><span class="o">.</span><span class="n">build_prompt</span><span class="p">()</span>
+    <span class="n">clarification_query</span> <span class="o">=</span> <span class="n">clarification_builder</span><span class="o">.</span><span class="n">build_clarification_query</span><span class="p">(</span>
+        <span class="n">chat_history_str</span><span class="p">,</span> <span class="n">task_objective</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Generate structured questions</span>
+    <span class="k">return</span> <span class="n">get_chat_completion</span><span class="p">(</span>
+        <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prompt</span><span class="si">}</span><span class="se">\n\n</span><span class="si">{</span><span class="n">clarification_query</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="n">model_config</span><span class="o">=</span><span class="n">get_model_config</span><span class="p">(</span><span class="s2">&quot;response&quot;</span><span class="p">),</span>
+        <span class="n">output_model</span><span class="o">=</span><span class="n">ClarifyingQuestionsResponse</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="prompt-builder-integration">
+<h2>Prompt Builder Integration<a class="headerlink" href="#prompt-builder-integration" title="Link to this heading">#</a></h2>
+<p>Message generation uses the framework’s prompt builder architecture:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">_get_base_system_prompt</span><span class="p">(</span><span class="n">current_task</span><span class="p">,</span> <span class="n">info</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="n">prompt_provider</span> <span class="o">=</span> <span class="n">get_framework_prompts</span><span class="p">()</span>
+    <span class="n">response_builder</span> <span class="o">=</span> <span class="n">prompt_provider</span><span class="o">.</span><span class="n">get_response_generation_prompt_builder</span><span class="p">()</span>
+
+    <span class="k">return</span> <span class="n">response_builder</span><span class="o">.</span><span class="n">build_prompt</span><span class="p">(</span>
+        <span class="n">current_task</span><span class="o">=</span><span class="n">current_task</span><span class="p">,</span>
+        <span class="n">info</span><span class="o">=</span><span class="n">info</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Dynamic Context Building:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">DefaultResponseGenerationPromptBuilder</span><span class="p">(</span><span class="n">FrameworkPromptBuilder</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">build_dynamic_context</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">current_task</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">info</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="n">sections</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c1"># Base role with current task</span>
+        <span class="n">sections</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;You are an expert assistant.</span><span class="se">\n\n</span><span class="s2">CURRENT TASK: </span><span class="si">{</span><span class="n">current_task</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">info</span><span class="p">:</span>
+            <span class="c1"># Show execution context if available</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">info</span><span class="p">,</span> <span class="s1">&#39;execution_history&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">info</span><span class="o">.</span><span class="n">execution_history</span><span class="p">:</span>
+                <span class="n">sections</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_get_execution_section</span><span class="p">(</span><span class="n">info</span><span class="p">))</span>
+
+            <span class="c1"># Show capabilities for conversational responses</span>
+            <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">info</span><span class="p">,</span> <span class="s1">&#39;capabilities_overview&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">info</span><span class="o">.</span><span class="n">capabilities_overview</span><span class="p">:</span>
+                <span class="n">sections</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_get_capabilities_section</span><span class="p">(</span><span class="n">info</span><span class="o">.</span><span class="n">capabilities_overview</span><span class="p">))</span>
+
+        <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sections</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Domain Customization:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Applications can override prompt builders</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">CustomResponsePromptBuilder</span><span class="p">(</span><span class="n">DefaultResponseGenerationPromptBuilder</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_role</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;You are a specialized domain expert assistant.&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">build_dynamic_context</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">current_task</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">info</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="c1"># Customize response generation for specific domain</span>
+        <span class="k">return</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">build_dynamic_context</span><span class="p">(</span><span class="n">current_task</span><span class="p">,</span> <span class="n">info</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="error-handling">
+<h2>Error Handling<a class="headerlink" href="#error-handling" title="Link to this heading">#</a></h2>
+<p>Both capabilities include error classification for framework integration:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># RespondCapability error classification</span>
+<span class="nd">@staticmethod</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">classify_error</span><span class="p">(</span><span class="n">exc</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="nb">dict</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+        <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">,</span>
+        <span class="n">user_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Failed to generate response: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
+
+<span class="c1"># ClarifyCapability error classification</span>
+<span class="nd">@staticmethod</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">classify_error</span><span class="p">(</span><span class="n">exc</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="nb">dict</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+        <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RETRIABLE</span><span class="p">,</span>
+        <span class="n">user_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Failed to generate clarifying questions: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="integration-patterns">
+<h2>Integration Patterns<a class="headerlink" href="#integration-patterns" title="Link to this heading">#</a></h2>
+<p><strong>Automatic Framework Integration:</strong>
+- RespondCapability typically planned as final execution step
+- ClarifyCapability planned when queries lack detail
+- Both use native LangGraph message patterns</p>
+<p><strong>Usage in Execution Plans:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Normal execution plan ending</span>
+<span class="n">PlannedStep</span><span class="p">(</span>
+    <span class="n">context_key</span><span class="o">=</span><span class="s2">&quot;user_response&quot;</span><span class="p">,</span>
+    <span class="n">capability</span><span class="o">=</span><span class="s2">&quot;respond&quot;</span><span class="p">,</span>
+    <span class="n">task_objective</span><span class="o">=</span><span class="s2">&quot;Present results to user&quot;</span><span class="p">,</span>
+    <span class="n">inputs</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;previous_step_data&quot;</span><span class="p">]</span>
+<span class="p">)</span>
+
+<span class="c1"># Clarification step</span>
+<span class="n">PlannedStep</span><span class="p">(</span>
+    <span class="n">context_key</span><span class="o">=</span><span class="s2">&quot;clarification&quot;</span><span class="p">,</span>
+    <span class="n">capability</span><span class="o">=</span><span class="s2">&quot;clarify&quot;</span><span class="p">,</span>
+    <span class="n">task_objective</span><span class="o">=</span><span class="s2">&quot;Ask for missing parameters&quot;</span><span class="p">,</span>
+    <span class="n">inputs</span><span class="o">=</span><span class="p">[]</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Prompt Builder Registration:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Framework provides defaults, applications can override</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ApplicationPrompts</span><span class="p">(</span><span class="n">FrameworkPrompts</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_response_generation_prompt_builder</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">CustomResponsePromptBuilder</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_clarification_prompt_builder</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">CustomClarificationPromptBuilder</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+<section id="key-features">
+<h2>Key Features<a class="headerlink" href="#key-features" title="Link to this heading">#</a></h2>
+<dl class="simple">
+<dt><strong>Adaptive Responses:</strong></dt><dd><ul class="simple">
+<li><p>Automatically adjusts style based on available context</p></li>
+<li><p>Technical responses for execution data, conversational for general queries</p></li>
+</ul>
+</dd>
+<dt><strong>Structured Clarification:</strong></dt><dd><ul class="simple">
+<li><p>Uses Pydantic models for consistent question format</p></li>
+<li><p>Context-aware questions considering conversation history</p></li>
+</ul>
+</dd>
+<dt><strong>Domain Customization:</strong></dt><dd><ul class="simple">
+<li><p>Applications override prompt builders for specialized responses</p></li>
+<li><p>Maintains consistent behavior while allowing domain adaptation</p></li>
+</ul>
+</dd>
+<dt><strong>Error Integration:</strong></dt><dd><ul class="simple">
+<li><p>Provides user-friendly error messages through framework error handling</p></li>
+<li><p>Different severity levels for response vs. clarification failures</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../../api_reference/02_infrastructure/06_message-generation.html"><span class="doc">Message Generation</span></a></dt><dd><p>API reference for response and clarification systems</p>
+</dd>
+<dt><a class="reference internal" href="../03_core-framework-systems/02_context-management-system.html"><span class="doc">Context Management System</span></a></dt><dd><p>Response mode detection and context integration</p>
+</dd>
+<dt><a class="reference internal" href="../../api_reference/01_core_framework/05_prompt_management.html"><span class="doc">Prompt System</span></a></dt><dd><p>Prompt builder customization patterns</p>
+</dd>
+<dt><a class="reference internal" href="06_error-handling-infrastructure.html"><span class="doc">Error Handling</span></a></dt><dd><p>Error communication patterns</p>
+</dd>
+<dt><a class="reference internal" href="../03_core-framework-systems/02_context-management-system.html"><span class="doc">Context Management System</span></a></dt><dd><p>Context integration details</p>
+</dd>
+<dt><a class="reference internal" href="../../api_reference/01_core_framework/05_prompt_management.html"><span class="doc">Prompt System</span></a></dt><dd><p>Prompt builder customization</p>
+</dd>
+</dl>
+</div>
+<p>Message Generation provides the final user interaction layer, converting execution results and handling ambiguous requests through adaptive, context-aware response and clarification systems.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="04_orchestrator-planning.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Orchestrator Planning</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="06_error-handling-infrastructure.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Error Handling</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#core-capabilities">Core Capabilities</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#respondcapability">RespondCapability</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#responsecontext-structure">ResponseContext Structure</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#clarifycapability">ClarifyCapability</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#prompt-builder-integration">Prompt Builder Integration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#error-handling">Error Handling</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#integration-patterns">Integration Patterns</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#key-features">Key Features</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/developer-guides/04_infrastructure-components/05_message-generation.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

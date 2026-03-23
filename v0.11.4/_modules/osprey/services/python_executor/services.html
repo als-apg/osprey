@@ -1,0 +1,1833 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey.services.python_executor.services &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
+
+
+
+
+
+const initStyles = () => {
+    const defaultStyle = document.createElement('style');
+    defaultStyle.textContent = `pre.mermaid {
+    /* Same as .mermaid-container > pre */
+    display: block;
+    width: 100%;
+}
+
+pre.mermaid > svg {
+    /* Same as .mermaid-container > pre > svg */
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}`;
+    document.head.appendChild(defaultStyle);
+
+    const fullscreenStyle = document.createElement('style');
+    fullscreenStyle.textContent = `.mermaid-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.mermaid-container > pre {
+    display: block;
+    width: 100%;
+}
+
+.mermaid-container > pre > svg {
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}
+
+.mermaid-fullscreen-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    color: #333;
+}
+
+.mermaid-fullscreen-btn:hover {
+    opacity: 100% !important;
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-btn.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-btn.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 95vw;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.98);
+    z-index: 9999;
+    padding: 20px;
+    overflow: auto;
+}
+
+.mermaid-fullscreen-modal.dark-theme {
+    background: rgba(0, 0, 0, 0.98);
+}
+
+.mermaid-fullscreen-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen {
+    position: relative;
+    width: 95vw;
+    height: 90vh;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen.dark-theme {
+    background: #1a1a1a;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-container-fullscreen pre.mermaid {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen .mermaid svg {
+    height: 100% !important;
+    width: 100% !important;
+    cursor: grab;
+}
+
+.mermaid-fullscreen-close {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    font-size: 24px;
+    line-height: 1;
+    color: #333;
+}
+
+.mermaid-fullscreen-close:hover {
+    background: white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-close.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-close.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
+    display: none !important;
+}`;
+    document.head.appendChild(fullscreenStyle);
+}
+
+// Detect if page has dark background
+const isDarkTheme = () => {
+    // We use a set of heuristics:
+    // 1. Check for common dark mode classes or attributes
+    // 2. Check computed background color brightness
+    if (document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        document.body.getAttribute('data-theme') === 'dark') {
+        // console.log("Dark theme detected via class/attribute");
+        return true;
+    }
+    if (document.documentElement.classList.contains('light') ||
+        document.documentElement.getAttribute('data-theme') === 'light' ||
+        document.body.classList.contains('light') ||
+        document.body.getAttribute('data-theme') === 'light') {
+        // console.log("Light theme detected via class/attribute");
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // console.log("Dark theme detected via prefers-color-scheme");
+        return true;
+    }
+    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        // console.log("Background color brightness:", brightness);
+        return brightness < 128;
+    }
+    // console.log("No dark or light theme detected, defaulting to light theme");
+    return false;
+};
+
+let darkTheme = isDarkTheme();
+let modal = null;
+let modalContent = null;
+let previousScrollOffset = [window.scrollX, window.scrollY];
+
+const runMermaid = async (rerun) => {
+    console.log("Running mermaid diagrams, rerun =", rerun);
+    // clear all existing mermaid charts
+    let all_mermaids = document.querySelectorAll(".mermaid");
+
+    if (rerun) {
+        all_mermaids.forEach((el) => {
+            if(!el.hasAttribute("data-original-code")) {
+                // store original code
+                // console.log(`Storing original code for first run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+            if(el.getAttribute("data-processed") === "true") {
+                // remove and restore original
+                el.removeAttribute("data-processed");
+                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
+                el.innerHTML = el.getAttribute('data-original-code');
+            } else {
+                // store original code
+                // console.log(`Storing original code for re-run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+        });
+        await mermaid.run();
+    }
+
+    all_mermaids = document.querySelectorAll(".mermaid");
+    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
+
+    if ("False" === "True") {
+        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
+        if(mermaids_to_add_zoom > 0) {
+            var svgs = d3.selectAll("");
+            if(all_mermaids.length !== mermaids_processed.length) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else if(svgs.size() !== mermaids_to_add_zoom) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else {
+                svgs.each(function() {
+                    var svg = d3.select(this);
+                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
+                    var inner = svg.select("g");
+                    var zoom = d3.zoom().on("zoom", function(event) {
+                        inner.attr("transform", event.transform);
+                    });
+                    svg.call(zoom);
+                });
+            }
+        }
+    } else if(all_mermaids.length !== mermaids_processed.length) {
+        // Wait for mermaid to process all diagrams
+        setTimeout(() => runMermaid(false), 200);
+        return;
+    }
+
+    // Stop here if not adding fullscreen capability
+    if ("True" !== "True") return;
+
+    if (modal !== null ) {
+        // Destroy existing modal
+        modal.remove();
+        modal = null;
+        modalContent = null;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
+    modal.innerHTML = `
+        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
+        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
+    `;
+    document.body.appendChild(modal);
+
+    modalContent = modal.querySelector('.mermaid-container-fullscreen');
+    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
+
+    const closeModal = () => {
+        modal.classList.remove('active');
+        modalContent.innerHTML = '';
+        document.body.style.overflow = ''
+        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+        }
+    });
+
+    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
+        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
+            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
+            // Already processed, adjust button class if needed
+            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
+            if (existingBtn) {
+                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+            }
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.className = 'mermaid-container';
+        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
+        container.appendChild(mermaidDiv);
+
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
+        fullscreenBtn.textContent = '⛶';
+        fullscreenBtn.style.opacity = '50%';
+
+        // Calculate dynamic position based on diagram's margin and padding
+        const diagramStyle = window.getComputedStyle(mermaidDiv);
+        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
+        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
+        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
+        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
+        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
+        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
+
+        fullscreenBtn.addEventListener('click', () => {
+            previousScrollOffset = [window.scroll, window.scrollY];
+            const clone = mermaidDiv.cloneNode(true);
+            modalContent.innerHTML = '';
+            modalContent.appendChild(clone);
+
+            const svg = clone.querySelector('svg');
+            if (svg) {
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxWidth = '100%';
+                svg.style.sdisplay = 'block';
+
+                if ("False" === "True") {
+                    setTimeout(() => {
+                        const g = svg.querySelector('g');
+                        if (g) {
+                            var svgD3 = d3.select(svg);
+                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
+                            var inner = svgD3.select("g");
+                            var zoom = d3.zoom().on("zoom", function(event) {
+                                inner.attr("transform", event.transform);
+                            });
+                            svgD3.call(zoom);
+                        }
+                    }, 100);
+                }
+            }
+
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+        container.appendChild(fullscreenBtn);
+    });
+};
+
+const load = async () => {
+    initStyles();
+
+    await runMermaid(true);
+
+    const reRunIfThemeChanges = async () => {
+        const newDarkTheme = isDarkTheme();
+        if (newDarkTheme !== darkTheme) {
+            darkTheme = newDarkTheme;
+            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
+            await mermaid.initialize(
+                {...JSON.parse(
+                    `{"startOnLoad": false}`
+                ),
+                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+                }
+            );
+            await runMermaid(true);
+        }
+    };
+
+    // Update theme classes when theme changes
+    const themeObserver = new MutationObserver(reRunIfThemeChanges);
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+    themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+};
+
+
+
+
+
+console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
+mermaid.initialize(
+    {...JSON.parse(
+        `{"startOnLoad": false}`
+    ),
+    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+    }
+);
+
+window.addEventListener("load", load);</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey/services/python_executor/services';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey.services.python_executor.services</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey.services.python_executor.services</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;File and Notebook Management Services for Python Executor.</span>
+
+<span class="sd">This module provides the service layer for all file system operations and Jupyter</span>
+<span class="sd">notebook management within the Python executor service. It implements clean</span>
+<span class="sd">separation of concerns between domain logic and file I/O operations, providing</span>
+<span class="sd">robust file management with proper error handling and permission management.</span>
+
+<span class="sd">The module is organized around two primary service classes:</span>
+
+<span class="sd">**FileManager**: Handles execution folder creation, file operations, and context</span>
+<span class="sd">management. It provides the foundation for organizing execution artifacts and</span>
+<span class="sd">ensuring proper file system permissions for container-based execution.</span>
+
+<span class="sd">**NotebookManager**: Specializes in Jupyter notebook creation and management,</span>
+<span class="sd">providing comprehensive notebook generation for different stages of the execution</span>
+<span class="sd">workflow including debugging, audit trails, and result presentation.</span>
+
+<span class="sd">Key Features:</span>
+<span class="sd">    - **Container-Aware Permissions**: Automatic permission management to ensure</span>
+<span class="sd">      container users can write to execution folders</span>
+<span class="sd">    - **Structured Organization**: Hierarchical folder organization with date-based</span>
+<span class="sd">      organization and unique execution identifiers</span>
+<span class="sd">    - **Jupyter Integration**: Seamless URL generation for accessing notebooks</span>
+<span class="sd">      and execution artifacts through Jupyter interfaces</span>
+<span class="sd">    - **Context Management**: Comprehensive context serialization and loading</span>
+<span class="sd">      for cross-process communication and debugging</span>
+<span class="sd">    - **Audit Trails**: Complete tracking of execution attempts and artifacts</span>
+
+<span class="sd">The services integrate with the osprey configuration system to access</span>
+<span class="sd">Jupyter container settings and provide appropriate URL generation for external</span>
+<span class="sd">access to execution artifacts.</span>
+
+<span class="sd">.. note::</span>
+<span class="sd">   These services handle the physical file system operations while the domain</span>
+<span class="sd">   models in the models module provide the logical structure and data management.</span>
+
+<span class="sd">.. seealso::</span>
+<span class="sd">   :class:`osprey.services.python_executor.models.PythonExecutionContext` : Execution context model</span>
+<span class="sd">   :class:`osprey.services.python_executor.models.NotebookAttempt` : Notebook tracking model</span>
+<span class="sd">   :class:`osprey.context.ContextManager` : Osprey context management</span>
+
+<span class="sd">Examples:</span>
+<span class="sd">    Creating and managing execution folders::</span>
+
+<span class="sd">        &gt;&gt;&gt; file_manager = FileManager(configurable)</span>
+<span class="sd">        &gt;&gt;&gt; context = file_manager.create_execution_folder(&quot;data_analysis&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; print(f&quot;Execution folder: {context.folder_path}&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; print(f&quot;Jupyter URL: {context.folder_url}&quot;)</span>
+
+<span class="sd">    Creating notebooks for execution tracking::</span>
+
+<span class="sd">        &gt;&gt;&gt; notebook_manager = NotebookManager(configurable)</span>
+<span class="sd">        &gt;&gt;&gt; notebook_path = notebook_manager.create_attempt_notebook(</span>
+<span class="sd">        ...     context=execution_context,</span>
+<span class="sd">        ...     code=&quot;import pandas as pd\ndf.describe()&quot;,</span>
+<span class="sd">        ...     stage=&quot;execution&quot;</span>
+<span class="sd">        ... )</span>
+<span class="sd">        &gt;&gt;&gt; print(f&quot;Notebook created: {notebook_path}&quot;)</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">textwrap</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">uuid</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">nbformat</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">NotebookAttempt</span><span class="p">,</span> <span class="n">NotebookType</span><span class="p">,</span> <span class="n">PythonExecutionContext</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;osprey&quot;</span><span class="p">)</span>
+
+
+<span class="c1"># =============================================================================</span>
+<span class="c1"># FILE MANAGEMENT</span>
+<span class="c1"># =============================================================================</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">FileManager</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Comprehensive file system management service for Python execution workflows.</span>
+
+<span class="sd">    This service provides robust file and folder operations specifically designed</span>
+<span class="sd">    for the Python executor service&#39;s needs. It handles execution folder creation,</span>
+<span class="sd">    permission management for container-based execution, context serialization,</span>
+<span class="sd">    and Jupyter URL generation for external access to execution artifacts.</span>
+
+<span class="sd">    The FileManager implements a structured approach to organizing execution</span>
+<span class="sd">    artifacts with date-based hierarchical organization and unique execution</span>
+<span class="sd">    identifiers. It automatically manages file system permissions to ensure</span>
+<span class="sd">    compatibility with container-based execution environments.</span>
+
+<span class="sd">    Key responsibilities include:</span>
+<span class="sd">        - Creating and organizing execution folder structures</span>
+<span class="sd">        - Managing file system permissions for container compatibility</span>
+<span class="sd">        - Serializing and loading execution context data</span>
+<span class="sd">        - Generating Jupyter-accessible URLs for execution artifacts</span>
+<span class="sd">        - Providing robust JSON serialization for complex Python objects</span>
+
+<span class="sd">    :param configurable: LangGraph configurable dictionary containing service configuration</span>
+<span class="sd">    :type configurable: Dict[str, Any]</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       The FileManager automatically creates the base directory structure if it</span>
+<span class="sd">       doesn&#39;t exist and sets appropriate permissions for container access.</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`PythonExecutionContext` : Execution context managed by this service</span>
+<span class="sd">       :class:`NotebookManager` : Notebook-specific file operations</span>
+<span class="sd">       :class:`osprey.context.ContextManager` : Osprey context management</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Basic file manager initialization and folder creation::</span>
+
+<span class="sd">            &gt;&gt;&gt; configurable = {&quot;agent_data_dir&quot;: &quot;/path/to/data&quot;}</span>
+<span class="sd">            &gt;&gt;&gt; file_manager = FileManager(configurable)</span>
+<span class="sd">            &gt;&gt;&gt; context = file_manager.create_execution_folder(&quot;analysis_task&quot;)</span>
+<span class="sd">            &gt;&gt;&gt; print(f&quot;Created folder: {context.folder_path}&quot;)</span>
+<span class="sd">            &gt;&gt;&gt; print(f&quot;Jupyter URL: {context.folder_url}&quot;)</span>
+
+<span class="sd">        Saving execution results::</span>
+
+<span class="sd">            &gt;&gt;&gt; results = {&quot;mean&quot;: 42.0, &quot;std&quot;: 3.14, &quot;count&quot;: 100}</span>
+<span class="sd">            &gt;&gt;&gt; results_path = file_manager.save_results(results, context.folder_path)</span>
+<span class="sd">            &gt;&gt;&gt; print(f&quot;Results saved to: {results_path}&quot;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">configurable</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize FileManager with configuration and set up base directory structure.</span>
+
+<span class="sd">        Sets up the base directory for execution artifacts and ensures proper</span>
+<span class="sd">        directory structure exists. The base directory is organized hierarchically</span>
+<span class="sd">        with date-based subdirectories for efficient organization of execution</span>
+<span class="sd">        artifacts over time.</span>
+
+<span class="sd">        :param configurable: LangGraph configurable dictionary containing service settings</span>
+<span class="sd">        :type configurable: Dict[str, Any]</span>
+
+<span class="sd">        .. note::</span>
+<span class="sd">           The base directory defaults to &#39;_agent_data/executed_scripts&#39; if not</span>
+<span class="sd">           specified in the configurable dictionary.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">configurable</span> <span class="o">=</span> <span class="n">configurable</span>
+        <span class="c1"># Get agent data directory from configurable, fallback to _agent_data</span>
+        <span class="n">agent_data_dir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;agent_data_dir&quot;</span><span class="p">,</span> <span class="s2">&quot;_agent_data&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">base_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">agent_data_dir</span><span class="p">)</span> <span class="o">/</span> <span class="s2">&quot;executed_scripts&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">base_dir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">base_dir</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">create_execution_folder</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;python_executor&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PythonExecutionContext</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create a structured execution folder with proper permissions and organization.</span>
+
+<span class="sd">        Creates a complete execution folder structure with date-based organization,</span>
+<span class="sd">        unique identifiers, and proper permissions for container-based execution.</span>
+<span class="sd">        The folder structure includes the main execution folder and an attempts</span>
+<span class="sd">        subfolder for organizing multiple execution attempts.</span>
+
+<span class="sd">        The method automatically handles permission management to ensure that</span>
+<span class="sd">        container users (such as the jovyan user in Jupyter containers) can</span>
+<span class="sd">        write to the created folders, solving common UID mapping issues between</span>
+<span class="sd">        host and container environments.</span>
+
+<span class="sd">        :param name: Descriptive name to include in the folder identifier</span>
+<span class="sd">        :type name: str</span>
+<span class="sd">        :return: Execution context with all folder paths and URLs configured</span>
+<span class="sd">        :rtype: PythonExecutionContext</span>
+<span class="sd">        :raises OSError: If folder creation fails due to permission or disk space issues</span>
+
+<span class="sd">        .. note::</span>
+<span class="sd">           The folder structure follows the pattern:</span>
+<span class="sd">           `base_dir/YYYY-MM/execution_YYYYMMDD_HHMMSS_{name}_{uuid}/`</span>
+<span class="sd">           with an `attempts/` subfolder for execution attempts.</span>
+
+<span class="sd">        .. warning::</span>
+<span class="sd">           This method sets very permissive permissions (0o777) to ensure container</span>
+<span class="sd">           compatibility. Ensure the base directory is properly secured.</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Creating execution folder for data analysis::</span>
+
+<span class="sd">                &gt;&gt;&gt; file_manager = FileManager(configurable)</span>
+<span class="sd">                &gt;&gt;&gt; context = file_manager.create_execution_folder(&quot;sensor_analysis&quot;)</span>
+<span class="sd">                &gt;&gt;&gt; print(f&quot;Main folder: {context.folder_path}&quot;)</span>
+<span class="sd">                &gt;&gt;&gt; print(f&quot;Attempts folder: {context.attempts_folder}&quot;)</span>
+<span class="sd">                &gt;&gt;&gt; print(f&quot;Jupyter URL: {context.folder_url}&quot;)</span>
+
+<span class="sd">            Using the context for file operations::</span>
+
+<span class="sd">                &gt;&gt;&gt; if context.is_initialized:</span>
+<span class="sd">                ...     results_file = context.folder_path / &quot;results.json&quot;</span>
+<span class="sd">                ...     # File operations within the execution folder</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Create year-month subdirectory</span>
+        <span class="n">now</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span>
+        <span class="n">month_dir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">base_dir</span> <span class="o">/</span> <span class="n">now</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%Y-%m&quot;</span><span class="p">)</span>
+        <span class="n">month_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="c1"># Generate unique folder name</span>
+        <span class="n">timestamp</span> <span class="o">=</span> <span class="n">now</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%Y%m</span><span class="si">%d</span><span class="s2">_%H%M%S&quot;</span><span class="p">)</span>
+        <span class="n">execution_id</span> <span class="o">=</span> <span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">hex</span><span class="p">[:</span><span class="mi">8</span><span class="p">]</span>
+        <span class="n">folder_name</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;execution_</span><span class="si">{</span><span class="n">timestamp</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">execution_id</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">folder_path</span> <span class="o">=</span> <span class="n">month_dir</span> <span class="o">/</span> <span class="n">folder_name</span>
+        <span class="n">folder_path</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="c1"># Create attempts subfolder</span>
+        <span class="n">attempts_folder</span> <span class="o">=</span> <span class="n">folder_path</span> <span class="o">/</span> <span class="s2">&quot;attempts&quot;</span>
+        <span class="n">attempts_folder</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="c1"># Fix permissions so container user (jovyan) can write to folders</span>
+        <span class="c1"># This solves the UID mapping issue between host and container</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># Set very permissive permissions to ensure container can write</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">chmod</span><span class="p">(</span><span class="n">folder_path</span><span class="p">,</span> <span class="mo">0o777</span><span class="p">)</span>  <span class="c1"># Full permissions for main folder</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">chmod</span><span class="p">(</span><span class="n">attempts_folder</span><span class="p">,</span> <span class="mo">0o777</span><span class="p">)</span>  <span class="c1"># Full permissions for attempts folder</span>
+
+            <span class="c1"># Also set group sticky bit to ensure new files inherit group permissions</span>
+            <span class="n">current_mode</span> <span class="o">=</span> <span class="n">folder_path</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_mode</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">chmod</span><span class="p">(</span><span class="n">folder_path</span><span class="p">,</span> <span class="n">current_mode</span> <span class="o">|</span> <span class="mo">0o2000</span><span class="p">)</span>  <span class="c1"># Add group sticky bit</span>
+
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to fix folder permissions: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="c1"># Don&#39;t fail folder creation just for permission issues</span>
+
+        <span class="c1"># Create folder URL for Jupyter</span>
+        <span class="n">folder_url</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_jupyter_url</span><span class="p">(</span><span class="n">folder_path</span><span class="p">)</span>
+
+        <span class="n">context</span> <span class="o">=</span> <span class="n">PythonExecutionContext</span><span class="p">(</span>
+            <span class="n">folder_path</span><span class="o">=</span><span class="n">folder_path</span><span class="p">,</span> <span class="n">folder_url</span><span class="o">=</span><span class="n">folder_url</span><span class="p">,</span> <span class="n">attempts_folder</span><span class="o">=</span><span class="n">attempts_folder</span>
+        <span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Created execution folder: </span><span class="si">{</span><span class="n">folder_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">context</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">save_results</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">results</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">folder_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Save results dictionary to JSON file with service-level error handling.</span>
+
+<span class="sd">        This is the preferred method for internal service operations where you</span>
+<span class="sd">        want simple, clean error handling via exceptions.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            results: Results dictionary to save</span>
+<span class="sd">            folder_path: Folder where to save the results</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Path to saved results file</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            RuntimeError: If serialization or file writing fails</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">results_file</span> <span class="o">=</span> <span class="n">folder_path</span> <span class="o">/</span> <span class="s2">&quot;results.json&quot;</span>
+
+        <span class="c1"># Delegate to the robust utility function</span>
+        <span class="n">metadata</span> <span class="o">=</span> <span class="n">serialize_results_to_file</span><span class="p">(</span><span class="n">results</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">results_file</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;success&quot;</span><span class="p">]:</span>
+            <span class="n">error_msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Failed to save results: </span><span class="si">{</span><span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;error&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">error_msg</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="n">error_msg</span><span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saved results to: </span><span class="si">{</span><span class="n">results_file</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">results_file</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_create_jupyter_url</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">folder_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create Jupyter Lab URL for the given folder path.&quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">folder_path</span><span class="o">.</span><span class="n">is_relative_to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">base_dir</span><span class="p">):</span>
+                <span class="n">relative_path</span> <span class="o">=</span> <span class="n">folder_path</span><span class="o">.</span><span class="n">relative_to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">base_dir</span><span class="p">)</span>
+                <span class="c1"># Get Jupyter configuration from configurable</span>
+                <span class="n">service_configs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;service_configs&quot;</span><span class="p">,</span> <span class="p">{})</span>
+                <span class="n">jupyter_config</span> <span class="o">=</span> <span class="n">service_configs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;jupyter&quot;</span><span class="p">,</span> <span class="p">{})</span>
+                <span class="n">containers</span> <span class="o">=</span> <span class="n">jupyter_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;containers&quot;</span><span class="p">,</span> <span class="p">{})</span>
+                <span class="n">read_container</span> <span class="o">=</span> <span class="n">containers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;read&quot;</span><span class="p">,</span> <span class="p">{})</span>
+                <span class="n">port</span> <span class="o">=</span> <span class="n">read_container</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;port_host&quot;</span><span class="p">,</span> <span class="mi">8088</span><span class="p">)</span>
+                <span class="c1"># Always use localhost for external access, not container hostname</span>
+                <span class="n">hostname</span> <span class="o">=</span> <span class="s2">&quot;localhost&quot;</span>
+                <span class="k">return</span> <span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;http://</span><span class="si">{</span><span class="n">hostname</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">port</span><span class="si">}</span><span class="s2">/lab/tree/executed_scripts/</span><span class="si">{</span><span class="n">relative_path</span><span class="o">.</span><span class="n">as_posix</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">folder_path</span><span class="o">.</span><span class="n">as_uri</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to create Jupyter URL: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">folder_path</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="make_json_serializable">
+<a class="viewcode-back" href="../../../../api_reference/03_production_systems/03_python-execution.html#osprey.services.python_executor.services.make_json_serializable">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">make_json_serializable</span><span class="p">(</span><span class="n">obj</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert complex objects to JSON-serializable format using modern Python patterns.</span>
+
+<span class="sd">    This is a standalone function that can be imported and used by execution wrappers</span>
+<span class="sd">    and other components that need robust JSON serialization.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        obj: Any Python object to make JSON-serializable</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        JSON-serializable representation of the object</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        &gt;&gt;&gt; import numpy as np</span>
+<span class="sd">        &gt;&gt;&gt; import matplotlib.pyplot as plt</span>
+<span class="sd">        &gt;&gt;&gt;</span>
+<span class="sd">        &gt;&gt;&gt; # Handle numpy arrays</span>
+<span class="sd">        &gt;&gt;&gt; arr = np.array([1, 2, 3])</span>
+<span class="sd">        &gt;&gt;&gt; serializable = make_json_serializable(arr)</span>
+<span class="sd">        &gt;&gt;&gt; print(serializable)  # [1, 2, 3]</span>
+<span class="sd">        &gt;&gt;&gt;</span>
+<span class="sd">        &gt;&gt;&gt; # Handle matplotlib figures</span>
+<span class="sd">        &gt;&gt;&gt; fig, ax = plt.subplots()</span>
+<span class="sd">        &gt;&gt;&gt; ax.plot([1, 2, 3])</span>
+<span class="sd">        &gt;&gt;&gt; serializable = make_json_serializable(fig)</span>
+<span class="sd">        &gt;&gt;&gt; print(serializable[&#39;_type&#39;])  # &#39;matplotlib_figure&#39;</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">enhanced_json_serializer</span><span class="p">(</span><span class="n">obj</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Enhanced serializer supporting scientific computing objects.&quot;&quot;&quot;</span>
+        <span class="c1"># Handle datetime objects</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">datetime</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">obj</span><span class="o">.</span><span class="n">isoformat</span><span class="p">()</span>
+
+        <span class="c1"># Handle numpy arrays first (they also have &#39;item&#39; method)</span>
+        <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="s2">&quot;tolist&quot;</span><span class="p">):</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">obj</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+            <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">AttributeError</span><span class="p">):</span>
+                <span class="c1"># Fallback for objects that have tolist but it fails</span>
+                <span class="k">pass</span>
+
+        <span class="c1"># Handle numpy scalars (single-element arrays)</span>
+        <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="s2">&quot;item&quot;</span><span class="p">):</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">obj</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+            <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                <span class="c1"># Multi-element arrays will fail here, should have been caught above</span>
+                <span class="k">pass</span>
+
+        <span class="c1"># Handle matplotlib figures</span>
+        <span class="k">elif</span> <span class="n">_is_matplotlib_figure</span><span class="p">(</span><span class="n">obj</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">_serialize_matplotlib_figure</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+
+        <span class="c1"># Handle pandas DataFrames and Series</span>
+        <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="s2">&quot;to_dict&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="s2">&quot;index&quot;</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">obj</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span>
+
+        <span class="c1"># Handle pathlib objects</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">Path</span><span class="p">):</span>
+            <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+
+        <span class="c1"># Handle sets and frozensets</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="p">(</span><span class="nb">set</span><span class="p">,</span> <span class="nb">frozenset</span><span class="p">)):</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;items&quot;</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">obj</span><span class="p">),</span> <span class="s2">&quot;_type&quot;</span><span class="p">:</span> <span class="nb">type</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">}</span>
+
+        <span class="c1"># Handle complex numbers</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="nb">complex</span><span class="p">):</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;real&quot;</span><span class="p">:</span> <span class="n">obj</span><span class="o">.</span><span class="n">real</span><span class="p">,</span> <span class="s2">&quot;imag&quot;</span><span class="p">:</span> <span class="n">obj</span><span class="o">.</span><span class="n">imag</span><span class="p">,</span> <span class="s2">&quot;_type&quot;</span><span class="p">:</span> <span class="s2">&quot;complex&quot;</span><span class="p">}</span>
+
+        <span class="c1"># Handle custom objects with to_dict method</span>
+        <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="s2">&quot;to_dict&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">callable</span><span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">to_dict</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">obj</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span>
+
+        <span class="c1"># Default to string representation with type info</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">{</span>
+                <span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">obj</span><span class="p">),</span>
+                <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="nb">type</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
+                <span class="s2">&quot;module&quot;</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">obj</span><span class="p">),</span> <span class="s2">&quot;__module__&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">),</span>
+                <span class="s2">&quot;_serialization_note&quot;</span><span class="p">:</span> <span class="s2">&quot;converted_to_string&quot;</span><span class="p">,</span>
+            <span class="p">}</span>
+
+    <span class="c1"># Use json.loads(json.dumps()) to leverage Python&#39;s built-in serialization</span>
+    <span class="c1"># This is more efficient and handles nested structures automatically</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="n">enhanced_json_serializer</span><span class="p">,</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">))</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="c1"># If JSON serialization completely fails, return a structured fallback</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;_serialization_failed&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+            <span class="s2">&quot;_original_type&quot;</span><span class="p">:</span> <span class="nb">type</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
+            <span class="s2">&quot;_error&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span>
+            <span class="s2">&quot;_string_representation&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">obj</span><span class="p">),</span>
+        <span class="p">}</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_matplotlib_figure</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Check if object is a matplotlib figure.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="s2">&quot;savefig&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="s2">&quot;get_axes&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">type</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;Figure&quot;</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_serialize_matplotlib_figure</span><span class="p">(</span><span class="n">fig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Serialize matplotlib figure to JSON-compatible dict.&quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># Extract basic figure information</span>
+        <span class="n">axes_info</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">ax</span> <span class="ow">in</span> <span class="n">fig</span><span class="o">.</span><span class="n">get_axes</span><span class="p">():</span>
+            <span class="n">ax_info</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">&quot;title&quot;</span><span class="p">:</span> <span class="n">ax</span><span class="o">.</span><span class="n">get_title</span><span class="p">(),</span>
+                <span class="s2">&quot;xlabel&quot;</span><span class="p">:</span> <span class="n">ax</span><span class="o">.</span><span class="n">get_xlabel</span><span class="p">(),</span>
+                <span class="s2">&quot;ylabel&quot;</span><span class="p">:</span> <span class="n">ax</span><span class="o">.</span><span class="n">get_ylabel</span><span class="p">(),</span>
+                <span class="s2">&quot;xlim&quot;</span><span class="p">:</span> <span class="n">ax</span><span class="o">.</span><span class="n">get_xlim</span><span class="p">(),</span>
+                <span class="s2">&quot;ylim&quot;</span><span class="p">:</span> <span class="n">ax</span><span class="o">.</span><span class="n">get_ylim</span><span class="p">(),</span>
+            <span class="p">}</span>
+
+            <span class="c1"># Extract line data if present</span>
+            <span class="n">lines_data</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">ax</span><span class="o">.</span><span class="n">get_lines</span><span class="p">():</span>
+                <span class="n">line_data</span> <span class="o">=</span> <span class="p">{</span>
+                    <span class="s2">&quot;xdata&quot;</span><span class="p">:</span> <span class="p">(</span>
+                        <span class="n">line</span><span class="o">.</span><span class="n">get_xdata</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+                        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">get_xdata</span><span class="p">(),</span> <span class="s2">&quot;tolist&quot;</span><span class="p">)</span>
+                        <span class="k">else</span> <span class="nb">list</span><span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">get_xdata</span><span class="p">())</span>
+                    <span class="p">),</span>
+                    <span class="s2">&quot;ydata&quot;</span><span class="p">:</span> <span class="p">(</span>
+                        <span class="n">line</span><span class="o">.</span><span class="n">get_ydata</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+                        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">get_ydata</span><span class="p">(),</span> <span class="s2">&quot;tolist&quot;</span><span class="p">)</span>
+                        <span class="k">else</span> <span class="nb">list</span><span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">get_ydata</span><span class="p">())</span>
+                    <span class="p">),</span>
+                    <span class="s2">&quot;label&quot;</span><span class="p">:</span> <span class="n">line</span><span class="o">.</span><span class="n">get_label</span><span class="p">(),</span>
+                <span class="p">}</span>
+                <span class="n">lines_data</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">line_data</span><span class="p">)</span>
+            <span class="n">ax_info</span><span class="p">[</span><span class="s2">&quot;lines&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">lines_data</span>
+            <span class="n">axes_info</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ax_info</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;_type&quot;</span><span class="p">:</span> <span class="s2">&quot;matplotlib_figure&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;figure_size&quot;</span><span class="p">:</span> <span class="n">fig</span><span class="o">.</span><span class="n">get_size_inches</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+            <span class="s2">&quot;dpi&quot;</span><span class="p">:</span> <span class="n">fig</span><span class="o">.</span><span class="n">get_dpi</span><span class="p">(),</span>
+            <span class="s2">&quot;axes&quot;</span><span class="p">:</span> <span class="n">axes_info</span><span class="p">,</span>
+            <span class="s2">&quot;_note&quot;</span><span class="p">:</span> <span class="s2">&quot;Matplotlib figure serialized with basic plot data&quot;</span><span class="p">,</span>
+        <span class="p">}</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;_type&quot;</span><span class="p">:</span> <span class="s2">&quot;matplotlib_figure&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;_error&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Failed to serialize figure: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;_fallback&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">fig</span><span class="p">),</span>
+        <span class="p">}</span>
+
+
+<div class="viewcode-block" id="serialize_results_to_file">
+<a class="viewcode-back" href="../../../../api_reference/03_production_systems/03_python-execution.html#osprey.services.python_executor.services.serialize_results_to_file">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">serialize_results_to_file</span><span class="p">(</span><span class="n">results</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">file_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Serialize results and save to JSON file with comprehensive error handling.</span>
+
+<span class="sd">    This function is designed to be called from execution wrappers and provides</span>
+<span class="sd">    robust serialization with detailed error reporting.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        results: The results object to serialize</span>
+<span class="sd">        file_path: Path where to save the JSON file</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        dict: Metadata about the serialization operation</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        &gt;&gt;&gt; # Called from execution wrapper</span>
+<span class="sd">        &gt;&gt;&gt; metadata = serialize_results_to_file(results, &#39;results.json&#39;)</span>
+<span class="sd">        &gt;&gt;&gt; if metadata[&#39;success&#39;]:</span>
+<span class="sd">        &gt;&gt;&gt;     print(f&quot;Results saved successfully to {metadata[&#39;file_path&#39;]}&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; else:</span>
+<span class="sd">        &gt;&gt;&gt;     print(f&quot;Serialization failed: {metadata[&#39;error&#39;]}&quot;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">metadata</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="s2">&quot;file_path&quot;</span><span class="p">:</span> <span class="n">file_path</span><span class="p">,</span>
+        <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;serialization_warnings&quot;</span><span class="p">:</span> <span class="p">[],</span>
+    <span class="p">}</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># Convert to JSON-serializable format</span>
+        <span class="n">serializable_results</span> <span class="o">=</span> <span class="n">make_json_serializable</span><span class="p">(</span><span class="n">results</span><span class="p">)</span>
+
+        <span class="c1"># Save to file</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">serializable_results</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+        <span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;success&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">return</span> <span class="n">metadata</span>
+
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+        <span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;error_type&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span>
+
+        <span class="c1"># Try to save a minimal fallback</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">fallback_data</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">&quot;_serialization_failed&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                <span class="s2">&quot;_original_error&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span>
+                <span class="s2">&quot;_fallback_representation&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">results</span><span class="p">),</span>
+            <span class="p">}</span>
+            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">fallback_data</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+            <span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;fallback_saved&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">fallback_error</span><span class="p">:</span>
+            <span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;fallback_error&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">fallback_error</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">metadata</span></div>
+
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">serialize_results_to_file_async</span><span class="p">(</span><span class="n">results</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">file_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Async version of serialize_results_to_file for non-blocking JSON writing.</span>
+
+<span class="sd">    This function is designed to be called from async execution contexts to avoid</span>
+<span class="sd">    blocking the event loop during file I/O operations.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        results: The results object to serialize</span>
+<span class="sd">        file_path: Path where to save the JSON file</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        dict: Metadata about the serialization operation</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        &gt;&gt;&gt; # Called from async execution wrapper</span>
+<span class="sd">        &gt;&gt;&gt; metadata = await serialize_results_to_file_async(results, &#39;results.json&#39;)</span>
+<span class="sd">        &gt;&gt;&gt; if metadata[&#39;success&#39;]:</span>
+<span class="sd">        &gt;&gt;&gt;     print(f&quot;Results saved successfully to {metadata[&#39;file_path&#39;]}&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; else:</span>
+<span class="sd">        &gt;&gt;&gt;     print(f&quot;Serialization failed: {metadata[&#39;error&#39;]}&quot;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+
+    <span class="kn">import</span><span class="w"> </span><span class="nn">aiofiles</span>
+
+    <span class="n">metadata</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="s2">&quot;file_path&quot;</span><span class="p">:</span> <span class="n">file_path</span><span class="p">,</span>
+        <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;serialization_warnings&quot;</span><span class="p">:</span> <span class="p">[],</span>
+    <span class="p">}</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># Convert to JSON-serializable format (CPU-bound, use to_thread)</span>
+        <span class="n">serializable_results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">make_json_serializable</span><span class="p">,</span> <span class="n">results</span><span class="p">)</span>
+
+        <span class="c1"># Save to file asynchronously</span>
+        <span class="k">async</span> <span class="k">with</span> <span class="n">aiofiles</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">json_str</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
+                <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">,</span> <span class="n">serializable_results</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span>
+            <span class="p">)</span>
+            <span class="k">await</span> <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">json_str</span><span class="p">)</span>
+
+        <span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;success&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">return</span> <span class="n">metadata</span>
+
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+        <span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;error_type&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span>
+
+        <span class="c1"># Try to save a minimal fallback</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">fallback_data</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">&quot;_serialization_failed&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                <span class="s2">&quot;_original_error&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span>
+                <span class="s2">&quot;_fallback_representation&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">results</span><span class="p">),</span>
+            <span class="p">}</span>
+            <span class="k">async</span> <span class="k">with</span> <span class="n">aiofiles</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                <span class="n">json_str</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
+                    <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">,</span> <span class="n">fallback_data</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span>
+                <span class="p">)</span>
+                <span class="k">await</span> <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">json_str</span><span class="p">)</span>
+            <span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;fallback_saved&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">fallback_error</span><span class="p">:</span>
+            <span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;fallback_error&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">fallback_error</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">metadata</span>
+
+
+<span class="c1"># =============================================================================</span>
+<span class="c1"># NOTEBOOK MANAGEMENT</span>
+<span class="c1"># =============================================================================</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">NotebookManager</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Comprehensive Jupyter notebook management service for Python execution workflows.</span>
+
+<span class="sd">    This service specializes in creating, organizing, and managing Jupyter notebooks</span>
+<span class="sd">    throughout the Python execution lifecycle. It provides comprehensive notebook</span>
+<span class="sd">    generation capabilities for different stages including code generation attempts,</span>
+<span class="sd">    pre-execution analysis, execution tracking, and final result presentation.</span>
+
+<span class="sd">    The NotebookManager creates structured notebooks with rich metadata, execution</span>
+<span class="sd">    context, and proper formatting for both automated processing and human review.</span>
+<span class="sd">    It integrates with the FileManager to provide Jupyter-accessible URLs and</span>
+<span class="sd">    maintains comprehensive audit trails of all execution attempts.</span>
+
+<span class="sd">    Key features include:</span>
+<span class="sd">        - **Stage-Aware Notebooks**: Different notebook types for different execution stages</span>
+<span class="sd">        - **Rich Metadata**: Comprehensive context and execution information in each notebook</span>
+<span class="sd">        - **Error Context**: Detailed error information and debugging context for failed attempts</span>
+<span class="sd">        - **Approval Integration**: Notebooks formatted for human review and approval workflows</span>
+<span class="sd">        - **URL Generation**: Jupyter-accessible URLs for direct notebook access</span>
+
+<span class="sd">    :param configurable: LangGraph configurable dictionary containing service configuration</span>
+<span class="sd">    :type configurable: Dict[str, Any]</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       The NotebookManager relies on FileManager for URL generation and file</span>
+<span class="sd">       system operations, ensuring consistency across the service layer.</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`FileManager` : File system operations and URL generation</span>
+<span class="sd">       :class:`NotebookType` : Enumeration of supported notebook types</span>
+<span class="sd">       :class:`NotebookAttempt` : Notebook attempt tracking model</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Creating notebooks for different execution stages::</span>
+
+<span class="sd">            &gt;&gt;&gt; notebook_manager = NotebookManager(configurable)</span>
+<span class="sd">            &gt;&gt;&gt; # Create pre-execution notebook</span>
+<span class="sd">            &gt;&gt;&gt; notebook_path = notebook_manager.create_attempt_notebook(</span>
+<span class="sd">            ...     context=execution_context,</span>
+<span class="sd">            ...     code=&quot;import pandas as pd\ndf = pd.read_csv(&#39;data.csv&#39;)&quot;,</span>
+<span class="sd">            ...     stage=&quot;pre_execution&quot;</span>
+<span class="sd">            ... )</span>
+
+<span class="sd">        Creating notebooks with error context for debugging::</span>
+
+<span class="sd">            &gt;&gt;&gt; error_notebook = notebook_manager.create_attempt_notebook(</span>
+<span class="sd">            ...     context=execution_context,</span>
+<span class="sd">            ...     code=failed_code,</span>
+<span class="sd">            ...     stage=&quot;execution&quot;,</span>
+<span class="sd">            ...     error_context=&quot;NameError: name &#39;undefined_var&#39; is not defined&quot;</span>
+<span class="sd">            ... )</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">configurable</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize NotebookManager with configuration and file management integration.</span>
+
+<span class="sd">        Sets up the notebook manager with access to configuration settings and</span>
+<span class="sd">        creates a FileManager instance for URL generation and file operations.</span>
+<span class="sd">        This ensures consistent behavior across all file system operations.</span>
+
+<span class="sd">        :param configurable: LangGraph configurable dictionary containing service settings</span>
+<span class="sd">        :type configurable: Dict[str, Any]</span>
+
+<span class="sd">        .. note::</span>
+<span class="sd">           The NotebookManager automatically inherits FileManager capabilities</span>
+<span class="sd">           for URL generation and file system operations.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">configurable</span> <span class="o">=</span> <span class="n">configurable</span>
+        <span class="c1"># Create a FileManager instance to reuse URL generation logic</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_file_manager</span> <span class="o">=</span> <span class="n">FileManager</span><span class="p">(</span><span class="n">configurable</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">create_attempt_notebook</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">context</span><span class="p">:</span> <span class="n">PythonExecutionContext</span><span class="p">,</span>
+        <span class="n">code</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">stage</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;execution&quot;</span><span class="p">,</span>
+        <span class="n">error_context</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">approval_context</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">silent</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Create a debugging notebook for an execution attempt.</span>
+<span class="sd">        Ensures context.json exists before creating the notebook.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            context: Python execution context</span>
+<span class="sd">            code: The Python code for this attempt</span>
+<span class="sd">            stage: Current stage (e.g., &quot;code_generation&quot;, &quot;execution&quot;)</span>
+<span class="sd">            error_context: Optional error context for failed attempts</span>
+<span class="sd">            approval_context: Optional approval context for approval required attempts</span>
+<span class="sd">            silent: If True, don&#39;t log creation (for cleaner logs when parent node handles logging)</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Path to created notebook</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Ensure context.json exists (should already be there, but verify)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">context</span><span class="o">.</span><span class="n">context_file_path</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Context file not found when creating notebook - this should not happen&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Generate filename</span>
+        <span class="n">attempt_number</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">get_next_attempt_number</span><span class="p">()</span>
+        <span class="n">timestamp</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%H%M%S&quot;</span><span class="p">)</span>
+        <span class="n">filename</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">attempt_number</span><span class="si">:</span><span class="s2">02d</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">stage</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">timestamp</span><span class="si">}</span><span class="s2">.ipynb&quot;</span>
+        <span class="n">notebook_path</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">attempts_folder</span> <span class="o">/</span> <span class="n">filename</span>
+
+        <span class="c1"># Create notebook content</span>
+        <span class="n">notebook</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_attempt_notebook_content</span><span class="p">(</span>
+            <span class="n">attempt_number</span><span class="o">=</span><span class="n">attempt_number</span><span class="p">,</span>
+            <span class="n">stage</span><span class="o">=</span><span class="n">stage</span><span class="p">,</span>
+            <span class="n">code</span><span class="o">=</span><span class="n">code</span><span class="p">,</span>
+            <span class="n">error_context</span><span class="o">=</span><span class="n">error_context</span><span class="p">,</span>
+            <span class="n">approval_context</span><span class="o">=</span><span class="n">approval_context</span><span class="p">,</span>
+            <span class="n">context_file_path</span><span class="o">=</span><span class="n">context</span><span class="o">.</span><span class="n">context_file_path</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Save notebook</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">notebook_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">nbformat</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">notebook</span><span class="p">,</span> <span class="n">f</span><span class="p">)</span>
+
+        <span class="c1"># Track the attempt - use FileManager&#39;s URL generation</span>
+        <span class="n">attempt</span> <span class="o">=</span> <span class="n">NotebookAttempt</span><span class="p">(</span>
+            <span class="n">notebook_type</span><span class="o">=</span><span class="n">NotebookType</span><span class="o">.</span><span class="n">EXECUTION_ATTEMPT</span><span class="p">,</span>
+            <span class="n">attempt_number</span><span class="o">=</span><span class="n">attempt_number</span><span class="p">,</span>
+            <span class="n">stage</span><span class="o">=</span><span class="n">stage</span><span class="p">,</span>
+            <span class="n">notebook_path</span><span class="o">=</span><span class="n">notebook_path</span><span class="p">,</span>
+            <span class="n">notebook_link</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_file_manager</span><span class="o">.</span><span class="n">_create_jupyter_url</span><span class="p">(</span><span class="n">notebook_path</span><span class="p">),</span>
+            <span class="n">error_context</span><span class="o">=</span><span class="n">error_context</span><span class="p">,</span>
+            <span class="n">created_at</span><span class="o">=</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+        <span class="p">)</span>
+        <span class="n">context</span><span class="o">.</span><span class="n">add_notebook_attempt</span><span class="p">(</span><span class="n">attempt</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">silent</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Created attempt notebook: </span><span class="si">{</span><span class="n">notebook_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">notebook_path</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">create_final_notebook</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">context</span><span class="p">:</span> <span class="n">PythonExecutionContext</span><span class="p">,</span>
+        <span class="n">code</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">results</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">error_context</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">figure_paths</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Create the final notebook in the execution folder.</span>
+<span class="sd">        Ensures context.json exists before creating the notebook.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            context: Python execution context</span>
+<span class="sd">            code: The final Python code</span>
+<span class="sd">            results: Optional execution results</span>
+<span class="sd">            error_context: Optional error context for failures</span>
+<span class="sd">            figure_paths: List of figure paths to include</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Path to created notebook</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Ensure context.json exists (should already be there, but verify)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">context</span><span class="o">.</span><span class="n">context_file_path</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                <span class="s2">&quot;Context file not found when creating final notebook - this should not happen&quot;</span>
+            <span class="p">)</span>
+
+        <span class="n">notebook_path</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">folder_path</span> <span class="o">/</span> <span class="s2">&quot;notebook.ipynb&quot;</span>
+
+        <span class="c1"># Create notebook content</span>
+        <span class="n">notebook</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_final_notebook_content</span><span class="p">(</span>
+            <span class="n">code</span><span class="o">=</span><span class="n">code</span><span class="p">,</span>
+            <span class="n">results</span><span class="o">=</span><span class="n">results</span><span class="p">,</span>
+            <span class="n">error_context</span><span class="o">=</span><span class="n">error_context</span><span class="p">,</span>
+            <span class="n">context_file_path</span><span class="o">=</span><span class="n">context</span><span class="o">.</span><span class="n">context_file_path</span><span class="p">,</span>
+            <span class="n">figure_paths</span><span class="o">=</span><span class="n">figure_paths</span> <span class="ow">or</span> <span class="p">[],</span>
+            <span class="n">execution_folder</span><span class="o">=</span><span class="n">context</span><span class="o">.</span><span class="n">folder_path</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Save notebook</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">notebook_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">nbformat</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">notebook</span><span class="p">,</span> <span class="n">f</span><span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Created final notebook: </span><span class="si">{</span><span class="n">notebook_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">notebook_path</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_create_attempt_notebook_content</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">attempt_number</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">stage</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">code</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">error_context</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">approval_context</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">context_file_path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nbformat</span><span class="o">.</span><span class="n">NotebookNode</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create notebook content for attempt notebooks.&quot;&quot;&quot;</span>
+        <span class="n">cells</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c1"># Header</span>
+        <span class="n">header</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;# Python Executor - Attempt #</span><span class="si">{</span><span class="n">attempt_number</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+        <span class="n">header</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;**Stage:** </span><span class="si">{</span><span class="n">stage</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+        <span class="n">header</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;**Created:** </span><span class="si">{</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s1">&#39;%Y-%m-</span><span class="si">%d</span><span class="s1"> %H:%M:%S&#39;</span><span class="p">)</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+
+        <span class="k">if</span> <span class="n">approval_context</span><span class="p">:</span>
+            <span class="n">header</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">approval_context</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+
+        <span class="k">if</span> <span class="n">error_context</span><span class="p">:</span>
+            <span class="n">header</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;## Error Context</span><span class="se">\n</span><span class="si">{</span><span class="n">error_context</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+
+        <span class="n">cells</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">nbformat</span><span class="o">.</span><span class="n">v4</span><span class="o">.</span><span class="n">new_markdown_cell</span><span class="p">(</span><span class="n">header</span><span class="p">))</span>
+
+        <span class="c1"># Context loading if available</span>
+        <span class="k">if</span> <span class="n">context_file_path</span><span class="p">:</span>
+            <span class="n">context_code</span> <span class="o">=</span> <span class="n">textwrap</span><span class="o">.</span><span class="n">dedent</span><span class="p">(</span>
+<span class="w">                </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">                # Load execution context</span>
+<span class="sd">                from osprey.context import load_context</span>
+<span class="sd">                context = load_context(&#39;../context.json&#39;)</span>
+
+<span class="sd">                # Configure runtime utilities from context</span>
+<span class="sd">                from osprey.runtime import configure_from_context</span>
+<span class="sd">                configure_from_context(context)</span>
+<span class="sd">                &quot;&quot;&quot;</span>
+            <span class="p">)</span>
+            <span class="n">cells</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">nbformat</span><span class="o">.</span><span class="n">v4</span><span class="o">.</span><span class="n">new_code_cell</span><span class="p">(</span><span class="n">context_code</span><span class="p">))</span>
+
+        <span class="c1"># Main code</span>
+        <span class="n">cells</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">nbformat</span><span class="o">.</span><span class="n">v4</span><span class="o">.</span><span class="n">new_code_cell</span><span class="p">(</span><span class="n">code</span><span class="p">))</span>
+
+        <span class="n">notebook</span> <span class="o">=</span> <span class="n">nbformat</span><span class="o">.</span><span class="n">v4</span><span class="o">.</span><span class="n">new_notebook</span><span class="p">()</span>
+        <span class="n">notebook</span><span class="o">.</span><span class="n">cells</span> <span class="o">=</span> <span class="n">cells</span>
+        <span class="k">return</span> <span class="n">notebook</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_create_final_notebook_content</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">code</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">results</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">error_context</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">context_file_path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">figure_paths</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">execution_folder</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nbformat</span><span class="o">.</span><span class="n">NotebookNode</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create notebook content for final notebooks.&quot;&quot;&quot;</span>
+        <span class="n">cells</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c1"># Header with detailed error information</span>
+        <span class="k">if</span> <span class="n">error_context</span><span class="p">:</span>
+            <span class="n">header</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;# Python Executor - Failed Execution</span><span class="se">\n\n</span><span class="s2">## Error Context</span><span class="se">\n</span><span class="si">{</span><span class="n">error_context</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">header</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="s2">&quot;# Python Executor - Successful Execution</span><span class="se">\n\n</span><span class="s2">Execution completed successfully.</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+
+        <span class="n">cells</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">nbformat</span><span class="o">.</span><span class="n">v4</span><span class="o">.</span><span class="n">new_markdown_cell</span><span class="p">(</span><span class="n">header</span><span class="p">))</span>
+
+        <span class="c1"># Context loading if available</span>
+        <span class="k">if</span> <span class="n">context_file_path</span><span class="p">:</span>
+            <span class="n">context_code</span> <span class="o">=</span> <span class="n">textwrap</span><span class="o">.</span><span class="n">dedent</span><span class="p">(</span>
+<span class="w">                </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">                # Load execution context</span>
+<span class="sd">                from osprey.context import load_context</span>
+<span class="sd">                context = load_context(&#39;context.json&#39;)</span>
+
+<span class="sd">                # Configure runtime utilities from context</span>
+<span class="sd">                from osprey.runtime import configure_from_context</span>
+<span class="sd">                configure_from_context(context)</span>
+<span class="sd">                &quot;&quot;&quot;</span>
+            <span class="p">)</span>
+            <span class="n">cells</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">nbformat</span><span class="o">.</span><span class="n">v4</span><span class="o">.</span><span class="n">new_code_cell</span><span class="p">(</span><span class="n">context_code</span><span class="p">))</span>
+
+        <span class="c1"># Main code</span>
+        <span class="n">cells</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">nbformat</span><span class="o">.</span><span class="n">v4</span><span class="o">.</span><span class="n">new_code_cell</span><span class="p">(</span><span class="n">code</span><span class="p">))</span>
+
+        <span class="c1"># Results section if available</span>
+        <span class="k">if</span> <span class="n">results</span><span class="p">:</span>
+            <span class="c1"># Add markdown header for results section</span>
+            <span class="n">results_md</span> <span class="o">=</span> <span class="s2">&quot;## Execution Results</span><span class="se">\n\n</span><span class="s2">Results saved to `results.json`&quot;</span>
+            <span class="n">cells</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">nbformat</span><span class="o">.</span><span class="n">v4</span><span class="o">.</span><span class="n">new_markdown_cell</span><span class="p">(</span><span class="n">results_md</span><span class="p">))</span>
+
+            <span class="c1"># Add executable Python code cell to load and display results</span>
+            <span class="n">results_code</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;import json</span>
+<span class="s2">with open(&#39;results.json&#39;, &#39;r&#39;) as f:</span>
+<span class="s2">    results = json.load(f)</span>
+<span class="s2">print(results)&quot;&quot;&quot;</span>
+            <span class="n">cells</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">nbformat</span><span class="o">.</span><span class="n">v4</span><span class="o">.</span><span class="n">new_code_cell</span><span class="p">(</span><span class="n">results_code</span><span class="p">))</span>
+
+        <span class="c1"># Figures section if available</span>
+        <span class="k">if</span> <span class="n">figure_paths</span> <span class="ow">and</span> <span class="n">execution_folder</span><span class="p">:</span>
+            <span class="n">figures_md</span> <span class="o">=</span> <span class="s2">&quot;## Generated Figures</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+            <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">fig_path</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">figure_paths</span><span class="p">,</span> <span class="mi">1</span><span class="p">):</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="c1"># Convert to Path object if it&#39;s a string</span>
+                    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">fig_path</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                        <span class="n">fig_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">fig_path</span><span class="p">)</span>
+                    <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">fig_path</span><span class="p">,</span> <span class="n">Path</span><span class="p">):</span>
+                        <span class="c1"># Handle other types by converting to string first, then Path</span>
+                        <span class="n">fig_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">fig_path</span><span class="p">))</span>
+
+                    <span class="c1"># Ensure execution_folder is also a Path object</span>
+                    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">execution_folder</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                        <span class="n">execution_folder</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">execution_folder</span><span class="p">)</span>
+
+                    <span class="n">relative_path</span> <span class="o">=</span> <span class="n">fig_path</span><span class="o">.</span><span class="n">relative_to</span><span class="p">(</span><span class="n">execution_folder</span><span class="p">)</span>
+                    <span class="n">figures_md</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;### Figure </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="se">\n</span><span class="s2">![Figure </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">](</span><span class="si">{</span><span class="n">relative_path</span><span class="o">.</span><span class="n">as_posix</span><span class="p">()</span><span class="si">}</span><span class="s2">)</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">AttributeError</span><span class="p">):</span>
+                    <span class="c1"># Fallback: use just the filename if relative_to fails</span>
+                    <span class="n">fig_name</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">fig_path</span><span class="o">.</span><span class="n">name</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">fig_path</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="nb">str</span><span class="p">(</span><span class="n">fig_path</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+                    <span class="p">)</span>
+                    <span class="n">figures_md</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;### Figure </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="se">\n</span><span class="s2">![Figure </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">](</span><span class="si">{</span><span class="n">fig_name</span><span class="si">}</span><span class="s2">)</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+            <span class="n">cells</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">nbformat</span><span class="o">.</span><span class="n">v4</span><span class="o">.</span><span class="n">new_markdown_cell</span><span class="p">(</span><span class="n">figures_md</span><span class="p">))</span>
+
+        <span class="n">notebook</span> <span class="o">=</span> <span class="n">nbformat</span><span class="o">.</span><span class="n">v4</span><span class="o">.</span><span class="n">new_notebook</span><span class="p">()</span>
+        <span class="n">notebook</span><span class="o">.</span><span class="n">cells</span> <span class="o">=</span> <span class="n">cells</span>
+        <span class="k">return</span> <span class="n">notebook</span>
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

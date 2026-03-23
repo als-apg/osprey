@@ -1,0 +1,2488 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Configuration System &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'api_reference/01_core_framework/04_configuration_system';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Prompt System" href="05_prompt_management.html" />
+    <link rel="prev" title="Registry System" href="03_registry_system.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Core Framework</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="01_base_components.html">Base Components</a></li>
+<li class="toctree-l2"><a class="reference internal" href="02_state_and_context.html">State and Context Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="03_registry_system.html">Registry System</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Configuration System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="05_prompt_management.html">Prompt System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="06_command_system.html">Command System</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../02_infrastructure/index.html">Infrastructure</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/01_gateway.html">Gateway</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/02_task-extraction.html">Task Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/03_classification.html">Classification</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/04_orchestration.html">Orchestration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/05_execution-control.html">Execution Control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/06_message-generation.html">Message Generation</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../03_production_systems/index.html">Production Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/01_human-approval.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/02_data-management.html">Data Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/03_python-execution.html">Python Execution</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/04_memory-storage.html">Memory Storage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/05_container-management.html">Container Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/06_control-system-connectors.html">Control System Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/07_ariel-search.html">ARIEL Search Service</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../04_error_handling/index.html">Error Handling</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/01_classification_system.html">Classification System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/02_exception_reference.html">Exception Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/03_recovery_coordination.html">Recovery Coordination</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../05_framework_utilities/index.html">Framework Utilities</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">API Reference</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Core Framework</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Configuration System</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="configuration-system">
+<h1>Configuration System<a class="headerlink" href="#configuration-system" title="Link to this heading">#</a></h1>
+<div class="tip admonition">
+<p class="admonition-title">📖 Configuration Architecture Guide</p>
+<p>For a comprehensive guide to the YAML configuration system, self-contained architecture, and best practices, see <a class="reference internal" href="../../developer-guides/03_core-framework-systems/06_configuration-architecture.html"><span class="doc">Configuration Architecture</span></a>.</p>
+<p>This page provides the complete reference for all configuration sections and the Python API for accessing configuration at runtime.</p>
+</div>
+<p>Configuration system with YAML loading, environment resolution, and seamless LangGraph integration.</p>
+<section id="core-classes">
+<h2>Core Classes<a class="headerlink" href="#core-classes" title="Link to this heading">#</a></h2>
+<section id="configbuilder">
+<h3>ConfigBuilder<a class="headerlink" href="#configbuilder" title="Link to this heading">#</a></h3>
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey.utils.config.ConfigBuilder">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.utils.config.</span></span><span class="sig-name descname"><span class="pre">ConfigBuilder</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#ConfigBuilder"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config.ConfigBuilder" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Configuration builder with clean, modern architecture.</p>
+<p>Features:
+- Single-file YAML loading with validation and error handling
+- Environment variable resolution
+- Pre-computed nested dictionaries for performance
+- Explicit fail-fast behavior for required configurations
+- Flat structure supporting framework + application settings via unique naming</p>
+<p>Initialize configuration builder.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>config_path</strong> (<em>str</em><em> | </em><em>None</em>) – Path to the config.yml file. If None, looks in current directory.</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>FileNotFoundError</strong> – If config.yml is not found and no path is provided.</p>
+</dd>
+</dl>
+<p>Main configuration builder with YAML loading, environment resolution, and LangGraph integration.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.config.ConfigBuilder.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#ConfigBuilder.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config.ConfigBuilder.__init__" title="Link to this definition">#</a></dt>
+<dd><p>Initialize configuration builder.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>config_path</strong> (<em>str</em><em> | </em><em>None</em>) – Path to the config.yml file. If None, looks in current directory.</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>FileNotFoundError</strong> – If config.yml is not found and no path is provided.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.config.ConfigBuilder.get_unexpanded_config">
+<span class="sig-name descname"><span class="pre">get_unexpanded_config</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#ConfigBuilder.get_unexpanded_config"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config.ConfigBuilder.get_unexpanded_config" title="Link to this definition">#</a></dt>
+<dd><p>Get configuration with environment variable placeholders preserved.</p>
+<p>Returns the configuration as loaded from YAML, without expanding
+${VAR_NAME} placeholders. This is useful for deployment scenarios
+where secrets should NOT be written to disk - instead, the placeholders
+are preserved and resolved at container runtime.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Configuration with ${VAR} placeholders intact</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.utils.config.ConfigBuilder.get">
+<span class="sig-name descname"><span class="pre">get</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#ConfigBuilder.get"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config.ConfigBuilder.get" title="Link to this definition">#</a></dt>
+<dd><p>Get configuration value using dot notation path.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><em>Any</em></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+</section>
+<section id="primary-access-functions">
+<h2>Primary Access Functions<a class="headerlink" href="#primary-access-functions" title="Link to this heading">#</a></h2>
+<div class="version-07plus-change admonition">
+<p class="admonition-title">New in v0.7.7: Multi-Project Support</p>
+<p>All configuration functions now accept an optional <code class="docutils literal notranslate"><span class="pre">config_path</span></code> parameter to explicitly specify which project’s configuration to load. This enables multi-project workflows where you can work with multiple projects simultaneously.</p>
+<p><strong>Common pattern:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_model_config</span>
+
+<span class="c1"># Use specific project&#39;s config</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">get_model_config</span><span class="p">(</span><span class="s2">&quot;orchestrator&quot;</span><span class="p">,</span> <span class="n">config_path</span><span class="o">=</span><span class="s2">&quot;~/project/config.yml&quot;</span><span class="p">)</span>
+
+<span class="c1"># Default behavior (searches current directory)</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">get_model_config</span><span class="p">(</span><span class="s2">&quot;orchestrator&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>See <a class="reference internal" href="../../developer-guides/03_core-framework-systems/06_configuration-architecture.html"><span class="doc">Configuration Architecture</span></a> for complete multi-project workflow documentation.</p>
+</div>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.utils.config.get_config_value">
+<span class="sig-prename descclassname"><span class="pre">osprey.utils.config.</span></span><span class="sig-name descname"><span class="pre">get_config_value</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#get_config_value"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config.get_config_value" title="Link to this definition">#</a></dt>
+<dd><p>Get a specific configuration value by dot-separated path.</p>
+<p>This function provides context-aware access to configuration values,
+working both inside and outside LangGraph execution contexts. Optionally,
+an explicit configuration file path can be provided.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>path</strong> (<em>str</em>) – Dot-separated configuration path (e.g., “execution.timeout”)</p></li>
+<li><p><strong>default</strong> (<em>Any</em>) – Default value to return if path is not found</p></li>
+<li><p><strong>config_path</strong> (<em>str</em><em> | </em><em>None</em>) – Optional explicit path to configuration file</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The configuration value at the specified path, or default if not found</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>ValueError</strong> – If path is empty or None</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><em>Any</em></p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">timeout</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;execution.timeout&quot;</span><span class="p">,</span> <span class="mi">30</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">debug_mode</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;development.debug&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># With explicit config path</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">timeout</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;execution.timeout&quot;</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="s2">&quot;/path/to/config.yml&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<p><strong>Multi-Project Usage:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Get value from specific project</span>
+<span class="n">value</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span>
+    <span class="s2">&quot;models.orchestrator.provider&quot;</span><span class="p">,</span>
+    <span class="n">config_path</span><span class="o">=</span><span class="s2">&quot;/path/to/project/config.yml&quot;</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.utils.config.get_full_configuration">
+<span class="sig-prename descclassname"><span class="pre">osprey.utils.config.</span></span><span class="sig-name descname"><span class="pre">get_full_configuration</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#get_full_configuration"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config.get_full_configuration" title="Link to this definition">#</a></dt>
+<dd><p>Get the complete configuration dictionary.</p>
+<p>This function provides access to the entire configurable dictionary,
+working both inside and outside LangGraph execution contexts. Optionally,
+an explicit configuration file path can be provided.</p>
+<p>When an explicit config_path is provided, it is also set as the default
+configuration so that subsequent config access without explicit path will
+use this configuration.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>config_path</strong> (<em>str</em><em> | </em><em>None</em>) – Optional explicit path to configuration file. If provided,
+loads configuration from this path and sets it as the default.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Complete configuration dictionary with all configurable values</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Default configuration (backward compatible)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">config</span> <span class="o">=</span> <span class="n">get_full_configuration</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">user_id</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;user_id&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">models</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;model_configs&quot;</span><span class="p">,</span> <span class="p">{})</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Explicit configuration path (also becomes default)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">config</span> <span class="o">=</span> <span class="n">get_full_configuration</span><span class="p">(</span><span class="s2">&quot;/path/to/my-config.yml&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">models</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;model_configs&quot;</span><span class="p">,</span> <span class="p">{})</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Subsequent calls without path use this config</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">other_value</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;some.setting&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<p><strong>Multi-Project Usage:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Load complete config from specific project</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">get_full_configuration</span><span class="p">(</span><span class="n">config_path</span><span class="o">=</span><span class="s2">&quot;~/my-agent/config.yml&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.utils.config.get_agent_dir">
+<span class="sig-prename descclassname"><span class="pre">osprey.utils.config.</span></span><span class="sig-name descname"><span class="pre">get_agent_dir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sub_dir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">host_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#get_agent_dir"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config.get_agent_dir" title="Link to this definition">#</a></dt>
+<dd><p>Get the target directory path within the agent data directory using absolute paths.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>sub_dir</strong> (<em>str</em>) – Subdirectory name (e.g., ‘user_memory_dir’, ‘execution_plans_dir’)</p></li>
+<li><p><strong>host_path</strong> (<em>bool</em>) – If True, force return of host filesystem path even when running in container</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Absolute path to the target directory</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p><strong>Multi-Project Usage:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Get agent directory for specific project</span>
+<span class="n">agent_dir</span> <span class="o">=</span> <span class="n">get_agent_dir</span><span class="p">(</span><span class="n">config_path</span><span class="o">=</span><span class="s2">&quot;~/my-agent/config.yml&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="specialized-configuration-functions">
+<h2>Specialized Configuration Functions<a class="headerlink" href="#specialized-configuration-functions" title="Link to this heading">#</a></h2>
+<section id="model-and-provider-access">
+<h3>Model and Provider Access<a class="headerlink" href="#model-and-provider-access" title="Link to this heading">#</a></h3>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.utils.config.get_model_config">
+<span class="sig-prename descclassname"><span class="pre">osprey.utils.config.</span></span><span class="sig-name descname"><span class="pre">get_model_config</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">model_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#get_model_config"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config.get_model_config" title="Link to this definition">#</a></dt>
+<dd><p>Get model configuration with automatic context detection.</p>
+<p>Works both inside and outside LangGraph contexts.
+All models are configured at the top level in the ‘models’ section.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>model_name</strong> (<em>str</em>) – Name of the model (e.g., ‘orchestrator’, ‘classifier’, ‘time_parsing’,
+‘response’, ‘approval’, ‘memory’, ‘task_extraction’, ‘python_code_generator’)</p></li>
+<li><p><strong>config_path</strong> (<em>str</em><em> | </em><em>None</em>) – Optional explicit path to configuration file for multi-project workflows</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dictionary with model configuration containing provider, model_id, and optional settings</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<dl>
+<dt>Default config (searches current directory):</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">get_model_config</span><span class="p">(</span><span class="s2">&quot;orchestrator&quot;</span><span class="p">)</span>
+<span class="go">{&#39;provider&#39;: &#39;anthropic&#39;, &#39;model_id&#39;: &#39;claude-haiku-4-5-20251001&#39;, ...}</span>
+</pre></div>
+</div>
+</dd>
+<dt>Multi-project workflow:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">get_model_config</span><span class="p">(</span><span class="s2">&quot;orchestrator&quot;</span><span class="p">,</span> <span class="n">config_path</span><span class="o">=</span><span class="s2">&quot;~/other-project/config.yml&quot;</span><span class="p">)</span>
+<span class="go">{&#39;provider&#39;: &#39;openai&#39;, &#39;model_id&#39;: &#39;gpt-4o&#39;, ...}</span>
+</pre></div>
+</div>
+</dd>
+<dt>Configuration format (config.yml):</dt><dd><dl class="simple">
+<dt>models:</dt><dd><dl class="simple">
+<dt>orchestrator:</dt><dd><p>provider: anthropic
+model_id: claude-haiku-4-5-20251001</p>
+</dd>
+<dt>classifier:</dt><dd><p>provider: anthropic
+model_id: claude-haiku-4-5-20251001</p>
+</dd>
+</dl>
+</dd>
+</dl>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.utils.config.get_provider_config">
+<span class="sig-prename descclassname"><span class="pre">osprey.utils.config.</span></span><span class="sig-name descname"><span class="pre">get_provider_config</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">provider_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#get_provider_config"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config.get_provider_config" title="Link to this definition">#</a></dt>
+<dd><p>Get API provider configuration with automatic context detection.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>provider_name</strong> (<em>str</em>) – Name of the provider (e.g., ‘openai’, ‘anthropic’)</p></li>
+<li><p><strong>config_path</strong> (<em>str</em><em> | </em><em>None</em>) – Optional explicit path to configuration file</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dictionary with provider configuration</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-people" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 5.5a3.5 3.5 0 1 1 5.898 2.549 5.508 5.508 0 0 1 3.034 4.084.75.75 0 1 1-1.482.235 4 4 0 0 0-7.9 0 .75.75 0 0 1-1.482-.236A5.507 5.507 0 0 1 3.102 8.05 3.493 3.493 0 0 1 2 5.5ZM11 4a3.001 3.001 0 0 1 2.22 5.018 5.01 5.01 0 0 1 2.56 3.012.749.749 0 0 1-.885.954.752.752 0 0 1-.549-.514 3.507 3.507 0 0 0-2.522-2.372.75.75 0 0 1-.574-.73v-.352a.75.75 0 0 1 .416-.672A1.5 1.5 0 0 0 11 5.5.75.75 0 0 1 11 4Zm-5.5-.5a2 2 0 1 0-.001 3.999A2 2 0 0 0 5.5 3.5Z"></path></svg></span><span class="sd-summary-text">Need Support for Additional Providers?</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">The framework’s provider system is designed for extensibility. Applications can register custom AI providers directly through the registry system - see <a class="reference internal" href="../../developer-guides/03_core-framework-systems/03_registry-and-discovery.html"><span class="doc">Registry and Discovery</span></a> for examples of registering Azure OpenAI, institutional AI services (Stanford AI Playground, LBNL CBorg, etc.), or other providers.</p>
+<p class="sd-card-text">For providers that would benefit the broader community, we’re happy to work with you to add native framework support. Please create an issue on the GitHub repository to discuss integration requirements.</p>
+</div>
+</details></section>
+<section id="service-configuration">
+<h3>Service Configuration<a class="headerlink" href="#service-configuration" title="Link to this heading">#</a></h3>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.utils.config.get_framework_service_config">
+<span class="sig-prename descclassname"><span class="pre">osprey.utils.config.</span></span><span class="sig-name descname"><span class="pre">get_framework_service_config</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">service_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#get_framework_service_config"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config.get_framework_service_config" title="Link to this definition">#</a></dt>
+<dd><p>Get framework service configuration with automatic context detection.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>service_name</strong> (<em>str</em>) – Name of the framework service</p></li>
+<li><p><strong>config_path</strong> (<em>str</em><em> | </em><em>None</em>) – Optional explicit path to configuration file</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dictionary with service configuration</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.utils.config.get_application_service_config">
+<span class="sig-prename descclassname"><span class="pre">osprey.utils.config.</span></span><span class="sig-name descname"><span class="pre">get_application_service_config</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">app_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">service_name</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#get_application_service_config"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config.get_application_service_config" title="Link to this definition">#</a></dt>
+<dd><p>Get application service configuration with automatic context detection.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="runtime-information">
+<h3>Runtime Information<a class="headerlink" href="#runtime-information" title="Link to this heading">#</a></h3>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.utils.config.get_session_info">
+<span class="sig-prename descclassname"><span class="pre">osprey.utils.config.</span></span><span class="sig-name descname"><span class="pre">get_session_info</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#get_session_info"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config.get_session_info" title="Link to this definition">#</a></dt>
+<dd><p>Get session information with automatic context detection.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.utils.config.get_interface_context">
+<span class="sig-prename descclassname"><span class="pre">osprey.utils.config.</span></span><span class="sig-name descname"><span class="pre">get_interface_context</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#get_interface_context"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config.get_interface_context" title="Link to this definition">#</a></dt>
+<dd><p>Get interface context indicating which user interface is being used.</p>
+<p>The interface context determines how responses are formatted and which
+features are available (e.g., figure rendering, notebook links, command buttons).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p><dl class="simple">
+<dt>The interface type, one of:</dt><dd><ul class="simple">
+<li><p>”openwebui”: Open WebUI interface with rich rendering capabilities</p></li>
+<li><p>”cli”: Command-line interface with text-only output</p></li>
+<li><p>”unknown”: Interface type not detected or not set</p></li>
+</ul>
+</dd>
+</dl>
+</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">interface</span> <span class="o">=</span> <span class="n">get_interface_context</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">if</span> <span class="n">interface</span> <span class="o">==</span> <span class="s2">&quot;openwebui&quot;</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Rich UI features available&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is set automatically by each interface implementation during initialization.
+The value is used by response generators to provide interface-appropriate
+guidance about figures, notebooks, and executable commands.</p>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.utils.config.get_current_application">
+<span class="sig-prename descclassname"><span class="pre">osprey.utils.config.</span></span><span class="sig-name descname"><span class="pre">get_current_application</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#get_current_application"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config.get_current_application" title="Link to this definition">#</a></dt>
+<dd><p>Get current application with automatic context detection.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str | None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.utils.config.get_execution_limits">
+<span class="sig-prename descclassname"><span class="pre">osprey.utils.config.</span></span><span class="sig-name descname"><span class="pre">get_execution_limits</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#get_execution_limits"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config.get_execution_limits" title="Link to this definition">#</a></dt>
+<dd><p>Get execution limits with automatic context detection.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.utils.config.get_agent_control_defaults">
+<span class="sig-prename descclassname"><span class="pre">osprey.utils.config.</span></span><span class="sig-name descname"><span class="pre">get_agent_control_defaults</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#get_agent_control_defaults"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config.get_agent_control_defaults" title="Link to this definition">#</a></dt>
+<dd><p>Get agent control defaults with automatic context detection.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.utils.config.get_classification_config">
+<span class="sig-prename descclassname"><span class="pre">osprey.utils.config.</span></span><span class="sig-name descname"><span class="pre">get_classification_config</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#get_classification_config"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config.get_classification_config" title="Link to this definition">#</a></dt>
+<dd><p>Get classification configuration with sensible defaults.</p>
+<p>Controls parallel LLM-based capability classification to prevent API flooding
+while maintaining reasonable performance during task analysis.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Dictionary with classification configuration including concurrency limits</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">config</span> <span class="o">=</span> <span class="n">get_classification_config</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">max_concurrent</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;max_concurrent_classifications&#39;</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</section>
+<section id="development-utilities">
+<h3>Development Utilities<a class="headerlink" href="#development-utilities" title="Link to this heading">#</a></h3>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.utils.config.get_pipeline_config">
+<span class="sig-prename descclassname"><span class="pre">osprey.utils.config.</span></span><span class="sig-name descname"><span class="pre">get_pipeline_config</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">app_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#get_pipeline_config"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config.get_pipeline_config" title="Link to this definition">#</a></dt>
+<dd><p>Get pipeline configuration with automatic context detection.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+</section>
+<section id="internal-implementation">
+<h2>Internal Implementation<a class="headerlink" href="#internal-implementation" title="Link to this heading">#</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.utils.config._get_config">
+<span class="sig-prename descclassname"><span class="pre">osprey.utils.config.</span></span><span class="sig-name descname"><span class="pre">_get_config</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">set_as_default</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#_get_config"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config._get_config" title="Link to this definition">#</a></dt>
+<dd><p>Get configuration instance (singleton pattern with optional explicit path).</p>
+<p>This function supports two modes:
+1. Default singleton: When no config_path provided, uses CONFIG_FILE env var or cwd/config.yml
+2. Explicit path: When config_path provided, caches and returns config for that specific path</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>config_path</strong> (<em>str</em><em> | </em><em>None</em>) – Optional explicit path to configuration file. If provided,
+this path is used instead of the default singleton behavior.</p></li>
+<li><p><strong>set_as_default</strong> (<em>bool</em>) – If True and config_path is provided, also set this config as the
+default singleton so future calls without config_path use it.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>ConfigBuilder instance for the specified or default configuration</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#osprey.utils.config.ConfigBuilder" title="osprey.utils.config.ConfigBuilder"><em>ConfigBuilder</em></a></p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Default singleton behavior (backward compatible)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">config</span> <span class="o">=</span> <span class="n">_get_config</span><span class="p">()</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Explicit config path</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">config</span> <span class="o">=</span> <span class="n">_get_config</span><span class="p">(</span><span class="s2">&quot;/path/to/config.yml&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Explicit path that becomes the default</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">config</span> <span class="o">=</span> <span class="n">_get_config</span><span class="p">(</span><span class="s2">&quot;/path/to/config.yml&quot;</span><span class="p">,</span> <span class="n">set_as_default</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.utils.config._get_configurable">
+<span class="sig-prename descclassname"><span class="pre">osprey.utils.config.</span></span><span class="sig-name descname"><span class="pre">_get_configurable</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">set_as_default</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/utils/config.html#_get_configurable"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.utils.config._get_configurable" title="Link to this definition">#</a></dt>
+<dd><p>Get configurable dict with automatic context detection.</p>
+<p>This function supports both LangGraph execution contexts and standalone execution,
+with optional explicit configuration path support.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>config_path</strong> (<em>str</em><em> | </em><em>None</em>) – Optional explicit path to configuration file</p></li>
+<li><p><strong>set_as_default</strong> (<em>bool</em>) – If True and config_path is provided, set as default config</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Complete configuration dictionary with all configurable values</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="configuration-sections-reference">
+<h2>Configuration Sections Reference<a class="headerlink" href="#configuration-sections-reference" title="Link to this heading">#</a></h2>
+<p>This section provides a complete reference for all configuration sections available in the Osprey Framework.</p>
+<div class="note admonition">
+<p class="admonition-title">📖 Understanding Configuration Architecture</p>
+<p>Before diving into specific sections, review <a class="reference internal" href="../../developer-guides/03_core-framework-systems/06_configuration-architecture.html"><span class="doc">Configuration Architecture</span></a> to understand:</p>
+<ul class="simple">
+<li><p>The self-contained configuration approach</p></li>
+<li><p>Configuration templates and project initialization</p></li>
+<li><p>Environment variable integration</p></li>
+<li><p>Best practices for configuration organization</p></li>
+</ul>
+</div>
+</section>
+<section id="configuration-sections">
+<h2>Configuration Sections<a class="headerlink" href="#configuration-sections" title="Link to this heading">#</a></h2>
+<p>All configuration is contained in a single <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> file at the project root.</p>
+<section id="build-dir">
+<h3>build_dir<a class="headerlink" href="#build-dir" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> String</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Default:</strong> <code class="docutils literal notranslate"><span class="pre">./build</span></code></p>
+<p><strong>Purpose:</strong> Specifies the directory where container build files are generated.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">build_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./build</span>
+</pre></div>
+</div>
+<p><strong>Details:</strong></p>
+<ul class="simple">
+<li><p>Used by container management system</p></li>
+<li><p>Contains generated Docker Compose files</p></li>
+<li><p>Should be in <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code></p></li>
+<li><p>Can use environment variables: <code class="docutils literal notranslate"><span class="pre">${BUILD_DIR}</span></code></p></li>
+</ul>
+</section>
+<section id="project-name">
+<h3>project_name<a class="headerlink" href="#project-name" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> String</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Default:</strong> Derived from <code class="docutils literal notranslate"><span class="pre">project_root</span></code> path if not specified</p>
+<p><strong>Purpose:</strong> Canonical identifier for the project/agent.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">project_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;weather-agent&quot;</span>
+</pre></div>
+</div>
+<p><strong>Details:</strong></p>
+<ul class="simple">
+<li><p>First-class attribute for project identification</p></li>
+<li><p>Used for container labels (Docker/Podman metadata)</p></li>
+<li><p>Enables multi-project container management</p></li>
+<li><p>Shown in <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">status</span></code> output</p></li>
+<li><p>Separate from <code class="docutils literal notranslate"><span class="pre">pipeline.name</span></code> (which is for OpenWebUI display)</p></li>
+<li><p>Falls back to extracting from <code class="docutils literal notranslate"><span class="pre">project_root</span></code> path if not specified</p></li>
+</ul>
+<div class="version-08plus-change admonition">
+<p class="admonition-title">New in v0.8.2: Container Project Tracking</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">project_name</span></code> attribute enables tracking which project owns deployed containers using Docker labels. All containers are automatically labeled with <code class="docutils literal notranslate"><span class="pre">osprey.project.name</span></code> for easy identification and filtering.</p>
+</div>
+</section>
+<section id="project-root">
+<h3>project_root<a class="headerlink" href="#project-root" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> String</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Default:</strong> None (must be specified)</p>
+<p><strong>Purpose:</strong> Absolute path to project root directory.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">project_root</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${PROJECT_ROOT}</span>
+<span class="c1"># Or hard-coded:</span>
+<span class="nt">project_root</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/home/user/my-project</span>
+</pre></div>
+</div>
+<p><strong>Details:</strong></p>
+<ul class="simple">
+<li><p>Required for all path resolution</p></li>
+<li><p>Use environment variable for portability across machines</p></li>
+<li><p>Must be absolute path</p></li>
+<li><p>Used by container management and execution systems</p></li>
+</ul>
+</section>
+<section id="registry-path">
+<h3>registry_path<a class="headerlink" href="#registry-path" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> String</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Default:</strong> None (must be specified)</p>
+<p><strong>Purpose:</strong> Path to the application’s registry module.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">registry_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./src/my_app/registry.py</span>
+</pre></div>
+</div>
+<p><strong>Details:</strong></p>
+<ul class="simple">
+<li><p>Points to the Python module that registers capabilities and context types</p></li>
+<li><p>Path is relative to project root</p></li>
+<li><p>Must contain a <code class="docutils literal notranslate"><span class="pre">registry.py</span></code> file with capability and context registrations</p></li>
+<li><p>Required for framework to discover application capabilities</p></li>
+</ul>
+</section>
+</section>
+<section id="approval-configuration">
+<h2>Approval Configuration<a class="headerlink" href="#approval-configuration" title="Link to this heading">#</a></h2>
+<p>Controls human approval workflows and safety policies.</p>
+<section id="approval-global-mode">
+<h3>approval.global_mode<a class="headerlink" href="#approval-global-mode" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> String (enum)</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (operator control)</p>
+<p><strong>Default:</strong> <code class="docutils literal notranslate"><span class="pre">&quot;selective&quot;</span></code></p>
+<p><strong>Options:</strong> <code class="docutils literal notranslate"><span class="pre">&quot;disabled&quot;</span></code> | <code class="docutils literal notranslate"><span class="pre">&quot;selective&quot;</span></code> | <code class="docutils literal notranslate"><span class="pre">&quot;all_capabilities&quot;</span></code></p>
+<p><strong>Purpose:</strong> System-wide approval policy.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">approval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">global_mode</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;selective&quot;</span>
+</pre></div>
+</div>
+<p><strong>Values:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">disabled</span></code> - No approval required for any operations</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">selective</span></code> - Approval based on capability-specific settings</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">all_capabilities</span></code> - All capability executions require approval</p></li>
+</ul>
+</section>
+<section id="approval-capabilities-python-execution">
+<h3>approval.capabilities.python_execution<a class="headerlink" href="#approval-capabilities-python-execution" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> Object</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Purpose:</strong> Controls approval for Python code generation and execution.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">approval</span><span class="p">:</span>
+<span class="nt">capabilities</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">python_execution</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;control_writes&quot;</span>
+</pre></div>
+</div>
+<p><strong>Fields:</strong></p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">enabled</span></code> (boolean)</dt><dd><p>Whether Python execution capability is available</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">true</span></code> - Python capability can be used</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">false</span></code> - Python capability disabled</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">mode</span></code> (string)</dt><dd><p>When to require approval:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;disabled&quot;</span></code> - No approval required</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;control_writes&quot;</span></code> - Approve only code that writes to control systems</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;all_code&quot;</span></code> - Approve all Python code execution</p></li>
+</ul>
+<div class="deprecated">
+<p><span class="versionmodified deprecated">Deprecated since version 0.9.5: </span>The mode <code class="docutils literal notranslate"><span class="pre">&quot;epics_writes&quot;</span></code> is deprecated. Use <code class="docutils literal notranslate"><span class="pre">&quot;control_writes&quot;</span></code> instead.</p>
+</div>
+</dd>
+</dl>
+<p><strong>Example:</strong></p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># In config.yml (root)</span>
+<span class="nt">approval</span><span class="p">:</span>
+<span class="nt">capabilities</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">python_execution</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;control_writes&quot;</span><span class="w">  </span><span class="c1"># Approve only control system write operations</span>
+</pre></div>
+</div>
+</section>
+<section id="approval-capabilities-memory">
+<h3>approval.capabilities.memory<a class="headerlink" href="#approval-capabilities-memory" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> Object</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Purpose:</strong> Controls approval for memory operations.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">approval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">capabilities</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">memory</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<p><strong>Fields:</strong></p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">enabled</span></code> (boolean)</dt><dd><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">true</span></code> - Memory storage and retrieval allowed</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">false</span></code> - Memory operations disabled</p></li>
+</ul>
+</dd>
+</dl>
+</section>
+</section>
+<section id="execution-control">
+<h2>Execution Control<a class="headerlink" href="#execution-control" title="Link to this heading">#</a></h2>
+<p>Runtime behavior configuration and safety limits.</p>
+<section id="control-system-writes-enabled">
+<h3>control_system.writes_enabled<a class="headerlink" href="#control-system-writes-enabled" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> Boolean</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (operator control)</p>
+<p><strong>Default:</strong> <code class="docutils literal notranslate"><span class="pre">false</span></code></p>
+<p><strong>Purpose:</strong> Master switch for control system hardware write operations.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">  </span><span class="c1"># Set true only for production hardware control</span>
+</pre></div>
+</div>
+<p><strong>Details:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">true</span></code> - Control system write operations can execute (production mode)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">false</span></code> - All control system writes blocked (safe default for development)</p></li>
+<li><p>Operator-level safety control</p></li>
+<li><p>Works with any control system type (EPICS, Tango, etc.)</p></li>
+</ul>
+<div class="deprecated">
+<p><span class="versionmodified deprecated">Deprecated since version 0.9.5: </span>The setting <code class="docutils literal notranslate"><span class="pre">execution_control.epics.writes_enabled</span></code> is deprecated.
+Use <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> instead. The old location is still
+supported for backward compatibility but will be removed in a future version.</p>
+</div>
+<ul class="simple">
+<li><p>Independent of approval settings</p></li>
+</ul>
+</section>
+<section id="control-system-limits-checking">
+<h3>control_system.limits_checking<a class="headerlink" href="#control-system-limits-checking" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> Object</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (operator control)</p>
+<p><strong>Purpose:</strong> Runtime validation of channel writes against configured safety boundaries.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">limits_checking</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">database_path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;data/channel_limits.json&quot;</span>
+<span class="w">    </span><span class="nt">policy</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;strict&quot;</span><span class="w">  </span><span class="c1"># or &quot;skip&quot;</span>
+<span class="w">    </span><span class="nt">check_max_step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+<p><strong>Fields:</strong></p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">enabled</span></code> (boolean)</dt><dd><p>Enable runtime limits validation</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">true</span></code> - All channel writes validated against limits database</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">false</span></code> (default) - No limits checking (backward compatible)</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">database_path</span></code> (string)</dt><dd><p>Path to JSON file containing channel limits</p>
+<ul class="simple">
+<li><p>Absolute or relative to agent directory</p></li>
+<li><p>Example: <code class="docutils literal notranslate"><span class="pre">&quot;data/channel_limits.json&quot;</span></code></p></li>
+<li><p>See developer guide for database schema details</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">policy</span></code> (string)</dt><dd><p>Behavior when limits are violated</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;strict&quot;</span></code> (default) - Raise ChannelLimitsViolationError</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;skip&quot;</span></code> - Log warning and skip write (continue execution)</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">check_max_step</span></code> (boolean)</dt><dd><p>Whether to validate step size constraints</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">false</span></code> (default) - Skip step validation (avoids I/O overhead)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">true</span></code> - Read current value and validate step size (adds I/O latency)</p></li>
+<li><p>Logs warning if enabled due to performance impact</p></li>
+</ul>
+</dd>
+</dl>
+<p><strong>Details:</strong></p>
+<ul class="simple">
+<li><p>Failsafe design: unlisted channels are blocked by default</p></li>
+<li><p>JSON parsing errors block all writes (fail-safe)</p></li>
+<li><p>Automatic validation: Control system connectors validate all writes transparently</p></li>
+<li><p>Works with <code class="docutils literal notranslate"><span class="pre">write_channel()</span></code>, <code class="docutils literal notranslate"><span class="pre">epics.caput()</span></code>, <code class="docutils literal notranslate"><span class="pre">PV.put()</span></code> in generated code</p></li>
+<li><p>No application-level validation needed - handled by connector layer</p></li>
+</ul>
+<p><strong>See Also:</strong></p>
+<ul class="simple">
+<li><p><a class="reference internal" href="../../developer-guides/05_production-systems/03_python-execution-service/index.html"><span class="doc">Python Execution</span></a> - Complete limits checking guide with examples</p></li>
+<li><p><a class="reference internal" href="../04_error_handling/02_exception_reference.html#id0" title="osprey.services.python_executor.exceptions.ChannelLimitsViolationError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelLimitsViolationError</span></code></a> - Exception reference</p></li>
+</ul>
+</section>
+<section id="control-system-write-verification">
+<h3>control_system.write_verification<a class="headerlink" href="#control-system-write-verification" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> Object</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Purpose:</strong> Configure write verification behavior for channel write operations.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">write_verification</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">level</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;readback&quot;</span><span class="w">  </span><span class="c1"># &quot;none&quot;, &quot;callback&quot;, &quot;readback&quot;</span>
+<span class="w">    </span><span class="nt">tolerance</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.01</span>
+<span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.0</span>
+</pre></div>
+</div>
+<p><strong>Fields:</strong></p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">level</span></code> (string)</dt><dd><p>Verification method for channel writes</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;none&quot;</span></code> (default) - No verification</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;callback&quot;</span></code> - Use Channel Access callback (EPICS only, fast)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;readback&quot;</span></code> - Read back value and compare (universal, slower)</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">tolerance</span></code> (float)</dt><dd><p>Tolerance for readback verification</p>
+<ul class="simple">
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">0.01</span></code> (1%)</p></li>
+<li><p>Absolute tolerance for floating-point comparison</p></li>
+<li><p>Only used when <code class="docutils literal notranslate"><span class="pre">level:</span> <span class="pre">&quot;readback&quot;</span></code></p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">timeout</span></code> (float)</dt><dd><p>Timeout for verification operations in seconds</p>
+<ul class="simple">
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">2.0</span></code></p></li>
+<li><p>Maximum time to wait for readback</p></li>
+</ul>
+</dd>
+</dl>
+<p><strong>Details:</strong></p>
+<ul class="simple">
+<li><p>Callback verification uses Channel Access put-callback (EPICS only)</p></li>
+<li><p>Readback verification works with any control system</p></li>
+<li><p>Returns <code class="docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code> with verification status</p></li>
+</ul>
+<p><strong>See Also:</strong></p>
+<ul class="simple">
+<li><p><a class="reference internal" href="../03_production_systems/06_control-system-connectors.html#osprey.connectors.control_system.base.WriteVerification" title="osprey.connectors.control_system.base.WriteVerification"><code class="xref py py-class docutils literal notranslate"><span class="pre">WriteVerification</span></code></a> - Verification result model</p></li>
+<li><p><a class="reference internal" href="../03_production_systems/06_control-system-connectors.html#osprey.connectors.control_system.base.ChannelWriteResult" title="osprey.connectors.control_system.base.ChannelWriteResult"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code></a> - Write result model</p></li>
+<li><p><a class="reference internal" href="../../developer-guides/05_production-systems/06_control-system-integration.html"><span class="doc">Control System Integration</span></a> - Connector implementation guide</p></li>
+</ul>
+</section>
+<section id="execution-control-agent-control">
+<h3>execution_control.agent_control<a class="headerlink" href="#execution-control-agent-control" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> Object</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Purpose:</strong> Performance bypass settings for agent processing.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">execution_control</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">agent_control</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">task_extraction_bypass_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">    </span><span class="nt">capability_selection_bypass_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+<p><strong>Fields:</strong></p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">task_extraction_bypass_enabled</span></code> (boolean)</dt><dd><p>Skip LLM-based task extraction</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">false</span></code> (default) - Use LLM to extract structured tasks</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">true</span></code> - Pass full conversation history (faster but less precise)</p></li>
+<li><p>Can be overridden at runtime with <code class="docutils literal notranslate"><span class="pre">/task:off</span></code> command</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">capability_selection_bypass_enabled</span></code> (boolean)</dt><dd><p>Skip LLM-based capability classification</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">false</span></code> (default) - Use LLM to select relevant capabilities</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">true</span></code> - Activate all registered capabilities (faster but less efficient)</p></li>
+<li><p>Can be overridden at runtime with <code class="docutils literal notranslate"><span class="pre">/caps:off</span></code> command</p></li>
+</ul>
+</dd>
+</dl>
+<p><strong>Use Cases:</strong></p>
+<ul class="simple">
+<li><p>Development: Enable bypasses for faster iteration</p></li>
+<li><p>Production: Keep disabled for optimal performance</p></li>
+<li><p>R&amp;D: Enable when exploring with small capability sets</p></li>
+</ul>
+</section>
+<section id="execution-control-limits">
+<h3>execution_control.limits<a class="headerlink" href="#execution-control-limits" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> Object</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Purpose:</strong> Safety limits and execution constraints.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">execution_control</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">limits</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">max_reclassifications</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">    </span><span class="nt">max_planning_attempts</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<span class="w">    </span><span class="nt">max_step_retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+<span class="w">    </span><span class="nt">max_execution_time_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3000</span>
+<span class="w">    </span><span class="nt">graph_recursion_limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span>
+<span class="w">    </span><span class="nt">max_concurrent_classifications</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+</pre></div>
+</div>
+<p><strong>Fields:</strong></p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">max_reclassifications</span></code> (integer)</dt><dd><p>Maximum number of reclassifications allowed</p>
+<ul class="simple">
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">1</span></code> (allows 1 reclassification, meaning 2 total classification attempts)</p></li>
+<li><p>Prevents infinite reclassification loops</p></li>
+<li><p>Counter only increments when reclassification actually occurs, not on initial classification</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">max_planning_attempts</span></code> (integer)</dt><dd><p>Maximum orchestrator planning attempts</p>
+<ul class="simple">
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">2</span></code></p></li>
+<li><p>Fails task if planning repeatedly fails</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">max_step_retries</span></code> (integer)</dt><dd><p>Maximum retries per execution step</p>
+<ul class="simple">
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">0</span></code></p></li>
+<li><p>Applies to retriable errors only</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">max_execution_time_seconds</span></code> (integer)</dt><dd><p>Maximum total execution time</p>
+<ul class="simple">
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">300</span></code> (5 minutes)</p></li>
+<li><p>Prevents runaway executions</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">graph_recursion_limit</span></code> (integer)</dt><dd><p>LangGraph recursion limit</p>
+<ul class="simple">
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">100</span></code></p></li>
+<li><p>Prevents infinite state graph loops</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">max_concurrent_classifications</span></code> (integer)</dt><dd><p>Maximum concurrent LLM classification requests</p>
+<ul class="simple">
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">5</span></code></p></li>
+<li><p>Controls parallel capability classification to prevent API flooding</p></li>
+<li><p>Balances performance with API rate limits</p></li>
+<li><p>Higher values = faster classification but more API load</p></li>
+</ul>
+</dd>
+</dl>
+</section>
+</section>
+<section id="system-configuration">
+<h2>System Configuration<a class="headerlink" href="#system-configuration" title="Link to this heading">#</a></h2>
+<p>Infrastructure-wide settings.</p>
+<section id="system-timezone">
+<h3>system.timezone<a class="headerlink" href="#system-timezone" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> String</p>
+<p><strong>Location:</strong> Root or framework <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Default:</strong> <code class="docutils literal notranslate"><span class="pre">America/Los_Angeles</span></code></p>
+<p><strong>Purpose:</strong> Timezone for all framework services and containers.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">timezone</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${TZ:-America/Los_Angeles}</span>
+</pre></div>
+</div>
+<p><strong>Details:</strong></p>
+<ul class="simple">
+<li><p>Uses standard timezone names (e.g., <code class="docutils literal notranslate"><span class="pre">America/New_York</span></code>, <code class="docutils literal notranslate"><span class="pre">Europe/London</span></code>)</p></li>
+<li><p>Ensures consistent timestamps across all components</p></li>
+<li><p>Propagated to all containers</p></li>
+<li><p>Can use environment variable for host timezone: <code class="docutils literal notranslate"><span class="pre">${TZ}</span></code></p></li>
+</ul>
+</section>
+</section>
+<section id="file-paths-configuration">
+<h2>File Paths Configuration<a class="headerlink" href="#file-paths-configuration" title="Link to this heading">#</a></h2>
+<p>Controls agent data directory structure.</p>
+<section id="file-paths-agent-data-dir">
+<h3>file_paths.agent_data_dir<a class="headerlink" href="#file-paths-agent-data-dir" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> String</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Default:</strong> <code class="docutils literal notranslate"><span class="pre">_agent_data</span></code></p>
+<p><strong>Purpose:</strong> Parent directory for all agent-related data.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">file_paths</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">agent_data_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">_agent_data</span>
+</pre></div>
+</div>
+<p><strong>Details:</strong></p>
+<ul class="simple">
+<li><p>All agent data subdirectories are relative to this</p></li>
+<li><p>Created automatically if doesn’t exist</p></li>
+<li><p>Should be in <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> for development</p></li>
+</ul>
+</section>
+<section id="file-paths-subdirectories">
+<h3>file_paths Subdirectories<a class="headerlink" href="#file-paths-subdirectories" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> Strings</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Purpose:</strong> Subdirectories within <code class="docutils literal notranslate"><span class="pre">agent_data_dir</span></code>.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">file_paths</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">agent_data_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">_agent_data</span>
+<span class="w">  </span><span class="nt">executed_python_scripts_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">executed_scripts</span>
+<span class="w">  </span><span class="nt">execution_plans_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">execution_plans</span>
+<span class="w">  </span><span class="nt">user_memory_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">user_memory</span>
+<span class="w">  </span><span class="nt">registry_exports_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry_exports</span>
+<span class="w">  </span><span class="nt">prompts_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prompts</span>
+<span class="w">  </span><span class="nt">checkpoints</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">checkpoints</span>
+</pre></div>
+</div>
+<p><strong>Subdirectories:</strong></p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">executed_python_scripts_dir</span></code></dt><dd><p>Stores Python code executed by the framework</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">execution_plans_dir</span></code></dt><dd><p>Stores orchestrator execution plans (JSON)</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">user_memory_dir</span></code></dt><dd><p>Stores user memory data</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">registry_exports_dir</span></code></dt><dd><p>Stores exported registry information</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">prompts_dir</span></code></dt><dd><p>Stores generated prompts when debug enabled</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">checkpoints</span></code></dt><dd><p>Stores LangGraph checkpoints for conversation state</p>
+</dd>
+</dl>
+<p><strong>Application-Specific Paths:</strong></p>
+<p>Applications can add their own paths:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># In src/applications/als_assistant/config.yml</span>
+<span class="nt">file_paths</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">launcher_outputs_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">launcher_outputs</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="deployed-services">
+<h2>Deployed Services<a class="headerlink" href="#deployed-services" title="Link to this heading">#</a></h2>
+<p>Controls which containers are started.</p>
+<section id="id1">
+<h3>deployed_services<a class="headerlink" href="#id1" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> List of strings</p>
+<p><strong>Location:</strong> Root, framework, or application <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Default:</strong> <code class="docutils literal notranslate"><span class="pre">[]</span></code></p>
+<p><strong>Purpose:</strong> Specifies which services to deploy when running container management.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">deployed_services</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># Framework infrastructure services</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">open_webui</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pipelines</span>
+
+<span class="w">  </span><span class="c1"># Application-specific services (optional)</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongo</span><span class="w">          </span><span class="c1"># E.g., MongoDB for ALS Assistant</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pv_finder</span><span class="w">      </span><span class="c1"># E.g., PV Finder MCP for ALS Assistant</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">langfuse</span><span class="w">       </span><span class="c1"># E.g., Observability for ALS Assistant</span>
+</pre></div>
+</div>
+<p><strong>Service Naming:</strong></p>
+<dl class="simple">
+<dt>Services use simple names that match their configuration keys:</dt><dd><ul class="simple">
+<li><p>Infrastructure services: <code class="docutils literal notranslate"><span class="pre">jupyter</span></code>, <code class="docutils literal notranslate"><span class="pre">open_webui</span></code>, <code class="docutils literal notranslate"><span class="pre">pipelines</span></code></p></li>
+<li><p>Application services: <code class="docutils literal notranslate"><span class="pre">mongo</span></code>, <code class="docutils literal notranslate"><span class="pre">pv_finder</span></code>, etc.</p></li>
+<li><p>Names correspond to keys defined in the <code class="docutils literal notranslate"><span class="pre">services:</span></code> configuration section</p></li>
+</ul>
+</dd>
+</dl>
+<p><strong>Configuration Structure:</strong></p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># User project config.yml</span>
+<span class="nt">deployed_services</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">open_webui</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pipelines</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongo</span><span class="w">       </span><span class="c1"># Application-specific service</span>
+
+<span class="c1"># All services defined in services: section</span>
+<span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">jupyter</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/jupyter</span>
+<span class="w">  </span><span class="nt">open_webui</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/open-webui</span>
+<span class="w">  </span><span class="nt">pipelines</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/pipelines</span>
+<span class="w">  </span><span class="nt">mongo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/mongo</span>
+</pre></div>
+</div>
+<p><strong>Details:</strong></p>
+<ul class="simple">
+<li><p>Services listed in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> must be defined in the <code class="docutils literal notranslate"><span class="pre">services:</span></code> section</p></li>
+<li><p>Only listed services will be deployed when running <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code></p></li>
+<li><p>Service names are simple strings matching configuration keys</p></li>
+<li><p>See <a class="reference internal" href="../../developer-guides/05_production-systems/05_container-and-deployment.html"><span class="doc">Container Deployment</span></a> for complete deployment guide</p></li>
+</ul>
+</section>
+</section>
+<section id="api-provider-configuration">
+<h2>API Provider Configuration<a class="headerlink" href="#api-provider-configuration" title="Link to this heading">#</a></h2>
+<p>Configuration for AI/ML model providers.</p>
+<section id="api-providers">
+<h3>api.providers<a class="headerlink" href="#api-providers" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> Object (nested)</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Purpose:</strong> Configuration for external API providers.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">api</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">providers</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">cborg</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${CBORG_API_KEY}</span>
+<span class="w">      </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.cborg.lbl.gov/v1</span>
+<span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+
+<span class="w">    </span><span class="nt">stanford</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${STANFORD_API_KEY}</span>
+<span class="w">      </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://aiapi-prod.stanford.edu/v1</span>
+
+<span class="w">    </span><span class="nt">argo</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${ARGO_API_KEY}</span>
+<span class="w">      </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://argo-bridge.cels.anl.gov</span>
+
+<span class="w">    </span><span class="nt">anthropic</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${ANTHROPIC_API_KEY}</span>
+<span class="w">      </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.anthropic.com</span>
+
+<span class="w">  </span><span class="w w-Error"> </span><span class="nt">openai</span><span class="p">:</span>
+<span class="w">     </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${OPENAI_API_KEY}</span>
+<span class="w">     </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.openai.com/v1</span>
+
+<span class="w">   </span><span class="nt">google</span><span class="p">:</span>
+<span class="w">     </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${GOOGLE_API_KEY}</span>
+<span class="w">     </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://generativelanguage.googleapis.com/v1beta</span>
+
+<span class="w">   </span><span class="w w-Error"> </span><span class="nt">ollama</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ollama</span>
+<span class="w">      </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://doudna:11434</span>
+<span class="w">      </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">doudna</span>
+<span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">11434</span>
+</pre></div>
+</div>
+<p><strong>Common Fields:</strong></p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">api_key</span></code> (string, required)</dt><dd><p>API authentication key</p>
+<ul class="simple">
+<li><p>Use environment variables: <code class="docutils literal notranslate"><span class="pre">${API_KEY_NAME}</span></code></p></li>
+<li><p>Never hard-code actual keys</p></li>
+<li><p>For Ollama: use literal string <code class="docutils literal notranslate"><span class="pre">&quot;ollama&quot;</span></code></p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">base_url</span></code> (string, required)</dt><dd><p>Base URL for API endpoint</p>
+<ul class="simple">
+<li><p>Must include protocol (http/https)</p></li>
+<li><p>No trailing slash</p></li>
+<li><p>Can use environment variables</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">timeout</span></code> (integer, optional)</dt><dd><p>Request timeout in seconds</p>
+<ul class="simple">
+<li><p>Default varies by provider</p></li>
+<li><p>Increase for slow connections</p></li>
+</ul>
+</dd>
+</dl>
+<p><strong>Provider-Specific Fields:</strong></p>
+<dl>
+<dt>Ollama:</dt><dd><p>Additional fields for container networking:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ollama</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ollama</span>
+<span class="w">  </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://doudna:11434</span>
+<span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">doudna</span><span class="w">  </span><span class="c1"># For container access</span>
+<span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">11434</span><span class="w">   </span><span class="c1"># For container access</span>
+</pre></div>
+</div>
+</dd>
+</dl>
+<p><strong>Security:</strong></p>
+<ul class="simple">
+<li><p>Always use environment variables for API keys</p></li>
+<li><p>Store keys in <code class="docutils literal notranslate"><span class="pre">.env</span></code> file (add to <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code>)</p></li>
+<li><p>Never commit actual keys to version control</p></li>
+</ul>
+</section>
+</section>
+<section id="model-configuration">
+<h2>Model Configuration<a class="headerlink" href="#model-configuration" title="Link to this heading">#</a></h2>
+<p>LLM model assignments for framework and application components.</p>
+<section id="framework-models">
+<h3>Framework Models<a class="headerlink" href="#framework-models" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> Object (nested)</p>
+<p><strong>Location:</strong> <code class="docutils literal notranslate"><span class="pre">src/osprey/config.yml</span></code> (defaults), can override in root or application</p>
+<p><strong>Purpose:</strong> Model configurations for framework infrastructure components.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># In src/osprey/config.yml</span>
+<span class="nt">framework</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">models</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">orchestrator</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">      </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic/claude-sonnet</span>
+
+<span class="w">    </span><span class="nt">response</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">      </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">google/gemini-flash</span>
+<span class="w">      </span><span class="nt">max_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5000</span>
+
+<span class="w">    </span><span class="nt">classifier</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ollama</span>
+<span class="w">      </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mistral:7b</span>
+
+<span class="w">    </span><span class="nt">approval</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ollama</span>
+<span class="w">      </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mistral:7b</span>
+
+<span class="w">    </span><span class="nt">task_extraction</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">      </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">google/gemini-flash</span>
+<span class="w">      </span><span class="nt">max_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span>
+
+<span class="w">    </span><span class="nt">memory</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">      </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">google/gemini-flash</span>
+<span class="w">      </span><span class="nt">max_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">256</span>
+
+<span class="w">    </span><span class="nt">python_code_generator</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">      </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic/claude-haiku</span>
+<span class="w">      </span><span class="nt">max_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4096</span>
+
+<span class="w">    </span><span class="nt">time_parsing</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ollama</span>
+<span class="w">      </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mistral:7b</span>
+<span class="w">      </span><span class="nt">max_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">512</span>
+</pre></div>
+</div>
+<p><strong>Framework Model Roles:</strong></p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">orchestrator</span></code></dt><dd><p>Creates execution plans</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">response</span></code></dt><dd><p>Generates final user responses</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">classifier</span></code></dt><dd><p>Classifies tasks and selects capabilities</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">approval</span></code></dt><dd><p>Analyzes code for approval decisions</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">task_extraction</span></code></dt><dd><p>Extracts structured tasks from conversations</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">memory</span></code></dt><dd><p>Processes memory storage/retrieval</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">python_code_generator</span></code></dt><dd><p>Generates Python code</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">time_parsing</span></code></dt><dd><p>Parses temporal references</p>
+</dd>
+</dl>
+<p><strong>Model Configuration Fields:</strong></p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">provider</span></code> (string, required)</dt><dd><p>Provider name (must match <code class="docutils literal notranslate"><span class="pre">api.providers</span></code> key)</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">model_id</span></code> (string, required)</dt><dd><p>Model identifier</p>
+<ul class="simple">
+<li><p>Format varies by provider</p></li>
+<li><p>Anthropic: <code class="docutils literal notranslate"><span class="pre">anthropic/claude-sonnet</span></code></p></li>
+<li><p>OpenAI: <code class="docutils literal notranslate"><span class="pre">openai/gpt-4</span></code></p></li>
+<li><p>Ollama: <code class="docutils literal notranslate"><span class="pre">mistral:7b</span></code></p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">max_tokens</span></code> (integer, optional)</dt><dd><p>Maximum output tokens</p>
+<ul class="simple">
+<li><p>Not supported by all providers</p></li>
+<li><p>Default varies by model</p></li>
+</ul>
+</dd>
+</dl>
+</section>
+<section id="application-models">
+<h3>Application Models<a class="headerlink" href="#application-models" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> Object (nested)</p>
+<p><strong>Location:</strong> <code class="docutils literal notranslate"><span class="pre">src/applications/{app}/config.yml</span></code></p>
+<p><strong>Purpose:</strong> Application-specific model configurations.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># In src/applications/als_assistant/config.yml</span>
+<span class="nt">models</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">data_analysis</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">    </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic/claude-sonnet</span>
+
+<span class="w">  </span><span class="nt">machine_operations</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">    </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic/claude-sonnet</span>
+<span class="w">    </span><span class="nt">max_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4096</span>
+
+<span class="w">  </span><span class="nt">data_visualization</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">    </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic/claude-sonnet</span>
+<span class="w">    </span><span class="nt">max_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4096</span>
+
+<span class="w">  </span><span class="nt">pv_finder</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">keyword</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">      </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">google/gemini-flash</span>
+<span class="w">      </span><span class="nt">max_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4096</span>
+<span class="w">    </span><span class="nt">query_splitter</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">      </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">google/gemini-flash</span>
+<span class="w">      </span><span class="nt">max_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4096</span>
+</pre></div>
+</div>
+<p><strong>Details:</strong></p>
+<ul class="simple">
+<li><p>Application defines its own model names</p></li>
+<li><p>Same configuration format as framework models</p></li>
+<li><p>Can be deeply nested (e.g., <code class="docutils literal notranslate"><span class="pre">pv_finder.keyword</span></code>)</p></li>
+<li><p>Merged with framework models (no conflicts)</p></li>
+</ul>
+</section>
+</section>
+<section id="development-configuration">
+<h2>Development Configuration<a class="headerlink" href="#development-configuration" title="Link to this heading">#</a></h2>
+<p>Development and debugging settings.</p>
+<section id="development-raise-raw-errors">
+<h3>development.raise_raw_errors<a class="headerlink" href="#development-raise-raw-errors" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> Boolean</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Default:</strong> <code class="docutils literal notranslate"><span class="pre">false</span></code></p>
+<p><strong>Purpose:</strong> Controls error handling behavior.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">development</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">raise_raw_errors</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+<p><strong>Values:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">false</span></code> (production) - Errors wrapped in <code class="docutils literal notranslate"><span class="pre">ExecutionError</span></code> with user-friendly messages</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">true</span></code> (development) - Raw exceptions raised with full stack traces</p></li>
+</ul>
+</section>
+<section id="development-prompts">
+<h3>development.prompts<a class="headerlink" href="#development-prompts" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> Object</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Purpose:</strong> Prompt debugging configuration.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">development</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">prompts</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">show_all</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">    </span><span class="nt">print_all</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">latest_only</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<p><strong>Fields:</strong></p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">show_all</span></code> (boolean)</dt><dd><p>Print all prompts to console</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">true</span></code> - Display prompts with formatting and separators</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">false</span></code> - No console output</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">print_all</span></code> (boolean)</dt><dd><p>Save all prompts to files</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">true</span></code> - Save to <code class="docutils literal notranslate"><span class="pre">file_paths.prompts_dir</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">false</span></code> - No file output</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">latest_only</span></code> (boolean)</dt><dd><p>File naming strategy</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">true</span></code> - Overwrite with latest (<code class="docutils literal notranslate"><span class="pre">{name}_latest.md</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">false</span></code> - Timestamp each file (<code class="docutils literal notranslate"><span class="pre">{name}_YYYYMMDD_HHMMSS.md</span></code>)</p></li>
+</ul>
+</dd>
+</dl>
+<p><strong>Use Cases:</strong></p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># Development: See everything</span>
+<span class="nt">development</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">prompts</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">show_all</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">print_all</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">latest_only</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+
+<span class="c1"># Production: Silent</span>
+<span class="nt">development</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">prompts</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">show_all</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">    </span><span class="nt">print_all</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+</section>
+<section id="development-api-calls">
+<h3>development.api_calls<a class="headerlink" href="#development-api-calls" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> Object</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Purpose:</strong> LLM API call logging configuration for debugging.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">development</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">api_calls</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">save_all</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">    </span><span class="nt">latest_only</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">include_stack_trace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+<p><strong>Fields:</strong></p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">save_all</span></code> (boolean)</dt><dd><p>Log all LLM API calls with complete input/output and metadata</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">true</span></code> - Save to <code class="docutils literal notranslate"><span class="pre">_agent_data/api_calls/</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">false</span></code> - No API call logging (default)</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">latest_only</span></code> (boolean)</dt><dd><p>File naming strategy</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">true</span></code> - Overwrite with latest per function</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">false</span></code> - Timestamp each API call</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">include_stack_trace</span></code> (boolean)</dt><dd><p>Include full Python stack trace in log metadata</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">true</span></code> - Full call stack for deep debugging</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">false</span></code> - Show only immediate caller (default)</p></li>
+</ul>
+</dd>
+</dl>
+<p><strong>See also:</strong> <a class="reference internal" href="../../developer-guides/03_core-framework-systems/04_prompt-customization.html"><span class="doc">Prompt Customization</span></a></p>
+</section>
+</section>
+<section id="logging-configuration">
+<h2>Logging Configuration<a class="headerlink" href="#logging-configuration" title="Link to this heading">#</a></h2>
+<p>Logging colors and output control.</p>
+<section id="logging-rich-tracebacks">
+<h3>logging.rich_tracebacks<a class="headerlink" href="#logging-rich-tracebacks" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> Boolean</p>
+<p><strong>Location:</strong> Root <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Default:</strong> <code class="docutils literal notranslate"><span class="pre">false</span></code></p>
+<p><strong>Purpose:</strong> Enable rich-formatted error tracebacks.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">logging</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">rich_tracebacks</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">show_traceback_locals</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">show_full_paths</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+<p><strong>Fields:</strong></p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">rich_tracebacks</span></code> (boolean)</dt><dd><p>Enable rich formatting</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">true</span></code> - Colorized, formatted tracebacks</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">false</span></code> - Standard Python tracebacks</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">show_traceback_locals</span></code> (boolean)</dt><dd><p>Show local variables in tracebacks</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">true</span></code> - Display all local variables</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">false</span></code> - Variables hidden</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">show_full_paths</span></code> (boolean)</dt><dd><p>Path display in tracebacks</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">true</span></code> - Full absolute paths</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">false</span></code> - Relative paths</p></li>
+</ul>
+</dd>
+</dl>
+</section>
+<section id="logging-colors">
+<h3>logging Colors<a class="headerlink" href="#logging-colors" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> Object (nested)</p>
+<p><strong>Location:</strong> Framework or application <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Purpose:</strong> Customize component logging colors.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># Framework colors (src/osprey/config.yml)</span>
+<span class="nt">logging</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">framework</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">logging_colors</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">orchestrator</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;cyan&quot;</span>
+<span class="w">      </span><span class="nt">classifier</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;light_salmon1&quot;</span>
+<span class="w">      </span><span class="nt">task_extraction</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;thistle1&quot;</span>
+<span class="w">      </span><span class="nt">python</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;light_salmon1&quot;</span>
+<span class="w">      </span><span class="nt">respond</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;thistle1&quot;</span>
+
+<span class="w">  </span><span class="nt">interface</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">logging_colors</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">cli</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;deep_sky_blue1&quot;</span>
+<span class="w">      </span><span class="nt">pipeline</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;deep_sky_blue1&quot;</span>
+
+<span class="c1"># Application colors (src/applications/{app}/config.yml)</span>
+<span class="nt">logging</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">logging_colors</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">data_analysis</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;deep_sky_blue1&quot;</span>
+<span class="w">    </span><span class="nt">data_visualization</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;dark_turquoise&quot;</span>
+<span class="w">    </span><span class="nt">pv_address_finding</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;dodger_blue2&quot;</span>
+</pre></div>
+</div>
+<p><strong>Details:</strong></p>
+<ul class="simple">
+<li><p>Uses Rich library color names</p></li>
+<li><p>Framework component colors under <code class="docutils literal notranslate"><span class="pre">logging.framework.logging_colors</span></code></p></li>
+<li><p>Interface component colors under <code class="docutils literal notranslate"><span class="pre">logging.interface.logging_colors</span></code></p></li>
+<li><p>Application colors under <code class="docutils literal notranslate"><span class="pre">logging.logging_colors</span></code></p></li>
+<li><p>Colors used in console output and logs</p></li>
+<li><p>Falls back to white if not configured</p></li>
+</ul>
+<p><strong>Available Colors:</strong></p>
+<p>See <a class="reference external" href="https://rich.readthedocs.io/en/stable/appendix/colors.html">Rich color documentation</a> for full color list.</p>
+</section>
+</section>
+<section id="id2">
+<h2>Service Configuration<a class="headerlink" href="#id2" title="Link to this heading">#</a></h2>
+<p>Container service definitions.</p>
+<section id="framework-services">
+<h3>Framework Services<a class="headerlink" href="#framework-services" title="Link to this heading">#</a></h3>
+<p><strong>Location:</strong> <code class="docutils literal notranslate"><span class="pre">src/osprey/config.yml</span></code></p>
+<p><strong>Purpose:</strong> Define framework infrastructure services.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">framework</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">services</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">jupyter</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/osprey/jupyter</span>
+<span class="w">      </span><span class="nt">containers</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">read</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter-read</span>
+<span class="w">          </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter-read</span>
+<span class="w">          </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8088</span>
+<span class="w">          </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8088</span>
+<span class="w">          </span><span class="nt">execution_modes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;read_only&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">        </span><span class="nt">write</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter-write</span>
+<span class="w">          </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter-write</span>
+<span class="w">          </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8089</span>
+<span class="w">          </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8088</span>
+<span class="w">          </span><span class="nt">execution_modes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;write_access&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">      </span><span class="nt">copy_src</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">render_kernel_templates</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="w">    </span><span class="nt">open_webui</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/osprey/open-webui</span>
+<span class="w">      </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">appsdev2</span>
+<span class="w">      </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8080</span>
+<span class="w">      </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8080</span>
+
+<span class="w">    </span><span class="nt">pipelines</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/osprey/pipelines</span>
+<span class="w">      </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9099</span>
+<span class="w">      </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9099</span>
+<span class="w">      </span><span class="nt">copy_src</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">additional_dirs</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">interfaces</span>
+</pre></div>
+</div>
+<p><strong>Service Configuration Fields:</strong></p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">path</span></code> (string, required)</dt><dd><p>Directory containing Docker Compose template</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">name</span></code> (string, optional)</dt><dd><p>Container name (defaults to service key)</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">hostname</span></code> (string, optional)</dt><dd><p>Container hostname</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">port_host</span></code> (integer, optional)</dt><dd><p>Host port mapping</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">port_container</span></code> (integer, optional)</dt><dd><p>Container port</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">copy_src</span></code> (boolean, optional)</dt><dd><p>Copy <code class="docutils literal notranslate"><span class="pre">src/</span></code> to container</p>
+<ul class="simple">
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">false</span></code></p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">additional_dirs</span></code> (list, optional)</dt><dd><p>Extra directories to copy</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">render_kernel_templates</span></code> (boolean, optional)</dt><dd><p>Process Jupyter kernel templates</p>
+<ul class="simple">
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">false</span></code></p></li>
+<li><p>Jupyter-specific</p></li>
+</ul>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">containers</span></code> (object, optional)</dt><dd><p>Multiple container definitions</p>
+<ul class="simple">
+<li><p>For services with multiple containers</p></li>
+<li><p>Each container has same configuration fields</p></li>
+</ul>
+</dd>
+</dl>
+</section>
+<section id="application-services">
+<h3>Application Services<a class="headerlink" href="#application-services" title="Link to this heading">#</a></h3>
+<p><strong>Location:</strong> <code class="docutils literal notranslate"><span class="pre">src/applications/{app}/config.yml</span></code></p>
+<p><strong>Purpose:</strong> Define application-specific services.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># In src/applications/als_assistant/config.yml</span>
+<span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">mongo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongo</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/applications/als_assistant/mongo</span>
+<span class="w">    </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">27017</span>
+<span class="w">    </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">27017</span>
+<span class="w">    </span><span class="nt">copy_src</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="w">  </span><span class="nt">pv_finder</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/applications/als_assistant/pv_finder</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pv-finder</span>
+<span class="w">    </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8051</span>
+<span class="w">    </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8051</span>
+<span class="w">    </span><span class="nt">copy_src</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="w">  </span><span class="nt">langfuse</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/applications/als_assistant/langfuse</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">langfuse</span>
+<span class="w">    </span><span class="nt">copy_src</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+<p><strong>Same configuration fields as framework services.</strong></p>
+</section>
+</section>
+<section id="pipeline-configuration">
+<h2>Pipeline Configuration<a class="headerlink" href="#pipeline-configuration" title="Link to this heading">#</a></h2>
+<p>OpenWebUI pipeline settings.</p>
+<section id="pipeline-name">
+<h3>pipeline.name<a class="headerlink" href="#pipeline-name" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> String</p>
+<p><strong>Location:</strong> Framework or application <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Purpose:</strong> Display name for the pipeline in OpenWebUI.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># In src/applications/als_assistant/config.yml</span>
+<span class="nt">pipeline</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;ALS</span><span class="nv"> </span><span class="s">Assistant&quot;</span>
+</pre></div>
+</div>
+<p><strong>Details:</strong></p>
+<ul class="simple">
+<li><p>Shown in OpenWebUI interface</p></li>
+<li><p>Identifies the application/pipeline</p></li>
+<li><p>Framework default: <code class="docutils literal notranslate"><span class="pre">&quot;Generic</span> <span class="pre">AI</span> <span class="pre">Agent</span> <span class="pre">Framework&quot;</span></code></p></li>
+</ul>
+</section>
+<section id="pipeline-startup-hooks">
+<h3>pipeline.startup_hooks<a class="headerlink" href="#pipeline-startup-hooks" title="Link to this heading">#</a></h3>
+<p><strong>Type:</strong> List of strings</p>
+<p><strong>Location:</strong> Application <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+<p><strong>Purpose:</strong> Python functions to run at pipeline startup.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">pipeline</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">startup_hooks</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;initialization.setup_nltk_resources&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;initialization.setup_system_packages&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;initialization.setup_pv_finder_resources&quot;</span>
+</pre></div>
+</div>
+<p><strong>Details:</strong></p>
+<ul class="simple">
+<li><p>Functions are called during pipeline initialization</p></li>
+<li><p>Format: <code class="docutils literal notranslate"><span class="pre">&quot;module_path.function_name&quot;</span></code></p></li>
+<li><p>Module path is relative to application directory</p></li>
+<li><p>Used for downloading resources, initializing services, etc.</p></li>
+</ul>
+</section>
+</section>
+<section id="configuration-examples">
+<h2>Configuration Examples<a class="headerlink" href="#configuration-examples" title="Link to this heading">#</a></h2>
+<section id="complete-configuration-example">
+<h3>Complete Configuration Example<a class="headerlink" href="#complete-configuration-example" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># config.yml - Complete, self-contained configuration</span>
+<span class="nt">project_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;my-agent&quot;</span>
+<span class="nt">build_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./build</span>
+<span class="nt">project_root</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${PROJECT_ROOT}</span>
+<span class="nt">registry_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./src/my_app/registry.py</span>
+
+<span class="c1"># Model configuration (8 specialized models)</span>
+<span class="nt">models</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">orchestrator</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">    </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic/claude-sonnet</span>
+<span class="w">  </span><span class="nt">response</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">    </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">google/gemini-flash</span>
+<span class="w">  </span><span class="c1"># ... other 6 models ...</span>
+
+<span class="c1"># Service deployment</span>
+<span class="nt">deployed_services</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">open_webui</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pipelines</span>
+
+<span class="c1"># Safety controls</span>
+<span class="nt">approval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">global_mode</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;selective&quot;</span>
+<span class="nt">capabilities</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">python_execution</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;control_writes&quot;</span>
+<span class="w">  </span><span class="nt">memory</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="nt">execution_control</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">epics</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">agent_control</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">task_extraction_bypass_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">    </span><span class="nt">capability_selection_bypass_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">limits</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">max_reclassifications</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">    </span><span class="nt">max_planning_attempts</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<span class="w">    </span><span class="nt">max_step_retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+<span class="w">    </span><span class="nt">max_execution_time_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3000</span>
+<span class="w">    </span><span class="nt">graph_recursion_limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span>
+<span class="w">    </span><span class="nt">max_concurrent_classifications</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+
+<span class="nt">system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">timezone</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${TZ:-America/Los_Angeles}</span>
+
+<span class="nt">file_paths</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">agent_data_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">_agent_data</span>
+<span class="w">  </span><span class="nt">executed_python_scripts_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">executed_scripts</span>
+<span class="w">  </span><span class="nt">execution_plans_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">execution_plans</span>
+<span class="w">  </span><span class="nt">user_memory_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">user_memory</span>
+<span class="w">  </span><span class="nt">registry_exports_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry_exports</span>
+<span class="w">  </span><span class="nt">prompts_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prompts</span>
+<span class="w">  </span><span class="nt">checkpoints</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">checkpoints</span>
+
+<span class="nt">deployed_services</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">open_webui</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pipelines</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongo</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pv_finder</span>
+
+<span class="nt">development</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">raise_raw_errors</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">prompts</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">show_all</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">    </span><span class="nt">print_all</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">latest_only</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="nt">logging</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">rich_tracebacks</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">show_traceback_locals</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">show_full_paths</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+
+<span class="nt">api</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">providers</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">cborg</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${CBORG_API_KEY}</span>
+<span class="w">      </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.cborg.lbl.gov/v1</span>
+<span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+<span class="w">    </span><span class="nt">stanford</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${STANFORD_API_KEY}</span>
+<span class="w">      </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://aiapi-prod.stanford.edu/v1</span>
+<span class="w">    </span><span class="nt">anthropic</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${ANTHROPIC_API_KEY}</span>
+<span class="w">      </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.anthropic.com</span>
+<span class="w">    </span><span class="nt">openai</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${OPENAI_API_KEY}</span>
+<span class="w">      </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.openai.com/v1</span>
+<span class="w">    </span><span class="nt">ollama</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ollama</span>
+<span class="w">      </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://host.containers.internal:11434</span>
+<span class="w">      </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host.containers.internal</span>
+<span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">11434</span>
+</pre></div>
+</div>
+</section>
+<section id="application-configuration-example">
+<h3>Application Configuration Example<a class="headerlink" href="#application-configuration-example" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># src/applications/als_assistant/config.yml</span>
+
+<span class="nt">file_paths</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">launcher_outputs_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">launcher_outputs</span>
+
+<span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">pv_finder</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/applications/als_assistant/pv_finder</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pv-finder</span>
+<span class="w">    </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8051</span>
+<span class="w">    </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8051</span>
+<span class="w">    </span><span class="nt">copy_src</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="w">  </span><span class="nt">mongo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongo</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/applications/als_assistant/mongo</span>
+<span class="w">    </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">27017</span>
+<span class="w">    </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">27017</span>
+<span class="w">    </span><span class="nt">copy_src</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="nt">models</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">data_analysis</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">    </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic/claude-sonnet</span>
+
+<span class="w">  </span><span class="nt">machine_operations</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">    </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic/claude-sonnet</span>
+<span class="w">    </span><span class="nt">max_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4096</span>
+
+<span class="w">  </span><span class="nt">pv_finder</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">keyword</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">      </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">google/gemini-flash</span>
+<span class="w">      </span><span class="nt">max_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4096</span>
+
+<span class="nt">pipeline</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;ALS</span><span class="nv"> </span><span class="s">Assistant&quot;</span>
+<span class="w">  </span><span class="nt">startup_hooks</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;initialization.setup_nltk_resources&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;initialization.setup_pv_finder_resources&quot;</span>
+
+<span class="nt">logging</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">logging_colors</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">data_analysis</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;deep_sky_blue1&quot;</span>
+<span class="w">    </span><span class="nt">data_visualization</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;dark_turquoise&quot;</span>
+<span class="w">    </span><span class="nt">pv_address_finding</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;dodger_blue2&quot;</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../../developer-guides/03_core-framework-systems/06_configuration-architecture.html"><span class="doc">Configuration Architecture</span></a></dt><dd><p>Complete guide to configuration architecture, flat structure, and best practices</p>
+</dd>
+<dt><a class="reference internal" href="02_state_and_context.html#osprey.state.StateManager" title="osprey.state.StateManager"><code class="xref py py-class docutils literal notranslate"><span class="pre">osprey.state.StateManager</span></code></a></dt><dd><p>State management utilities that use configuration</p>
+</dd>
+<dt><a class="reference internal" href="02_state_and_context.html"><span class="doc">State and Context Management</span></a></dt><dd><p>State and context systems that depend on configuration</p>
+</dd>
+<dt><a class="reference internal" href="../../developer-guides/05_production-systems/05_container-and-deployment.html"><span class="doc">Container Deployment</span></a></dt><dd><p>Container deployment and service configuration</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="03_registry_system.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Registry System</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="05_prompt_management.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Prompt System</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#core-classes">Core Classes</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#configbuilder">ConfigBuilder</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config.ConfigBuilder"><code class="docutils literal notranslate"><span class="pre">ConfigBuilder</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config.ConfigBuilder.__init__"><code class="docutils literal notranslate"><span class="pre">ConfigBuilder.__init__()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config.ConfigBuilder.get_unexpanded_config"><code class="docutils literal notranslate"><span class="pre">ConfigBuilder.get_unexpanded_config()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config.ConfigBuilder.get"><code class="docutils literal notranslate"><span class="pre">ConfigBuilder.get()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#primary-access-functions">Primary Access Functions</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config.get_config_value"><code class="docutils literal notranslate"><span class="pre">get_config_value()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config.get_full_configuration"><code class="docutils literal notranslate"><span class="pre">get_full_configuration()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config.get_agent_dir"><code class="docutils literal notranslate"><span class="pre">get_agent_dir()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#specialized-configuration-functions">Specialized Configuration Functions</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model-and-provider-access">Model and Provider Access</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config.get_model_config"><code class="docutils literal notranslate"><span class="pre">get_model_config()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config.get_provider_config"><code class="docutils literal notranslate"><span class="pre">get_provider_config()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#service-configuration">Service Configuration</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config.get_framework_service_config"><code class="docutils literal notranslate"><span class="pre">get_framework_service_config()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config.get_application_service_config"><code class="docutils literal notranslate"><span class="pre">get_application_service_config()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#runtime-information">Runtime Information</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config.get_session_info"><code class="docutils literal notranslate"><span class="pre">get_session_info()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config.get_interface_context"><code class="docutils literal notranslate"><span class="pre">get_interface_context()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config.get_current_application"><code class="docutils literal notranslate"><span class="pre">get_current_application()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config.get_execution_limits"><code class="docutils literal notranslate"><span class="pre">get_execution_limits()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config.get_agent_control_defaults"><code class="docutils literal notranslate"><span class="pre">get_agent_control_defaults()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config.get_classification_config"><code class="docutils literal notranslate"><span class="pre">get_classification_config()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#development-utilities">Development Utilities</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config.get_pipeline_config"><code class="docutils literal notranslate"><span class="pre">get_pipeline_config()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#internal-implementation">Internal Implementation</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config._get_config"><code class="docutils literal notranslate"><span class="pre">_get_config()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.utils.config._get_configurable"><code class="docutils literal notranslate"><span class="pre">_get_configurable()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-sections-reference">Configuration Sections Reference</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-sections">Configuration Sections</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#build-dir">build_dir</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#project-name">project_name</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#project-root">project_root</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registry-path">registry_path</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#approval-configuration">Approval Configuration</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#approval-global-mode">approval.global_mode</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#approval-capabilities-python-execution">approval.capabilities.python_execution</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#approval-capabilities-memory">approval.capabilities.memory</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#execution-control">Execution Control</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#control-system-writes-enabled">control_system.writes_enabled</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#control-system-limits-checking">control_system.limits_checking</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#control-system-write-verification">control_system.write_verification</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#execution-control-agent-control">execution_control.agent_control</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#execution-control-limits">execution_control.limits</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#system-configuration">System Configuration</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#system-timezone">system.timezone</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#file-paths-configuration">File Paths Configuration</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#file-paths-agent-data-dir">file_paths.agent_data_dir</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#file-paths-subdirectories">file_paths Subdirectories</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployed-services">Deployed Services</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id1">deployed_services</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#api-provider-configuration">API Provider Configuration</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#api-providers">api.providers</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-configuration">Model Configuration</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#framework-models">Framework Models</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#application-models">Application Models</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#development-configuration">Development Configuration</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#development-raise-raw-errors">development.raise_raw_errors</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#development-prompts">development.prompts</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#development-api-calls">development.api_calls</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#logging-configuration">Logging Configuration</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#logging-rich-tracebacks">logging.rich_tracebacks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#logging-colors">logging Colors</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#id2">Service Configuration</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#framework-services">Framework Services</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#application-services">Application Services</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pipeline-configuration">Pipeline Configuration</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pipeline-name">pipeline.name</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pipeline-startup-hooks">pipeline.startup_hooks</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-examples">Configuration Examples</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#complete-configuration-example">Complete Configuration Example</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#application-configuration-example">Application Configuration Example</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/api_reference/01_core_framework/04_configuration_system.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

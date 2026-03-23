@@ -1,0 +1,1326 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey.infrastructure.respond_node &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
+
+
+
+
+
+const initStyles = () => {
+    const defaultStyle = document.createElement('style');
+    defaultStyle.textContent = `pre.mermaid {
+    /* Same as .mermaid-container > pre */
+    display: block;
+    width: 100%;
+}
+
+pre.mermaid > svg {
+    /* Same as .mermaid-container > pre > svg */
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}`;
+    document.head.appendChild(defaultStyle);
+
+    const fullscreenStyle = document.createElement('style');
+    fullscreenStyle.textContent = `.mermaid-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.mermaid-container > pre {
+    display: block;
+    width: 100%;
+}
+
+.mermaid-container > pre > svg {
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}
+
+.mermaid-fullscreen-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    color: #333;
+}
+
+.mermaid-fullscreen-btn:hover {
+    opacity: 100% !important;
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-btn.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-btn.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 95vw;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.98);
+    z-index: 9999;
+    padding: 20px;
+    overflow: auto;
+}
+
+.mermaid-fullscreen-modal.dark-theme {
+    background: rgba(0, 0, 0, 0.98);
+}
+
+.mermaid-fullscreen-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen {
+    position: relative;
+    width: 95vw;
+    height: 90vh;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen.dark-theme {
+    background: #1a1a1a;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-container-fullscreen pre.mermaid {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen .mermaid svg {
+    height: 100% !important;
+    width: 100% !important;
+    cursor: grab;
+}
+
+.mermaid-fullscreen-close {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    font-size: 24px;
+    line-height: 1;
+    color: #333;
+}
+
+.mermaid-fullscreen-close:hover {
+    background: white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-close.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-close.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
+    display: none !important;
+}`;
+    document.head.appendChild(fullscreenStyle);
+}
+
+// Detect if page has dark background
+const isDarkTheme = () => {
+    // We use a set of heuristics:
+    // 1. Check for common dark mode classes or attributes
+    // 2. Check computed background color brightness
+    if (document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        document.body.getAttribute('data-theme') === 'dark') {
+        // console.log("Dark theme detected via class/attribute");
+        return true;
+    }
+    if (document.documentElement.classList.contains('light') ||
+        document.documentElement.getAttribute('data-theme') === 'light' ||
+        document.body.classList.contains('light') ||
+        document.body.getAttribute('data-theme') === 'light') {
+        // console.log("Light theme detected via class/attribute");
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // console.log("Dark theme detected via prefers-color-scheme");
+        return true;
+    }
+    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        // console.log("Background color brightness:", brightness);
+        return brightness < 128;
+    }
+    // console.log("No dark or light theme detected, defaulting to light theme");
+    return false;
+};
+
+let darkTheme = isDarkTheme();
+let modal = null;
+let modalContent = null;
+let previousScrollOffset = [window.scrollX, window.scrollY];
+
+const runMermaid = async (rerun) => {
+    console.log("Running mermaid diagrams, rerun =", rerun);
+    // clear all existing mermaid charts
+    let all_mermaids = document.querySelectorAll(".mermaid");
+
+    if (rerun) {
+        all_mermaids.forEach((el) => {
+            if(!el.hasAttribute("data-original-code")) {
+                // store original code
+                // console.log(`Storing original code for first run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+            if(el.getAttribute("data-processed") === "true") {
+                // remove and restore original
+                el.removeAttribute("data-processed");
+                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
+                el.innerHTML = el.getAttribute('data-original-code');
+            } else {
+                // store original code
+                // console.log(`Storing original code for re-run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+        });
+        await mermaid.run();
+    }
+
+    all_mermaids = document.querySelectorAll(".mermaid");
+    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
+
+    if ("False" === "True") {
+        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
+        if(mermaids_to_add_zoom > 0) {
+            var svgs = d3.selectAll("");
+            if(all_mermaids.length !== mermaids_processed.length) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else if(svgs.size() !== mermaids_to_add_zoom) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else {
+                svgs.each(function() {
+                    var svg = d3.select(this);
+                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
+                    var inner = svg.select("g");
+                    var zoom = d3.zoom().on("zoom", function(event) {
+                        inner.attr("transform", event.transform);
+                    });
+                    svg.call(zoom);
+                });
+            }
+        }
+    } else if(all_mermaids.length !== mermaids_processed.length) {
+        // Wait for mermaid to process all diagrams
+        setTimeout(() => runMermaid(false), 200);
+        return;
+    }
+
+    // Stop here if not adding fullscreen capability
+    if ("True" !== "True") return;
+
+    if (modal !== null ) {
+        // Destroy existing modal
+        modal.remove();
+        modal = null;
+        modalContent = null;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
+    modal.innerHTML = `
+        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
+        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
+    `;
+    document.body.appendChild(modal);
+
+    modalContent = modal.querySelector('.mermaid-container-fullscreen');
+    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
+
+    const closeModal = () => {
+        modal.classList.remove('active');
+        modalContent.innerHTML = '';
+        document.body.style.overflow = ''
+        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+        }
+    });
+
+    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
+        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
+            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
+            // Already processed, adjust button class if needed
+            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
+            if (existingBtn) {
+                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+            }
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.className = 'mermaid-container';
+        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
+        container.appendChild(mermaidDiv);
+
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
+        fullscreenBtn.textContent = '⛶';
+        fullscreenBtn.style.opacity = '50%';
+
+        // Calculate dynamic position based on diagram's margin and padding
+        const diagramStyle = window.getComputedStyle(mermaidDiv);
+        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
+        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
+        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
+        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
+        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
+        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
+
+        fullscreenBtn.addEventListener('click', () => {
+            previousScrollOffset = [window.scroll, window.scrollY];
+            const clone = mermaidDiv.cloneNode(true);
+            modalContent.innerHTML = '';
+            modalContent.appendChild(clone);
+
+            const svg = clone.querySelector('svg');
+            if (svg) {
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxWidth = '100%';
+                svg.style.sdisplay = 'block';
+
+                if ("False" === "True") {
+                    setTimeout(() => {
+                        const g = svg.querySelector('g');
+                        if (g) {
+                            var svgD3 = d3.select(svg);
+                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
+                            var inner = svgD3.select("g");
+                            var zoom = d3.zoom().on("zoom", function(event) {
+                                inner.attr("transform", event.transform);
+                            });
+                            svgD3.call(zoom);
+                        }
+                    }, 100);
+                }
+            }
+
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+        container.appendChild(fullscreenBtn);
+    });
+};
+
+const load = async () => {
+    initStyles();
+
+    await runMermaid(true);
+
+    const reRunIfThemeChanges = async () => {
+        const newDarkTheme = isDarkTheme();
+        if (newDarkTheme !== darkTheme) {
+            darkTheme = newDarkTheme;
+            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
+            await mermaid.initialize(
+                {...JSON.parse(
+                    `{"startOnLoad": false}`
+                ),
+                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+                }
+            );
+            await runMermaid(true);
+        }
+    };
+
+    // Update theme classes when theme changes
+    const themeObserver = new MutationObserver(reRunIfThemeChanges);
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+    themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+};
+
+
+
+
+
+console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
+mermaid.initialize(
+    {...JSON.parse(
+        `{"startOnLoad": false}`
+    ),
+    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+    }
+);
+
+window.addEventListener("load", load);</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey/infrastructure/respond_node';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey.infrastructure.respond_node</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey.infrastructure.respond_node</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Respond Capability</span>
+
+<span class="sd">This capability responds to user queries by generating appropriate responses - both technical</span>
+<span class="sd">queries requiring execution context and conversational queries that don&#39;t. It adaptively</span>
+<span class="sd">chooses the appropriate response strategy based on query type and available context.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">langchain_core.messages</span><span class="w"> </span><span class="kn">import</span> <span class="n">AIMessage</span><span class="p">,</span> <span class="n">HumanMessage</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseCapability</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.decorators</span><span class="w"> </span><span class="kn">import</span> <span class="n">capability_node</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ErrorClassification</span><span class="p">,</span> <span class="n">ErrorSeverity</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.context.context_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContextManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_langchain_model</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.prompts.loader</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_framework_prompts</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_registry</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">AgentState</span><span class="p">,</span>
+    <span class="n">ChatHistoryFormatter</span><span class="p">,</span>
+    <span class="n">StateManager</span><span class="p">,</span>
+    <span class="n">populate_legacy_fields_from_artifacts</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_model_config</span>
+
+
+<div class="viewcode-block" id="ResponseContext">
+<a class="viewcode-back" href="../../../api_reference/02_infrastructure/06_message-generation.html#osprey.infrastructure.respond_node.ResponseContext">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ResponseContext</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Container for all information needed for response generation.</span>
+
+<span class="sd">    Aggregates all relevant information from the agent state for</span>
+<span class="sd">    comprehensive response generation.</span>
+
+<span class="sd">    :param current_task: The current task being addressed</span>
+<span class="sd">    :type current_task: str</span>
+<span class="sd">    :param execution_history: List of executed steps</span>
+<span class="sd">    :type execution_history: List[Any]</span>
+<span class="sd">    :param relevant_context: Context data relevant to the response (list of summary dicts)</span>
+<span class="sd">    :type relevant_context: List[Dict[str, Any]]</span>
+<span class="sd">    :param is_killed: Whether execution was terminated</span>
+<span class="sd">    :type is_killed: bool</span>
+<span class="sd">    :param kill_reason: Reason for termination if applicable</span>
+<span class="sd">    :type kill_reason: Optional[str]</span>
+<span class="sd">    :param capabilities_overview: Overview of available capabilities</span>
+<span class="sd">    :type capabilities_overview: Optional[str]</span>
+<span class="sd">    :param total_steps_executed: Total number of steps executed</span>
+<span class="sd">    :type total_steps_executed: int</span>
+<span class="sd">    :param execution_start_time: When execution started</span>
+<span class="sd">    :type execution_start_time: Optional[float]</span>
+<span class="sd">    :param reclassification_count: Number of reclassification attempts</span>
+<span class="sd">    :type reclassification_count: int</span>
+<span class="sd">    :param current_date: Current date for temporal context</span>
+<span class="sd">    :type current_date: str</span>
+<span class="sd">    :param figures_available: Number of figures available for display</span>
+<span class="sd">    :type figures_available: int</span>
+<span class="sd">    :param commands_available: Number of launchable commands available</span>
+<span class="sd">    :type commands_available: int</span>
+<span class="sd">    :param notebooks_available: Number of notebook links available</span>
+<span class="sd">    :type notebooks_available: int</span>
+<span class="sd">    :param interface_context: Interface type (openwebui, cli, etc.)</span>
+<span class="sd">    :type interface_context: str</span>
+<span class="sd">    :param chat_history: Formatted chat history when task depends on conversation context</span>
+<span class="sd">    :type chat_history: Optional[str]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">current_task</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">execution_history</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span>
+    <span class="n">relevant_context</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span>
+    <span class="n">is_killed</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">kill_reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">capabilities_overview</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">total_steps_executed</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">execution_start_time</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">reclassification_count</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">current_date</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">figures_available</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">commands_available</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">notebooks_available</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">interface_context</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">chat_history</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></div>
+
+
+
+<span class="c1"># --- Convention-Based Capability Definition ---</span>
+
+
+<div class="viewcode-block" id="RespondCapability">
+<a class="viewcode-back" href="../../../api_reference/02_infrastructure/06_message-generation.html#osprey.infrastructure.respond_node.RespondCapability">[docs]</a>
+<span class="nd">@capability_node</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">RespondCapability</span><span class="p">(</span><span class="n">BaseCapability</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Respond to user queries with appropriate response strategy.</span>
+
+<span class="sd">    Generates comprehensive responses for both technical queries requiring</span>
+<span class="sd">    execution context and conversational queries. Adapts response strategy</span>
+<span class="sd">    based on available context and execution history.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;respond&quot;</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="s2">&quot;Respond to user queries by generating appropriate responses for both technical and conversational questions&quot;</span>
+    <span class="n">provides</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;FINAL_RESPONSE&quot;</span><span class="p">]</span>
+    <span class="n">requires</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c1"># Can work with any previous context, or none at all</span>
+
+<div class="viewcode-block" id="RespondCapability.execute">
+<a class="viewcode-back" href="../../../api_reference/02_infrastructure/06_message-generation.html#osprey.infrastructure.respond_node.RespondCapability.execute">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Generate appropriate response using unified dynamic prompt construction.</span>
+
+<span class="sd">        :return: State update with generated response</span>
+<span class="sd">        :rtype: Dict[str, Any]</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span>
+
+        <span class="c1"># Get unified logger with automatic streaming support</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span>
+
+        <span class="c1"># Get step (injected by decorator)</span>
+        <span class="n">step</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="s2">&quot;Gathering information for response...&quot;</span><span class="p">)</span>
+
+            <span class="c1"># Gather all available information</span>
+            <span class="n">response_context</span> <span class="o">=</span> <span class="n">_gather_information</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">logger</span><span class="p">)</span>
+
+            <span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="s2">&quot;Generating response...&quot;</span><span class="p">)</span>
+
+            <span class="c1"># Build prompt dynamically based on available information</span>
+            <span class="n">prompt</span> <span class="o">=</span> <span class="n">_get_base_system_prompt</span><span class="p">(</span><span class="n">response_context</span><span class="o">.</span><span class="n">current_task</span><span class="p">,</span> <span class="n">response_context</span><span class="p">)</span>
+
+            <span class="c1"># Emit LLM prompt event for TUI display</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">emit_llm_request</span><span class="p">(</span><span class="n">prompt</span><span class="p">)</span>
+
+            <span class="c1"># Get streaming LangChain model for response generation</span>
+            <span class="n">model</span> <span class="o">=</span> <span class="n">get_langchain_model</span><span class="p">(</span><span class="n">model_config</span><span class="o">=</span><span class="n">get_model_config</span><span class="p">(</span><span class="s2">&quot;response&quot;</span><span class="p">))</span>
+
+            <span class="c1"># Build messages for LangChain format</span>
+            <span class="n">messages</span> <span class="o">=</span> <span class="p">[</span><span class="n">HumanMessage</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="n">prompt</span><span class="p">)]</span>
+
+            <span class="c1"># Stream response - LangGraph captures AIMessageChunks in messages mode</span>
+            <span class="c1"># This enables real-time token streaming to frontends (CLI/TUI)</span>
+            <span class="n">response_chunks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">async</span> <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">astream</span><span class="p">(</span><span class="n">messages</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">chunk</span><span class="o">.</span><span class="n">content</span><span class="p">:</span>
+                    <span class="n">response_chunks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">chunk</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
+
+            <span class="n">response_text</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">response_chunks</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">response_text</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;No response from LLM, please try again.&quot;</span><span class="p">)</span>
+
+            <span class="c1"># Note: LLM response is streamed via LangGraph&#39;s messages mode,</span>
+            <span class="c1"># so we don&#39;t emit LLMResponseEvent here (would cause duplicate display)</span>
+
+            <span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="s2">&quot;Response generated&quot;</span><span class="p">)</span>
+
+            <span class="c1"># Use actual task objective if available, otherwise describe response mode</span>
+            <span class="k">if</span> <span class="n">step</span> <span class="ow">and</span> <span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;task_objective&quot;</span><span class="p">):</span>
+                <span class="n">task_objective</span> <span class="o">=</span> <span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;task_objective&quot;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># Use response context to determine correct mode description</span>
+                <span class="n">task_objective</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="s2">&quot;conversational query&quot;</span>
+                    <span class="k">if</span> <span class="n">response_context</span><span class="o">.</span><span class="n">execution_history</span> <span class="o">==</span> <span class="p">[]</span>
+                    <span class="k">else</span> <span class="s2">&quot;technical query&quot;</span>
+                <span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Generated response for: &#39;</span><span class="si">{</span><span class="n">task_objective</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span>
+
+            <span class="c1"># Populate legacy fields from unified artifacts for backward compatibility</span>
+            <span class="c1"># This ensures OpenWebUI and other interfaces can access figures/notebooks/commands</span>
+            <span class="n">ui_artifacts</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ui_artifacts&quot;</span><span class="p">,</span> <span class="p">[])</span>
+            <span class="n">legacy_updates</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="k">if</span> <span class="n">ui_artifacts</span><span class="p">:</span>
+                <span class="n">legacy_updates</span> <span class="o">=</span> <span class="n">populate_legacy_fields_from_artifacts</span><span class="p">(</span><span class="n">ui_artifacts</span><span class="p">)</span>
+
+            <span class="c1"># Return native LangGraph pattern: AIMessage added to messages list</span>
+            <span class="c1"># Include legacy field updates for backward compatibility</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;messages&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">AIMessage</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="n">response_text</span><span class="p">)],</span> <span class="o">**</span><span class="n">legacy_updates</span><span class="p">}</span>
+
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error in response generation: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+            <span class="c1"># Since respond node goes directly to END (bypasses router error handling),</span>
+            <span class="c1"># we need to handle errors internally and provide a fallback response</span>
+            <span class="n">error_message</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+
+            <span class="c1"># Generic error fallback - avoid hardcoding specific error codes or providers</span>
+            <span class="n">fallback_response</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="s2">&quot;❌ **Response Generation Failed**</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;Your request may have been processed successfully, but the final &quot;</span>
+                <span class="s2">&quot;response could not be generated.</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;**Common causes:**</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;• Rate limits or high demand on the LLM provider (usually temporary)</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;• Network connectivity issues</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;• Service availability problems</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;**Next steps:**</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;• Please try your request again in a few minutes</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;• If the problem persists, please contact support</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;**Technical details:** </span><span class="si">{</span><span class="n">error_message</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+
+            <span class="c1"># Return the fallback response as an AIMessage instead of raising</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;messages&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">AIMessage</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="n">fallback_response</span><span class="p">)]}</span></div>
+
+
+    <span class="c1"># Optional: Add error classification if needed</span>
+<div class="viewcode-block" id="RespondCapability.classify_error">
+<a class="viewcode-back" href="../../../api_reference/02_infrastructure/06_message-generation.html#osprey.infrastructure.respond_node.RespondCapability.classify_error">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">classify_error</span><span class="p">(</span><span class="n">exc</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="nb">dict</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Response generation error classification.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+            <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">,</span>
+            <span class="n">user_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Failed to generate response: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)},</span>
+        <span class="p">)</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_create_orchestrator_guide</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get orchestrator guide from prompt builder.&quot;&quot;&quot;</span>
+
+        <span class="n">prompt_provider</span> <span class="o">=</span> <span class="n">get_framework_prompts</span><span class="p">()</span>  <span class="c1"># Registry will determine the right provider</span>
+        <span class="n">response_builder</span> <span class="o">=</span> <span class="n">prompt_provider</span><span class="o">.</span><span class="n">get_response_generation_prompt_builder</span><span class="p">()</span>
+
+        <span class="k">return</span> <span class="n">response_builder</span><span class="o">.</span><span class="n">get_orchestrator_guide</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_create_classifier_guide</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get classifier guide from prompt builder.&quot;&quot;&quot;</span>
+
+        <span class="n">prompt_provider</span> <span class="o">=</span> <span class="n">get_framework_prompts</span><span class="p">()</span>  <span class="c1"># Registry will determine the right provider</span>
+        <span class="n">response_builder</span> <span class="o">=</span> <span class="n">prompt_provider</span><span class="o">.</span><span class="n">get_response_generation_prompt_builder</span><span class="p">()</span>
+
+        <span class="k">return</span> <span class="n">response_builder</span><span class="o">.</span><span class="n">get_classifier_guide</span><span class="p">()</span></div>
+
+
+
+<span class="c1"># --- Helper Functions ---</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_gather_information</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ResponseContext</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Gather all relevant information for response generation.</span>
+
+<span class="sd">    :param state: Current agent state</span>
+<span class="sd">    :type state: AgentState</span>
+<span class="sd">    :return: Complete response context</span>
+<span class="sd">    :rtype: ResponseContext</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># Extract context data and determine response mode</span>
+    <span class="n">context_manager</span> <span class="o">=</span> <span class="n">ContextManager</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+    <span class="n">current_step</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">get_current_step</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+    <span class="n">relevant_context</span> <span class="o">=</span> <span class="n">context_manager</span><span class="o">.</span><span class="n">get_summaries</span><span class="p">(</span><span class="n">current_step</span><span class="p">)</span>
+
+    <span class="c1"># Determine response mode and prepare appropriate data</span>
+    <span class="n">response_mode</span> <span class="o">=</span> <span class="n">_determine_response_mode</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">current_step</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">response_mode</span> <span class="o">==</span> <span class="s2">&quot;conversational&quot;</span><span class="p">:</span>
+        <span class="n">execution_history</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">capabilities_overview</span> <span class="o">=</span> <span class="n">_get_capabilities_overview</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">logger</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Using conversational response mode (no execution context)&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>  <span class="c1"># technical mode</span>
+        <span class="n">execution_history</span> <span class="o">=</span> <span class="n">_get_execution_history</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+        <span class="n">capabilities_overview</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">logger</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Using technical response mode (context type: </span><span class="si">{</span><span class="n">response_mode</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Populate legacy fields from unified artifacts (for backward compatibility)</span>
+    <span class="c1"># This derives ui_captured_figures, ui_launchable_commands, ui_captured_notebooks</span>
+    <span class="c1"># from the canonical ui_artifacts field</span>
+    <span class="n">ui_artifacts</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ui_artifacts&quot;</span><span class="p">,</span> <span class="p">[])</span>
+    <span class="k">if</span> <span class="n">ui_artifacts</span><span class="p">:</span>
+        <span class="n">legacy_fields</span> <span class="o">=</span> <span class="n">populate_legacy_fields_from_artifacts</span><span class="p">(</span><span class="n">ui_artifacts</span><span class="p">)</span>
+        <span class="n">ui_figures</span> <span class="o">=</span> <span class="n">legacy_fields</span><span class="p">[</span><span class="s2">&quot;ui_captured_figures&quot;</span><span class="p">]</span>
+        <span class="n">ui_commands</span> <span class="o">=</span> <span class="n">legacy_fields</span><span class="p">[</span><span class="s2">&quot;ui_launchable_commands&quot;</span><span class="p">]</span>
+        <span class="n">ui_notebooks</span> <span class="o">=</span> <span class="n">legacy_fields</span><span class="p">[</span><span class="s2">&quot;ui_captured_notebooks&quot;</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># Fall back to direct legacy field access (for old capabilities)</span>
+        <span class="n">ui_figures</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ui_captured_figures&quot;</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="n">ui_commands</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ui_launchable_commands&quot;</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="n">ui_notebooks</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ui_captured_notebooks&quot;</span><span class="p">,</span> <span class="p">[])</span>
+
+    <span class="n">figures_available</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">ui_figures</span><span class="p">)</span>
+    <span class="n">commands_available</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">ui_commands</span><span class="p">)</span>
+    <span class="n">notebooks_available</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">ui_notebooks</span><span class="p">)</span>
+
+    <span class="c1"># Log notebook availability for debugging</span>
+    <span class="k">if</span> <span class="n">logger</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Respond node found </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">ui_notebooks</span><span class="p">)</span><span class="si">}</span><span class="s2"> notebook links&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Get interface context from configurable</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_interface_context</span>
+
+    <span class="n">interface_context</span> <span class="o">=</span> <span class="n">get_interface_context</span><span class="p">()</span>
+
+    <span class="c1"># Include chat history if task depends on conversation context</span>
+    <span class="n">chat_history</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;task_depends_on_chat_history&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+        <span class="n">messages</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;messages&quot;</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="k">if</span> <span class="n">messages</span><span class="p">:</span>
+            <span class="n">chat_history</span> <span class="o">=</span> <span class="n">ChatHistoryFormatter</span><span class="o">.</span><span class="n">format_for_llm</span><span class="p">(</span><span class="n">messages</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">logger</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Including chat history (</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">messages</span><span class="p">)</span><span class="si">}</span><span class="s2"> messages) for context-dependent task&quot;</span>
+                <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">ResponseContext</span><span class="p">(</span>
+        <span class="n">current_task</span><span class="o">=</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;task_current_task&quot;</span><span class="p">,</span> <span class="s2">&quot;General information request&quot;</span><span class="p">),</span>
+        <span class="n">execution_history</span><span class="o">=</span><span class="n">execution_history</span><span class="p">,</span>
+        <span class="n">relevant_context</span><span class="o">=</span><span class="n">relevant_context</span><span class="p">,</span>
+        <span class="n">is_killed</span><span class="o">=</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;control_is_killed&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">),</span>
+        <span class="n">kill_reason</span><span class="o">=</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;control_kill_reason&quot;</span><span class="p">),</span>
+        <span class="n">capabilities_overview</span><span class="o">=</span><span class="n">capabilities_overview</span><span class="p">,</span>
+        <span class="n">total_steps_executed</span><span class="o">=</span><span class="n">StateManager</span><span class="o">.</span><span class="n">get_current_step_index</span><span class="p">(</span><span class="n">state</span><span class="p">),</span>
+        <span class="n">execution_start_time</span><span class="o">=</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_start_time&quot;</span><span class="p">),</span>
+        <span class="n">reclassification_count</span><span class="o">=</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;control_reclassification_count&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+        <span class="n">current_date</span><span class="o">=</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%Y-%m-</span><span class="si">%d</span><span class="s2">&quot;</span><span class="p">),</span>
+        <span class="n">figures_available</span><span class="o">=</span><span class="n">figures_available</span><span class="p">,</span>
+        <span class="n">commands_available</span><span class="o">=</span><span class="n">commands_available</span><span class="p">,</span>
+        <span class="n">notebooks_available</span><span class="o">=</span><span class="n">notebooks_available</span><span class="p">,</span>
+        <span class="n">interface_context</span><span class="o">=</span><span class="n">interface_context</span><span class="p">,</span>
+        <span class="n">chat_history</span><span class="o">=</span><span class="n">chat_history</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_determine_response_mode</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">,</span> <span class="n">current_step</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Determine the appropriate response mode based on available context.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        state: Current agent state</span>
+<span class="sd">        current_step: Current execution step</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Response mode: &quot;conversational&quot;, &quot;specific_context&quot;, or &quot;general_context&quot;</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># Check if current step has specific context inputs assigned</span>
+    <span class="n">has_step_inputs</span> <span class="o">=</span> <span class="n">current_step</span> <span class="ow">and</span> <span class="n">current_step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;inputs&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Check if any capability context data exists in the system</span>
+    <span class="n">has_capability_data</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;capability_context_data&quot;</span><span class="p">,</span> <span class="p">{}))</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">has_step_inputs</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">has_capability_data</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;conversational&quot;</span>
+    <span class="k">elif</span> <span class="n">has_step_inputs</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;specific_context&quot;</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;general_context&quot;</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_get_capabilities_overview</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get capabilities overview for conversational mode.&quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">get_registry</span><span class="p">()</span><span class="o">.</span><span class="n">get_capabilities_overview</span><span class="p">()</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;General AI Assistant capabilities available&quot;</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_get_execution_history</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get execution history from state for technical mode.&quot;&quot;&quot;</span>
+    <span class="n">execution_step_results</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_step_results&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="n">ordered_results</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span>
+        <span class="n">execution_step_results</span><span class="o">.</span><span class="n">items</span><span class="p">(),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;step_index&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="p">[</span><span class="n">result</span> <span class="k">for</span> <span class="n">step_key</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">ordered_results</span><span class="p">]</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_get_base_system_prompt</span><span class="p">(</span><span class="n">current_task</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">info</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the base system prompt with task context.</span>
+
+<span class="sd">    :param current_task: The current task being addressed</span>
+<span class="sd">    :type current_task: str</span>
+<span class="sd">    :param info: Optional response context information</span>
+<span class="sd">    :type info: Optional[ResponseContext]</span>
+<span class="sd">    :return: Complete system prompt</span>
+<span class="sd">    :rtype: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">prompt_provider</span> <span class="o">=</span> <span class="n">get_framework_prompts</span><span class="p">()</span>
+    <span class="n">response_builder</span> <span class="o">=</span> <span class="n">prompt_provider</span><span class="o">.</span><span class="n">get_response_generation_prompt_builder</span><span class="p">()</span>
+
+    <span class="k">return</span> <span class="n">response_builder</span><span class="o">.</span><span class="n">build_prompt</span><span class="p">(</span><span class="n">current_task</span><span class="o">=</span><span class="n">current_task</span><span class="p">,</span> <span class="n">info</span><span class="o">=</span><span class="n">info</span><span class="p">)</span>
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

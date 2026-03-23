@@ -1,0 +1,869 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Conceptual Tutorial &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'getting-started/conceptual-tutorial';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Hello World Tutorial" href="hello-world-tutorial.html" />
+    <link rel="prev" title="Installation &amp; Setup" href="installation.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation &amp; Setup</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Conceptual Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hello-world-tutorial.html">Hello World Tutorial</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="control-assistant.html">Production Control Systems Tutorial</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="control-assistant-part1-setup.html">Part 1: Getting Started</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-assistant-part2-channel-finder.html">Part 2: Building Your Channel Finder</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-assistant-part3-production.html">Part 3: Integration &amp; Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-assistant-part4-customization.html">Part 4: Customization &amp; Extension</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Getting Started</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Conceptual Tutorial</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="conceptual-tutorial">
+<h1>Conceptual Tutorial<a class="headerlink" href="#conceptual-tutorial" title="Link to this heading">#</a></h1>
+<p>Before building useful agentic AI applications using Osprey, it’s important to
+understand the framework’s core architecture and operational model.</p>
+<p>This conceptual tutorial introduces the fundamental concepts and design patterns
+that will prepare you for the hands-on coding journey ahead.</p>
+<section id="building-on-proven-foundations">
+<h2>Building on Proven Foundations<a class="headerlink" href="#building-on-proven-foundations" title="Link to this heading">#</a></h2>
+<p>Osprey doesn’t reinvent the wheel. At its core, the framework is built on
+<a class="reference external" href="https://github.com/langchain-ai/langgraph">LangGraph</a>, a production-ready orchestration
+framework developed by LangChain for building stateful, long-running AI agents. LangGraph
+provides the foundational capabilities that make reliable agent systems possible: durable
+execution, checkpointing, human-in-the-loop workflows, and comprehensive state management.</p>
+<p>Rather than creating yet another generic agent framework from scratch, Osprey extends LangGraph
+with specialized patterns and infrastructure specifically designed for scientific and
+high-stakes operational environments. This approach allows us to focus on solving domain-specific
+challenges—such as managing large sets of specialized tools, handling complex data flows, and
+ensuring transparent execution—while leveraging a battle-tested foundation for the core
+orchestration layer.</p>
+</section>
+<section id="how-osprey-works">
+<h2>How Osprey Works<a class="headerlink" href="#how-osprey-works" title="Link to this heading">#</a></h2>
+<p>An agentic AI application can be treated as a chatbot with tools. Currently there are two major
+types of agentic AI applications: ReAct agents and Planning agents.</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-0">
+ReAct Agents</label><div class="sd-tab-content docutils">
+<p>ReAct agents work in a way that is similar to how LLMs handle chat history.
+When a user query comes in, the agent processes the entire conversation history,
+along with the previous tool usage records, to decide the next action.</p>
+<p>The advantage of ReAct agents is that they can leverage the full power of LLMs to
+dynamically decide what to do next based on the entire context. However, this
+also means that ReAct agents can be less efficient and less predictable, as
+they may revisit previous steps or make decisions that are hard to foresee.
+Additionally, ReAct agents may get lost in complicated setups with many tools
+and complex state management.</p>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-1">
+Planning Agents</label><div class="sd-tab-content docutils">
+<p>Planning agents, on the other hand, separate the “thinking” and “acting” phases.
+For every user query, they first create a comprehensive plan, breaking down
+the task into manageable steps. Once the plan is formulated, the agent
+executes each step sequentially, utilizing tools as necessary to accomplish
+each subtask.</p>
+<p>The advantage of Planning agents is that the execution path is more structured and predictable,
+as the plan is created upfront. This can lead to more efficient use of tools and resources.
+Additionally, planning agents have less dependency on the LLM’s ability to generate stable outputs
+since they decompose the task into smaller, easier steps. Each step can be
+handled with more focused prompts and potentially smaller models.</p>
+</div>
+</div>
+<p>Osprey supports
+<a class="reference internal" href="../developer-guides/01_understanding-the-framework/04_orchestration-architecture.html"><span class="doc">both orchestration modes</span></a>
+and defaults to the Planning approach (switchable to ReAct in your project configuration).
+Regardless of which mode you choose, the building blocks are the same: <strong>Capabilities</strong> –
+modular components that encapsulate domain-specific business logic and tool integrations.
+Given a user query, the framework determines which capabilities to use, in what order, and
+with what inputs, effectively chaining them together to accomplish complex tasks.</p>
+<p>A critical architectural distinction of Osprey is how data flows between capabilities.
+Unlike standard ReAct agents where tool outputs are returned directly to the LLM’s context
+(which works for short strings but fails when tools produce large datasets that would overflow
+the context window), Osprey uses <strong>Contexts</strong> - strictly typed Pydantic data classes that
+provide a structured layer for storing and communicating data between capabilities. This
+approach enables efficient handling of large outputs, maintains type safety, and allows data
+to persist across conversation turns without consuming valuable context window space.</p>
+<p>Capabilities and contexts are the central building blocks of Osprey applications. So when designing your
+Osprey application, always think in terms of capabilities and contexts:</p>
+<ul class="simple">
+<li><p>What capabilities do I need to accomplish the task?</p></li>
+<li><p>What contexts would the capability need to work?</p></li>
+<li><p>What contexts should the capability produce as output?</p></li>
+</ul>
+<p>Now let’s look at a simple example to better understand those concepts.</p>
+</section>
+<section id="mindflow-to-build-a-weather-assistant-in-osprey">
+<h2>Mindflow to Build a Weather Assistant in Osprey<a class="headerlink" href="#mindflow-to-build-a-weather-assistant-in-osprey" title="Link to this heading">#</a></h2>
+<p>Assume we want to build a weather assistant that can provide weather information based on user queries.</p>
+<section id="what-would-users-ask">
+<h3>What would users ask<a class="headerlink" href="#what-would-users-ask" title="Link to this heading">#</a></h3>
+<p>First step is to think about what queries we want to support, or we imagine users would ask. Based on our
+experience in real life, for the weather assistant, users would typically ask questions like:</p>
+<ul class="simple">
+<li><p>“What’s the weather like in San Francisco today?”</p></li>
+<li><p>“Will it rain tomorrow in New York?”</p></li>
+<li><p>“Give me a 5-day weather forecast for Los Angeles.”</p></li>
+<li><p>“What about the day after tomorrow?” – referring to previous query</p></li>
+</ul>
+</section>
+<section id="what-capabilities-are-needed">
+<h3>What capabilities are needed<a class="headerlink" href="#what-capabilities-are-needed" title="Link to this heading">#</a></h3>
+<p>To deal with the queries above, obviously we need a capability that can fetch weather data,
+given the location and date. Let’s call it <cite>FetchWeatherCapability</cite>.
+This capability would require the location and date as inputs, and return the weather information.
+Therefore we’ll need the following contexts:</p>
+<ul class="simple">
+<li><p><cite>LocationContext</cite> – to represent the location information</p></li>
+<li><p><cite>DateContext</cite> – to represent the date information</p></li>
+<li><p><cite>WeatherContext</cite> – to represent the weather information returned by the capability</p></li>
+</ul>
+<p>Beyond fetching weather data, we need a capability to present results to users. Once we have a
+<cite>WeatherContext</cite> with weather data, how do we communicate it back in natural language? Osprey provides
+<a class="reference internal" href="../developer-guides/04_infrastructure-components/05_message-generation.html#respond-capability"><span class="std std-ref">RespondCapability</span></a> - a built-in capability that generates natural language
+responses from execution results and available contexts.</p>
+<p>Are those capabilities sufficient? Maybe not. Thinking more carefully about what we have so far: how can we get the
+<cite>LocationContext</cite> and <cite>DateContext</cite> from user queries? It could be easy if the user query is straightforward, but
+what if the user query looks like:</p>
+<ul class="simple">
+<li><p>“What’s the weather like in NYC?”</p></li>
+<li><p>“Will it rain tonight around Stanford university?”</p></li>
+</ul>
+<p>So we probably need another capability to extract location and date information from user queries:</p>
+<ul class="simple">
+<li><p><cite>ExtractLocationCapability</cite> – to extract location information from user queries</p></li>
+<li><p><cite>ExtractDateCapability</cite> – to extract date information from user queries</p></li>
+</ul>
+</section>
+<section id="the-final-design">
+<h3>The Final Design<a class="headerlink" href="#the-final-design" title="Link to this heading">#</a></h3>
+<p>Following this iterative thinking process, here’s the complete weather assistant architecture:</p>
+<p><strong>Capabilities</strong></p>
+<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
+<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+🌍 ExtractLocationCapability</div>
+<p class="sd-card-text">Parse location information from user queries.</p>
+<p class="sd-card-text"><strong>Requires:</strong> None</p>
+<p class="sd-card-text"><strong>Provides:</strong> LocationContext</p>
+</div>
+</div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+📅 ExtractDateCapability</div>
+<p class="sd-card-text">Parse date information from user queries.</p>
+<p class="sd-card-text"><strong>Requires:</strong> None</p>
+<p class="sd-card-text"><strong>Provides:</strong> DateContext</p>
+</div>
+</div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+☀️ FetchWeatherCapability</div>
+<p class="sd-card-text">Call weather API to fetch weather information based on location and date.</p>
+<p class="sd-card-text"><strong>Requires:</strong> LocationContext, DateContext</p>
+<p class="sd-card-text"><strong>Provides:</strong> WeatherContext</p>
+</div>
+</div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+💬 RespondCapability</div>
+<p class="sd-card-text">Generate natural language responses from execution results.</p>
+<p class="sd-card-text"><strong>Requires:</strong> None</p>
+<p class="sd-card-text"><strong>Provides:</strong> None</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<p><strong>Context Classes</strong></p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Context</p></th>
+<th class="head"><p>Purpose</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">LocationContext</span></code></p></td>
+<td><p>Stores parsed location information (city, region)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">DateContext</span></code></p></td>
+<td><p>Stores parsed date/time information</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">WeatherContext</span></code></p></td>
+<td><p>Stores weather data (temperature, conditions, etc.)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="tip admonition">
+<p class="admonition-title">The Osprey Design Pattern</p>
+<p>When designing any Osprey application, follow this iterative process:</p>
+<ol class="arabic simple">
+<li><p><strong>Identify required capabilities</strong> - What domain-specific tasks need to be performed?</p></li>
+<li><p><strong>Define necessary contexts</strong> - What data does each capability need and produce?</p></li>
+<li><p><strong>Check for missing data</strong> - How will capabilities get their required contexts?</p>
+<ul class="simple">
+<li><p>If straightforward to extract → no additional capabilities needed</p></li>
+<li><p>If complex → create extraction/transformation capabilities</p></li>
+</ul>
+</li>
+<li><p><strong>Repeat</strong> until all data dependencies are resolved</p></li>
+</ol>
+<p>This bottom-up thinking ensures your agent has all the pieces needed to accomplish user goals.</p>
+</div>
+</section>
+</section>
+<section id="how-osprey-chains-capabilities-together">
+<h2>How Osprey Chains Capabilities Together<a class="headerlink" href="#how-osprey-chains-capabilities-together" title="Link to this heading">#</a></h2>
+<p>Once you’ve designed your capabilities and contexts, Osprey’s orchestrator automatically
+chains them together. The framework supports two orchestration modes that differ in <em>when</em>
+decisions are made, but both use the same capability and context infrastructure.</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-2" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-2">
+Plan-First Mode (default)</label><div class="sd-tab-content docutils">
+<p>The orchestrator creates a <strong>complete plan upfront</strong> before any execution begins.</p>
+<p><strong>Query: “What’s the weather in San Francisco today?”</strong></p>
+<p>The orchestrator creates this plan:</p>
+<ol class="arabic simple">
+<li><p><strong>ExtractLocationCapability</strong> → produces <code class="docutils literal notranslate"><span class="pre">LocationContext(location=&quot;San</span> <span class="pre">Francisco&quot;)</span></code></p></li>
+<li><p><strong>ExtractDateCapability</strong> → produces <code class="docutils literal notranslate"><span class="pre">DateContext(date=&quot;today&quot;)</span></code></p></li>
+<li><p><strong>FetchWeatherCapability</strong> → uses <code class="docutils literal notranslate"><span class="pre">LocationContext</span></code> + <code class="docutils literal notranslate"><span class="pre">DateContext</span></code> → produces <code class="docutils literal notranslate"><span class="pre">WeatherContext</span></code></p></li>
+<li><p><strong>RespondCapability</strong> → generates natural language response from <code class="docutils literal notranslate"><span class="pre">WeatherContext</span></code></p></li>
+</ol>
+<p><strong>Key Observations:</strong></p>
+<ul class="simple">
+<li><p>Each plan is created <strong>upfront</strong> before execution begins</p></li>
+<li><p>Capabilities are <strong>chained together</strong> - the output of one becomes the input to another</p></li>
+<li><p>Predictable and efficient: a single LLM call creates the entire plan</p></li>
+</ul>
+</div>
+<input id="sd-tab-item-3" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-3">
+Reactive Mode (ReAct)</label><div class="sd-tab-content docutils">
+<p>The orchestrator decides <strong>one step at a time</strong>, observing results between steps.</p>
+<p><strong>Query: “What’s the weather in San Francisco today?”</strong></p>
+<p>The reactive orchestrator loop:</p>
+<ol class="arabic simple">
+<li><p><strong>Decide</strong> → ExtractLocationCapability → <strong>Observe</strong> result</p></li>
+<li><p><strong>Decide</strong> → ExtractDateCapability → <strong>Observe</strong> result</p></li>
+<li><p><strong>Decide</strong> → FetchWeatherCapability → <strong>Observe</strong> result</p></li>
+<li><p><strong>Decide</strong> → Respond to user</p></li>
+</ol>
+<p><strong>Key Observations:</strong></p>
+<ul class="simple">
+<li><p>Each step is decided <strong>after</strong> observing previous results</p></li>
+<li><p>Adapts dynamically to intermediate outcomes and errors</p></li>
+<li><p>Better suited for exploratory or error-prone tasks</p></li>
+</ul>
+<p>Enable with: <code class="docutils literal notranslate"><span class="pre">execution_control.agent_control.orchestration_mode:</span> <span class="pre">react</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
+</div>
+</div>
+<p><strong>In both modes:</strong></p>
+<ul class="simple">
+<li><p>The orchestrator <strong>selects capabilities</strong> based on what’s needed for each query</p></li>
+<li><p>Capabilities are <strong>chained together</strong> - the output of one becomes the input to another</p></li>
+<li><p><strong>RespondCapability</strong> accesses available contexts to generate responses</p></li>
+<li><p>Your capabilities work identically regardless of orchestration mode</p></li>
+</ul>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">#</a></h2>
+<p>Now that you understand the core concepts, you’re ready to build:</p>
+<dl class="simple">
+<dt><strong>Start here:</strong> <a class="reference internal" href="hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a></dt><dd><p>Implements a weather assistant using an even simpler architecture (single capability)
+to help you get hands-on quickly. Learn the framework basics before tackling complexity.</p>
+</dd>
+<dt><strong>Then scale up:</strong> <a class="reference internal" href="control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a></dt><dd><p>Demonstrates the full modular architecture from this tutorial applied to a real
+industrial control system with 8+ capabilities and production deployment.</p>
+</dd>
+</dl>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="installation.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Installation &amp; Setup</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="hello-world-tutorial.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Hello World Tutorial</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#building-on-proven-foundations">Building on Proven Foundations</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-osprey-works">How Osprey Works</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mindflow-to-build-a-weather-assistant-in-osprey">Mindflow to Build a Weather Assistant in Osprey</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-would-users-ask">What would users ask</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-capabilities-are-needed">What capabilities are needed</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-final-design">The Final Design</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-osprey-chains-capabilities-together">How Osprey Chains Capabilities Together</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/getting-started/conceptual-tutorial.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

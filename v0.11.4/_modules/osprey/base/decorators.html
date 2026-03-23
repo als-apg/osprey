@@ -1,0 +1,1879 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey.base.decorators &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
+
+
+
+
+
+const initStyles = () => {
+    const defaultStyle = document.createElement('style');
+    defaultStyle.textContent = `pre.mermaid {
+    /* Same as .mermaid-container > pre */
+    display: block;
+    width: 100%;
+}
+
+pre.mermaid > svg {
+    /* Same as .mermaid-container > pre > svg */
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}`;
+    document.head.appendChild(defaultStyle);
+
+    const fullscreenStyle = document.createElement('style');
+    fullscreenStyle.textContent = `.mermaid-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.mermaid-container > pre {
+    display: block;
+    width: 100%;
+}
+
+.mermaid-container > pre > svg {
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}
+
+.mermaid-fullscreen-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    color: #333;
+}
+
+.mermaid-fullscreen-btn:hover {
+    opacity: 100% !important;
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-btn.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-btn.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 95vw;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.98);
+    z-index: 9999;
+    padding: 20px;
+    overflow: auto;
+}
+
+.mermaid-fullscreen-modal.dark-theme {
+    background: rgba(0, 0, 0, 0.98);
+}
+
+.mermaid-fullscreen-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen {
+    position: relative;
+    width: 95vw;
+    height: 90vh;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen.dark-theme {
+    background: #1a1a1a;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-container-fullscreen pre.mermaid {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen .mermaid svg {
+    height: 100% !important;
+    width: 100% !important;
+    cursor: grab;
+}
+
+.mermaid-fullscreen-close {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    font-size: 24px;
+    line-height: 1;
+    color: #333;
+}
+
+.mermaid-fullscreen-close:hover {
+    background: white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-close.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-close.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
+    display: none !important;
+}`;
+    document.head.appendChild(fullscreenStyle);
+}
+
+// Detect if page has dark background
+const isDarkTheme = () => {
+    // We use a set of heuristics:
+    // 1. Check for common dark mode classes or attributes
+    // 2. Check computed background color brightness
+    if (document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        document.body.getAttribute('data-theme') === 'dark') {
+        // console.log("Dark theme detected via class/attribute");
+        return true;
+    }
+    if (document.documentElement.classList.contains('light') ||
+        document.documentElement.getAttribute('data-theme') === 'light' ||
+        document.body.classList.contains('light') ||
+        document.body.getAttribute('data-theme') === 'light') {
+        // console.log("Light theme detected via class/attribute");
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // console.log("Dark theme detected via prefers-color-scheme");
+        return true;
+    }
+    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        // console.log("Background color brightness:", brightness);
+        return brightness < 128;
+    }
+    // console.log("No dark or light theme detected, defaulting to light theme");
+    return false;
+};
+
+let darkTheme = isDarkTheme();
+let modal = null;
+let modalContent = null;
+let previousScrollOffset = [window.scrollX, window.scrollY];
+
+const runMermaid = async (rerun) => {
+    console.log("Running mermaid diagrams, rerun =", rerun);
+    // clear all existing mermaid charts
+    let all_mermaids = document.querySelectorAll(".mermaid");
+
+    if (rerun) {
+        all_mermaids.forEach((el) => {
+            if(!el.hasAttribute("data-original-code")) {
+                // store original code
+                // console.log(`Storing original code for first run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+            if(el.getAttribute("data-processed") === "true") {
+                // remove and restore original
+                el.removeAttribute("data-processed");
+                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
+                el.innerHTML = el.getAttribute('data-original-code');
+            } else {
+                // store original code
+                // console.log(`Storing original code for re-run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+        });
+        await mermaid.run();
+    }
+
+    all_mermaids = document.querySelectorAll(".mermaid");
+    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
+
+    if ("False" === "True") {
+        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
+        if(mermaids_to_add_zoom > 0) {
+            var svgs = d3.selectAll("");
+            if(all_mermaids.length !== mermaids_processed.length) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else if(svgs.size() !== mermaids_to_add_zoom) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else {
+                svgs.each(function() {
+                    var svg = d3.select(this);
+                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
+                    var inner = svg.select("g");
+                    var zoom = d3.zoom().on("zoom", function(event) {
+                        inner.attr("transform", event.transform);
+                    });
+                    svg.call(zoom);
+                });
+            }
+        }
+    } else if(all_mermaids.length !== mermaids_processed.length) {
+        // Wait for mermaid to process all diagrams
+        setTimeout(() => runMermaid(false), 200);
+        return;
+    }
+
+    // Stop here if not adding fullscreen capability
+    if ("True" !== "True") return;
+
+    if (modal !== null ) {
+        // Destroy existing modal
+        modal.remove();
+        modal = null;
+        modalContent = null;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
+    modal.innerHTML = `
+        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
+        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
+    `;
+    document.body.appendChild(modal);
+
+    modalContent = modal.querySelector('.mermaid-container-fullscreen');
+    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
+
+    const closeModal = () => {
+        modal.classList.remove('active');
+        modalContent.innerHTML = '';
+        document.body.style.overflow = ''
+        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+        }
+    });
+
+    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
+        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
+            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
+            // Already processed, adjust button class if needed
+            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
+            if (existingBtn) {
+                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+            }
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.className = 'mermaid-container';
+        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
+        container.appendChild(mermaidDiv);
+
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
+        fullscreenBtn.textContent = '⛶';
+        fullscreenBtn.style.opacity = '50%';
+
+        // Calculate dynamic position based on diagram's margin and padding
+        const diagramStyle = window.getComputedStyle(mermaidDiv);
+        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
+        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
+        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
+        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
+        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
+        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
+
+        fullscreenBtn.addEventListener('click', () => {
+            previousScrollOffset = [window.scroll, window.scrollY];
+            const clone = mermaidDiv.cloneNode(true);
+            modalContent.innerHTML = '';
+            modalContent.appendChild(clone);
+
+            const svg = clone.querySelector('svg');
+            if (svg) {
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxWidth = '100%';
+                svg.style.sdisplay = 'block';
+
+                if ("False" === "True") {
+                    setTimeout(() => {
+                        const g = svg.querySelector('g');
+                        if (g) {
+                            var svgD3 = d3.select(svg);
+                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
+                            var inner = svgD3.select("g");
+                            var zoom = d3.zoom().on("zoom", function(event) {
+                                inner.attr("transform", event.transform);
+                            });
+                            svgD3.call(zoom);
+                        }
+                    }, 100);
+                }
+            }
+
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+        container.appendChild(fullscreenBtn);
+    });
+};
+
+const load = async () => {
+    initStyles();
+
+    await runMermaid(true);
+
+    const reRunIfThemeChanges = async () => {
+        const newDarkTheme = isDarkTheme();
+        if (newDarkTheme !== darkTheme) {
+            darkTheme = newDarkTheme;
+            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
+            await mermaid.initialize(
+                {...JSON.parse(
+                    `{"startOnLoad": false}`
+                ),
+                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+                }
+            );
+            await runMermaid(true);
+        }
+    };
+
+    // Update theme classes when theme changes
+    const themeObserver = new MutationObserver(reRunIfThemeChanges);
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+    themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+};
+
+
+
+
+
+console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
+mermaid.initialize(
+    {...JSON.parse(
+        `{"startOnLoad": false}`
+    ),
+    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+    }
+);
+
+window.addEventListener("load", load);</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey/base/decorators';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey.base.decorators</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey.base.decorators</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;LangGraph Integration Decorators - Infrastructure Injection System</span>
+
+<span class="sd">This module provides the core decorator system that enables seamless LangGraph</span>
+<span class="sd">integration for capabilities and infrastructure nodes. The decorators implement</span>
+<span class="sd">reflection-based validation, automatic infrastructure injection, and standardized</span>
+<span class="sd">execution patterns that eliminate boilerplate while ensuring consistent behavior</span>
+<span class="sd">across all framework components.</span>
+
+<span class="sd">The decorator system serves as the bridge between the framework&#39;s convention-based</span>
+<span class="sd">architecture and LangGraph&#39;s execution model. It provides comprehensive error</span>
+<span class="sd">handling, state management, execution tracking, and streaming support while</span>
+<span class="sd">maintaining type safety and development-time validation.</span>
+
+<span class="sd">Key Features:</span>
+<span class="sd">    - **Reflection-based validation**: Ensures required components are implemented</span>
+<span class="sd">    - **Automatic infrastructure injection**: Provides timing, logging, and error handling</span>
+<span class="sd">    - **LangGraph-native integration**: Full streaming, configuration, and checkpoint support</span>
+<span class="sd">    - **Manual retry coordination**: Consistent error classification and retry policies</span>
+<span class="sd">    - **Development mode support**: Raw error re-raising for debugging</span>
+<span class="sd">    - **Execution tracking**: Comprehensive performance and state monitoring</span>
+
+<span class="sd">Decorator Architecture:</span>
+<span class="sd">    1. **@capability_node**: Business logic components with comprehensive execution tracking</span>
+<span class="sd">    2. **@infrastructure_node**: System components with fast failure detection</span>
+<span class="sd">    3. **Validation patterns**: Reflection-based requirement checking at decoration time</span>
+<span class="sd">    4. **Error coordination**: Manual retry system via router for consistent behavior</span>
+<span class="sd">    5. **State management**: Pure dictionary operations for LangGraph compatibility</span>
+
+<span class="sd">.. note::</span>
+<span class="sd">   These decorators create LangGraph-compatible node functions while preserving</span>
+<span class="sd">   the original classes for introspection and testing. The framework uses manual</span>
+<span class="sd">   retry handling rather than LangGraph&#39;s native retry policies for consistency.</span>
+
+<span class="sd">.. warning::</span>
+<span class="sd">   Decorated classes must implement required components (name, description, execute)</span>
+<span class="sd">   or decoration will fail with clear error messages during development.</span>
+
+<span class="sd">.. seealso::</span>
+<span class="sd">   :class:`BaseCapability` : Capability base class with decorator integration</span>
+<span class="sd">   :class:`BaseInfrastructureNode` : Infrastructure node base class</span>
+<span class="sd">   :mod:`osprey.state` : State management and execution tracking</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">inspect</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ErrorSeverity</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.events</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">CapabilityCompleteEvent</span><span class="p">,</span>
+    <span class="n">CapabilityStartEvent</span><span class="p">,</span>
+    <span class="n">ErrorEvent</span><span class="p">,</span>
+    <span class="n">EventEmitter</span><span class="p">,</span>
+    <span class="n">StatusEvent</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">langgraph.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config</span><span class="p">,</span> <span class="n">get_stream_writer</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="n">get_stream_writer</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">get_config</span> <span class="o">=</span> <span class="kc">None</span>
+
+<span class="c1"># Import types for type hints</span>
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">AgentState</span>
+
+
+<span class="c1"># Lazy imports to avoid circular dependencies</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_import_error_classification</span><span class="p">():</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ErrorClassification</span><span class="p">,</span> <span class="n">ErrorSeverity</span>
+
+        <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">,</span> <span class="n">ErrorSeverity</span>
+    <span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_graph_interrupt</span><span class="p">(</span><span class="n">exc</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Check if exception is a LangGraph GraphInterrupt.&quot;&quot;&quot;</span>
+    <span class="c1"># Check class name to avoid import issues</span>
+    <span class="k">return</span> <span class="n">exc</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;GraphInterrupt&quot;</span>
+
+
+<span class="c1"># =============================================================================</span>
+<span class="c1"># LANGGRAPH INTEGRATION DECORATORS</span>
+<span class="c1"># =============================================================================</span>
+
+
+<div class="viewcode-block" id="capability_node">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/01_base_components.html#osprey.base.capability_node">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">capability_node</span><span class="p">(</span><span class="bp">cls</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Decorator that validates capability conventions and injects comprehensive LangGraph infrastructure.</span>
+
+<span class="sd">    This decorator serves as the primary integration point between capability classes</span>
+<span class="sd">    and LangGraph&#39;s execution model. It performs reflection-based validation to ensure</span>
+<span class="sd">    capability classes implement required components, then creates a LangGraph-compatible</span>
+<span class="sd">    node function with complete infrastructure including error handling, retry coordination,</span>
+<span class="sd">    execution tracking, and state management.</span>
+
+<span class="sd">    The decorator implements the framework&#39;s convention-based architecture by:</span>
+<span class="sd">    1. **Validation**: Ensures all required components are properly implemented</span>
+<span class="sd">    2. **Infrastructure Injection**: Provides timing, logging, streaming, and error handling</span>
+<span class="sd">    3. **LangGraph Integration**: Creates compatible node functions with state management</span>
+<span class="sd">    4. **Error Coordination**: Routes all errors through manual retry system for consistency</span>
+<span class="sd">    5. **Execution Tracking**: Comprehensive performance monitoring and state updates</span>
+
+<span class="sd">    Required Components (validated through reflection):</span>
+<span class="sd">        - name: Unique capability identifier for registry and routing</span>
+<span class="sd">        - description: Human-readable description for documentation and logging</span>
+<span class="sd">        - execute(): Async static method containing the main business logic</span>
+<span class="sd">        - classify_error(): Error classification method (inherited from BaseCapability or custom)</span>
+<span class="sd">        - get_retry_policy(): Retry configuration method (inherited from BaseCapability or custom)</span>
+
+<span class="sd">    Infrastructure Features:</span>
+<span class="sd">        - **Error Classification**: Domain-specific error analysis with recovery strategies</span>
+<span class="sd">        - **Manual Retry System**: Consistent retry handling via router (no LangGraph retries)</span>
+<span class="sd">        - **State Management**: Automatic state updates and step progression tracking</span>
+<span class="sd">        - **Streaming Support**: Real-time status updates through LangGraph&#39;s streaming</span>
+<span class="sd">        - **Development Mode**: Raw error re-raising for debugging when configured</span>
+<span class="sd">        - **Execution Tracking**: Comprehensive timing and performance monitoring</span>
+
+<span class="sd">    :param cls: The capability class to decorate with LangGraph infrastructure</span>
+<span class="sd">    :type cls: type</span>
+<span class="sd">    :return: Original class enhanced with langgraph_node attribute containing the LangGraph function</span>
+<span class="sd">    :rtype: type</span>
+<span class="sd">    :raises ValueError: If required class attributes (name, description) are missing</span>
+<span class="sd">    :raises ValueError: If required methods (execute, classify_error, get_retry_policy) are missing</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       The decorator creates a `langgraph_node` attribute on the class containing</span>
+<span class="sd">       the LangGraph-compatible function. The original class remains unchanged for</span>
+<span class="sd">       introspection and testing purposes.</span>
+
+<span class="sd">    .. warning::</span>
+<span class="sd">       All capability errors are routed through the manual retry system rather than</span>
+<span class="sd">       using LangGraph&#39;s native retry policies to ensure consistent behavior across</span>
+<span class="sd">       all framework components.</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Basic capability decoration::</span>
+
+<span class="sd">            @capability_node</span>
+<span class="sd">            class WeatherCapability(BaseCapability):</span>
+<span class="sd">                name = &quot;weather_data&quot;</span>
+<span class="sd">                description = &quot;Retrieve current weather conditions&quot;</span>
+
+<span class="sd">                @staticmethod</span>
+<span class="sd">                async def execute(state: AgentState, **kwargs) -&gt; Dict[str, Any]:</span>
+<span class="sd">                    # Business logic implementation</span>
+<span class="sd">                    return {&quot;weather_data&quot;: weather_info}</span>
+
+<span class="sd">        Capability with custom error handling::</span>
+
+<span class="sd">            @capability_node</span>
+<span class="sd">            class DatabaseCapability(BaseCapability):</span>
+<span class="sd">                name = &quot;database_query&quot;</span>
+<span class="sd">                description = &quot;Execute database queries&quot;</span>
+
+<span class="sd">                @staticmethod</span>
+<span class="sd">                def classify_error(exc: Exception, context: dict) -&gt; ErrorClassification:</span>
+<span class="sd">                    if isinstance(exc, ConnectionError):</span>
+<span class="sd">                        return ErrorClassification(severity=ErrorSeverity.RETRIABLE, ...)</span>
+<span class="sd">                    return ErrorClassification(severity=ErrorSeverity.CRITICAL, ...)</span>
+
+<span class="sd">                @staticmethod</span>
+<span class="sd">                async def execute(state: AgentState, **kwargs) -&gt; Dict[str, Any]:</span>
+<span class="sd">                    # Database operation implementation</span>
+<span class="sd">                    return {&quot;query_results&quot;: results}</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`BaseCapability` : Base class with required method implementations</span>
+<span class="sd">       :func:`infrastructure_node` : Decorator for infrastructure components</span>
+<span class="sd">       :class:`ErrorClassification` : Error classification system</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># Extract required components using reflection</span>
+    <span class="n">capability_name</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;description&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="n">execute_func</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;execute&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="n">error_classifier</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;classify_error&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="n">retry_policy_func</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;get_retry_policy&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+
+    <span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="n">capability_name</span><span class="p">)</span>
+
+    <span class="c1"># Validate required components</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">capability_name</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Capability </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> must define &#39;name&#39; class attribute&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">description</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Capability class </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> must define &#39;description&#39; attribute&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">execute_func</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Capability class </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> must define &#39;execute&#39; method (static or instance)&quot;</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">error_classifier</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Capability class </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> must have &#39;classify_error&#39; method (inherit from BaseCapability or define manually)&quot;</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">retry_policy_func</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Capability class </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> must have &#39;get_retry_policy&#39; method (inherit from BaseCapability or define manually)&quot;</span>
+        <span class="p">)</span>
+
+    <span class="c1"># Detect method type: static (legacy) or instance (new pattern)</span>
+    <span class="n">is_static</span> <span class="o">=</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">inspect</span><span class="o">.</span><span class="n">getattr_static</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;execute&quot;</span><span class="p">),</span> <span class="nb">staticmethod</span><span class="p">)</span>
+
+    <span class="c1"># Validate it&#39;s either static or regular method (not classmethod or property)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">is_static</span><span class="p">:</span>
+        <span class="n">execute_attr</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">getattr_static</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;execute&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">execute_attr</span><span class="p">,</span> <span class="nb">classmethod</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Capability </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.execute() cannot be a classmethod. &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Use either @staticmethod (legacy) or instance method (recommended).&quot;</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">execute_attr</span><span class="p">,</span> <span class="nb">property</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Capability </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.execute() cannot be a property. Must be a method.&quot;</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">callable</span><span class="p">(</span><span class="n">execute_attr</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Capability </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.execute must be callable.&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Create LangGraph-compatible node function</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">langgraph_node</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="s2">&quot;AgentState&quot;</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;LangGraph-native node function with manual retry handling via router.&quot;&quot;&quot;</span>
+
+        <span class="c1"># Create event emitter for typed events</span>
+        <span class="n">emitter</span> <span class="o">=</span> <span class="n">EventEmitter</span><span class="p">(</span><span class="n">capability_name</span><span class="p">)</span>
+
+        <span class="c1"># Check if in direct chat mode (bypasses orchestration, no execution plan)</span>
+        <span class="n">session_state</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;session_state&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="n">direct_chat_mode</span> <span class="o">=</span> <span class="n">session_state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;direct_chat_capability&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+
+        <span class="c1"># Extract current step information using StateManager (lazy import to avoid circular imports)</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">StateManager</span>
+
+        <span class="k">if</span> <span class="n">direct_chat_mode</span><span class="p">:</span>
+            <span class="c1"># Direct chat mode: create synthetic step (no execution plan exists)</span>
+            <span class="n">step</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">&quot;capability&quot;</span><span class="p">:</span> <span class="n">capability_name</span><span class="p">,</span>
+                <span class="s2">&quot;inputs&quot;</span><span class="p">:</span> <span class="p">{},</span>
+                <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Direct chat with </span><span class="si">{</span><span class="n">capability_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="p">}</span>
+            <span class="n">step_number</span> <span class="o">=</span> <span class="mi">1</span>
+            <span class="n">total_steps</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">step</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">get_current_step</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+            <span class="n">step_number</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">get_current_step_index</span><span class="p">(</span><span class="n">state</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+            <span class="n">execution_plan</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;planning_execution_plan&quot;</span><span class="p">,</span> <span class="p">{})</span>
+            <span class="n">total_steps</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">execution_plan</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;steps&quot;</span><span class="p">,</span> <span class="p">[]))</span> <span class="k">if</span> <span class="n">execution_plan</span> <span class="k">else</span> <span class="mi">1</span>
+
+        <span class="n">start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+
+        <span class="c1"># Emit CapabilityStartEvent</span>
+        <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+            <span class="n">CapabilityStartEvent</span><span class="p">(</span>
+                <span class="n">capability_name</span><span class="o">=</span><span class="n">capability_name</span><span class="p">,</span>
+                <span class="n">step_number</span><span class="o">=</span><span class="n">step_number</span><span class="p">,</span>
+                <span class="n">total_steps</span><span class="o">=</span><span class="n">total_steps</span><span class="p">,</span>
+                <span class="n">description</span><span class="o">=</span><span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;task_objective&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Executing </span><span class="si">{</span><span class="n">capability_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">),</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># Execute based on method type</span>
+            <span class="k">if</span> <span class="n">is_static</span><span class="p">:</span>
+                <span class="c1"># OLD: Static method (backward compatibility)</span>
+                <span class="c1"># NOTE: Old static methods had **kwargs in signature but never used it</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">execute_func</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># NEW: Instance method (recommended - unified interface)</span>
+                <span class="c1"># Create instance WITHOUT state (registry-compatible!)</span>
+                <span class="n">instance</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">()</span>
+
+                <span class="c1"># Inject state and step BEFORE calling execute</span>
+                <span class="n">instance</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">state</span>
+                <span class="n">instance</span><span class="o">.</span><span class="n">_step</span> <span class="o">=</span> <span class="n">step</span>
+
+                <span class="c1"># Now execute() can use self._state and self._step</span>
+                <span class="c1"># NO kwargs - unified interface!</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">instance</span><span class="o">.</span><span class="n">execute</span><span class="p">()</span>
+
+            <span class="n">execution_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_time</span>
+            <span class="n">duration_ms</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">execution_time</span> <span class="o">*</span> <span class="mi">1000</span><span class="p">)</span>
+
+            <span class="c1"># Emit CapabilityCompleteEvent on success</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">CapabilityCompleteEvent</span><span class="p">(</span>
+                    <span class="n">capability_name</span><span class="o">=</span><span class="n">capability_name</span><span class="p">,</span>
+                    <span class="n">success</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                    <span class="n">duration_ms</span><span class="o">=</span><span class="n">duration_ms</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+
+            <span class="c1"># Handle state updates for step progression</span>
+            <span class="n">state_updates</span> <span class="o">=</span> <span class="n">_handle_capability_state_updates</span><span class="p">(</span>
+                <span class="n">state</span><span class="p">,</span>
+                <span class="n">result</span><span class="p">,</span>
+                <span class="n">step</span><span class="p">,</span>
+                <span class="n">capability_name</span><span class="p">,</span>
+                <span class="n">start_time</span><span class="p">,</span>
+                <span class="n">execution_time</span><span class="p">,</span>
+                <span class="n">logger</span><span class="p">,</span>
+                <span class="n">direct_chat_mode</span><span class="o">=</span><span class="n">direct_chat_mode</span><span class="p">,</span>
+            <span class="p">)</span>
+
+            <span class="k">return</span> <span class="n">state_updates</span>
+
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="n">execution_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_time</span>
+            <span class="n">duration_ms</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">execution_time</span> <span class="o">*</span> <span class="mi">1000</span><span class="p">)</span>
+
+            <span class="c1"># Check for development mode - re-raise original exception for debugging</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">get_config</span><span class="p">:</span>
+                    <span class="n">config</span> <span class="o">=</span> <span class="n">get_config</span><span class="p">()</span>
+                    <span class="n">configurable</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;configurable&quot;</span><span class="p">,</span> <span class="p">{})</span>
+                    <span class="k">if</span> <span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;development&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;raise_raw_errors&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+                        <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                            <span class="n">StatusEvent</span><span class="p">(</span>
+                                <span class="n">component</span><span class="o">=</span><span class="n">capability_name</span><span class="p">,</span>
+                                <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Development mode: Re-raising original exception directly for debugging&quot;</span><span class="p">,</span>
+                                <span class="n">level</span><span class="o">=</span><span class="s2">&quot;debug&quot;</span><span class="p">,</span>
+                            <span class="p">)</span>
+                        <span class="p">)</span>
+                        <span class="c1"># Emit failure event before re-raising</span>
+                        <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                            <span class="n">CapabilityCompleteEvent</span><span class="p">(</span>
+                                <span class="n">capability_name</span><span class="o">=</span><span class="n">capability_name</span><span class="p">,</span>
+                                <span class="n">success</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                                <span class="n">duration_ms</span><span class="o">=</span><span class="n">duration_ms</span><span class="p">,</span>
+                                <span class="n">error_message</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">),</span>
+                            <span class="p">)</span>
+                        <span class="p">)</span>
+                        <span class="k">raise</span> <span class="n">exc</span>
+            <span class="k">except</span> <span class="p">(</span><span class="ne">RuntimeError</span><span class="p">,</span> <span class="ne">ImportError</span><span class="p">,</span> <span class="ne">AttributeError</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">):</span>
+                <span class="c1"># If config access fails (outside runnable context), continue with normal error handling</span>
+                <span class="k">pass</span>
+
+            <span class="c1"># Re-raise GraphInterrupt immediately - it&#39;s not an error!</span>
+            <span class="k">if</span> <span class="n">_is_graph_interrupt</span><span class="p">(</span><span class="n">exc</span><span class="p">):</span>
+                <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                    <span class="n">StatusEvent</span><span class="p">(</span>
+                        <span class="n">component</span><span class="o">=</span><span class="n">capability_name</span><span class="p">,</span>
+                        <span class="n">message</span><span class="o">=</span><span class="s2">&quot;GraphInterrupt detected - re-raising for LangGraph to handle&quot;</span><span class="p">,</span>
+                        <span class="n">level</span><span class="o">=</span><span class="s2">&quot;debug&quot;</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+                <span class="k">raise</span> <span class="n">exc</span>
+
+            <span class="c1"># Emit CapabilityCompleteEvent on failure</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">CapabilityCompleteEvent</span><span class="p">(</span>
+                    <span class="n">capability_name</span><span class="o">=</span><span class="n">capability_name</span><span class="p">,</span>
+                    <span class="n">success</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                    <span class="n">duration_ms</span><span class="o">=</span><span class="n">duration_ms</span><span class="p">,</span>
+                    <span class="n">error_message</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">),</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+
+            <span class="c1"># Get step info (use synthetic step in direct chat mode)</span>
+            <span class="k">if</span> <span class="n">direct_chat_mode</span><span class="p">:</span>
+                <span class="n">current_step_index</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">current_step_index</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">get_current_step_index</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+
+            <span class="c1"># Classify the error using domain-specific or default logic</span>
+            <span class="n">error_context</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">&quot;capability&quot;</span><span class="p">:</span> <span class="n">capability_name</span><span class="p">,</span>
+                <span class="s2">&quot;current_step_index&quot;</span><span class="p">:</span> <span class="n">current_step_index</span><span class="p">,</span>
+                <span class="s2">&quot;execution_time&quot;</span><span class="p">:</span> <span class="n">execution_time</span><span class="p">,</span>
+                <span class="s2">&quot;current_state&quot;</span><span class="p">:</span> <span class="n">state</span><span class="p">,</span>
+            <span class="p">}</span>
+            <span class="n">error_classification</span> <span class="o">=</span> <span class="n">error_classifier</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">error_context</span><span class="p">)</span>
+
+            <span class="c1"># Get retry policy for this capability</span>
+            <span class="n">retry_policy</span> <span class="o">=</span> <span class="n">retry_policy_func</span><span class="p">()</span>
+
+            <span class="c1"># Error already emitted via CapabilityCompleteEvent (success=False, error_message)</span>
+            <span class="c1"># Always use manual retry system via router - NO LangGraph retries</span>
+
+            <span class="c1"># Track failure in execution_step_results for consistent tracking</span>
+            <span class="c1"># Use the synthetic step we created earlier for direct chat mode</span>
+            <span class="n">step_results</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_step_results&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+            <span class="n">step_key</span> <span class="o">=</span> <span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;context_key&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">current_step_index</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">capability_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">step_results</span><span class="p">[</span><span class="n">step_key</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">&quot;step_index&quot;</span><span class="p">:</span> <span class="n">current_step_index</span><span class="p">,</span>  <span class="c1"># For explicit ordering</span>
+                <span class="s2">&quot;capability&quot;</span><span class="p">:</span> <span class="n">capability_name</span><span class="p">,</span>
+                <span class="s2">&quot;task_objective&quot;</span><span class="p">:</span> <span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
+                    <span class="s2">&quot;task_objective&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Execute </span><span class="si">{</span><span class="n">capability_name</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">),</span>  <span class="c1"># Add step objective</span>
+                <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                <span class="s2">&quot;execution_time&quot;</span><span class="p">:</span> <span class="n">execution_time</span><span class="p">,</span>
+                <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+            <span class="p">}</span>
+
+            <span class="k">return</span> <span class="p">{</span>
+                <span class="s2">&quot;control_has_error&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                <span class="s2">&quot;control_error_info&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;capability_name&quot;</span><span class="p">:</span> <span class="n">capability_name</span><span class="p">,</span>
+                    <span class="s2">&quot;classification&quot;</span><span class="p">:</span> <span class="n">error_classification</span><span class="p">,</span>
+                    <span class="s2">&quot;retry_policy&quot;</span><span class="p">:</span> <span class="n">retry_policy</span><span class="p">,</span>
+                    <span class="s2">&quot;original_error&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">),</span>
+                    <span class="s2">&quot;user_message&quot;</span><span class="p">:</span> <span class="n">error_classification</span><span class="o">.</span><span class="n">user_message</span> <span class="ow">or</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">),</span>
+                    <span class="s2">&quot;execution_time&quot;</span><span class="p">:</span> <span class="n">execution_time</span><span class="p">,</span>
+                    <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+                <span class="p">},</span>
+                <span class="s2">&quot;control_retry_count&quot;</span><span class="p">:</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;control_retry_count&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span>
+                <span class="s2">&quot;execution_step_results&quot;</span><span class="p">:</span> <span class="n">step_results</span><span class="p">,</span>
+                <span class="s2">&quot;execution_last_result&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;capability&quot;</span><span class="p">:</span> <span class="n">capability_name</span><span class="p">,</span>
+                    <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                    <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">),</span>
+                    <span class="s2">&quot;classification&quot;</span><span class="p">:</span> <span class="p">(</span>
+                        <span class="n">error_classification</span><span class="o">.</span><span class="n">severity</span><span class="o">.</span><span class="n">value</span>
+                        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">error_classification</span><span class="o">.</span><span class="n">severity</span><span class="p">,</span> <span class="s2">&quot;value&quot;</span><span class="p">)</span>
+                        <span class="k">else</span> <span class="nb">str</span><span class="p">(</span><span class="n">error_classification</span><span class="o">.</span><span class="n">severity</span><span class="p">)</span>
+                    <span class="p">),</span>
+                    <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+                <span class="p">},</span>
+            <span class="p">}</span>
+
+    <span class="c1"># Attach metadata to the function for LangGraph integration</span>
+    <span class="n">langgraph_node</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">capability_name</span>
+    <span class="n">langgraph_node</span><span class="o">.</span><span class="n">capability_name</span> <span class="o">=</span> <span class="n">capability_name</span>
+    <span class="n">langgraph_node</span><span class="o">.</span><span class="n">description</span> <span class="o">=</span> <span class="n">description</span>
+    <span class="n">langgraph_node</span><span class="o">.</span><span class="n">error_classifier</span> <span class="o">=</span> <span class="n">error_classifier</span>
+    <span class="n">langgraph_node</span><span class="o">.</span><span class="n">original_class</span> <span class="o">=</span> <span class="bp">cls</span>
+
+    <span class="c1"># Set the LangGraph-native function on the class for registry discovery</span>
+    <span class="bp">cls</span><span class="o">.</span><span class="n">langgraph_node</span> <span class="o">=</span> <span class="n">langgraph_node</span>
+
+    <span class="k">return</span> <span class="bp">cls</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_handle_capability_state_updates</span><span class="p">(</span>
+    <span class="n">state</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="n">result</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="n">step</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="n">capability_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">start_time</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">execution_time</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">logger</span><span class="p">,</span>
+    <span class="n">direct_chat_mode</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Handle comprehensive state updates for capability execution.&quot;&quot;&quot;</span>
+
+    <span class="c1"># Lazy import to avoid circular imports</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">StateManager</span>
+
+    <span class="c1"># Start with the capability&#39;s result (now includes capability_context_data instead of execution_context)</span>
+    <span class="n">state_updates</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span>
+
+    <span class="k">if</span> <span class="n">direct_chat_mode</span><span class="p">:</span>
+        <span class="c1"># Direct chat mode: skip step progression (no execution plan)</span>
+        <span class="n">current_step_index</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># Step progression - advance to next step after successful execution</span>
+        <span class="n">current_step_index</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">get_current_step_index</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+        <span class="n">state_updates</span><span class="p">[</span><span class="s2">&quot;planning_current_step_index&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">current_step_index</span> <span class="o">+</span> <span class="mi">1</span>
+
+    <span class="c1"># Control flow updates</span>
+    <span class="n">state_updates</span><span class="p">[</span><span class="s2">&quot;control_current_step_retry_count&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># Reset retry count</span>
+
+    <span class="c1"># Clear retry state when capability succeeds</span>
+    <span class="n">state_updates</span><span class="p">[</span><span class="s2">&quot;control_has_error&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">state_updates</span><span class="p">[</span><span class="s2">&quot;control_retry_count&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">state_updates</span><span class="p">[</span><span class="s2">&quot;control_error_info&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="c1"># Store step results with step information</span>
+    <span class="n">step_results</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_step_results&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="n">step_key</span> <span class="o">=</span> <span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;context_key&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">current_step_index</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">capability_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">step_results</span><span class="p">[</span><span class="n">step_key</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;step_index&quot;</span><span class="p">:</span> <span class="n">current_step_index</span><span class="p">,</span>  <span class="c1"># For explicit ordering</span>
+        <span class="s2">&quot;capability&quot;</span><span class="p">:</span> <span class="n">capability_name</span><span class="p">,</span>
+        <span class="s2">&quot;task_objective&quot;</span><span class="p">:</span> <span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
+            <span class="s2">&quot;task_objective&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Execute </span><span class="si">{</span><span class="n">capability_name</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">),</span>  <span class="c1"># Add step objective</span>
+        <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="s2">&quot;execution_time&quot;</span><span class="p">:</span> <span class="n">execution_time</span><span class="p">,</span>
+        <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+    <span class="p">}</span>
+    <span class="n">state_updates</span><span class="p">[</span><span class="s2">&quot;execution_step_results&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">step_results</span>
+
+    <span class="c1"># Update last result for router decision-making</span>
+    <span class="n">state_updates</span><span class="p">[</span><span class="s2">&quot;execution_last_result&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;capability&quot;</span><span class="p">:</span> <span class="n">capability_name</span><span class="p">,</span>
+        <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="s2">&quot;execution_time&quot;</span><span class="p">:</span> <span class="n">execution_time</span><span class="p">,</span>
+        <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+    <span class="p">}</span>
+
+    <span class="c1"># Emit debug event for state update tracking</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.events</span><span class="w"> </span><span class="kn">import</span> <span class="n">EventEmitter</span>
+
+    <span class="n">emitter</span> <span class="o">=</span> <span class="n">EventEmitter</span><span class="p">(</span><span class="n">capability_name</span><span class="p">)</span>
+    <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+        <span class="n">StatusEvent</span><span class="p">(</span>
+            <span class="n">component</span><span class="o">=</span><span class="n">capability_name</span><span class="p">,</span>
+            <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;State updates: step </span><span class="si">{</span><span class="n">current_step_index</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="n">level</span><span class="o">=</span><span class="s2">&quot;debug&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">state_updates</span>
+
+
+<div class="viewcode-block" id="infrastructure_node">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/01_base_components.html#osprey.base.infrastructure_node">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">infrastructure_node</span><span class="p">(</span><span class="bp">cls</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">quiet</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Decorator that validates infrastructure node conventions and injects comprehensive LangGraph infrastructure.</span>
+
+<span class="sd">    This decorator serves as the primary integration point between infrastructure node</span>
+<span class="sd">    classes and LangGraph&#39;s execution model. It performs reflection-based validation</span>
+<span class="sd">    to ensure infrastructure classes implement required components, then creates a</span>
+<span class="sd">    LangGraph-compatible node function with complete system infrastructure including</span>
+<span class="sd">    error handling, performance monitoring, and state coordination.</span>
+
+<span class="sd">    Infrastructure nodes handle system-critical operations like orchestration, routing,</span>
+<span class="sd">    classification, and monitoring. The decorator emphasizes fast failure detection</span>
+<span class="sd">    and conservative error handling since infrastructure failures typically indicate</span>
+<span class="sd">    system-level issues requiring immediate attention.</span>
+
+<span class="sd">    The decorator implements comprehensive system coordination by:</span>
+<span class="sd">    1. **Validation**: Ensures all required components are properly implemented</span>
+<span class="sd">    2. **Infrastructure Injection**: Provides timing, logging, streaming, and error handling</span>
+<span class="sd">    3. **LangGraph Integration**: Creates compatible node functions with native features</span>
+<span class="sd">    4. **Error Coordination**: Manual retry system with conservative failure policies</span>
+<span class="sd">    5. **System Monitoring**: Performance tracking and infrastructure health monitoring</span>
+
+<span class="sd">    Required Components (validated through reflection):</span>
+<span class="sd">        - name: Infrastructure node identifier for routing and logging</span>
+<span class="sd">        - description: Human-readable description for documentation and monitoring</span>
+<span class="sd">        - execute(): Async static method containing orchestration/routing logic</span>
+<span class="sd">        - classify_error(): Error classification method (inherited or custom)</span>
+<span class="sd">        - get_retry_policy(): Retry configuration method (inherited or custom)</span>
+
+<span class="sd">    Infrastructure Features:</span>
+<span class="sd">        - **Conservative Error Handling**: Fast failure detection with minimal retry attempts</span>
+<span class="sd">        - **System Monitoring**: Comprehensive timing and performance tracking</span>
+<span class="sd">        - **LangGraph Native Integration**: Full streaming, configuration, and checkpoint support</span>
+<span class="sd">        - **Development Mode Support**: Raw error re-raising for debugging when configured</span>
+<span class="sd">        - **Optional Quiet Mode**: Suppressed logging for high-frequency routing operations</span>
+<span class="sd">        - **Fatal Error Handling**: System-level failure detection with immediate termination</span>
+
+<span class="sd">    :param cls: The infrastructure node class to decorate (None for parameterized usage)</span>
+<span class="sd">    :type cls: Optional[type]</span>
+<span class="sd">    :param quiet: If True, suppress start/completion logging (useful for routing nodes)</span>
+<span class="sd">    :type quiet: bool</span>
+<span class="sd">    :return: Enhanced infrastructure class with langgraph_node attribute</span>
+<span class="sd">    :rtype: type</span>
+<span class="sd">    :raises ValueError: If required class attributes (name, description) are missing</span>
+<span class="sd">    :raises ValueError: If required methods (execute, classify_error, get_retry_policy) are missing</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       The decorator supports both @infrastructure_node and @infrastructure_node(quiet=True)</span>
+<span class="sd">       syntax. The quiet parameter is useful for high-frequency routing operations that</span>
+<span class="sd">       would otherwise generate excessive logging.</span>
+
+<span class="sd">    .. warning::</span>
+<span class="sd">       Infrastructure nodes use conservative retry policies with fast failure detection.</span>
+<span class="sd">       FATAL errors immediately terminate execution to prevent system-level issues.</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Basic infrastructure node::</span>
+
+<span class="sd">            @infrastructure_node</span>
+<span class="sd">            class TaskExtractionNode(BaseInfrastructureNode):</span>
+<span class="sd">                name = &quot;task_extraction&quot;</span>
+<span class="sd">                description = &quot;Extract and structure user tasks&quot;</span>
+
+<span class="sd">                @staticmethod</span>
+<span class="sd">                async def execute(state: AgentState, **kwargs) -&gt; Dict[str, Any]:</span>
+<span class="sd">                    # Task extraction logic</span>
+<span class="sd">                    return {&quot;task_current_task&quot;: extracted_task}</span>
+
+<span class="sd">        Quiet routing node::</span>
+
+<span class="sd">            @infrastructure_node(quiet=True)</span>
+<span class="sd">            class RouterNode(BaseInfrastructureNode):</span>
+<span class="sd">                name = &quot;router&quot;</span>
+<span class="sd">                description = &quot;Dynamic routing based on agent state&quot;</span>
+
+<span class="sd">                @staticmethod</span>
+<span class="sd">                async def execute(state: AgentState, **kwargs) -&gt; Dict[str, Any]:</span>
+<span class="sd">                    # Routing logic without verbose logging</span>
+<span class="sd">                    return {&quot;control_next_node&quot;: next_node}</span>
+
+<span class="sd">        Infrastructure node with custom error handling::</span>
+
+<span class="sd">            @infrastructure_node</span>
+<span class="sd">            class OrchestratorNode(BaseInfrastructureNode):</span>
+<span class="sd">                name = &quot;orchestrator&quot;</span>
+<span class="sd">                description = &quot;Create execution plans&quot;</span>
+
+<span class="sd">                @staticmethod</span>
+<span class="sd">                def classify_error(exc: Exception, context: dict) -&gt; ErrorClassification:</span>
+<span class="sd">                    # Retry LLM timeouts for planning operations</span>
+<span class="sd">                    if isinstance(exc, TimeoutError):</span>
+<span class="sd">                        return ErrorClassification(severity=ErrorSeverity.RETRIABLE, ...)</span>
+<span class="sd">                    return ErrorClassification(severity=ErrorSeverity.CRITICAL, ...)</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`BaseInfrastructureNode` : Base class with required method implementations</span>
+<span class="sd">       :func:`capability_node` : Decorator for business logic components</span>
+<span class="sd">       :class:`ErrorSeverity` : Error severity levels and recovery strategies</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        @infrastructure_node  # Validates requirements and injects infrastructure!</span>
+<span class="sd">        class TaskExtractionNode(BaseInfrastructureNode):</span>
+<span class="sd">            name = &quot;task_extraction&quot;</span>
+<span class="sd">            description = &quot;Task Extraction and Processing&quot;</span>
+
+<span class="sd">            @staticmethod</span>
+<span class="sd">            async def execute(state: AgentState, **kwargs):</span>
+<span class="sd">                # Get unified logger that emits TypedEvents</span>
+<span class="sd">                logger = self.get_logger()</span>
+
+<span class="sd">                # Emit status events (auto-streamed to CLI/TUI)</span>
+<span class="sd">                logger.status(&quot;Processing...&quot;)</span>
+<span class="sd">                logger.emit_event(StatusEvent(</span>
+<span class="sd">                    component=&quot;task_extraction&quot;,</span>
+<span class="sd">                    message=&quot;Starting task extraction&quot;,</span>
+<span class="sd">                    level=&quot;info&quot;</span>
+<span class="sd">                ))</span>
+
+<span class="sd">                # Main infrastructure logic</span>
+<span class="sd">                result = await extract_task_from_conversation(state)</span>
+<span class="sd">                return {&quot;task_current_task&quot;: result.task}</span>
+
+<span class="sd">            @staticmethod</span>
+<span class="sd">            def classify_error(exc: Exception, context: dict) -&gt; ErrorClassification:</span>
+<span class="sd">                # Infrastructure-specific error classification</span>
+<span class="sd">                return ErrorClassification(severity=ErrorSeverity.RETRIABLE, ...)</span>
+
+
+<span class="sd">    :param cls: Infrastructure node class to enhance with LangGraph-native execution</span>
+<span class="sd">    :type cls: Type[BaseInfrastructureNode]</span>
+<span class="sd">    :param quiet: If True, suppress start/completion logging (useful for routing nodes)</span>
+<span class="sd">    :type quiet: bool</span>
+<span class="sd">    :return: Enhanced infrastructure class with LangGraph-native execution</span>
+<span class="sd">    :rtype: Type[BaseInfrastructureNode]</span>
+<span class="sd">    :raises ValueError: If required components are missing</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       The decorator creates a `langgraph_node` attribute containing the LangGraph-compatible</span>
+<span class="sd">       function. This is what the registry uses for actual execution.</span>
+
+<span class="sd">       Infrastructure nodes use manual error handling for consistency with capability nodes.</span>
+<span class="sd">       No automatic retry policies are created.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">decorator</span><span class="p">(</span><span class="bp">cls</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">_create_infrastructure_node</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">quiet</span><span class="o">=</span><span class="n">quiet</span><span class="p">)</span>
+
+    <span class="c1"># Handle both @infrastructure_node and @infrastructure_node(quiet=True) syntax</span>
+    <span class="k">if</span> <span class="bp">cls</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="c1"># Called with parameters: @infrastructure_node(quiet=True)</span>
+        <span class="k">return</span> <span class="n">decorator</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># Called without parameters: @infrastructure_node</span>
+        <span class="k">return</span> <span class="n">decorator</span><span class="p">(</span><span class="bp">cls</span><span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_create_infrastructure_node</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">quiet</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+    <span class="c1"># Extract required components using reflection</span>
+    <span class="n">node_name</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;description&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="n">execute_func</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;execute&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="n">error_classifier</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;classify_error&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="n">retry_policy_func</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;get_retry_policy&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+
+    <span class="c1"># Detect method type: static (legacy) or instance (new pattern)</span>
+    <span class="n">is_static</span> <span class="o">=</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">inspect</span><span class="o">.</span><span class="n">getattr_static</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;execute&quot;</span><span class="p">),</span> <span class="nb">staticmethod</span><span class="p">)</span>
+
+    <span class="c1"># Validate it&#39;s either static or regular method (not classmethod or property)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">is_static</span><span class="p">:</span>
+        <span class="n">execute_attr</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">getattr_static</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;execute&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">execute_attr</span><span class="p">,</span> <span class="nb">classmethod</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Infrastructure node </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.execute() cannot be a classmethod. &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Use either @staticmethod (legacy) or instance method (recommended).&quot;</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">execute_attr</span><span class="p">,</span> <span class="nb">property</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Infrastructure node </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.execute() cannot be a property. &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Must be a method.&quot;</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">callable</span><span class="p">(</span><span class="n">execute_attr</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Infrastructure node </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.execute must be callable.&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Determine if this node needs _step injection</span>
+    <span class="c1"># Only nodes that execute WITHIN a plan context AND directly access step object need _step</span>
+    <span class="c1"># Pre-execution nodes (task_extraction, classifier, orchestrator, router) don&#39;t have steps yet</span>
+    <span class="c1"># Error node uses StateManager.get_current_step_index() instead of direct step access</span>
+    <span class="n">NODES_NEEDING_STEP</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;clarify&quot;</span><span class="p">,</span> <span class="s2">&quot;respond&quot;</span><span class="p">}</span>
+    <span class="n">inject_step</span> <span class="o">=</span> <span class="n">node_name</span> <span class="ow">in</span> <span class="n">NODES_NEEDING_STEP</span>
+
+    <span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="n">node_name</span><span class="p">)</span>
+
+    <span class="c1"># Validate required components</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">node_name</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Infrastructure node </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> must define &#39;name&#39; class attribute&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">description</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Infrastructure node </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> must define &#39;description&#39; class attribute&quot;</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">execute_func</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Infrastructure node </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> must implement &#39;execute&#39; static method&quot;</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">error_classifier</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Infrastructure node </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> must have &#39;classify_error&#39; method (inherit from BaseInfrastructureNode or define manually)&quot;</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">retry_policy_func</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Infrastructure node </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> must have &#39;get_retry_policy&#39; method (inherit from BaseInfrastructureNode or define manually)&quot;</span>
+        <span class="p">)</span>
+
+    <span class="c1"># Create LangGraph-compatible node function</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">langgraph_node</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="s2">&quot;AgentState&quot;</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;LangGraph-native node function with manual error handling.</span>
+
+<span class="sd">        This function is called by LangGraph during execution. Infrastructure nodes</span>
+<span class="sd">        now use get_stream_writer() and get_config() directly for pure LangGraph integration.</span>
+
+<span class="sd">        :param state: Current agent state</span>
+<span class="sd">        :type state: AgentState</span>
+<span class="sd">        :param kwargs: Additional parameters from LangGraph</span>
+<span class="sd">        :return: State updates dictionary</span>
+<span class="sd">        :rtype: Dict[str, Any]</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Lazy import to avoid circular imports</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">StateManager</span>
+
+        <span class="c1"># Execution timing</span>
+        <span class="n">start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+
+        <span class="c1"># Create event emitter for typed events</span>
+        <span class="n">emitter</span> <span class="o">=</span> <span class="n">EventEmitter</span><span class="p">(</span><span class="n">node_name</span><span class="p">)</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># Emit infrastructure node start event (if not quiet)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">quiet</span><span class="p">:</span>
+                <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                    <span class="n">StatusEvent</span><span class="p">(</span>
+                        <span class="n">component</span><span class="o">=</span><span class="n">node_name</span><span class="p">,</span>
+                        <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Starting </span><span class="si">{</span><span class="n">description</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                        <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+
+            <span class="c1"># Execute based on method type</span>
+            <span class="k">if</span> <span class="n">is_static</span><span class="p">:</span>
+                <span class="c1"># OLD: Static method (backward compatibility)</span>
+                <span class="c1"># Note: Nodes use get_logger() internally, logger kwarg is legacy</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">execute_func</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="n">logger</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># NEW: Instance method (recommended pattern)</span>
+                <span class="c1"># Create instance WITHOUT state (registry-compatible!)</span>
+                <span class="n">instance</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">()</span>
+
+                <span class="c1"># Inject state (always needed)</span>
+                <span class="n">instance</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">state</span>
+
+                <span class="c1"># Inject step if this node type needs it</span>
+                <span class="k">if</span> <span class="n">inject_step</span><span class="p">:</span>
+                    <span class="c1"># Import inside function to avoid circular imports</span>
+                    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">StateManager</span>
+
+                    <span class="n">current_step</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">get_current_step</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">current_step</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                        <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                            <span class="n">StatusEvent</span><span class="p">(</span>
+                                <span class="n">component</span><span class="o">=</span><span class="n">node_name</span><span class="p">,</span>
+                                <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Node </span><span class="si">{</span><span class="n">node_name</span><span class="si">}</span><span class="s2"> expects _step but get_current_step() returned None. This may indicate execution outside plan context.&quot;</span><span class="p">,</span>
+                                <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+                            <span class="p">)</span>
+                        <span class="p">)</span>
+                    <span class="n">instance</span><span class="o">.</span><span class="n">_step</span> <span class="o">=</span> <span class="n">current_step</span>
+
+                <span class="c1"># Execute instance method</span>
+                <span class="c1"># Note: Nodes get logger via self.get_logger() which provides</span>
+                <span class="c1"># both logging and automatic streaming - no kwargs injection needed</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">instance</span><span class="o">.</span><span class="n">execute</span><span class="p">()</span>
+
+            <span class="n">execution_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_time</span>
+
+            <span class="c1"># Emit infrastructure node completion event (if not quiet)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">quiet</span><span class="p">:</span>
+                <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                    <span class="n">StatusEvent</span><span class="p">(</span>
+                        <span class="n">component</span><span class="o">=</span><span class="n">node_name</span><span class="p">,</span>
+                        <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Completed </span><span class="si">{</span><span class="n">description</span><span class="si">}</span><span class="s2"> in </span><span class="si">{</span><span class="n">execution_time</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">,</span>
+                        <span class="n">level</span><span class="o">=</span><span class="s2">&quot;success&quot;</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+
+            <span class="c1"># Add execution tracking to result</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                <span class="k">if</span> <span class="s2">&quot;control_flow&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">result</span><span class="p">:</span>
+                    <span class="n">result</span><span class="p">[</span><span class="s2">&quot;control_flow&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+                <span class="n">result</span><span class="p">[</span><span class="s2">&quot;control_flow&quot;</span><span class="p">][</span><span class="s2">&quot;last_execution_time&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">execution_time</span>
+                <span class="n">result</span><span class="p">[</span><span class="s2">&quot;control_flow&quot;</span><span class="p">][</span><span class="s2">&quot;last_infrastructure_node&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">node_name</span>
+
+            <span class="k">return</span> <span class="n">result</span>
+
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="n">execution_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_time</span>
+
+            <span class="c1"># Check for development mode - re-raise original exception for debugging</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">get_config</span><span class="p">:</span>
+                    <span class="n">config</span> <span class="o">=</span> <span class="n">get_config</span><span class="p">()</span>
+                    <span class="n">configurable</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;configurable&quot;</span><span class="p">,</span> <span class="p">{})</span>
+                    <span class="k">if</span> <span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;development&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;raise_raw_errors&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+                        <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                            <span class="n">StatusEvent</span><span class="p">(</span>
+                                <span class="n">component</span><span class="o">=</span><span class="n">node_name</span><span class="p">,</span>
+                                <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Development mode: Re-raising original exception for debugging&quot;</span><span class="p">,</span>
+                                <span class="n">level</span><span class="o">=</span><span class="s2">&quot;debug&quot;</span><span class="p">,</span>
+                            <span class="p">)</span>
+                        <span class="p">)</span>
+                        <span class="k">raise</span> <span class="n">exc</span>
+            <span class="k">except</span> <span class="p">(</span><span class="ne">RuntimeError</span><span class="p">,</span> <span class="ne">ImportError</span><span class="p">,</span> <span class="ne">AttributeError</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">):</span>
+                <span class="c1"># If config access fails (outside runnable context), continue with normal error handling</span>
+                <span class="k">pass</span>
+
+            <span class="c1"># Re-raise GraphInterrupt immediately - it&#39;s not an error!</span>
+            <span class="k">if</span> <span class="n">_is_graph_interrupt</span><span class="p">(</span><span class="n">exc</span><span class="p">):</span>
+                <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                    <span class="n">StatusEvent</span><span class="p">(</span>
+                        <span class="n">component</span><span class="o">=</span><span class="n">node_name</span><span class="p">,</span>
+                        <span class="n">message</span><span class="o">=</span><span class="s2">&quot;GraphInterrupt detected - re-raising for LangGraph to handle&quot;</span><span class="p">,</span>
+                        <span class="n">level</span><span class="o">=</span><span class="s2">&quot;debug&quot;</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+                <span class="k">raise</span> <span class="n">exc</span>
+
+            <span class="c1"># Handle actual errors</span>
+            <span class="n">context</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">&quot;infrastructure_node&quot;</span><span class="p">:</span> <span class="n">node_name</span><span class="p">,</span>
+                <span class="s2">&quot;execution_time&quot;</span><span class="p">:</span> <span class="n">execution_time</span><span class="p">,</span>
+                <span class="s2">&quot;current_state&quot;</span><span class="p">:</span> <span class="n">state</span><span class="p">,</span>
+            <span class="p">}</span>
+
+            <span class="n">classification</span> <span class="o">=</span> <span class="n">error_classifier</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
+
+            <span class="c1"># Check for FATAL severity - raise exception to stop execution entirely</span>
+            <span class="k">if</span> <span class="n">classification</span><span class="o">.</span><span class="n">severity</span> <span class="o">==</span> <span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">FATAL</span><span class="p">:</span>
+                <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                    <span class="n">ErrorEvent</span><span class="p">(</span>
+                        <span class="n">component</span><span class="o">=</span><span class="n">node_name</span><span class="p">,</span>
+                        <span class="n">error_type</span><span class="o">=</span><span class="s2">&quot;FatalError&quot;</span><span class="p">,</span>
+                        <span class="n">error_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;FATAL error in </span><span class="si">{</span><span class="n">node_name</span><span class="si">}</span><span class="s2"> - Terminating execution to prevent system issues&quot;</span><span class="p">,</span>
+                        <span class="n">recoverable</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+                <span class="n">technical_details</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+                <span class="k">if</span> <span class="n">classification</span><span class="o">.</span><span class="n">metadata</span> <span class="ow">and</span> <span class="s2">&quot;technical_details&quot;</span> <span class="ow">in</span> <span class="n">classification</span><span class="o">.</span><span class="n">metadata</span><span class="p">:</span>
+                    <span class="n">technical_details</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;Technical details: </span><span class="si">{</span><span class="n">classification</span><span class="o">.</span><span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;technical_details&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">. &quot;</span>
+                    <span class="p">)</span>
+
+                <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Fatal error in </span><span class="si">{</span><span class="n">node_name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">classification</span><span class="o">.</span><span class="n">user_message</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="si">}</span><span class="s2">. &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">technical_details</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;Execution terminated due to system-level failure.&quot;</span>
+                <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+
+            <span class="c1"># Get retry policy for this infrastructure node</span>
+            <span class="n">retry_policy</span> <span class="o">=</span> <span class="n">retry_policy_func</span><span class="p">()</span>
+
+            <span class="c1"># Emit ErrorEvent for user-facing error display</span>
+            <span class="n">emitter</span> <span class="o">=</span> <span class="n">EventEmitter</span><span class="p">(</span><span class="n">node_name</span><span class="p">)</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">ErrorEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="n">node_name</span><span class="p">,</span>
+                    <span class="n">error_type</span><span class="o">=</span><span class="s2">&quot;InfrastructureError&quot;</span><span class="p">,</span>
+                    <span class="n">error_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Error in </span><span class="si">{</span><span class="n">node_name</span><span class="si">}</span><span class="s2"> after </span><span class="si">{</span><span class="n">execution_time</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">s: </span><span class="si">{</span><span class="n">classification</span><span class="o">.</span><span class="n">user_message</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                    <span class="n">recoverable</span><span class="o">=</span><span class="p">(</span><span class="n">classification</span><span class="o">.</span><span class="n">severity</span> <span class="o">==</span> <span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RETRIABLE</span><span class="p">),</span>
+                    <span class="n">stack_trace</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span> <span class="k">if</span> <span class="n">classification</span><span class="o">.</span><span class="n">metadata</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+
+            <span class="c1"># Use manual error handling for infrastructure nodes too</span>
+
+            <span class="c1"># Track infrastructure failures in execution_step_results for consistent tracking</span>
+            <span class="n">step_results</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_step_results&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+            <span class="n">current_step_index</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">get_current_step_index</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+            <span class="n">step_key</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;infra_</span><span class="si">{</span><span class="n">current_step_index</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">node_name</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="n">step_results</span><span class="p">[</span><span class="n">step_key</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">&quot;step_index&quot;</span><span class="p">:</span> <span class="n">current_step_index</span><span class="p">,</span>  <span class="c1"># For explicit ordering</span>
+                <span class="s2">&quot;capability&quot;</span><span class="p">:</span> <span class="n">node_name</span><span class="p">,</span>
+                <span class="s2">&quot;task_objective&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Infrastructure: </span><span class="si">{</span><span class="n">node_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>  <span class="c1"># Infrastructure nodes don&#39;t have step objectives</span>
+                <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                <span class="s2">&quot;execution_time&quot;</span><span class="p">:</span> <span class="n">execution_time</span><span class="p">,</span>
+                <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+            <span class="p">}</span>
+
+            <span class="k">return</span> <span class="p">{</span>
+                <span class="s2">&quot;control_has_error&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                <span class="s2">&quot;control_error_info&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;node_name&quot;</span><span class="p">:</span> <span class="n">node_name</span><span class="p">,</span>
+                    <span class="s2">&quot;classification&quot;</span><span class="p">:</span> <span class="n">classification</span><span class="p">,</span>
+                    <span class="s2">&quot;retry_policy&quot;</span><span class="p">:</span> <span class="n">retry_policy</span><span class="p">,</span>
+                    <span class="s2">&quot;original_error&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">),</span>
+                    <span class="s2">&quot;user_message&quot;</span><span class="p">:</span> <span class="n">classification</span><span class="o">.</span><span class="n">user_message</span> <span class="ow">or</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">),</span>
+                    <span class="s2">&quot;execution_time&quot;</span><span class="p">:</span> <span class="n">execution_time</span><span class="p">,</span>
+                    <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+                <span class="p">},</span>
+                <span class="s2">&quot;execution_step_results&quot;</span><span class="p">:</span> <span class="n">step_results</span><span class="p">,</span>
+                <span class="s2">&quot;execution_last_result&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;infrastructure_node&quot;</span><span class="p">:</span> <span class="n">node_name</span><span class="p">,</span>
+                    <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                    <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">),</span>
+                    <span class="s2">&quot;classification&quot;</span><span class="p">:</span> <span class="p">(</span>
+                        <span class="n">classification</span><span class="o">.</span><span class="n">severity</span><span class="o">.</span><span class="n">value</span>
+                        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">classification</span><span class="o">.</span><span class="n">severity</span><span class="p">,</span> <span class="s2">&quot;value&quot;</span><span class="p">)</span>
+                        <span class="k">else</span> <span class="nb">str</span><span class="p">(</span><span class="n">classification</span><span class="o">.</span><span class="n">severity</span><span class="p">)</span>
+                    <span class="p">),</span>
+                    <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+                <span class="p">},</span>
+            <span class="p">}</span>
+
+    <span class="c1"># Attach metadata to the function for LangGraph integration</span>
+    <span class="n">langgraph_node</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">node_name</span>
+    <span class="n">langgraph_node</span><span class="o">.</span><span class="n">node_name</span> <span class="o">=</span> <span class="n">node_name</span>
+    <span class="n">langgraph_node</span><span class="o">.</span><span class="n">description</span> <span class="o">=</span> <span class="n">description</span>
+    <span class="n">langgraph_node</span><span class="o">.</span><span class="n">error_classifier</span> <span class="o">=</span> <span class="n">error_classifier</span>
+    <span class="n">langgraph_node</span><span class="o">.</span><span class="n">original_class</span> <span class="o">=</span> <span class="bp">cls</span>
+
+    <span class="c1"># Set the LangGraph-native function on the class for registry discovery</span>
+    <span class="bp">cls</span><span class="o">.</span><span class="n">langgraph_node</span> <span class="o">=</span> <span class="n">langgraph_node</span>
+
+    <span class="k">return</span> <span class="bp">cls</span>
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

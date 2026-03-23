@@ -1,0 +1,1471 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey.approval.config_models &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
+
+
+
+
+
+const initStyles = () => {
+    const defaultStyle = document.createElement('style');
+    defaultStyle.textContent = `pre.mermaid {
+    /* Same as .mermaid-container > pre */
+    display: block;
+    width: 100%;
+}
+
+pre.mermaid > svg {
+    /* Same as .mermaid-container > pre > svg */
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}`;
+    document.head.appendChild(defaultStyle);
+
+    const fullscreenStyle = document.createElement('style');
+    fullscreenStyle.textContent = `.mermaid-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.mermaid-container > pre {
+    display: block;
+    width: 100%;
+}
+
+.mermaid-container > pre > svg {
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}
+
+.mermaid-fullscreen-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    color: #333;
+}
+
+.mermaid-fullscreen-btn:hover {
+    opacity: 100% !important;
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-btn.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-btn.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 95vw;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.98);
+    z-index: 9999;
+    padding: 20px;
+    overflow: auto;
+}
+
+.mermaid-fullscreen-modal.dark-theme {
+    background: rgba(0, 0, 0, 0.98);
+}
+
+.mermaid-fullscreen-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen {
+    position: relative;
+    width: 95vw;
+    height: 90vh;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen.dark-theme {
+    background: #1a1a1a;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-container-fullscreen pre.mermaid {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen .mermaid svg {
+    height: 100% !important;
+    width: 100% !important;
+    cursor: grab;
+}
+
+.mermaid-fullscreen-close {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    font-size: 24px;
+    line-height: 1;
+    color: #333;
+}
+
+.mermaid-fullscreen-close:hover {
+    background: white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-close.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-close.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
+    display: none !important;
+}`;
+    document.head.appendChild(fullscreenStyle);
+}
+
+// Detect if page has dark background
+const isDarkTheme = () => {
+    // We use a set of heuristics:
+    // 1. Check for common dark mode classes or attributes
+    // 2. Check computed background color brightness
+    if (document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        document.body.getAttribute('data-theme') === 'dark') {
+        // console.log("Dark theme detected via class/attribute");
+        return true;
+    }
+    if (document.documentElement.classList.contains('light') ||
+        document.documentElement.getAttribute('data-theme') === 'light' ||
+        document.body.classList.contains('light') ||
+        document.body.getAttribute('data-theme') === 'light') {
+        // console.log("Light theme detected via class/attribute");
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // console.log("Dark theme detected via prefers-color-scheme");
+        return true;
+    }
+    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        // console.log("Background color brightness:", brightness);
+        return brightness < 128;
+    }
+    // console.log("No dark or light theme detected, defaulting to light theme");
+    return false;
+};
+
+let darkTheme = isDarkTheme();
+let modal = null;
+let modalContent = null;
+let previousScrollOffset = [window.scrollX, window.scrollY];
+
+const runMermaid = async (rerun) => {
+    console.log("Running mermaid diagrams, rerun =", rerun);
+    // clear all existing mermaid charts
+    let all_mermaids = document.querySelectorAll(".mermaid");
+
+    if (rerun) {
+        all_mermaids.forEach((el) => {
+            if(!el.hasAttribute("data-original-code")) {
+                // store original code
+                // console.log(`Storing original code for first run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+            if(el.getAttribute("data-processed") === "true") {
+                // remove and restore original
+                el.removeAttribute("data-processed");
+                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
+                el.innerHTML = el.getAttribute('data-original-code');
+            } else {
+                // store original code
+                // console.log(`Storing original code for re-run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+        });
+        await mermaid.run();
+    }
+
+    all_mermaids = document.querySelectorAll(".mermaid");
+    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
+
+    if ("False" === "True") {
+        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
+        if(mermaids_to_add_zoom > 0) {
+            var svgs = d3.selectAll("");
+            if(all_mermaids.length !== mermaids_processed.length) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else if(svgs.size() !== mermaids_to_add_zoom) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else {
+                svgs.each(function() {
+                    var svg = d3.select(this);
+                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
+                    var inner = svg.select("g");
+                    var zoom = d3.zoom().on("zoom", function(event) {
+                        inner.attr("transform", event.transform);
+                    });
+                    svg.call(zoom);
+                });
+            }
+        }
+    } else if(all_mermaids.length !== mermaids_processed.length) {
+        // Wait for mermaid to process all diagrams
+        setTimeout(() => runMermaid(false), 200);
+        return;
+    }
+
+    // Stop here if not adding fullscreen capability
+    if ("True" !== "True") return;
+
+    if (modal !== null ) {
+        // Destroy existing modal
+        modal.remove();
+        modal = null;
+        modalContent = null;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
+    modal.innerHTML = `
+        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
+        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
+    `;
+    document.body.appendChild(modal);
+
+    modalContent = modal.querySelector('.mermaid-container-fullscreen');
+    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
+
+    const closeModal = () => {
+        modal.classList.remove('active');
+        modalContent.innerHTML = '';
+        document.body.style.overflow = ''
+        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+        }
+    });
+
+    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
+        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
+            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
+            // Already processed, adjust button class if needed
+            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
+            if (existingBtn) {
+                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+            }
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.className = 'mermaid-container';
+        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
+        container.appendChild(mermaidDiv);
+
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
+        fullscreenBtn.textContent = '⛶';
+        fullscreenBtn.style.opacity = '50%';
+
+        // Calculate dynamic position based on diagram's margin and padding
+        const diagramStyle = window.getComputedStyle(mermaidDiv);
+        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
+        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
+        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
+        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
+        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
+        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
+
+        fullscreenBtn.addEventListener('click', () => {
+            previousScrollOffset = [window.scroll, window.scrollY];
+            const clone = mermaidDiv.cloneNode(true);
+            modalContent.innerHTML = '';
+            modalContent.appendChild(clone);
+
+            const svg = clone.querySelector('svg');
+            if (svg) {
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxWidth = '100%';
+                svg.style.sdisplay = 'block';
+
+                if ("False" === "True") {
+                    setTimeout(() => {
+                        const g = svg.querySelector('g');
+                        if (g) {
+                            var svgD3 = d3.select(svg);
+                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
+                            var inner = svgD3.select("g");
+                            var zoom = d3.zoom().on("zoom", function(event) {
+                                inner.attr("transform", event.transform);
+                            });
+                            svgD3.call(zoom);
+                        }
+                    }, 100);
+                }
+            }
+
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+        container.appendChild(fullscreenBtn);
+    });
+};
+
+const load = async () => {
+    initStyles();
+
+    await runMermaid(true);
+
+    const reRunIfThemeChanges = async () => {
+        const newDarkTheme = isDarkTheme();
+        if (newDarkTheme !== darkTheme) {
+            darkTheme = newDarkTheme;
+            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
+            await mermaid.initialize(
+                {...JSON.parse(
+                    `{"startOnLoad": false}`
+                ),
+                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+                }
+            );
+            await runMermaid(true);
+        }
+    };
+
+    // Update theme classes when theme changes
+    const themeObserver = new MutationObserver(reRunIfThemeChanges);
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+    themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+};
+
+
+
+
+
+console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
+mermaid.initialize(
+    {...JSON.parse(
+        `{"startOnLoad": false}`
+    ),
+    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+    }
+);
+
+window.addEventListener("load", load);</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey/approval/config_models';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey.approval.config_models</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey.approval.config_models</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Approval Configuration Models for Type-Safe Settings Management.</span>
+
+<span class="sd">This module provides strongly typed configuration models for capability-specific</span>
+<span class="sd">approval settings throughout the system. The models implement comprehensive</span>
+<span class="sd">validation, secure defaults, and clear data structures without any business logic.</span>
+
+<span class="sd">The configuration system follows a hierarchical approach with global settings</span>
+<span class="sd">that can override capability-specific configurations. All models include</span>
+<span class="sd">factory methods for creating instances from configuration dictionaries with</span>
+<span class="sd">extensive validation and helpful error messages.</span>
+
+<span class="sd">Key Features:</span>
+<span class="sd">    - Strongly typed dataclass models with validation</span>
+<span class="sd">    - Security-first defaults for all approval settings</span>
+<span class="sd">    - Comprehensive error handling with clear messages</span>
+<span class="sd">    - Support for flexible configuration input formats</span>
+<span class="sd">    - Extensive logging for configuration audit trails</span>
+<span class="sd">    - Immutable configuration objects (frozen dataclasses)</span>
+
+<span class="sd">Configuration Hierarchy:</span>
+<span class="sd">    1. GlobalApprovalConfig: Top-level configuration with global mode</span>
+<span class="sd">    2. Capability-specific configs: PythonExecutionApprovalConfig, MemoryApprovalConfig</span>
+<span class="sd">    3. ApprovalMode enum: Defines available approval modes for fine-grained control</span>
+
+<span class="sd">Design Philosophy:</span>
+<span class="sd">    - Security by default: Unknown or missing settings default to secure values</span>
+<span class="sd">    - Clear validation: Configuration errors provide specific guidance for fixes</span>
+<span class="sd">    - Type safety: All configuration access is type-safe with IDE support</span>
+<span class="sd">    - Separation of concerns: Pure data models with no business logic</span>
+
+<span class="sd">Examples:</span>
+<span class="sd">    Create Python execution config from dictionary::\n</span>
+<span class="sd">        &gt;&gt;&gt; config_dict = {&#39;enabled&#39;: True, &#39;mode&#39;: &#39;epics_writes&#39;}</span>
+<span class="sd">        &gt;&gt;&gt; config = PythonExecutionApprovalConfig.from_dict(config_dict)</span>
+<span class="sd">        &gt;&gt;&gt; print(f&quot;Mode: {config.mode.value}&quot;)</span>
+
+<span class="sd">    Create global configuration::\n</span>
+<span class="sd">        &gt;&gt;&gt; global_config = GlobalApprovalConfig.from_dict({</span>
+<span class="sd">        ...     &#39;global_mode&#39;: &#39;selective&#39;,</span>
+<span class="sd">        ...     &#39;capabilities&#39;: {</span>
+<span class="sd">        ...         &#39;python_execution&#39;: {&#39;enabled&#39;: True, &#39;mode&#39;: &#39;all_code&#39;},</span>
+<span class="sd">        ...         &#39;memory&#39;: {&#39;enabled&#39;: False}</span>
+<span class="sd">        ...     }</span>
+<span class="sd">        ... })</span>
+
+<span class="sd">    Handle validation errors::\n</span>
+<span class="sd">        &gt;&gt;&gt; try:</span>
+<span class="sd">        ...     config = PythonExecutionApprovalConfig.from_dict({&#39;mode&#39;: &#39;invalid&#39;})</span>
+<span class="sd">        ... except ValueError as e:</span>
+<span class="sd">        ...     print(f&quot;Configuration error: {e}&quot;)</span>
+
+<span class="sd">.. note::</span>
+<span class="sd">   All configuration models are immutable (frozen dataclasses) to prevent</span>
+<span class="sd">   accidental modification after creation.</span>
+
+<span class="sd">.. warning::</span>
+<span class="sd">   Configuration validation uses security-first defaults. Missing or invalid</span>
+<span class="sd">   settings will default to the most secure option (approval required).</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">enum</span><span class="w"> </span><span class="kn">import</span> <span class="n">Enum</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.events</span><span class="w"> </span><span class="kn">import</span> <span class="n">EventEmitter</span><span class="p">,</span> <span class="n">StatusEvent</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;config_models&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="ApprovalMode">
+<a class="viewcode-back" href="../../../api_reference/03_production_systems/01_human-approval.html#osprey.approval.ApprovalMode">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ApprovalMode</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Enumeration of approval modes for capability-specific approval control.</span>
+
+<span class="sd">    Defines the available approval modes that control when human approval</span>
+<span class="sd">    is required for various operations within the system. Each mode represents</span>
+<span class="sd">    a different level of approval granularity, from completely disabled to</span>
+<span class="sd">    requiring approval for all operations.</span>
+
+<span class="sd">    The modes are designed to provide flexible control over approval requirements</span>
+<span class="sd">    while maintaining clear semantic meaning for each level of restriction.</span>
+
+<span class="sd">    Available Modes:</span>
+<span class="sd">        DISABLED: No approval required for any operations</span>
+<span class="sd">        CONTROL_WRITES: Approval required only for operations that write to control systems</span>
+<span class="sd">        EPICS_WRITES: (Deprecated) Alias for CONTROL_WRITES - kept for backward compatibility</span>
+<span class="sd">        ALL_CODE: Approval required for all code execution operations</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Use in configuration::\n</span>
+<span class="sd">            &gt;&gt;&gt; mode = ApprovalMode.CONTROL_WRITES</span>
+<span class="sd">            &gt;&gt;&gt; print(f&quot;Mode value: {mode.value}&quot;)</span>
+<span class="sd">            &gt;&gt;&gt; print(f&quot;Mode name: {mode.name}&quot;)</span>
+
+<span class="sd">        Validate mode from string::\n</span>
+<span class="sd">            &gt;&gt;&gt; try:</span>
+<span class="sd">            ...     mode = ApprovalMode(&quot;control_writes&quot;)</span>
+<span class="sd">            ...     print(f&quot;Valid mode: {mode}&quot;)</span>
+<span class="sd">            ... except ValueError:</span>
+<span class="sd">            ...     print(&quot;Invalid mode string&quot;)</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       These modes are primarily used for Python execution approval but the</span>
+<span class="sd">       pattern can be extended to other capabilities as needed.</span>
+
+<span class="sd">    .. deprecated:: 0.9.5</span>
+<span class="sd">       EPICS_WRITES is deprecated. Use CONTROL_WRITES instead for control-system-agnostic configuration.</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`PythonExecutionApprovalConfig` : Configuration class that uses this enum</span>
+<span class="sd">       :class:`PythonExecutionApprovalEvaluator` : Evaluator that processes these modes</span>
+<span class="sd">       :class:`GlobalApprovalConfig` : Global configuration that can override mode settings</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">DISABLED</span> <span class="o">=</span> <span class="s2">&quot;disabled&quot;</span>
+    <span class="n">CONTROL_WRITES</span> <span class="o">=</span> <span class="s2">&quot;control_writes&quot;</span>
+    <span class="n">EPICS_WRITES</span> <span class="o">=</span> <span class="s2">&quot;epics_writes&quot;</span>  <span class="c1"># Deprecated - kept for backward compatibility</span>
+    <span class="n">ALL_CODE</span> <span class="o">=</span> <span class="s2">&quot;all_code&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="PythonExecutionApprovalConfig">
+<a class="viewcode-back" href="../../../api_reference/03_production_systems/01_human-approval.html#osprey.approval.PythonExecutionApprovalConfig">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">PythonExecutionApprovalConfig</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration model for Python code execution approval settings.</span>
+
+<span class="sd">    Immutable dataclass that encapsulates all settings related to Python code</span>
+<span class="sd">    execution approval. The configuration includes both a high-level enabled flag</span>
+<span class="sd">    and a granular mode setting that controls when approval is required based on</span>
+<span class="sd">    code characteristics.</span>
+
+<span class="sd">    The configuration supports multiple approval modes to balance security needs</span>
+<span class="sd">    with operational efficiency. The most common mode is EPICS_WRITES, which</span>
+<span class="sd">    requires approval only for code that can modify accelerator systems.</span>
+
+<span class="sd">    :param enabled: Whether Python execution approval is enabled globally</span>
+<span class="sd">    :type enabled: bool</span>
+<span class="sd">    :param mode: Granular approval mode controlling when approval is required</span>
+<span class="sd">    :type mode: ApprovalMode</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Create configuration for EPICS writes approval::\n</span>
+<span class="sd">            &gt;&gt;&gt; config = PythonExecutionApprovalConfig(</span>
+<span class="sd">            ...     enabled=True,</span>
+<span class="sd">            ...     mode=ApprovalMode.EPICS_WRITES</span>
+<span class="sd">            ... )</span>
+<span class="sd">            &gt;&gt;&gt; print(f&quot;Approval enabled: {config.enabled}&quot;)</span>
+<span class="sd">            &gt;&gt;&gt; print(f&quot;Mode: {config.mode.value}&quot;)</span>
+
+<span class="sd">        Create configuration with all code approval::\n</span>
+<span class="sd">            &gt;&gt;&gt; config = PythonExecutionApprovalConfig(</span>
+<span class="sd">            ...     enabled=True,</span>
+<span class="sd">            ...     mode=ApprovalMode.ALL_CODE</span>
+<span class="sd">            ... )</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       This is a frozen dataclass - instances cannot be modified after creation.</span>
+<span class="sd">       Create new instances for different configurations.</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`ApprovalMode` : Enum values used by this configuration</span>
+<span class="sd">       :class:`PythonExecutionApprovalEvaluator` : Evaluator that uses this configuration</span>
+<span class="sd">       :class:`ApprovalManager` : Manager that provides instances of this configuration</span>
+<span class="sd">       :meth:`from_dict` : Factory method for creating instances from dictionaries</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">enabled</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">mode</span><span class="p">:</span> <span class="n">ApprovalMode</span>
+
+<div class="viewcode-block" id="PythonExecutionApprovalConfig.from_dict">
+<a class="viewcode-back" href="../../../api_reference/03_production_systems/01_human-approval.html#osprey.approval.PythonExecutionApprovalConfig.from_dict">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_dict</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;PythonExecutionApprovalConfig&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create configuration instance from dictionary with comprehensive validation.</span>
+
+<span class="sd">        Factory method that creates a PythonExecutionApprovalConfig instance from</span>
+<span class="sd">        a configuration dictionary, applying security-first defaults and comprehensive</span>
+<span class="sd">        validation. The method provides helpful error messages for configuration issues.</span>
+
+<span class="sd">        Default Behavior:</span>
+<span class="sd">            - Missing &#39;enabled&#39; field defaults to True (secure default)</span>
+<span class="sd">            - Missing &#39;mode&#39; field defaults to &#39;all_code&#39; (most secure mode)</span>
+<span class="sd">            - Invalid mode values raise ValueError with valid options</span>
+
+<span class="sd">        :param data: Configuration dictionary containing approval settings</span>
+<span class="sd">        :type data: dict</span>
+<span class="sd">        :return: Validated configuration instance</span>
+<span class="sd">        :rtype: PythonExecutionApprovalConfig</span>
+<span class="sd">        :raises ValueError: If data is not a dict or contains invalid mode values</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Create from complete configuration::\n</span>
+<span class="sd">                &gt;&gt;&gt; config_dict = {&#39;enabled&#39;: True, &#39;mode&#39;: &#39;epics_writes&#39;}</span>
+<span class="sd">                &gt;&gt;&gt; config = PythonExecutionApprovalConfig.from_dict(config_dict)</span>
+<span class="sd">                &gt;&gt;&gt; print(f&quot;Enabled: {config.enabled}, Mode: {config.mode.value}&quot;)</span>
+
+<span class="sd">            Create with defaults (secure fallbacks)::\n</span>
+<span class="sd">                &gt;&gt;&gt; config = PythonExecutionApprovalConfig.from_dict({})</span>
+<span class="sd">                &gt;&gt;&gt; print(f&quot;Default enabled: {config.enabled}&quot;)  # True</span>
+<span class="sd">                &gt;&gt;&gt; print(f&quot;Default mode: {config.mode.value}&quot;)    # &#39;all_code&#39;</span>
+
+<span class="sd">            Handle validation errors::\n</span>
+<span class="sd">                &gt;&gt;&gt; try:</span>
+<span class="sd">                ...     config = PythonExecutionApprovalConfig.from_dict({&#39;mode&#39;: &#39;invalid&#39;})</span>
+<span class="sd">                ... except ValueError as e:</span>
+<span class="sd">                ...     print(f&quot;Validation error: {e}&quot;)</span>
+
+<span class="sd">        .. warning::</span>
+<span class="sd">           This method applies security-first defaults. Missing configuration</span>
+<span class="sd">           will default to the most secure settings (approval required).</span>
+
+<span class="sd">        .. seealso::</span>
+<span class="sd">           :class:`PythonExecutionApprovalConfig` : Configuration class created by this method</span>
+<span class="sd">           :class:`ApprovalMode` : Enum values validated by this method</span>
+<span class="sd">           :class:`GlobalApprovalConfig.from_dict` : Similar factory method for global config</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Python execution approval config must be dict, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">data</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">emitter</span> <span class="o">=</span> <span class="n">EventEmitter</span><span class="p">(</span><span class="s2">&quot;approval_config&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Default to secure mode (approval enabled) for safety</span>
+        <span class="k">if</span> <span class="s2">&quot;enabled&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;approval_config&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Python execution approval &#39;enabled&#39; not specified in config, defaulting to True&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="n">enabled</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;enabled&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">enabled</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Python execution approval &#39;enabled&#39; must be bool, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">enabled</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Default to most restrictive mode for security compliance</span>
+        <span class="k">if</span> <span class="s2">&quot;mode&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;approval_config&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Python execution approval &#39;mode&#39; not specified in config, defaulting to &#39;all_code&#39;. Consider setting to &#39;control_writes&#39; for better performance.&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="n">mode_str</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;mode&quot;</span><span class="p">,</span> <span class="s2">&quot;all_code&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Backward compatibility: map old mode names to new ones</span>
+        <span class="k">if</span> <span class="n">mode_str</span> <span class="o">==</span> <span class="s2">&quot;epics_writes&quot;</span><span class="p">:</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;approval_config&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="s2">&quot;DEPRECATED: approval mode &#39;epics_writes&#39; is deprecated. Please use &#39;control_writes&#39; instead for control-system-agnostic configuration.&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;approval_config&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Automatically mapping &#39;epics_writes&#39; → &#39;control_writes&#39;&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">mode_str</span> <span class="o">=</span> <span class="s2">&quot;control_writes&quot;</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">mode</span> <span class="o">=</span> <span class="n">ApprovalMode</span><span class="p">(</span><span class="n">mode_str</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">valid_modes</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">m</span><span class="o">.</span><span class="n">value</span> <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">ApprovalMode</span> <span class="k">if</span> <span class="n">m</span> <span class="o">!=</span> <span class="n">ApprovalMode</span><span class="o">.</span><span class="n">EPICS_WRITES</span>
+            <span class="p">]</span>  <span class="c1"># Hide deprecated mode</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Invalid approval mode &#39;</span><span class="si">{</span><span class="n">mode_str</span><span class="si">}</span><span class="s2">&#39;. Valid modes: </span><span class="si">{</span><span class="n">valid_modes</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">enabled</span><span class="o">=</span><span class="n">enabled</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="n">mode</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="MemoryApprovalConfig">
+<a class="viewcode-back" href="../../../api_reference/03_production_systems/01_human-approval.html#osprey.approval.MemoryApprovalConfig">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">MemoryApprovalConfig</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration model for memory operation approval settings.</span>
+
+<span class="sd">    Immutable dataclass that encapsulates settings related to memory operation</span>
+<span class="sd">    approval. Currently supports simple enabled/disabled logic but is designed</span>
+<span class="sd">    for extension with more sophisticated approval rules in the future.</span>
+
+<span class="sd">    The configuration controls whether memory operations (create, update, delete)</span>
+<span class="sd">    require human approval before execution. This provides protection for</span>
+<span class="sd">    sensitive user data and system memory state.</span>
+
+<span class="sd">    :param enabled: Whether memory operation approval is required</span>
+<span class="sd">    :type enabled: bool</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Create memory approval configuration::\n</span>
+<span class="sd">            &gt;&gt;&gt; config = MemoryApprovalConfig(enabled=True)</span>
+<span class="sd">            &gt;&gt;&gt; print(f&quot;Memory approval enabled: {config.enabled}&quot;)</span>
+
+<span class="sd">        Create disabled configuration::\n</span>
+<span class="sd">            &gt;&gt;&gt; config = MemoryApprovalConfig(enabled=False)</span>
+<span class="sd">            &gt;&gt;&gt; # Memory operations will not require approval</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       This is a frozen dataclass - instances cannot be modified after creation.</span>
+<span class="sd">       The design allows for future extensions with additional fields.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">enabled</span><span class="p">:</span> <span class="nb">bool</span>
+
+<div class="viewcode-block" id="MemoryApprovalConfig.from_dict">
+<a class="viewcode-back" href="../../../api_reference/03_production_systems/01_human-approval.html#osprey.approval.MemoryApprovalConfig.from_dict">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_dict</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;MemoryApprovalConfig&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create configuration instance from flexible input format with validation.</span>
+
+<span class="sd">        Factory method that creates a MemoryApprovalConfig instance from either</span>
+<span class="sd">        a boolean value (for simple enabled/disabled) or a dictionary (for future</span>
+<span class="sd">        extensibility). Applies security-first defaults when configuration is ambiguous.</span>
+
+<span class="sd">        Supported Input Formats:</span>
+<span class="sd">            - bool: Directly sets the enabled flag</span>
+<span class="sd">            - dict: Extracts &#39;enabled&#39; field with secure default</span>
+
+<span class="sd">        :param data: Configuration data as boolean or dictionary</span>
+<span class="sd">        :type data: Union[bool, dict]</span>
+<span class="sd">        :return: Validated configuration instance</span>
+<span class="sd">        :rtype: MemoryApprovalConfig</span>
+<span class="sd">        :raises ValueError: If data is neither bool nor dict, or bool value is invalid</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Create from boolean::\n</span>
+<span class="sd">                &gt;&gt;&gt; config = MemoryApprovalConfig.from_dict(True)</span>
+<span class="sd">                &gt;&gt;&gt; print(f&quot;Enabled: {config.enabled}&quot;)</span>
+
+<span class="sd">            Create from dictionary::\n</span>
+<span class="sd">                &gt;&gt;&gt; config_dict = {&#39;enabled&#39;: False}</span>
+<span class="sd">                &gt;&gt;&gt; config = MemoryApprovalConfig.from_dict(config_dict)</span>
+<span class="sd">                &gt;&gt;&gt; print(f&quot;Enabled: {config.enabled}&quot;)</span>
+
+<span class="sd">            Create with secure default::\n</span>
+<span class="sd">                &gt;&gt;&gt; config = MemoryApprovalConfig.from_dict({})</span>
+<span class="sd">                &gt;&gt;&gt; print(f&quot;Default enabled: {config.enabled}&quot;)  # True</span>
+
+<span class="sd">            Handle invalid input::\n</span>
+<span class="sd">                &gt;&gt;&gt; try:</span>
+<span class="sd">                ...     config = MemoryApprovalConfig.from_dict(\&quot;invalid\&quot;)</span>
+<span class="sd">                ... except ValueError as e:</span>
+<span class="sd">                ...     print(f\&quot;Invalid input: {e}\&quot;)</span>
+
+<span class="sd">        .. note::</span>
+<span class="sd">           When using dictionary format, missing &#39;enabled&#39; field defaults to True</span>
+<span class="sd">           for security. This ensures approval is required unless explicitly disabled.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">enabled</span><span class="o">=</span><span class="n">data</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="c1"># Security-first default: enable approval when configuration is ambiguous</span>
+            <span class="k">if</span> <span class="s2">&quot;enabled&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+                <span class="n">emitter</span> <span class="o">=</span> <span class="n">EventEmitter</span><span class="p">(</span><span class="s2">&quot;approval_config&quot;</span><span class="p">)</span>
+                <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                    <span class="n">StatusEvent</span><span class="p">(</span>
+                        <span class="n">component</span><span class="o">=</span><span class="s2">&quot;approval_config&quot;</span><span class="p">,</span>
+                        <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Memory approval &#39;enabled&#39; not specified in config, defaulting to True&quot;</span><span class="p">,</span>
+                        <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+            <span class="n">enabled</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;enabled&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">enabled</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Memory approval &#39;enabled&#39; must be bool, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">enabled</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">enabled</span><span class="o">=</span><span class="n">enabled</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Memory approval config must be bool or dict, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">data</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="GlobalApprovalConfig">
+<a class="viewcode-back" href="../../../api_reference/03_production_systems/01_human-approval.html#osprey.approval.GlobalApprovalConfig">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">GlobalApprovalConfig</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Global approval configuration integrating all capability-specific settings.</span>
+
+<span class="sd">    Top-level configuration model that combines global approval mode settings</span>
+<span class="sd">    with capability-specific configurations. This class implements the hierarchical</span>
+<span class="sd">    configuration system where global modes can override individual capability</span>
+<span class="sd">    settings for consistent system-wide approval behavior.</span>
+
+<span class="sd">    The global configuration supports three main modes:</span>
+<span class="sd">    - disabled: All approvals disabled system-wide</span>
+<span class="sd">    - selective: Use capability-specific settings</span>
+<span class="sd">    - all_capabilities: All approvals enabled system-wide</span>
+
+<span class="sd">    :param global_mode: System-wide approval mode controlling all capabilities</span>
+<span class="sd">    :type global_mode: str</span>
+<span class="sd">    :param python_execution: Python code execution approval configuration</span>
+<span class="sd">    :type python_execution: PythonExecutionApprovalConfig</span>
+<span class="sd">    :param memory: Memory operation approval configuration</span>
+<span class="sd">    :type memory: MemoryApprovalConfig</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Create global configuration::\n</span>
+<span class="sd">            &gt;&gt;&gt; python_config = PythonExecutionApprovalConfig(</span>
+<span class="sd">            ...     enabled=True, mode=ApprovalMode.EPICS_WRITES</span>
+<span class="sd">            ... )</span>
+<span class="sd">            &gt;&gt;&gt; memory_config = MemoryApprovalConfig(enabled=False)</span>
+<span class="sd">            &gt;&gt;&gt; global_config = GlobalApprovalConfig(</span>
+<span class="sd">            ...     global_mode=&quot;selective&quot;,</span>
+<span class="sd">            ...     python_execution=python_config,</span>
+<span class="sd">            ...     memory=memory_config</span>
+<span class="sd">            ... )</span>
+
+<span class="sd">        Access capability configurations::\n</span>
+<span class="sd">            &gt;&gt;&gt; print(f&quot;Global mode: {global_config.global_mode}&quot;)</span>
+<span class="sd">            &gt;&gt;&gt; print(f&quot;Python enabled: {global_config.python_execution.enabled}&quot;)</span>
+<span class="sd">            &gt;&gt;&gt; print(f&quot;Memory enabled: {global_config.memory.enabled}&quot;)</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       This is a frozen dataclass representing immutable configuration state.</span>
+<span class="sd">       The configuration hierarchy allows global modes to override capability</span>
+<span class="sd">       settings when applied by the ApprovalManager.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">global_mode</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># &quot;disabled&quot; | &quot;selective&quot; | &quot;all_capabilities&quot;</span>
+    <span class="n">python_execution</span><span class="p">:</span> <span class="n">PythonExecutionApprovalConfig</span>
+    <span class="n">memory</span><span class="p">:</span> <span class="n">MemoryApprovalConfig</span>
+
+<div class="viewcode-block" id="GlobalApprovalConfig.from_dict">
+<a class="viewcode-back" href="../../../api_reference/03_production_systems/01_human-approval.html#osprey.approval.GlobalApprovalConfig.from_dict">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_dict</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;GlobalApprovalConfig&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create global configuration instance from dictionary with comprehensive validation.</span>
+
+<span class="sd">        Factory method that creates a GlobalApprovalConfig instance from a complete</span>
+<span class="sd">        configuration dictionary. Performs extensive validation of the global structure</span>
+<span class="sd">        and delegates capability-specific validation to appropriate config classes.</span>
+
+<span class="sd">        The method applies security-first defaults for missing configuration sections</span>
+<span class="sd">        and provides detailed error messages for configuration issues. All capability</span>
+<span class="sd">        configurations are validated and instantiated as strongly-typed objects.</span>
+
+<span class="sd">        Required Structure:</span>
+<span class="sd">            - global_mode: One of &#39;disabled&#39;, &#39;selective&#39;, &#39;all_capabilities&#39;</span>
+<span class="sd">            - capabilities: Dictionary containing capability-specific settings</span>
+
+<span class="sd">        :param data: Complete approval configuration dictionary from config.yml</span>
+<span class="sd">        :type data: dict</span>
+<span class="sd">        :return: Validated global configuration instance</span>
+<span class="sd">        :rtype: GlobalApprovalConfig</span>
+<span class="sd">        :raises ValueError: If configuration structure is invalid or contains invalid values</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Create from complete configuration::\n</span>
+<span class="sd">                &gt;&gt;&gt; config_dict = {</span>
+<span class="sd">                ...     &#39;global_mode&#39;: &#39;selective&#39;,</span>
+<span class="sd">                ...     &#39;capabilities&#39;: {</span>
+<span class="sd">                ...         &#39;python_execution&#39;: {&#39;enabled&#39;: True, &#39;mode&#39;: &#39;epics_writes&#39;},</span>
+<span class="sd">                ...         &#39;memory&#39;: {&#39;enabled&#39;: False}</span>
+<span class="sd">                ...     }</span>
+<span class="sd">                ... }</span>
+<span class="sd">                &gt;&gt;&gt; config = GlobalApprovalConfig.from_dict(config_dict)</span>
+<span class="sd">                &gt;&gt;&gt; print(f\&quot;Global mode: {config.global_mode}\&quot;)</span>
+
+<span class="sd">            Create with missing sections (secure defaults)::\n</span>
+<span class="sd">                &gt;&gt;&gt; minimal_config = {&#39;global_mode&#39;: &#39;selective&#39;, &#39;capabilities&#39;: {}}</span>
+<span class="sd">                &gt;&gt;&gt; config = GlobalApprovalConfig.from_dict(minimal_config)</span>
+<span class="sd">                &gt;&gt;&gt; # Missing capabilities will use secure defaults</span>
+
+<span class="sd">            Handle validation errors::\n</span>
+<span class="sd">                &gt;&gt;&gt; try:</span>
+<span class="sd">                ...     config = GlobalApprovalConfig.from_dict({&#39;global_mode&#39;: &#39;invalid&#39;})</span>
+<span class="sd">                ... except ValueError as e:</span>
+<span class="sd">                ...     print(f\&quot;Configuration error: {e}\&quot;)</span>
+
+<span class="sd">        .. warning::</span>
+<span class="sd">           Missing capability sections will be created with security-first defaults.</span>
+<span class="sd">           This ensures the system remains secure even with incomplete configuration.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Approval config must be dict, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">data</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Validate global mode</span>
+        <span class="n">global_mode</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;global_mode&quot;</span><span class="p">,</span> <span class="s2">&quot;selective&quot;</span><span class="p">)</span>
+        <span class="n">valid_modes</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;disabled&quot;</span><span class="p">,</span> <span class="s2">&quot;selective&quot;</span><span class="p">,</span> <span class="s2">&quot;all_capabilities&quot;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">global_mode</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">valid_modes</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid global_mode &#39;</span><span class="si">{</span><span class="n">global_mode</span><span class="si">}</span><span class="s2">&#39;. Valid modes: </span><span class="si">{</span><span class="n">valid_modes</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Parse capabilities</span>
+        <span class="n">capabilities</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;capabilities&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">capabilities</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Approval capabilities must be dict, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">capabilities</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">emitter</span> <span class="o">=</span> <span class="n">EventEmitter</span><span class="p">(</span><span class="s2">&quot;approval_config&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Parse Python execution config with explicit warning</span>
+        <span class="k">if</span> <span class="s2">&quot;python_execution&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">capabilities</span><span class="p">:</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;approval_config&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="s2">&quot;&#39;python_execution&#39; section missing from approval config, using defaults. This may cause unexpected approval behavior!&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;approval_config&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Consider adding: approval.capabilities.python_execution = {enabled: true, mode: &#39;epics_writes&#39;}&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="n">python_data</span> <span class="o">=</span> <span class="n">capabilities</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;python_execution&quot;</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;enabled&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;mode&quot;</span><span class="p">:</span> <span class="s2">&quot;all_code&quot;</span><span class="p">})</span>
+        <span class="n">python_config</span> <span class="o">=</span> <span class="n">PythonExecutionApprovalConfig</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="n">python_data</span><span class="p">)</span>
+
+        <span class="c1"># Memory approval config with secure defaults for data protection</span>
+        <span class="k">if</span> <span class="s2">&quot;memory&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">capabilities</span><span class="p">:</span>
+            <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+                <span class="n">StatusEvent</span><span class="p">(</span>
+                    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;approval_config&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="s2">&quot;&#39;memory&#39; section missing from approval config, defaulting to enabled=True&quot;</span><span class="p">,</span>
+                    <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="n">memory_data</span> <span class="o">=</span> <span class="n">capabilities</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;memory&quot;</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;enabled&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">})</span>
+        <span class="n">memory_config</span> <span class="o">=</span> <span class="n">MemoryApprovalConfig</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="n">memory_data</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">global_mode</span><span class="o">=</span><span class="n">global_mode</span><span class="p">,</span> <span class="n">python_execution</span><span class="o">=</span><span class="n">python_config</span><span class="p">,</span> <span class="n">memory</span><span class="o">=</span><span class="n">memory_config</span><span class="p">)</span></div>
+</div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

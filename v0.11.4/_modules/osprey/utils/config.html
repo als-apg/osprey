@@ -1,0 +1,2070 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey.utils.config &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
+
+
+
+
+
+const initStyles = () => {
+    const defaultStyle = document.createElement('style');
+    defaultStyle.textContent = `pre.mermaid {
+    /* Same as .mermaid-container > pre */
+    display: block;
+    width: 100%;
+}
+
+pre.mermaid > svg {
+    /* Same as .mermaid-container > pre > svg */
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}`;
+    document.head.appendChild(defaultStyle);
+
+    const fullscreenStyle = document.createElement('style');
+    fullscreenStyle.textContent = `.mermaid-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.mermaid-container > pre {
+    display: block;
+    width: 100%;
+}
+
+.mermaid-container > pre > svg {
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}
+
+.mermaid-fullscreen-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    color: #333;
+}
+
+.mermaid-fullscreen-btn:hover {
+    opacity: 100% !important;
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-btn.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-btn.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 95vw;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.98);
+    z-index: 9999;
+    padding: 20px;
+    overflow: auto;
+}
+
+.mermaid-fullscreen-modal.dark-theme {
+    background: rgba(0, 0, 0, 0.98);
+}
+
+.mermaid-fullscreen-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen {
+    position: relative;
+    width: 95vw;
+    height: 90vh;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen.dark-theme {
+    background: #1a1a1a;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-container-fullscreen pre.mermaid {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen .mermaid svg {
+    height: 100% !important;
+    width: 100% !important;
+    cursor: grab;
+}
+
+.mermaid-fullscreen-close {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    font-size: 24px;
+    line-height: 1;
+    color: #333;
+}
+
+.mermaid-fullscreen-close:hover {
+    background: white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-close.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-close.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
+    display: none !important;
+}`;
+    document.head.appendChild(fullscreenStyle);
+}
+
+// Detect if page has dark background
+const isDarkTheme = () => {
+    // We use a set of heuristics:
+    // 1. Check for common dark mode classes or attributes
+    // 2. Check computed background color brightness
+    if (document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        document.body.getAttribute('data-theme') === 'dark') {
+        // console.log("Dark theme detected via class/attribute");
+        return true;
+    }
+    if (document.documentElement.classList.contains('light') ||
+        document.documentElement.getAttribute('data-theme') === 'light' ||
+        document.body.classList.contains('light') ||
+        document.body.getAttribute('data-theme') === 'light') {
+        // console.log("Light theme detected via class/attribute");
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // console.log("Dark theme detected via prefers-color-scheme");
+        return true;
+    }
+    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        // console.log("Background color brightness:", brightness);
+        return brightness < 128;
+    }
+    // console.log("No dark or light theme detected, defaulting to light theme");
+    return false;
+};
+
+let darkTheme = isDarkTheme();
+let modal = null;
+let modalContent = null;
+let previousScrollOffset = [window.scrollX, window.scrollY];
+
+const runMermaid = async (rerun) => {
+    console.log("Running mermaid diagrams, rerun =", rerun);
+    // clear all existing mermaid charts
+    let all_mermaids = document.querySelectorAll(".mermaid");
+
+    if (rerun) {
+        all_mermaids.forEach((el) => {
+            if(!el.hasAttribute("data-original-code")) {
+                // store original code
+                // console.log(`Storing original code for first run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+            if(el.getAttribute("data-processed") === "true") {
+                // remove and restore original
+                el.removeAttribute("data-processed");
+                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
+                el.innerHTML = el.getAttribute('data-original-code');
+            } else {
+                // store original code
+                // console.log(`Storing original code for re-run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+        });
+        await mermaid.run();
+    }
+
+    all_mermaids = document.querySelectorAll(".mermaid");
+    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
+
+    if ("False" === "True") {
+        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
+        if(mermaids_to_add_zoom > 0) {
+            var svgs = d3.selectAll("");
+            if(all_mermaids.length !== mermaids_processed.length) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else if(svgs.size() !== mermaids_to_add_zoom) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else {
+                svgs.each(function() {
+                    var svg = d3.select(this);
+                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
+                    var inner = svg.select("g");
+                    var zoom = d3.zoom().on("zoom", function(event) {
+                        inner.attr("transform", event.transform);
+                    });
+                    svg.call(zoom);
+                });
+            }
+        }
+    } else if(all_mermaids.length !== mermaids_processed.length) {
+        // Wait for mermaid to process all diagrams
+        setTimeout(() => runMermaid(false), 200);
+        return;
+    }
+
+    // Stop here if not adding fullscreen capability
+    if ("True" !== "True") return;
+
+    if (modal !== null ) {
+        // Destroy existing modal
+        modal.remove();
+        modal = null;
+        modalContent = null;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
+    modal.innerHTML = `
+        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
+        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
+    `;
+    document.body.appendChild(modal);
+
+    modalContent = modal.querySelector('.mermaid-container-fullscreen');
+    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
+
+    const closeModal = () => {
+        modal.classList.remove('active');
+        modalContent.innerHTML = '';
+        document.body.style.overflow = ''
+        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+        }
+    });
+
+    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
+        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
+            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
+            // Already processed, adjust button class if needed
+            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
+            if (existingBtn) {
+                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+            }
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.className = 'mermaid-container';
+        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
+        container.appendChild(mermaidDiv);
+
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
+        fullscreenBtn.textContent = '⛶';
+        fullscreenBtn.style.opacity = '50%';
+
+        // Calculate dynamic position based on diagram's margin and padding
+        const diagramStyle = window.getComputedStyle(mermaidDiv);
+        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
+        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
+        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
+        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
+        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
+        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
+
+        fullscreenBtn.addEventListener('click', () => {
+            previousScrollOffset = [window.scroll, window.scrollY];
+            const clone = mermaidDiv.cloneNode(true);
+            modalContent.innerHTML = '';
+            modalContent.appendChild(clone);
+
+            const svg = clone.querySelector('svg');
+            if (svg) {
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxWidth = '100%';
+                svg.style.sdisplay = 'block';
+
+                if ("False" === "True") {
+                    setTimeout(() => {
+                        const g = svg.querySelector('g');
+                        if (g) {
+                            var svgD3 = d3.select(svg);
+                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
+                            var inner = svgD3.select("g");
+                            var zoom = d3.zoom().on("zoom", function(event) {
+                                inner.attr("transform", event.transform);
+                            });
+                            svgD3.call(zoom);
+                        }
+                    }, 100);
+                }
+            }
+
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+        container.appendChild(fullscreenBtn);
+    });
+};
+
+const load = async () => {
+    initStyles();
+
+    await runMermaid(true);
+
+    const reRunIfThemeChanges = async () => {
+        const newDarkTheme = isDarkTheme();
+        if (newDarkTheme !== darkTheme) {
+            darkTheme = newDarkTheme;
+            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
+            await mermaid.initialize(
+                {...JSON.parse(
+                    `{"startOnLoad": false}`
+                ),
+                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+                }
+            );
+            await runMermaid(true);
+        }
+    };
+
+    // Update theme classes when theme changes
+    const themeObserver = new MutationObserver(reRunIfThemeChanges);
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+    themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+};
+
+
+
+
+
+console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
+mermaid.initialize(
+    {...JSON.parse(
+        `{"startOnLoad": false}`
+    ),
+    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+    }
+);
+
+window.addEventListener("load", load);</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey/utils/config';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey.utils.config</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey.utils.config</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Configuration System</span>
+
+<span class="sd">Professional configuration system that works seamlessly both inside and outside</span>
+<span class="sd">LangGraph contexts. Features:</span>
+<span class="sd">- Single-file YAML loading with environment resolution</span>
+<span class="sd">- LangGraph integration, pre-computed structures, context awareness</span>
+<span class="sd">- Single source of truth with automatic context detection</span>
+<span class="sd">- Flat structure: framework and application settings coexist via unique naming</span>
+
+<span class="sd">Clean, modern configuration architecture supporting both standalone and graph execution.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">yaml</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">langgraph.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config</span>
+<span class="k">except</span> <span class="p">(</span><span class="ne">RuntimeError</span><span class="p">,</span> <span class="ne">ImportError</span><span class="p">):</span>
+    <span class="n">get_config</span> <span class="o">=</span> <span class="kc">None</span>
+
+<span class="c1"># Use standard logging (not get_logger) to avoid circular imports with logger.py</span>
+<span class="c1"># The short name &#39;CONFIG&#39; enables easy filtering: quiet_logger([&#39;registry&#39;, &#39;CONFIG&#39;])</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;CONFIG&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="ConfigBuilder">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config.ConfigBuilder">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ConfigBuilder</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Configuration builder with clean, modern architecture.</span>
+
+<span class="sd">    Features:</span>
+<span class="sd">    - Single-file YAML loading with validation and error handling</span>
+<span class="sd">    - Environment variable resolution</span>
+<span class="sd">    - Pre-computed nested dictionaries for performance</span>
+<span class="sd">    - Explicit fail-fast behavior for required configurations</span>
+<span class="sd">    - Flat structure supporting framework + application settings via unique naming</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># Sentinel object to distinguish between &quot;no default provided&quot; and &quot;default is None&quot;</span>
+    <span class="n">_REQUIRED</span> <span class="o">=</span> <span class="nb">object</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_require_config</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">_REQUIRED</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get configuration value with explicit control over required vs. optional settings.</span>
+
+<span class="sd">        This helper function provides three levels of configuration handling:</span>
+<span class="sd">        1. Required settings (no default) - fail fast if missing</span>
+<span class="sd">        2. Optional settings with visibility (default provided) - warn when default is used</span>
+<span class="sd">        3. Silent optional settings - use standard self.get() for truly optional configs</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            path: Dot-separated configuration path (e.g., &quot;execution.limits.max_retries&quot;)</span>
+<span class="sd">            default: Default value to use if config is missing. If not provided,</span>
+<span class="sd">                    the configuration is considered required and will raise ValueError.</span>
+<span class="sd">                    If provided, logs a warning when the default is used.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The configuration value, or default if provided and config is missing</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: If required configuration (no default) is missing or None</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            # Required configuration - will fail if missing</span>
+<span class="sd">            recursion_limit = self._require_config(&#39;execution_control.limits.graph_recursion_limit&#39;)</span>
+
+<span class="sd">            # Optional configuration with explicit default and visibility</span>
+<span class="sd">            max_retries = self._require_config(&#39;execution_control.limits.max_step_retries&#39;, 0)</span>
+
+<span class="sd">            # Silent optional configuration - use standard get() for noise-free defaults</span>
+<span class="sd">            debug_mode = self.get(&#39;development.debug&#39;, False)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">default</span> <span class="ow">is</span> <span class="bp">self</span><span class="o">.</span><span class="n">_REQUIRED</span><span class="p">:</span>
+                <span class="c1"># No default provided - this is a required configuration</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Missing required configuration: &#39;</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">&#39; must be explicitly set in config.yml. &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;This setting has no default value and must be configured explicitly.&quot;</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># Default provided - use it but warn for visibility</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Using default value for &#39;</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">&#39; = </span><span class="si">{</span><span class="n">default</span><span class="si">}</span><span class="s2">. &quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">default</span>
+        <span class="k">return</span> <span class="n">value</span>
+
+<div class="viewcode-block" id="ConfigBuilder.__init__">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config.ConfigBuilder.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initialize configuration builder.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            config_path: Path to the config.yml file. If None, looks in current directory.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            FileNotFoundError: If config.yml is not found and no path is provided.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Load .env file from current working directory</span>
+        <span class="c1"># This ensures environment variables are available for config resolution</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">dotenv</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_dotenv</span>
+
+            <span class="n">dotenv_path</span> <span class="o">=</span> <span class="n">Path</span><span class="o">.</span><span class="n">cwd</span><span class="p">()</span> <span class="o">/</span> <span class="s2">&quot;.env&quot;</span>
+            <span class="k">if</span> <span class="n">dotenv_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                <span class="n">load_dotenv</span><span class="p">(</span><span class="n">dotenv_path</span><span class="p">,</span> <span class="n">override</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>  <span class="c1"># Don&#39;t override existing env vars</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loaded .env file from </span><span class="si">{</span><span class="n">dotenv_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;No .env file found at </span><span class="si">{</span><span class="n">dotenv_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;python-dotenv not available, skipping .env file loading&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">config_path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># Check current working directory (where user ran the command)</span>
+            <span class="n">cwd_config</span> <span class="o">=</span> <span class="n">Path</span><span class="o">.</span><span class="n">cwd</span><span class="p">()</span> <span class="o">/</span> <span class="s2">&quot;config.yml&quot;</span>
+            <span class="k">if</span> <span class="n">cwd_config</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                <span class="n">config_path</span> <span class="o">=</span> <span class="n">cwd_config</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># NO FALLBACK - Fail fast with clear error</span>
+                <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;No config.yml found in current directory: </span><span class="si">{</span><span class="n">Path</span><span class="o">.</span><span class="n">cwd</span><span class="p">()</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;Please run this command from a project directory containing config.yml,</span><span class="se">\n</span><span class="s2">&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;or set CONFIG_FILE environment variable to point to your config file.</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;Example: export CONFIG_FILE=/path/to/your/config.yml&quot;</span>
+                <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">config_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">raw_config</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_unexpanded_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_load_config</span><span class="p">()</span>
+
+        <span class="c1"># Pre-compute nested structures for efficient runtime access</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">configurable</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_configurable</span><span class="p">()</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_load_yaml_file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">file_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Load and validate a YAML configuration file.&quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">file_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                <span class="n">config</span> <span class="o">=</span> <span class="n">yaml</span><span class="o">.</span><span class="n">safe_load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Configuration file is empty: </span><span class="si">{</span><span class="n">file_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="p">{}</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                <span class="n">error_msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Configuration file must contain a dictionary/mapping: </span><span class="si">{</span><span class="n">file_path</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">error_msg</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">error_msg</span><span class="p">)</span>
+
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loaded configuration from </span><span class="si">{</span><span class="n">file_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">config</span>
+        <span class="k">except</span> <span class="n">yaml</span><span class="o">.</span><span class="n">YAMLError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">error_msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Error parsing YAML configuration: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">error_msg</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="n">yaml</span><span class="o">.</span><span class="n">YAMLError</span><span class="p">(</span><span class="n">error_msg</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_resolve_env_vars</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Recursively resolve environment variables in configuration data.</span>
+
+<span class="sd">        Supports both simple and bash-style default value syntax:</span>
+<span class="sd">        - ${VAR_NAME} - simple substitution</span>
+<span class="sd">        - ${VAR_NAME:-default_value} - with default value</span>
+<span class="sd">        - $VAR_NAME - simple substitution without braces</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">return</span> <span class="p">{</span><span class="n">key</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_resolve_env_vars</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+            <span class="k">return</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_resolve_env_vars</span><span class="p">(</span><span class="n">item</span><span class="p">)</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">data</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+
+            <span class="k">def</span><span class="w"> </span><span class="nf">replace_env_var</span><span class="p">(</span><span class="n">match</span><span class="p">):</span>
+                <span class="c1"># Pattern matches: ${VAR_NAME:-default} or ${VAR_NAME} or $VAR_NAME</span>
+                <span class="k">if</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">):</span>  <span class="c1"># ${VAR_NAME:-default} or ${VAR_NAME}</span>
+                    <span class="n">var_name</span> <span class="o">=</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+                    <span class="n">default_value</span> <span class="o">=</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span> <span class="k">if</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+                <span class="k">else</span><span class="p">:</span>  <span class="c1"># $VAR_NAME (simple form)</span>
+                    <span class="n">var_name</span> <span class="o">=</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+                    <span class="n">default_value</span> <span class="o">=</span> <span class="kc">None</span>
+
+                <span class="n">env_value</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">var_name</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">env_value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">default_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                        <span class="c1"># Use default value from ${VAR:-default} syntax</span>
+                        <span class="k">return</span> <span class="n">default_value</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="c1"># Only log warning if not in quiet mode (e.g., from interactive menu subprocess)</span>
+                        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;OSPREY_QUIET&quot;</span><span class="p">):</span>
+                            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                                <span class="sa">f</span><span class="s2">&quot;Environment variable &#39;</span><span class="si">{</span><span class="n">var_name</span><span class="si">}</span><span class="s2">&#39; not found, keeping original value&quot;</span>
+                            <span class="p">)</span>
+                        <span class="k">return</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">env_value</span>
+
+            <span class="c1"># Pattern matches ${VAR_NAME:-default}, ${VAR_NAME}, or $VAR_NAME</span>
+            <span class="n">pattern</span> <span class="o">=</span> <span class="sa">r</span><span class="s2">&quot;\$\{([^}:]+)(?::-(.*?))?\}|\$([A-Za-z_][A-Za-z0-9_]*)&quot;</span>
+            <span class="k">return</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="n">pattern</span><span class="p">,</span> <span class="n">replace_env_var</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">data</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_load_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Load configuration from single file.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Tuple of (expanded_config, unexpanded_config) where:</span>
+<span class="sd">            - expanded_config: Config with ${VAR} placeholders resolved to actual values</span>
+<span class="sd">            - unexpanded_config: Config with ${VAR} placeholders preserved (for deployment)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
+
+        <span class="c1"># Load the config file</span>
+        <span class="n">config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_load_yaml_file</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config_path</span><span class="p">)</span>
+
+        <span class="c1"># Store unexpanded config for deployment use (deep copy to prevent mutations)</span>
+        <span class="n">unexpanded_config</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+
+        <span class="c1"># Apply environment variable substitution</span>
+        <span class="n">expanded_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_resolve_env_vars</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loaded configuration from </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">config_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">expanded_config</span><span class="p">,</span> <span class="n">unexpanded_config</span>
+
+<div class="viewcode-block" id="ConfigBuilder.get_unexpanded_config">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config.ConfigBuilder.get_unexpanded_config">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_unexpanded_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get configuration with environment variable placeholders preserved.</span>
+
+<span class="sd">        Returns the configuration as loaded from YAML, without expanding</span>
+<span class="sd">        ${VAR_NAME} placeholders. This is useful for deployment scenarios</span>
+<span class="sd">        where secrets should NOT be written to disk - instead, the placeholders</span>
+<span class="sd">        are preserved and resolved at container runtime.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            dict: Configuration with ${VAR} placeholders intact</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
+
+        <span class="k">return</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_unexpanded_config</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_approval_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get approval configuration with sensible defaults.</span>
+
+<span class="sd">        Returns approval configuration from config.yml if present, otherwise provides</span>
+<span class="sd">        secure defaults suitable for tutorial and development environments.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            dict: Approval configuration with global_mode and capabilities sections</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Try to get approval config from file</span>
+        <span class="n">approval_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;approval&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+
+        <span class="c1"># If approval section exists and has content, use it</span>
+        <span class="k">if</span> <span class="n">approval_config</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">approval_config</span>
+
+        <span class="c1"># Otherwise, provide sensible defaults for tutorial/development mode</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;⚠️  &#39;approval&#39; section missing from config.yml, using framework defaults&quot;</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;⚠️  For production use, please add an &#39;approval&#39; section to your config.yml&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Sensible defaults for tutorial/development environments</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;global_mode&quot;</span><span class="p">:</span> <span class="s2">&quot;selective&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;capabilities&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;python_execution&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;enabled&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                    <span class="s2">&quot;mode&quot;</span><span class="p">:</span> <span class="s2">&quot;control_writes&quot;</span><span class="p">,</span>  <span class="c1"># Generic name for control-system-agnostic config</span>
+                <span class="p">},</span>
+                <span class="s2">&quot;memory&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;enabled&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">},</span>
+            <span class="p">},</span>
+        <span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_execution_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get execution configuration with sensible defaults.</span>
+
+<span class="sd">        Returns execution configuration from config.yml if present, otherwise provides</span>
+<span class="sd">        defaults suitable for local Python execution in tutorial environments.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            dict: Execution configuration including method, python_env_path, and modes</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Try to get execution config from file</span>
+        <span class="n">execution_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+
+        <span class="c1"># If execution section exists and has content, use it</span>
+        <span class="k">if</span> <span class="n">execution_config</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">execution_config</span>
+
+        <span class="c1"># Otherwise, provide sensible defaults for tutorial/development mode</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;⚠️  &#39;execution&#39; section missing from config.yml, using framework defaults&quot;</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;⚠️  Using local Python execution (no container/Jupyter support)&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Import here to avoid circular dependencies</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+
+        <span class="c1"># Sensible defaults for tutorial environments (local execution only)</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;execution_method&quot;</span><span class="p">:</span> <span class="s2">&quot;local&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;python_env_path&quot;</span><span class="p">:</span> <span class="n">sys</span><span class="o">.</span><span class="n">executable</span><span class="p">,</span>  <span class="c1"># Use current Python interpreter</span>
+            <span class="s2">&quot;code_generator&quot;</span><span class="p">:</span> <span class="s2">&quot;basic&quot;</span><span class="p">,</span>  <span class="c1"># Use basic LLM code generator</span>
+            <span class="s2">&quot;generators&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;basic&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;model_config_name&quot;</span><span class="p">:</span> <span class="s2">&quot;python_code_generator&quot;</span><span class="p">}</span>  <span class="c1"># Reference models section</span>
+            <span class="p">},</span>
+            <span class="s2">&quot;modes&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;read_only&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;kernel_name&quot;</span><span class="p">:</span> <span class="s2">&quot;python3-readonly&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;gateway&quot;</span><span class="p">:</span> <span class="s2">&quot;read_only&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;allows_writes&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                    <span class="s2">&quot;environment&quot;</span><span class="p">:</span> <span class="p">{},</span>
+                <span class="p">},</span>
+                <span class="s2">&quot;write_access&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;kernel_name&quot;</span><span class="p">:</span> <span class="s2">&quot;python3-write&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;gateway&quot;</span><span class="p">:</span> <span class="s2">&quot;write_access&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;allows_writes&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                    <span class="s2">&quot;requires_approval&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                    <span class="s2">&quot;environment&quot;</span><span class="p">:</span> <span class="p">{},</span>
+                <span class="p">},</span>
+            <span class="p">},</span>
+        <span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_writes_enabled_with_fallback</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get control system writes_enabled with backward compatibility.</span>
+
+<span class="sd">        Tries new location first (control_system.writes_enabled), then falls back</span>
+<span class="sd">        to deprecated location (execution_control.epics.writes_enabled) without warnings.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            bool: Whether control system writes are enabled</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Try new location first (silent check - no warning if missing)</span>
+        <span class="n">writes_enabled</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;control_system.writes_enabled&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">writes_enabled</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">writes_enabled</span>
+
+        <span class="c1"># Fall back to old location (silent check - no warning)</span>
+        <span class="n">writes_enabled_old</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_control.epics.writes_enabled&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">writes_enabled_old</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">writes_enabled_old</span>
+
+        <span class="c1"># Neither location set - default to False (safe default)</span>
+        <span class="k">return</span> <span class="kc">False</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_python_executor_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get python executor configuration with sensible defaults.</span>
+
+<span class="sd">        Returns python_executor configuration from config.yml if present, otherwise</span>
+<span class="sd">        provides reasonable defaults for retry and timeout settings.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            dict: Python executor configuration with retry and timeout settings</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Try to get python_executor config from file</span>
+        <span class="n">python_executor_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;python_executor&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+
+        <span class="c1"># If python_executor section exists and has content, use it</span>
+        <span class="k">if</span> <span class="n">python_executor_config</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">python_executor_config</span>
+
+        <span class="c1"># Otherwise, provide sensible defaults</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;max_generation_retries&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
+            <span class="s2">&quot;max_execution_retries&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
+            <span class="s2">&quot;execution_timeout_seconds&quot;</span><span class="p">:</span> <span class="mi">600</span><span class="p">,</span>
+        <span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_build_configurable</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build the configurable dictionary with pre-computed nested structures.&quot;&quot;&quot;</span>
+        <span class="n">configurable</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="c1"># ===== SESSION INFORMATION =====</span>
+            <span class="s2">&quot;user_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s2">&quot;chat_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s2">&quot;session_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s2">&quot;thread_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s2">&quot;session_url&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="c1"># ===== EXECUTION LIMITS =====</span>
+            <span class="s2">&quot;execution_limits&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_execution_limits</span><span class="p">(),</span>
+            <span class="c1"># ===== AGENT CONTROL DEFAULTS =====</span>
+            <span class="s2">&quot;agent_control_defaults&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_agent_control_defaults</span><span class="p">(),</span>
+            <span class="c1"># ===== COMPLEX NESTED STRUCTURES =====</span>
+            <span class="s2">&quot;model_configs&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_model_configs</span><span class="p">(),</span>
+            <span class="s2">&quot;provider_configs&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_provider_configs</span><span class="p">(),</span>
+            <span class="s2">&quot;service_configs&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_service_configs</span><span class="p">(),</span>
+            <span class="c1"># ===== FRAMEWORK EXECUTION CONFIGURATION =====</span>
+            <span class="c1"># Python execution settings and executor service configuration</span>
+            <span class="s2">&quot;execution&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_execution_config</span><span class="p">(),</span>
+            <span class="s2">&quot;python_executor&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_python_executor_config</span><span class="p">(),</span>
+            <span class="c1"># ===== LOGGING CONFIGURATION =====</span>
+            <span class="s2">&quot;logging&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;logging&quot;</span><span class="p">,</span> <span class="p">{}),</span>
+            <span class="c1"># ===== SIMPLE FLAT CONFIGS =====</span>
+            <span class="s2">&quot;development&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;development&quot;</span><span class="p">,</span> <span class="p">{}),</span>
+            <span class="s2">&quot;epics_config&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution.epics&quot;</span><span class="p">,</span> <span class="p">{}),</span>
+            <span class="s2">&quot;approval_config&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_approval_config</span><span class="p">(),</span>
+            <span class="c1"># ===== PROJECT CONFIGURATION =====</span>
+            <span class="c1"># Essential for absolute path resolution across deployment environments</span>
+            <span class="s2">&quot;project_root&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;project_root&quot;</span><span class="p">),</span>
+            <span class="c1"># ===== APPLICATION CONTEXT =====</span>
+            <span class="s2">&quot;applications&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;applications&quot;</span><span class="p">,</span> <span class="p">[]),</span>
+            <span class="s2">&quot;current_application&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_current_application</span><span class="p">(),</span>
+            <span class="s2">&quot;registry_path&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;registry_path&quot;</span><span class="p">),</span>
+        <span class="p">}</span>
+
+        <span class="k">return</span> <span class="n">configurable</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_build_model_configs</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get model configs from flat structure.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;models&quot;</span><span class="p">,</span> <span class="p">{})</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_build_provider_configs</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build provider configs.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;api.providers&quot;</span><span class="p">,</span> <span class="p">{})</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_build_service_configs</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get service configs from flat structure.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;services&quot;</span><span class="p">,</span> <span class="p">{})</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_build_execution_limits</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build execution limits&quot;&quot;&quot;</span>
+
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;graph_recursion_limit&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_require_config</span><span class="p">(</span>
+                <span class="s2">&quot;execution_control.limits.graph_recursion_limit&quot;</span><span class="p">,</span> <span class="mi">100</span>
+            <span class="p">),</span>
+            <span class="s2">&quot;max_reclassifications&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_require_config</span><span class="p">(</span>
+                <span class="s2">&quot;execution_control.limits.max_reclassifications&quot;</span><span class="p">,</span> <span class="mi">1</span>
+            <span class="p">),</span>
+            <span class="s2">&quot;max_planning_attempts&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_require_config</span><span class="p">(</span>
+                <span class="s2">&quot;execution_control.limits.max_planning_attempts&quot;</span><span class="p">,</span> <span class="mi">2</span>
+            <span class="p">),</span>
+            <span class="s2">&quot;max_step_retries&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_require_config</span><span class="p">(</span>
+                <span class="s2">&quot;execution_control.limits.max_step_retries&quot;</span><span class="p">,</span> <span class="mi">0</span>
+            <span class="p">),</span>
+            <span class="s2">&quot;max_execution_time_seconds&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_require_config</span><span class="p">(</span>
+                <span class="s2">&quot;execution_control.limits.max_execution_time_seconds&quot;</span><span class="p">,</span> <span class="mi">300</span>
+            <span class="p">),</span>
+            <span class="s2">&quot;max_concurrent_classifications&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_require_config</span><span class="p">(</span>
+                <span class="s2">&quot;execution_control.limits.max_concurrent_classifications&quot;</span><span class="p">,</span> <span class="mi">5</span>
+            <span class="p">),</span>
+        <span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_build_agent_control_defaults</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build agent control defaults with explicit configuration control.&quot;&quot;&quot;</span>
+
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="c1"># Planning control</span>
+            <span class="s2">&quot;planning_mode_enabled&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+            <span class="c1"># Control system writes control (with backward compatibility)</span>
+            <span class="s2">&quot;epics_writes_enabled&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_writes_enabled_with_fallback</span><span class="p">(),</span>
+            <span class="s2">&quot;control_system_writes_enabled&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_writes_enabled_with_fallback</span><span class="p">(),</span>
+            <span class="c1"># Approval control</span>
+            <span class="s2">&quot;approval_global_mode&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_require_config</span><span class="p">(</span><span class="s2">&quot;approval.global_mode&quot;</span><span class="p">,</span> <span class="s2">&quot;selective&quot;</span><span class="p">),</span>
+            <span class="s2">&quot;python_execution_approval_enabled&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_require_config</span><span class="p">(</span>
+                <span class="s2">&quot;approval.capabilities.python_execution.enabled&quot;</span><span class="p">,</span> <span class="kc">True</span>
+            <span class="p">),</span>
+            <span class="s2">&quot;python_execution_approval_mode&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_require_config</span><span class="p">(</span>
+                <span class="s2">&quot;approval.capabilities.python_execution.mode&quot;</span><span class="p">,</span> <span class="s2">&quot;all_code&quot;</span>
+            <span class="p">),</span>
+            <span class="s2">&quot;memory_approval_enabled&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_require_config</span><span class="p">(</span>
+                <span class="s2">&quot;approval.capabilities.memory.enabled&quot;</span><span class="p">,</span> <span class="kc">True</span>
+            <span class="p">),</span>
+            <span class="c1"># Performance bypass configuration (configurable via YAML)</span>
+            <span class="s2">&quot;task_extraction_bypass_enabled&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_require_config</span><span class="p">(</span>
+                <span class="s2">&quot;execution_control.agent_control.task_extraction_bypass_enabled&quot;</span><span class="p">,</span> <span class="kc">False</span>
+            <span class="p">),</span>
+            <span class="s2">&quot;capability_selection_bypass_enabled&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_require_config</span><span class="p">(</span>
+                <span class="s2">&quot;execution_control.agent_control.capability_selection_bypass_enabled&quot;</span><span class="p">,</span> <span class="kc">False</span>
+            <span class="p">),</span>
+            <span class="c1"># Note: Execution limits (max_reclassifications, max_planning_attempts, etc.)</span>
+            <span class="c1"># are now centralized in get_execution_limits() utility function</span>
+        <span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_current_application</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the current/primary application name.&quot;&quot;&quot;</span>
+        <span class="n">applications</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;applications&quot;</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">applications</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="n">applications</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="n">applications</span><span class="o">.</span><span class="n">keys</span><span class="p">())[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">applications</span><span class="p">,</span> <span class="nb">list</span><span class="p">)</span> <span class="ow">and</span> <span class="n">applications</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">applications</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+<div class="viewcode-block" id="ConfigBuilder.get">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config.ConfigBuilder.get">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get configuration value using dot notation path.&quot;&quot;&quot;</span>
+        <span class="n">keys</span> <span class="o">=</span> <span class="n">path</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">raw_config</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">keys</span><span class="p">:</span>
+                <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+            <span class="k">return</span> <span class="n">value</span>
+        <span class="k">except</span> <span class="p">(</span><span class="ne">KeyError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">default</span></div>
+</div>
+
+
+
+<span class="c1"># =============================================================================</span>
+<span class="c1"># GLOBAL CONFIGURATION</span>
+<span class="c1"># =============================================================================</span>
+
+<span class="c1"># Global configuration instances</span>
+<span class="c1"># Default config (singleton pattern for backward compatibility)</span>
+<span class="n">_default_config</span><span class="p">:</span> <span class="n">ConfigBuilder</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="n">_default_configurable</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+<span class="c1"># Per-path config cache for explicit config paths</span>
+<span class="n">_config_cache</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ConfigBuilder</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+
+
+<div class="viewcode-block" id="_get_config">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config._get_config">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_get_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">set_as_default</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ConfigBuilder</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get configuration instance (singleton pattern with optional explicit path).</span>
+
+<span class="sd">    This function supports two modes:</span>
+<span class="sd">    1. Default singleton: When no config_path provided, uses CONFIG_FILE env var or cwd/config.yml</span>
+<span class="sd">    2. Explicit path: When config_path provided, caches and returns config for that specific path</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config_path: Optional explicit path to configuration file. If provided,</span>
+<span class="sd">                    this path is used instead of the default singleton behavior.</span>
+<span class="sd">        set_as_default: If True and config_path is provided, also set this config as the</span>
+<span class="sd">                       default singleton so future calls without config_path use it.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ConfigBuilder instance for the specified or default configuration</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        &gt;&gt;&gt; # Default singleton behavior (backward compatible)</span>
+<span class="sd">        &gt;&gt;&gt; config = _get_config()</span>
+
+<span class="sd">        &gt;&gt;&gt; # Explicit config path</span>
+<span class="sd">        &gt;&gt;&gt; config = _get_config(&quot;/path/to/config.yml&quot;)</span>
+
+<span class="sd">        &gt;&gt;&gt; # Explicit path that becomes the default</span>
+<span class="sd">        &gt;&gt;&gt; config = _get_config(&quot;/path/to/config.yml&quot;, set_as_default=True)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_default_config</span><span class="p">,</span> <span class="n">_default_configurable</span>
+
+    <span class="c1"># If no explicit path, use default singleton behavior</span>
+    <span class="k">if</span> <span class="n">config_path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">_default_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># Check for environment variable override</span>
+            <span class="n">config_file</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;CONFIG_FILE&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">config_file</span><span class="p">:</span>
+                <span class="n">_default_config</span> <span class="o">=</span> <span class="n">ConfigBuilder</span><span class="p">(</span><span class="n">config_file</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">_default_config</span> <span class="o">=</span> <span class="n">ConfigBuilder</span><span class="p">()</span>
+
+            <span class="c1"># Cache configurable for efficient non-LangGraph contexts</span>
+            <span class="n">_default_configurable</span> <span class="o">=</span> <span class="n">_default_config</span><span class="o">.</span><span class="n">configurable</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Initialized default configuration system&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">_default_config</span>
+
+    <span class="c1"># For explicit path, cache per path to avoid reloading</span>
+    <span class="n">resolved_path</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">())</span>
+
+    <span class="k">if</span> <span class="n">resolved_path</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_config_cache</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loading configuration from explicit path: </span><span class="si">{</span><span class="n">resolved_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">_config_cache</span><span class="p">[</span><span class="n">resolved_path</span><span class="p">]</span> <span class="o">=</span> <span class="n">ConfigBuilder</span><span class="p">(</span><span class="n">resolved_path</span><span class="p">)</span>
+
+    <span class="c1"># If requested, also set this as the default config</span>
+    <span class="k">if</span> <span class="n">set_as_default</span><span class="p">:</span>
+        <span class="n">_default_config</span> <span class="o">=</span> <span class="n">_config_cache</span><span class="p">[</span><span class="n">resolved_path</span><span class="p">]</span>
+        <span class="n">_default_configurable</span> <span class="o">=</span> <span class="n">_default_config</span><span class="o">.</span><span class="n">configurable</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Set explicit config as default: </span><span class="si">{</span><span class="n">resolved_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">_config_cache</span><span class="p">[</span><span class="n">resolved_path</span><span class="p">]</span></div>
+
+
+
+<div class="viewcode-block" id="_get_configurable">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config._get_configurable">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_get_configurable</span><span class="p">(</span>
+    <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">set_as_default</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get configurable dict with automatic context detection.</span>
+
+<span class="sd">    This function supports both LangGraph execution contexts and standalone execution,</span>
+<span class="sd">    with optional explicit configuration path support.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config_path: Optional explicit path to configuration file</span>
+<span class="sd">        set_as_default: If True and config_path is provided, set as default config</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Complete configuration dictionary with all configurable values</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># Prefer LangGraph context for runtime-injected configuration</span>
+        <span class="c1"># (only when no explicit config_path is provided)</span>
+        <span class="k">if</span> <span class="n">config_path</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">get_config</span><span class="p">:</span>
+            <span class="n">config</span> <span class="o">=</span> <span class="n">get_config</span><span class="p">()</span>
+            <span class="k">return</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;configurable&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="s2">&quot;LangGraph not available or explicit path provided&quot;</span><span class="p">)</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">RuntimeError</span><span class="p">,</span> <span class="ne">ImportError</span><span class="p">):</span>
+        <span class="c1"># Use cached configurable for standalone execution</span>
+        <span class="n">config</span> <span class="o">=</span> <span class="n">_get_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">,</span> <span class="n">set_as_default</span><span class="o">=</span><span class="n">set_as_default</span><span class="p">)</span>
+
+        <span class="c1"># For default config, use cached configurable for performance</span>
+        <span class="k">if</span> <span class="n">config_path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">global</span> <span class="n">_default_configurable</span>
+            <span class="k">if</span> <span class="n">_default_configurable</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">_default_configurable</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">configurable</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+            <span class="k">return</span> <span class="n">_default_configurable</span>
+
+        <span class="c1"># For explicit paths, return configurable directly</span>
+        <span class="k">return</span> <span class="n">config</span><span class="o">.</span><span class="n">configurable</span></div>
+
+
+
+<span class="c1"># =============================================================================</span>
+<span class="c1"># PUBLIC CONFIGURATION ACCESS</span>
+<span class="c1"># =============================================================================</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_config_builder</span><span class="p">(</span>
+    <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">set_as_default</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ConfigBuilder</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get configuration builder instance for full config access.</span>
+
+<span class="sd">    This is the primary public API for accessing the configuration system.</span>
+<span class="sd">    Returns a ConfigBuilder instance that provides access to both raw configuration</span>
+<span class="sd">    data and pre-computed configurable structures.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config_path: Optional explicit path to configuration file. If provided,</span>
+<span class="sd">                    loads configuration from this path. If None, uses the default</span>
+<span class="sd">                    singleton (CONFIG_FILE env var or cwd/config.yml).</span>
+<span class="sd">        set_as_default: If True and config_path is provided, also set this config</span>
+<span class="sd">                       as the default singleton for future calls without config_path.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ConfigBuilder instance with access to:</span>
+<span class="sd">        - .raw_config: The raw YAML configuration dictionary</span>
+<span class="sd">        - .configurable: Pre-computed configuration for LangGraph</span>
+<span class="sd">        - .get(path, default): Dot-notation access to config values</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        &gt;&gt;&gt; # Default configuration</span>
+<span class="sd">        &gt;&gt;&gt; config = get_config_builder()</span>
+<span class="sd">        &gt;&gt;&gt; timeout = config.get(&quot;execution.timeout&quot;, 30)</span>
+
+<span class="sd">        &gt;&gt;&gt; # Load from specific path</span>
+<span class="sd">        &gt;&gt;&gt; config = get_config_builder(&quot;/path/to/config.yml&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; raw = config.raw_config</span>
+
+<span class="sd">        &gt;&gt;&gt; # Load and set as default for subsequent calls</span>
+<span class="sd">        &gt;&gt;&gt; config = get_config_builder(&quot;/path/to/config.yml&quot;, set_as_default=True)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_get_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">,</span> <span class="n">set_as_default</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">load_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Load raw configuration dictionary from YAML file.</span>
+
+<span class="sd">    Convenience function that returns the raw configuration dictionary</span>
+<span class="sd">    as loaded from the YAML file, with environment variables resolved.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config_path: Optional path to configuration file. If None, uses the</span>
+<span class="sd">                    default configuration (CONFIG_FILE env var or cwd/config.yml).</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Raw configuration dictionary with all values from the YAML file.</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        &gt;&gt;&gt; # Load default configuration</span>
+<span class="sd">        &gt;&gt;&gt; config = load_config()</span>
+<span class="sd">        &gt;&gt;&gt; api_key = config.get(&quot;api&quot;, {}).get(&quot;key&quot;)</span>
+
+<span class="sd">        &gt;&gt;&gt; # Load from specific path</span>
+<span class="sd">        &gt;&gt;&gt; config = load_config(&quot;/path/to/config.yml&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; channels = config.get(&quot;channel_finder&quot;, {})</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_get_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span><span class="o">.</span><span class="n">raw_config</span>
+
+
+<span class="c1"># =============================================================================</span>
+<span class="c1"># CONTEXT-AWARE UTILITY FUNCTIONS</span>
+<span class="c1"># =============================================================================</span>
+
+
+<div class="viewcode-block" id="get_model_config">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config.get_model_config">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_model_config</span><span class="p">(</span><span class="n">model_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Get model configuration with automatic context detection.</span>
+
+<span class="sd">    Works both inside and outside LangGraph contexts.</span>
+<span class="sd">    All models are configured at the top level in the &#39;models&#39; section.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        model_name: Name of the model (e.g., &#39;orchestrator&#39;, &#39;classifier&#39;, &#39;time_parsing&#39;,</span>
+<span class="sd">                   &#39;response&#39;, &#39;approval&#39;, &#39;memory&#39;, &#39;task_extraction&#39;, &#39;python_code_generator&#39;)</span>
+<span class="sd">        config_path: Optional explicit path to configuration file for multi-project workflows</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Dictionary with model configuration containing provider, model_id, and optional settings</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Default config (searches current directory):</span>
+<span class="sd">            &gt;&gt;&gt; get_model_config(&quot;orchestrator&quot;)</span>
+<span class="sd">            {&#39;provider&#39;: &#39;anthropic&#39;, &#39;model_id&#39;: &#39;claude-haiku-4-5-20251001&#39;, ...}</span>
+
+<span class="sd">        Multi-project workflow:</span>
+<span class="sd">            &gt;&gt;&gt; get_model_config(&quot;orchestrator&quot;, config_path=&quot;~/other-project/config.yml&quot;)</span>
+<span class="sd">            {&#39;provider&#39;: &#39;openai&#39;, &#39;model_id&#39;: &#39;gpt-4o&#39;, ...}</span>
+
+<span class="sd">    Configuration format (config.yml):</span>
+<span class="sd">        models:</span>
+<span class="sd">          orchestrator:</span>
+<span class="sd">            provider: anthropic</span>
+<span class="sd">            model_id: claude-haiku-4-5-20251001</span>
+<span class="sd">          classifier:</span>
+<span class="sd">            provider: anthropic</span>
+<span class="sd">            model_id: claude-haiku-4-5-20251001</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">configurable</span> <span class="o">=</span> <span class="n">_get_configurable</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>
+    <span class="n">model_configs</span> <span class="o">=</span> <span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;model_configs&quot;</span><span class="p">,</span> <span class="p">{})</span>
+
+    <span class="c1"># Direct lookup from flat structure</span>
+    <span class="k">return</span> <span class="n">model_configs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">model_name</span><span class="p">,</span> <span class="p">{})</span></div>
+
+
+
+<div class="viewcode-block" id="get_provider_config">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config.get_provider_config">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_provider_config</span><span class="p">(</span><span class="n">provider_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get API provider configuration with automatic context detection.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        provider_name: Name of the provider (e.g., &#39;openai&#39;, &#39;anthropic&#39;)</span>
+<span class="sd">        config_path: Optional explicit path to configuration file</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Dictionary with provider configuration</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">configurable</span> <span class="o">=</span> <span class="n">_get_configurable</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>
+    <span class="n">provider_configs</span> <span class="o">=</span> <span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;provider_configs&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="k">return</span> <span class="n">provider_configs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">provider_name</span><span class="p">,</span> <span class="p">{})</span></div>
+
+
+
+<div class="viewcode-block" id="get_framework_service_config">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config.get_framework_service_config">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_framework_service_config</span><span class="p">(</span>
+    <span class="n">service_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get framework service configuration with automatic context detection.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        service_name: Name of the framework service</span>
+<span class="sd">        config_path: Optional explicit path to configuration file</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Dictionary with service configuration</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">configurable</span> <span class="o">=</span> <span class="n">_get_configurable</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>
+    <span class="n">service_configs</span> <span class="o">=</span> <span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;service_configs&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="k">return</span> <span class="n">service_configs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">service_name</span><span class="p">,</span> <span class="p">{})</span></div>
+
+
+
+<div class="viewcode-block" id="get_application_service_config">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config.get_application_service_config">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_application_service_config</span><span class="p">(</span><span class="n">app_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">service_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get application service configuration with automatic context detection.&quot;&quot;&quot;</span>
+    <span class="n">configurable</span> <span class="o">=</span> <span class="n">_get_configurable</span><span class="p">()</span>
+    <span class="n">service_configs</span> <span class="o">=</span> <span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;service_configs&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="c1"># Try new flat format first (single-config)</span>
+    <span class="k">if</span> <span class="n">service_name</span> <span class="ow">in</span> <span class="n">service_configs</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">service_configs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">service_name</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="c1"># Fall back to legacy nested format</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;DEPRECATED: Using legacy nested config format for applications.</span><span class="si">{</span><span class="n">app_name</span><span class="si">}</span><span class="s2">.services.</span><span class="si">{</span><span class="n">service_name</span><span class="si">}</span><span class="s2">. &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;Please migrate to flat config structure with services at top level.&quot;</span>
+    <span class="p">)</span>
+    <span class="n">app_services</span> <span class="o">=</span> <span class="n">service_configs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;applications&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">app_name</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="k">return</span> <span class="n">app_services</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">service_name</span><span class="p">,</span> <span class="p">{})</span></div>
+
+
+
+<div class="viewcode-block" id="get_pipeline_config">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config.get_pipeline_config">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_pipeline_config</span><span class="p">(</span><span class="n">app_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get pipeline configuration with automatic context detection.&quot;&quot;&quot;</span>
+    <span class="n">configurable</span> <span class="o">=</span> <span class="n">_get_configurable</span><span class="p">()</span>
+    <span class="n">config</span> <span class="o">=</span> <span class="n">_get_config</span><span class="p">()</span>
+
+    <span class="c1"># Try new flat format first (single-config)</span>
+    <span class="n">pipeline_config</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;pipeline&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="k">if</span> <span class="n">pipeline_config</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">pipeline_config</span>
+
+    <span class="c1"># Fall back to legacy nested format</span>
+    <span class="k">if</span> <span class="n">app_name</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">app_name</span> <span class="o">=</span> <span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;current_application&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">app_name</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;DEPRECATED: Using legacy nested config format for applications.</span><span class="si">{</span><span class="n">app_name</span><span class="si">}</span><span class="s2">.pipeline. &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;Please migrate to flat config structure with pipeline at top level.&quot;</span>
+        <span class="p">)</span>
+        <span class="n">app_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;applications.</span><span class="si">{</span><span class="n">app_name</span><span class="si">}</span><span class="s2">.pipeline&quot;</span>
+        <span class="n">app_config</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">app_path</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="k">if</span> <span class="n">app_config</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">app_config</span>
+
+    <span class="c1"># Fall back to framework pipeline config</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+        <span class="s2">&quot;DEPRECATED: Using legacy nested config format for osprey.pipeline. &quot;</span>
+        <span class="s2">&quot;Please migrate to flat config structure with pipeline at top level.&quot;</span>
+    <span class="p">)</span>
+    <span class="n">framework</span> <span class="o">=</span> <span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;osprey&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="k">return</span> <span class="n">framework</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;pipeline&quot;</span><span class="p">,</span> <span class="p">{})</span></div>
+
+
+
+<div class="viewcode-block" id="get_execution_limits">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config.get_execution_limits">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_execution_limits</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get execution limits with automatic context detection.&quot;&quot;&quot;</span>
+    <span class="n">configurable</span> <span class="o">=</span> <span class="n">_get_configurable</span><span class="p">()</span>
+    <span class="n">execution_limits</span> <span class="o">=</span> <span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_limits&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">execution_limits</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+            <span class="s2">&quot;Execution limits configuration not found. Please ensure &#39;execution_limits&#39; is properly &quot;</span>
+            <span class="s2">&quot;configured in your config.yml or environment settings with the following required fields: &quot;</span>
+            <span class="s2">&quot;max_reclassifications, max_planning_attempts, max_step_retries, max_execution_time_seconds, graph_recursion_limit&quot;</span>
+        <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">execution_limits</span></div>
+
+
+
+<div class="viewcode-block" id="get_agent_control_defaults">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config.get_agent_control_defaults">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_agent_control_defaults</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get agent control defaults with automatic context detection.&quot;&quot;&quot;</span>
+    <span class="n">configurable</span> <span class="o">=</span> <span class="n">_get_configurable</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;agent_control_defaults&quot;</span><span class="p">,</span> <span class="p">{})</span></div>
+
+
+
+<div class="viewcode-block" id="get_session_info">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config.get_session_info">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_session_info</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get session information with automatic context detection.&quot;&quot;&quot;</span>
+    <span class="n">configurable</span> <span class="o">=</span> <span class="n">_get_configurable</span><span class="p">()</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;user_id&quot;</span><span class="p">:</span> <span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;user_id&quot;</span><span class="p">),</span>
+        <span class="s2">&quot;chat_id&quot;</span><span class="p">:</span> <span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;chat_id&quot;</span><span class="p">),</span>
+        <span class="s2">&quot;session_id&quot;</span><span class="p">:</span> <span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;session_id&quot;</span><span class="p">),</span>
+        <span class="s2">&quot;thread_id&quot;</span><span class="p">:</span> <span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;thread_id&quot;</span><span class="p">),</span>
+        <span class="s2">&quot;session_url&quot;</span><span class="p">:</span> <span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;session_url&quot;</span><span class="p">),</span>
+    <span class="p">}</span></div>
+
+
+
+<div class="viewcode-block" id="get_interface_context">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config.get_interface_context">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_interface_context</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Get interface context indicating which user interface is being used.</span>
+
+<span class="sd">    The interface context determines how responses are formatted and which</span>
+<span class="sd">    features are available (e.g., figure rendering, notebook links, command buttons).</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        str: The interface type, one of:</span>
+<span class="sd">            - &quot;openwebui&quot;: Open WebUI interface with rich rendering capabilities</span>
+<span class="sd">            - &quot;cli&quot;: Command-line interface with text-only output</span>
+<span class="sd">            - &quot;unknown&quot;: Interface type not detected or not set</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; interface = get_interface_context()</span>
+<span class="sd">        &gt;&gt;&gt; if interface == &quot;openwebui&quot;:</span>
+<span class="sd">        ...     print(&quot;Rich UI features available&quot;)</span>
+
+<span class="sd">    Note:</span>
+<span class="sd">        This is set automatically by each interface implementation during initialization.</span>
+<span class="sd">        The value is used by response generators to provide interface-appropriate</span>
+<span class="sd">        guidance about figures, notebooks, and executable commands.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">configurable</span> <span class="o">=</span> <span class="n">_get_configurable</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;interface_context&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="get_current_application">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config.get_current_application">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_current_application</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get current application with automatic context detection.&quot;&quot;&quot;</span>
+    <span class="n">configurable</span> <span class="o">=</span> <span class="n">_get_configurable</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;current_application&quot;</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="get_agent_dir">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config.get_agent_dir">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_agent_dir</span><span class="p">(</span><span class="n">sub_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">host_path</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Get the target directory path within the agent data directory using absolute paths.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        sub_dir: Subdirectory name (e.g., &#39;user_memory_dir&#39;, &#39;execution_plans_dir&#39;)</span>
+<span class="sd">        host_path: If True, force return of host filesystem path even when running in container</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Absolute path to the target directory</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">config</span> <span class="o">=</span> <span class="n">_get_config</span><span class="p">()</span>
+
+    <span class="c1"># Get project root and file paths configuration</span>
+    <span class="n">project_root</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;project_root&quot;</span><span class="p">)</span>
+    <span class="n">main_file_paths</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;file_paths&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="n">agent_data_dir</span> <span class="o">=</span> <span class="n">main_file_paths</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;agent_data_dir&quot;</span><span class="p">,</span> <span class="s2">&quot;_agent_data&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Check both main config and current application config for file paths</span>
+    <span class="n">current_app</span> <span class="o">=</span> <span class="n">get_current_application</span><span class="p">()</span>
+    <span class="n">sub_dir_path</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="c1"># First check main config file_paths</span>
+    <span class="k">if</span> <span class="n">sub_dir</span> <span class="ow">in</span> <span class="n">main_file_paths</span><span class="p">:</span>
+        <span class="n">sub_dir_path</span> <span class="o">=</span> <span class="n">main_file_paths</span><span class="p">[</span><span class="n">sub_dir</span><span class="p">]</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Found </span><span class="si">{</span><span class="n">sub_dir</span><span class="si">}</span><span class="s2"> in main file_paths: </span><span class="si">{</span><span class="n">sub_dir_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Then check current application&#39;s file_paths (takes precedence)</span>
+    <span class="k">if</span> <span class="n">current_app</span><span class="p">:</span>
+        <span class="n">app_file_paths</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;applications.</span><span class="si">{</span><span class="n">current_app</span><span class="si">}</span><span class="s2">.file_paths&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="k">if</span> <span class="n">sub_dir</span> <span class="ow">in</span> <span class="n">app_file_paths</span><span class="p">:</span>
+            <span class="n">sub_dir_path</span> <span class="o">=</span> <span class="n">app_file_paths</span><span class="p">[</span><span class="n">sub_dir</span><span class="p">]</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Found </span><span class="si">{</span><span class="n">sub_dir</span><span class="si">}</span><span class="s2"> in </span><span class="si">{</span><span class="n">current_app</span><span class="si">}</span><span class="s2"> file_paths: </span><span class="si">{</span><span class="n">sub_dir_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Fallback to the sub_dir name itself if not found anywhere</span>
+    <span class="k">if</span> <span class="n">sub_dir_path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">sub_dir_path</span> <span class="o">=</span> <span class="n">sub_dir</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Using fallback path for </span><span class="si">{</span><span class="n">sub_dir</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">sub_dir_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Construct absolute path with explicit validation</span>
+
+    <span class="k">if</span> <span class="n">project_root</span><span class="p">:</span>
+        <span class="n">project_root_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">project_root</span><span class="p">)</span>
+
+        <span class="c1"># Handle host_path override</span>
+        <span class="k">if</span> <span class="n">host_path</span><span class="p">:</span>
+            <span class="c1"># Force host path regardless of current environment</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Forcing host path resolution for: </span><span class="si">{</span><span class="n">sub_dir</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">path</span> <span class="o">=</span> <span class="n">project_root_path</span> <span class="o">/</span> <span class="n">agent_data_dir</span> <span class="o">/</span> <span class="n">sub_dir_path</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Container-aware path resolution</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">project_root_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                <span class="c1"># Detect if we&#39;re running in a container environment</span>
+                <span class="n">container_project_roots</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;/app&quot;</span><span class="p">,</span> <span class="s2">&quot;/pipelines&quot;</span><span class="p">,</span> <span class="s2">&quot;/jupyter&quot;</span><span class="p">]</span>
+                <span class="n">detected_container_root</span> <span class="o">=</span> <span class="kc">None</span>
+
+                <span class="k">for</span> <span class="n">container_root</span> <span class="ow">in</span> <span class="n">container_project_roots</span><span class="p">:</span>
+                    <span class="n">container_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">container_root</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">container_path</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="p">(</span><span class="n">container_path</span> <span class="o">/</span> <span class="n">agent_data_dir</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                        <span class="n">detected_container_root</span> <span class="o">=</span> <span class="n">container_path</span>
+                        <span class="k">break</span>
+
+                <span class="k">if</span> <span class="n">detected_container_root</span><span class="p">:</span>
+                    <span class="c1"># Container environment detected - use container project root</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;Container environment detected: using </span><span class="si">{</span><span class="n">detected_container_root</span><span class="si">}</span><span class="s2"> instead of </span><span class="si">{</span><span class="n">project_root</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="p">)</span>
+                    <span class="n">path</span> <span class="o">=</span> <span class="n">detected_container_root</span> <span class="o">/</span> <span class="n">agent_data_dir</span> <span class="o">/</span> <span class="n">sub_dir_path</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="c1"># Not in a known container environment - fall back to relative paths</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Configured project root does not exist: </span><span class="si">{</span><span class="n">project_root</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Falling back to relative path resolution&quot;</span><span class="p">)</span>
+                    <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">agent_data_dir</span><span class="p">)</span> <span class="o">/</span> <span class="n">sub_dir_path</span>
+                    <span class="n">path</span> <span class="o">=</span> <span class="n">path</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># Host environment - use configured project root</span>
+                <span class="n">path</span> <span class="o">=</span> <span class="n">project_root_path</span> <span class="o">/</span> <span class="n">agent_data_dir</span> <span class="o">/</span> <span class="n">sub_dir_path</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># Support development environments without explicit project root configuration</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;No project root configured, using relative path for agent data directory&quot;</span><span class="p">)</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">agent_data_dir</span><span class="p">)</span> <span class="o">/</span> <span class="n">sub_dir_path</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">path</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>  <span class="c1"># Ensure absolute path for consistent behavior</span>
+
+    <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># =============================================================================</span>
+<span class="c1"># LANGGRAPH NATIVE ACCESS</span>
+<span class="c1"># =============================================================================</span>
+
+
+<div class="viewcode-block" id="get_config_value">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config.get_config_value">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_config_value</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Get a specific configuration value by dot-separated path.</span>
+
+<span class="sd">    This function provides context-aware access to configuration values,</span>
+<span class="sd">    working both inside and outside LangGraph execution contexts. Optionally,</span>
+<span class="sd">    an explicit configuration file path can be provided.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        path: Dot-separated configuration path (e.g., &quot;execution.timeout&quot;)</span>
+<span class="sd">        default: Default value to return if path is not found</span>
+<span class="sd">        config_path: Optional explicit path to configuration file</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The configuration value at the specified path, or default if not found</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: If path is empty or None</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        &gt;&gt;&gt; timeout = get_config_value(&quot;execution.timeout&quot;, 30)</span>
+<span class="sd">        &gt;&gt;&gt; debug_mode = get_config_value(&quot;development.debug&quot;, False)</span>
+
+<span class="sd">        &gt;&gt;&gt; # With explicit config path</span>
+<span class="sd">        &gt;&gt;&gt; timeout = get_config_value(&quot;execution.timeout&quot;, 30, &quot;/path/to/config.yml&quot;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">path</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Configuration path cannot be empty or None&quot;</span><span class="p">)</span>
+
+    <span class="n">configurable</span> <span class="o">=</span> <span class="n">_get_configurable</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>
+
+    <span class="c1"># Navigate through dot-separated path in configurable dict</span>
+    <span class="n">keys</span> <span class="o">=</span> <span class="n">path</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="n">configurable</span>
+
+    <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">keys</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">value</span><span class="p">:</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Not found in configurable, try raw config as fallback</span>
+            <span class="n">config</span> <span class="o">=</span> <span class="n">_get_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">default</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">value</span></div>
+
+
+
+<div class="viewcode-block" id="get_classification_config">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config.get_classification_config">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_classification_config</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Get classification configuration with sensible defaults.</span>
+
+<span class="sd">    Controls parallel LLM-based capability classification to prevent API flooding</span>
+<span class="sd">    while maintaining reasonable performance during task analysis.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Dictionary with classification configuration including concurrency limits</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        &gt;&gt;&gt; config = get_classification_config()</span>
+<span class="sd">        &gt;&gt;&gt; max_concurrent = config.get(&#39;max_concurrent_classifications&#39;, 5)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">configurable</span> <span class="o">=</span> <span class="n">_get_configurable</span><span class="p">()</span>
+
+    <span class="c1"># Get classification concurrency limit from execution_control.limits (consistent with other limits)</span>
+    <span class="n">max_concurrent</span> <span class="o">=</span> <span class="n">configurable</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_limits&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
+        <span class="s2">&quot;max_concurrent_classifications&quot;</span><span class="p">,</span> <span class="mi">5</span>
+    <span class="p">)</span>
+
+    <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;max_concurrent_classifications&quot;</span><span class="p">:</span> <span class="n">max_concurrent</span><span class="p">}</span></div>
+
+
+
+<div class="viewcode-block" id="get_full_configuration">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/04_configuration_system.html#osprey.utils.config.get_full_configuration">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_full_configuration</span><span class="p">(</span><span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Get the complete configuration dictionary.</span>
+
+<span class="sd">    This function provides access to the entire configurable dictionary,</span>
+<span class="sd">    working both inside and outside LangGraph execution contexts. Optionally,</span>
+<span class="sd">    an explicit configuration file path can be provided.</span>
+
+<span class="sd">    When an explicit config_path is provided, it is also set as the default</span>
+<span class="sd">    configuration so that subsequent config access without explicit path will</span>
+<span class="sd">    use this configuration.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config_path: Optional explicit path to configuration file. If provided,</span>
+<span class="sd">                    loads configuration from this path and sets it as the default.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Complete configuration dictionary with all configurable values</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        &gt;&gt;&gt; # Default configuration (backward compatible)</span>
+<span class="sd">        &gt;&gt;&gt; config = get_full_configuration()</span>
+<span class="sd">        &gt;&gt;&gt; user_id = config.get(&quot;user_id&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; models = config.get(&quot;model_configs&quot;, {})</span>
+
+<span class="sd">        &gt;&gt;&gt; # Explicit configuration path (also becomes default)</span>
+<span class="sd">        &gt;&gt;&gt; config = get_full_configuration(&quot;/path/to/my-config.yml&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; models = config.get(&quot;model_configs&quot;, {})</span>
+<span class="sd">        &gt;&gt;&gt; # Subsequent calls without path use this config</span>
+<span class="sd">        &gt;&gt;&gt; other_value = get_config_value(&quot;some.setting&quot;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># If explicit path provided, set as default for future access</span>
+    <span class="n">set_as_default</span> <span class="o">=</span> <span class="n">config_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+    <span class="k">return</span> <span class="n">_get_configurable</span><span class="p">(</span><span class="n">config_path</span><span class="p">,</span> <span class="n">set_as_default</span><span class="o">=</span><span class="n">set_as_default</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># Initialize the global configuration on import (skip for documentation/tests)</span>
+<span class="c1"># This provides convenience for module-level logger initialization, but is not</span>
+<span class="c1"># strictly required since logger.py has graceful fallbacks for missing config.</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="k">if</span> <span class="s2">&quot;sphinx&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">sys</span><span class="o">.</span><span class="n">modules</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;SPHINX_BUILD&quot;</span><span class="p">):</span>
+        <span class="n">_get_config</span><span class="p">()</span>
+<span class="k">except</span> <span class="ne">FileNotFoundError</span><span class="p">:</span>
+    <span class="c1"># Allow deferred initialization if config not available at import time</span>
+    <span class="c1"># Config will be initialized on first access via the singleton pattern</span>
+    <span class="k">pass</span>
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

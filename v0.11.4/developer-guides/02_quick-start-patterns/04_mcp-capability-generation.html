@@ -1,0 +1,1265 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>MCP Capability Generation &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'developer-guides/02_quick-start-patterns/04_mcp-capability-generation';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Soft IOC Custom Backends" href="05_soft-ioc-backends.html" />
+    <link rel="prev" title="Running and Testing" href="03_running-and-testing.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../01_understanding-the-framework/index.html">Understanding Osprey</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/01_infrastructure-architecture.html">Infrastructure Architecture: Classification-Orchestration Pipeline</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/02_convention-over-configuration.html">Convention over Configuration: Configuration-Driven Registry Patterns</a></li>
+
+
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/03_langgraph-integration.html">LangGraph Integration: Native StateGraph and Workflow Execution</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/04_orchestration-architecture.html">Orchestration Architecture</a></li>
+
+
+
+
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Quick Start Patterns</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="00_cli-reference.html">CLI Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="01_building-your-first-capability.html">Building Your First Capability</a></li>
+<li class="toctree-l2"><a class="reference internal" href="02_state-and-context-essentials.html">State and Context Essentials</a></li>
+<li class="toctree-l2"><a class="reference internal" href="03_running-and-testing.html">Running and Testing</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">MCP Capability Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="05_soft-ioc-backends.html">Soft IOC Custom Backends</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../03_core-framework-systems/index.html">Core Framework Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/01_state-management-architecture.html">State Management Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/02_context-management-system.html">Context Management System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/03_registry-and-discovery.html">Registry and Discovery</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/04_prompt-customization.html">Prompt Customization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/05_message-and-execution-flow.html">Message and Execution Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/06_configuration-architecture.html">Configuration Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/07_built-in-capabilities.html">Built-in Capabilities</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../04_infrastructure-components/index.html">Infrastructure Components</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/01_gateway-architecture.html">Gateway Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/02_task-extraction-system.html">Task Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/03_classification-and-routing.html">Classification and Routing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/04_orchestrator-planning.html">Orchestrator Planning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/05_message-generation.html">Message Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/06_error-handling-infrastructure.html">Error Handling</a></li>
+</ul>
+</details></li>
+
+
+
+<li class="toctree-l1 has-children"><a class="reference internal" href="../05_production-systems/index.html">Production Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/01_human-approval-workflows.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/02_data-source-integration.html">Data Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../05_production-systems/03_python-execution-service/index.html">Python Execution</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/service-overview.html">Python Service Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-basic.html">Basic LLM Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-claude.html">Claude Code Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-mock.html">Mock Generator</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/04_memory-storage-service.html">Memory Storage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/05_container-and-deployment.html">Container Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/06_control-system-integration.html">Control System Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/search-modes.html">Search Modes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/web-interface.html">Web Interface</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Developer Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Quick Start Patterns</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">MCP Capability Generation</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="mcp-capability-generation">
+<h1>MCP Capability Generation<a class="headerlink" href="#mcp-capability-generation" title="Link to this heading">#</a></h1>
+<div class="warning admonition">
+<p class="admonition-title">Prototype Feature</p>
+<p>This is a <strong>prototype feature</strong> under active development. The API and generated code structure may change in future releases.</p>
+</div>
+<p><strong>Generate Osprey capabilities from Model Context Protocol (MCP) servers</strong> using automated code generation. This guide shows you how to create capabilities that integrate with MCP servers, using the weather demo as a practical example.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-list-unordered" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.75 2.5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm1-6a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text"><strong>Prerequisites</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>Required:</strong></p>
+<ul>
+<li><p class="sd-card-text">Basic understanding of Osprey capabilities and the registry system</p></li>
+<li><p class="sd-card-text">An initialized Osprey project (any project will work)</p></li>
+<li><p class="sd-card-text">MCP adapter libraries installed:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># For running demo MCP servers</span>
+pip<span class="w"> </span>install<span class="w"> </span>fastmcp
+
+<span class="c1"># Install MCP adapters and LangGraph</span>
+pip<span class="w"> </span>install<span class="w"> </span>langchain-mcp-adapters<span class="w"> </span>langgraph
+
+<span class="c1"># Install LangChain provider based on your config</span>
+<span class="c1"># For Anthropic (Claude):</span>
+pip<span class="w"> </span>install<span class="w"> </span>langchain-anthropic
+
+<span class="c1"># For OpenAI or CBORG:</span>
+pip<span class="w"> </span>install<span class="w"> </span>langchain-openai
+</pre></div>
+</div>
+</li>
+</ul>
+<p class="sd-card-text"><strong>Recommended:</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text">Familiarity with the <a class="reference internal" href="../../getting-started/control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a> tutorial (we use the control assistant project as our example)</p></li>
+<li><p class="sd-card-text">Review <a class="reference internal" href="01_building-your-first-capability.html"><span class="doc">Building Your First Capability</span></a> to understand capability fundamentals</p></li>
+</ul>
+</div>
+</details><section id="what-you-ll-learn">
+<h2>What You’ll Learn<a class="headerlink" href="#what-you-ll-learn" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p>How to generate a test MCP server for development</p></li>
+<li><p>How to generate Osprey capabilities from MCP servers</p></li>
+<li><p>Integrating generated capabilities into your project</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This guide uses a control assistant project as an example. The commands work with any Osprey project - just replace <cite>my-control-assistant</cite> with your project name. We strongly <strong>recommend using Claude Haiku 4.5</strong> for best results with capability generation.</p>
+</div>
+</section>
+<section id="end-to-end-mcp-integration">
+<h2>End-to-End MCP Integration<a class="headerlink" href="#end-to-end-mcp-integration" title="Link to this heading">#</a></h2>
+<p>This tutorial walks you through generating an MCP server and creating an Osprey capability from it.</p>
+<section id="step-1-generate-mcp-server">
+<h3>Step 1: Generate MCP Server<a class="headerlink" href="#step-1-generate-mcp-server" title="Link to this heading">#</a></h3>
+<p>Create a demo MCP server for testing:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Generate weather demo server (default port 3001)</span>
+osprey<span class="w"> </span>generate<span class="w"> </span>mcp-server<span class="w"> </span>--name<span class="w"> </span>weather_demo
+
+<span class="c1"># Or generate on custom port</span>
+osprey<span class="w"> </span>generate<span class="w"> </span>mcp-server<span class="w"> </span>--name<span class="w"> </span>weather_demo<span class="w"> </span>--port<span class="w"> </span><span class="m">3002</span>
+</pre></div>
+</div>
+<p><strong>Included Tools:</strong></p>
+<p>The generated server includes three weather-related demo tools:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">get_current_weather</span></code> - Get current weather conditions</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_forecast</span></code> - Get weather forecast for upcoming days</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_weather_alerts</span></code> - Get active weather alerts and warnings</p></li>
+</ul>
+</section>
+<section id="step-2-run-the-mcp-server">
+<h3>Step 2: Run the MCP Server<a class="headerlink" href="#step-2-run-the-mcp-server" title="Link to this heading">#</a></h3>
+<p>Start the generated MCP server:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>weather_demo_server.py<span class="w">  </span><span class="c1"># or python weather_demo_server.py --port 3002</span>
+</pre></div>
+</div>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-terminal" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM7.25 8a.749.749 0 0 1-.22.53l-2.25 2.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L5.44 8 3.72 6.28a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215l2.25 2.25c.141.14.22.331.22.53Zm1.5 1.5h3a.75.75 0 0 1 0 1.5h-3a.75.75 0 0 1 0-1.5Z"></path></svg></span><span class="sd-summary-text"><strong>Expected Output</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>======================================================================
+Weather Demo MCP Server
+======================================================================
+
+  Server URL: http://localhost:3001
+  SSE Endpoint: http://localhost:3001/sse
+
+Available Tools:
+
+  1. get_current_weather
+     Get current weather conditions for a location
+     Parameters:
+       • location (string, required)
+         City name or coordinates
+       • units (string, optional)
+         Temperature units (celsius/fahrenheit)
+
+  2. get_forecast
+     Get weather forecast for upcoming days
+     Parameters:
+       • location (string, required)
+         City name or coordinates
+       • days (integer, optional)
+         Number of forecast days (1-7)
+       • units (string, optional)
+         Temperature units (celsius/fahrenheit)
+
+  3. get_weather_alerts
+     Get active weather alerts and warnings for a location
+     Parameters:
+       • location (string, required)
+         City name or coordinates
+       • severity (string, optional)
+         Filter by alert severity (all/severe/moderate/minor)
+
+Next Steps:
+  1. Keep this server running
+  2. In another terminal: osprey generate capability --from-mcp http://localhost:3001 --name weather_demo
+</pre></div>
+</div>
+</div>
+</details></section>
+<section id="step-3-generate-capability-from-server">
+<h3>Step 3: Generate Capability from Server<a class="headerlink" href="#step-3-generate-capability-from-server" title="Link to this heading">#</a></h3>
+<p><strong>In a new terminal</strong>, from your control assistant project:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>my-control-assistant
+
+<span class="c1"># Generate capability from running MCP server</span>
+osprey<span class="w"> </span>generate<span class="w"> </span>capability<span class="w"> </span>--from-mcp<span class="w"> </span>http://localhost:3001<span class="w"> </span>--name<span class="w"> </span>weather_demo
+</pre></div>
+</div>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-terminal" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM7.25 8a.749.749 0 0 1-.22.53l-2.25 2.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L5.44 8 3.72 6.28a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215l2.25 2.25c.141.14.22.331.22.53Zm1.5 1.5h3a.75.75 0 0 1 0 1.5h-3a.75.75 0 0 1 0-1.5Z"></path></svg></span><span class="sd-summary-text"><strong>Expected Output</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>🎨 Generating MCP Capability
+
+  Capability: weather_demo
+  Server: WeatherDemo
+  Mode: Real MCP (http://localhost:3001)
+  Output: capabilities/weather_demo.py
+
+  ✓ Registry initialized
+
+📡 Step 1: Discovering MCP tools...
+Connecting to MCP server: http://localhost:3001
+✓ Discovered 3 tools
+  ✓ Found 3 tools
+    • get_current_weather
+    • get_forecast
+    • get_weather_alerts
+
+🤖 Step 2: Generating guides with LLM...
+
+🤖 Analyzing tools with LLM...
+   Using orchestrator model: cborg/anthropic/claude-haiku
+✓ Guides generated
+  ✓ Generated 11 classifier examples
+  ✓ Generated 5 orchestrator examples
+
+📝 Step 3: Generating capability code...
+  ✓ Code generated
+
+💾 Step 4: Writing output file...
+  ✓ Written: capabilities/weather_demo.py (23,057 bytes)
+
+======================================================================
+✅ SUCCESS! MCP Capability Generated
+======================================================================
+
+What was created:
+  ✓ Capability class: weather_demo
+  ✓ MCP client integration
+  ✓ Classifier guide with 11 examples
+  ✓ Orchestrator guide with 5 examples
+  ✓ Context class for results
+  ✓ Error handling
+  ✓ Registry registration snippet
+
+Next Steps:
+  1. Review: capabilities/weather_demo.py
+  2. Customize the context class based on your data structure
+  3. Add to your registry.py (see snippet at bottom of file)
+  4. Test with: osprey chat
+
+
+Registry Integration:
+  Found registry: /path/to/my-control-assistant/src/my_control_assistant/registry.py
+
+? Add this capability to your registry automatically? Yes
+
+Preview of changes:
+
+Capability Registration:
+                CapabilityRegistration(
+                    name=&quot;weather_demo&quot;,
+                    module_path=&quot;my_control_assistant.capabilities.weather_demo&quot;,
+                    class_name=&quot;WeatherDemoCapability&quot;,
+                    description=&quot;WeatherDemo operations via MCP server&quot;,
+                    provides=[&quot;WEATHERDEMO_RESULTS&quot;],
+                    requires=[]
+                ),
+
+Context Class Registration:
+                ContextClassRegistration(
+                    context_type=&quot;WEATHERDEMO_RESULTS&quot;,
+                    module_path=&quot;my_control_assistant.capabilities.weather_demo&quot;,
+                    class_name=&quot;WeatherDemoResultsContext&quot;
+                ),
+
+? Apply these changes to registry.py? Yes
+
+  ✓ Updated registry.py
+  Backup saved to: registry.py.bak
+
+  ℹ️  Capability is now registered! Test with: osprey chat
+</pre></div>
+</div>
+</div>
+</details><p>The generator:</p>
+<ol class="arabic simple">
+<li><p><strong>Discovers tools</strong> from the MCP server</p></li>
+<li><p><strong>Analyzes tools</strong> using LLM to generate classifier/orchestrator examples</p></li>
+<li><p><strong>Generates code</strong> with complete capability implementation</p></li>
+<li><p><strong>Offers to update registry</strong> automatically (interactive prompt)</p></li>
+</ol>
+<p>Generated file: <code class="docutils literal notranslate"><span class="pre">capabilities/weather_demo.py</span></code></p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-tools" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.433 2.304A4.492 4.492 0 0 0 3.5 6c0 1.598.832 3.002 2.09 3.802.518.328.929.923.902 1.64v.008l-.164 3.337a.75.75 0 1 1-1.498-.073l.163-3.33c.002-.085-.05-.216-.207-.316A5.996 5.996 0 0 1 2 6a5.993 5.993 0 0 1 2.567-4.92 1.482 1.482 0 0 1 1.673-.04c.462.296.76.827.76 1.423v2.82c0 .082.041.16.11.206l.75.51a.25.25 0 0 0 .28 0l.75-.51A.249.249 0 0 0 9 5.282V2.463c0-.596.298-1.127.76-1.423a1.482 1.482 0 0 1 1.673.04A5.993 5.993 0 0 1 14 6a5.996 5.996 0 0 1-2.786 5.068c-.157.1-.209.23-.207.315l.163 3.33a.752.752 0 0 1-1.094.714.75.75 0 0 1-.404-.64l-.164-3.345c-.027-.717.384-1.312.902-1.64A4.495 4.495 0 0 0 12.5 6a4.492 4.492 0 0 0-1.933-3.696c-.024.017-.067.067-.067.16v2.818a1.75 1.75 0 0 1-.767 1.448l-.75.51a1.75 1.75 0 0 1-1.966 0l-.75-.51A1.75 1.75 0 0 1 5.5 5.282V2.463c0-.092-.043-.142-.067-.159Z"></path></svg></span><span class="sd-summary-text"><strong>Advanced Options</strong> (Optional)</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">The automatic registration handles everything needed for the tutorial. These advanced options are available if you need them:</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-0">
+Customizing Context Class</label><div class="sd-tab-content docutils">
+<p class="sd-card-text"><strong>For this tutorial:</strong> The generated minimal context class works fine for basic testing.</p>
+<p class="sd-card-text"><strong>For production/advanced workflows:</strong> This customization becomes <strong>CRITICAL</strong> - well-designed context classes are the foundation of multi-capability workflows. When other Osprey capabilities need to consume MCP results (Python analysis/visualization, memory storage, conditional logic, multi-step workflows), the context class must expose structured data with proper types and access patterns. Without this, downstream capabilities cannot generate accurate code or access the data reliably.</p>
+<p class="sd-card-text">The generated code currently dumps the entire ReAct agent response into the context:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Generated capability code (lines 267-275 in weather_demo.py)</span>
+<span class="c1"># Extract final result</span>
+<span class="n">final_message</span> <span class="o">=</span> <span class="n">response</span><span class="p">[</span><span class="s2">&quot;messages&quot;</span><span class="p">][</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+<span class="n">result_content</span> <span class="o">=</span> <span class="n">final_message</span><span class="o">.</span><span class="n">content</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">final_message</span><span class="p">,</span> <span class="s1">&#39;content&#39;</span><span class="p">)</span> <span class="k">else</span> <span class="nb">str</span><span class="p">(</span><span class="n">final_message</span><span class="p">)</span>
+
+<span class="c1"># Format as context - THIS IS TOO GENERIC FOR PRODUCTION</span>
+<span class="n">context</span> <span class="o">=</span> <span class="n">WeatherDemoResultsContext</span><span class="p">(</span>
+    <span class="n">tool</span><span class="o">=</span><span class="s2">&quot;react_agent&quot;</span><span class="p">,</span>
+    <span class="n">results</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;final_output&quot;</span><span class="p">:</span> <span class="n">result_content</span><span class="p">,</span> <span class="s2">&quot;full_response&quot;</span><span class="p">:</span> <span class="n">response</span><span class="p">},</span>
+    <span class="n">description</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;WeatherDemo ReAct agent: </span><span class="si">{</span><span class="n">task_objective</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p class="sd-card-text"><strong>Production pattern - Customize both capability and context:</strong></p>
+<ol class="arabic simple">
+<li><p class="sd-card-text"><strong>In the capability code</strong>: Parse MCP tool results to extract structured data</p></li>
+<li><p class="sd-card-text"><strong>In the context class</strong>: Define proper fields and access patterns</p></li>
+</ol>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Example: Production-ready weather context</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">WeatherResultsContext</span><span class="p">(</span><span class="n">CapabilityContext</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Structured weather data for downstream capabilities.&quot;&quot;&quot;</span>
+
+    <span class="n">CONTEXT_TYPE</span><span class="p">:</span> <span class="n">ClassVar</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;WEATHER_DATA&quot;</span>
+    <span class="n">CONTEXT_CATEGORY</span><span class="p">:</span> <span class="n">ClassVar</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;EXTERNAL_DATA&quot;</span>
+
+    <span class="n">location</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">temperature</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">temperature_unit</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">conditions</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">humidity</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">wind_speed</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">timestamp</span><span class="p">:</span> <span class="n">datetime</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_access_details</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;LLM-optimized access for Python code generation.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;location&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">location</span><span class="p">,</span>
+            <span class="s2">&quot;data_structure&quot;</span><span class="p">:</span> <span class="s2">&quot;Structured weather observation with typed fields&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;access_pattern&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;context.WEATHER_DATA.</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.temperature (float in </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">temperature_unit</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;available_fields&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;temperature&quot;</span><span class="p">,</span> <span class="s2">&quot;conditions&quot;</span><span class="p">,</span> <span class="s2">&quot;humidity&quot;</span><span class="p">,</span> <span class="s2">&quot;wind_speed&quot;</span><span class="p">,</span> <span class="s2">&quot;timestamp&quot;</span><span class="p">],</span>
+            <span class="s2">&quot;example_usage&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;temp = context.WEATHER_DATA.</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.temperature  # </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">temperature</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">temperature_unit</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">}</span>
+</pre></div>
+</div>
+<p class="sd-card-text">This enables downstream capabilities to:</p>
+<ul class="simple">
+<li><p class="sd-card-text">Generate accurate Python code: <code class="docutils literal notranslate"><span class="pre">temp</span> <span class="pre">=</span> <span class="pre">context.WEATHER_DATA.current.temperature</span></code></p></li>
+<li><p class="sd-card-text">Access structured data without parsing strings</p></li>
+<li><p class="sd-card-text">Perform calculations and visualizations with proper types</p></li>
+</ul>
+<p class="sd-card-text">See <a class="reference internal" href="../03_core-framework-systems/02_context-management-system.html"><span class="doc">Context Management System</span></a> for comprehensive guidance on context class design patterns.</p>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-1">
+Prompt Customization</label><div class="sd-tab-content docutils">
+<p class="sd-card-text"><strong>Important:</strong> The generated classifier and orchestrator examples are created by an LLM analyzing only the MCP server’s tool schemas. While helpful as a starting point, they are likely not production-ready.</p>
+<p class="sd-card-text"><strong>Why customization matters:</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text">The LLM has no knowledge of your specific application domain</p></li>
+<li><p class="sd-card-text">Examples are generic and based purely on tool signatures</p></li>
+<li><p class="sd-card-text">Your app may have specific patterns, terminology, or edge cases</p></li>
+<li><p class="sd-card-text">Integration with other capabilities requires domain-specific context</p></li>
+</ul>
+<p class="sd-card-text"><strong>What to review and customize:</strong></p>
+<ol class="arabic">
+<li><p class="sd-card-text"><strong>Classifier Examples</strong> (in <code class="docutils literal notranslate"><span class="pre">_create_classifier_guide()</span></code>)</p>
+<ul class="simple">
+<li><p class="sd-card-text">Review the positive examples - do they match your users’ actual queries?</p></li>
+<li><p class="sd-card-text">Add domain-specific terminology and patterns</p></li>
+<li><p class="sd-card-text">Include edge cases specific to your application</p></li>
+<li><p class="sd-card-text">Consider interactions with other capabilities</p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Generated example (generic)</span>
+<span class="n">ClassifierExample</span><span class="p">(</span>
+    <span class="n">query</span><span class="o">=</span><span class="s2">&quot;What&#39;s the weather like in London?&quot;</span><span class="p">,</span>
+    <span class="n">result</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;Direct request for current weather...&quot;</span>
+<span class="p">)</span>
+
+<span class="c1"># Production example (domain-specific)</span>
+<span class="n">ClassifierExample</span><span class="p">(</span>
+    <span class="n">query</span><span class="o">=</span><span class="s2">&quot;Should we delay the telescope observation tonight?&quot;</span><span class="p">,</span>
+    <span class="n">result</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;Observatory operations depend on weather conditions - activate to check forecast and alerts&quot;</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</li>
+<li><p class="sd-card-text"><strong>Orchestrator Examples</strong> (in <code class="docutils literal notranslate"><span class="pre">_create_orchestrator_guide()</span></code>)</p>
+<ul class="simple">
+<li><p class="sd-card-text">Ensure context_keys match your naming conventions</p></li>
+<li><p class="sd-card-text">Verify task_objectives align with how your users phrase requests</p></li>
+<li><p class="sd-card-text">Add examples showing integration with other capabilities</p></li>
+<li><p class="sd-card-text">Include multi-step workflow patterns if relevant</p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Generic generated example</span>
+<span class="n">OrchestratorExample</span><span class="p">(</span>
+    <span class="n">step</span><span class="o">=</span><span class="n">PlannedStep</span><span class="p">(</span>
+        <span class="n">context_key</span><span class="o">=</span><span class="s2">&quot;current_weather_london&quot;</span><span class="p">,</span>
+        <span class="n">task_objective</span><span class="o">=</span><span class="s2">&quot;Get current weather for London&quot;</span><span class="p">,</span>
+        <span class="o">...</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+
+<span class="c1"># Domain-specific example (astronomy observatory)</span>
+<span class="n">OrchestratorExample</span><span class="p">(</span>
+    <span class="n">step</span><span class="o">=</span><span class="n">PlannedStep</span><span class="p">(</span>
+        <span class="n">context_key</span><span class="o">=</span><span class="s2">&quot;observation_conditions_tonight&quot;</span><span class="p">,</span>
+        <span class="n">task_objective</span><span class="o">=</span><span class="s2">&quot;Check current weather and 12-hour forecast for observatory location to assess observation quality&quot;</span><span class="p">,</span>
+        <span class="o">...</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</li>
+<li><p class="sd-card-text"><strong>Activation Criteria</strong> (classifier instructions)</p>
+<ul class="simple">
+<li><p class="sd-card-text">The generated keywords are based on tool names</p></li>
+<li><p class="sd-card-text">Add domain-specific terms your users actually use</p></li>
+<li><p class="sd-card-text">Refine when NOT to activate based on your app’s other capabilities</p></li>
+</ul>
+</li>
+</ol>
+<p class="sd-card-text"><strong>Testing strategy:</strong></p>
+<ol class="arabic simple">
+<li><p class="sd-card-text">Start with generated examples (good enough for initial testing)</p></li>
+<li><p class="sd-card-text">Collect real user queries during testing</p></li>
+<li><p class="sd-card-text">Identify misclassifications or suboptimal planning</p></li>
+<li><p class="sd-card-text">Add domain-specific examples addressing those patterns</p></li>
+<li><p class="sd-card-text">Iterate based on actual usage</p></li>
+</ol>
+<p class="sd-card-text">The auto-generated prompts give you a running start, not a finish line. Budget time for prompt refinement in your production deployment plan.</p>
+</div>
+<input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-2">
+Registry &amp; Config Integration</label><div class="sd-tab-content docutils">
+<p class="sd-card-text"><strong>Manual Registry Setup</strong></p>
+<p class="sd-card-text">If you declined automatic registry integration, add to your <code class="docutils literal notranslate"><span class="pre">registry.py</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">CapabilityRegistration</span><span class="p">,</span> <span class="n">ContextClassRegistration</span>
+
+<span class="c1"># In your registry provider&#39;s get_registry_config():</span>
+<span class="n">capabilities</span><span class="o">=</span><span class="p">[</span>
+    <span class="c1"># ... existing capabilities ...</span>
+    <span class="n">CapabilityRegistration</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;weather_mcp&quot;</span><span class="p">,</span>
+        <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;my_control_assistant.capabilities.weather_mcp&quot;</span><span class="p">,</span>
+        <span class="n">class_name</span><span class="o">=</span><span class="s2">&quot;WeatherMcpCapability&quot;</span><span class="p">,</span>
+        <span class="n">provides</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;WEATHER_MCP_RESULTS&quot;</span><span class="p">],</span>
+        <span class="n">requires</span><span class="o">=</span><span class="p">[]</span>
+    <span class="p">),</span>
+<span class="p">],</span>
+<span class="n">context_classes</span><span class="o">=</span><span class="p">[</span>
+    <span class="c1"># ... existing context classes ...</span>
+    <span class="n">ContextClassRegistration</span><span class="p">(</span>
+        <span class="n">context_type</span><span class="o">=</span><span class="s2">&quot;WEATHER_MCP_RESULTS&quot;</span><span class="p">,</span>
+        <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;my_control_assistant.capabilities.weather_mcp&quot;</span><span class="p">,</span>
+        <span class="n">class_name</span><span class="o">=</span><span class="s2">&quot;WeatherMcpResultsContext&quot;</span>
+    <span class="p">),</span>
+<span class="p">]</span>
+</pre></div>
+</div>
+<p class="sd-card-text"><strong>ReAct Agent Model Configuration</strong></p>
+<p class="sd-card-text">If you declined automatic config integration, add a capability-specific model to your <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">models</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">weather_demo_react</span><span class="p">:</span><span class="w">  </span><span class="c1"># Dedicated model for weather_demo MCP capability</span>
+<span class="w">    </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic</span><span class="w">  </span><span class="c1"># or openai, cborg, etc.</span>
+<span class="w">    </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-haiku-4-5-20251001</span><span class="w">  </span><span class="c1"># or claude-sonnet, gpt-4o, etc.</span>
+<span class="w">    </span><span class="nt">max_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4096</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+</details></section>
+<section id="step-4-test-your-capability">
+<h3>Step 4: Test Your Capability<a class="headerlink" href="#step-4-test-your-capability" title="Link to this heading">#</a></h3>
+<p><strong>Your control assistant can now query weather!</strong> With the MCP server running, test the integrated capability:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Make sure MCP server is still running, then:</span>
+osprey<span class="w"> </span>chat
+</pre></div>
+</div>
+<p>Try this example query:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>👤 You: What&#39;s the weather right now?
+</pre></div>
+</div>
+<p><strong>Result:</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>🤖 # Current Weather Information Report
+
+## Summary
+Successfully retrieved current weather data for **San Francisco** as of November 15, 2025 at 14:30 UTC.
+
+## Key Weather Data
+
+| Metric | Value |
+|--------|-------|
+| **Temperature** | 18°C (feels like 16°C) |
+| **Conditions** | Partly Cloudy |
+| **Humidity** | 65% |
+| **Wind Speed** | 12 km/h from Northwest |
+| **Pressure** | 1013 mb |
+| **Visibility** | 10 km |
+| **UV Index** | 5 (Moderate) |
+
+## Location Details
+- **City:** San Francisco
+- **Latitude:** 37.7749°
+- **Longitude:** -122.4194°
+
+## Analysis
+The weather conditions in San Francisco are **pleasant** with mild temperatures
+and partly cloudy skies. The moderate UV index suggests some sun protection would
+be advisable if spending extended time outdoors, though the scattered cloud cover
+provides some natural protection.
+
+**Data Quality:** ✓ Complete - All requested information successfully retrieved
+with standard temperature units (Celsius) as specified.
+</pre></div>
+</div>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-workflow" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75C0 .784.784 0 1.75 0h3.5C6.216 0 7 .784 7 1.75v3.5A1.75 1.75 0 0 1 5.25 7H4v4a1 1 0 0 0 1 1h4v-1.25C9 9.784 9.784 9 10.75 9h3.5c.966 0 1.75.784 1.75 1.75v3.5A1.75 1.75 0 0 1 14.25 16h-3.5A1.75 1.75 0 0 1 9 14.25v-.75H5A2.5 2.5 0 0 1 2.5 11V7h-.75A1.75 1.75 0 0 1 0 5.25Zm1.75-.25a.25.25 0 0 0-.25.25v3.5c0 .138.112.25.25.25h3.5a.25.25 0 0 0 .25-.25v-3.5a.25.25 0 0 0-.25-.25Zm9 9a.25.25 0 0 0-.25.25v3.5c0 .138.112.25.25.25h3.5a.25.25 0 0 0 .25-.25v-3.5a.25.25 0 0 0-.25-.25Z"></path></svg></span><span class="sd-summary-text"><strong>How It Works - Complete Workflow Details</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">Here’s what happens behind the scenes when your assistant processes the weather query:</p>
+<p class="sd-card-text"><strong>🔹 Stage 1: Task Extraction</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>INFO  Task_Extraction:  * Extracted: &#39;Retrieve current weather information...&#39;
+</pre></div>
+</div>
+<p class="sd-card-text">The framework extracts the user’s intent into a structured task.</p>
+<p class="sd-card-text"><strong>🔹 Stage 2: Capability Classification</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>INFO  Classifier: Classifying task: Retrieve current weather information
+INFO  Classifier:  &gt;&gt;&gt; Capability &#39;memory&#39; &gt;&gt;&gt; False
+INFO  Classifier:  &gt;&gt;&gt; Capability &#39;channel_finding&#39; &gt;&gt;&gt; False
+INFO  Classifier:  &gt;&gt;&gt; Capability &#39;python&#39; &gt;&gt;&gt; False
+INFO  Classifier:  &gt;&gt;&gt; Capability &#39;time_range_parsing&#39; &gt;&gt;&gt; False
+INFO  Classifier:  &gt;&gt;&gt; Capability &#39;channel_read&#39; &gt;&gt;&gt; False
+INFO  Classifier:  &gt;&gt;&gt; Capability &#39;channel_write&#39; &gt;&gt;&gt; False
+INFO  Classifier:  &gt;&gt;&gt; Capability &#39;archiver_retrieval&#39; &gt;&gt;&gt; False
+INFO  Classifier:  &gt;&gt;&gt; Capability &#39;weather_demo&#39; &gt;&gt;&gt; True ✓
+INFO  Classifier: 3 capabilities required: [&#39;respond&#39;, &#39;clarify&#39;, &#39;weather_demo&#39;]
+</pre></div>
+</div>
+<p class="sd-card-text">The classifier evaluates each capability and <strong>activates weather_demo</strong> based on your generated classifier guide.</p>
+<p class="sd-card-text"><strong>🔹 Stage 3: Orchestration Planning</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>INFO  Orchestrator: Creating execution plan with orchestrator LLM
+INFO  Orchestrator: ==================================================
+INFO  Orchestrator:  &lt;&lt; Step 1
+INFO  Orchestrator:  &lt;&lt; ├───── id: &#39;current_weather_default&#39;
+INFO  Orchestrator:  &lt;&lt; ├─── node: &#39;weather_demo&#39;
+INFO  Orchestrator:  &lt;&lt; ├─── task: &#39;Retrieve current weather information for the
+INFO  Orchestrator:  &lt;&lt;           default location with standard temperature units&#39;
+INFO  Orchestrator:  &lt;&lt; └─ inputs: &#39;[]&#39;
+INFO  Orchestrator:  &lt;&lt; Step 2
+INFO  Orchestrator:  &lt;&lt; ├───── id: &#39;user_response&#39;
+INFO  Orchestrator:  &lt;&lt; ├─── node: &#39;respond&#39;
+INFO  Orchestrator:  &lt;&lt; ├─── task: &#39;Provide the user with the current weather
+INFO  Orchestrator:  &lt;&lt;           information retrieved from the weather demo capability&#39;
+INFO  Orchestrator:  &lt;&lt; └─ inputs: &#39;[{&#39;WEATHERDEMO_RESULTS&#39;: &#39;current_weather_default&#39;}]&#39;
+INFO  Orchestrator: ✅ Final execution plan ready with 2 steps
+</pre></div>
+</div>
+<p class="sd-card-text">The orchestrator creates a 2-step plan using your generated orchestrator guide:</p>
+<ol class="arabic simple">
+<li><p class="sd-card-text">Call weather_demo capability with task objective</p></li>
+<li><p class="sd-card-text">Use respond capability to format results for user</p></li>
+</ol>
+<p class="sd-card-text"><strong>🔹 Stage 4: MCP Capability Execution</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>INFO  Router: Executing step 1/2 - capability: weather_demo
+INFO  Weather_Demo: Connected to MCP server: http://localhost:3001/sse
+INFO  Weather_Demo: Loaded 3 tools from MCP server
+INFO  Weather_Demo: ReAct agent initialized
+INFO  Weather_Demo: ReAct agent completed task
+</pre></div>
+</div>
+<p class="sd-card-text">Your generated capability:</p>
+<ul class="simple">
+<li><p class="sd-card-text">Connects to the MCP server</p></li>
+<li><p class="sd-card-text">Initializes its ReAct agent with available tools</p></li>
+<li><p class="sd-card-text">Autonomously selects and calls appropriate MCP tools</p></li>
+<li><p class="sd-card-text">Returns results as <code class="docutils literal notranslate"><span class="pre">WEATHERDEMO_RESULTS</span></code> context</p></li>
+</ul>
+<p class="sd-card-text"><strong>🔹 Stage 5: Response Generation</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>INFO  Router: Executing step 2/2 - capability: respond
+INFO  Respond: Generated response for: &#39;Provide the user with the current
+               weather information retrieved from the weather demo capability&#39;
+</pre></div>
+</div>
+<p class="sd-card-text">The respond capability formats the weather data into a user-friendly report.</p>
+</div>
+</details><p><strong>Congratulations!</strong> 🎉 You’ve successfully:</p>
+<ul class="simple">
+<li><p>Generated a demo MCP server</p></li>
+<li><p>Created an Osprey capability from the MCP server</p></li>
+<li><p>Integrated it into your control assistant</p></li>
+<li><p>Tested end-to-end weather queries</p></li>
+</ul>
+<p>Your control assistant now demonstrates the full MCP integration pattern, which you can adapt for any MCP-compatible service.</p>
+</section>
+<section id="step-5-try-direct-chat-mode-optional">
+<h3>Step 5: Try Direct Chat Mode (Optional)<a class="headerlink" href="#step-5-try-direct-chat-mode-optional" title="Link to this heading">#</a></h3>
+<p>Generated MCP capabilities come with <strong>direct chat mode</strong> enabled by default (<code class="docutils literal notranslate"><span class="pre">direct_chat_enabled</span> <span class="pre">=</span> <span class="pre">True</span></code>). This lets you have multi-turn conversations directly with the capability’s ReAct agent, bypassing the normal orchestration pipeline.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>👤 You: /chat:weather_demo
+✓ Entering direct chat with weather_demo
+  Type /exit to return to normal mode
+  💡 Say &#39;save that as &lt;key&gt;&#39; to store results
+
+🎯 weather_demo &gt; What&#39;s the weather in Tokyo?
+🤖 Tokyo is currently 22°C with clear skies...
+
+🎯 weather_demo &gt; How about San Francisco?
+🤖 San Francisco is 18°C with partly cloudy conditions...
+
+🎯 weather_demo &gt; Save that as sf_weather
+🤖 ✓ Saved weather data as &#39;sf_weather&#39;
+
+🎯 weather_demo &gt; /exit
+✓ Exited direct chat with weather_demo
+  Returning to normal mode
+</pre></div>
+</div>
+<p><strong>Key benefits of direct chat mode:</strong></p>
+<ul class="simple">
+<li><p><strong>Multi-turn conversations</strong> with message history preserved between turns</p></li>
+<li><p><strong>Interactive exploration</strong> without task extraction/classification overhead</p></li>
+<li><p><strong>Context saving</strong> - say “save that as &lt;key&gt;” to store results for later use in orchestrated queries</p></li>
+</ul>
+<p>See <a class="reference internal" href="00_cli-reference.html#direct-chat-mode"><span class="std std-ref">Direct Chat Mode</span></a> for complete details on direct chat commands and workflow.</p>
+</section>
+</section>
+<section id="removing-capabilities">
+<h2>Removing Capabilities<a class="headerlink" href="#removing-capabilities" title="Link to this heading">#</a></h2>
+<p>If you need to remove a capability, Osprey provides an automated removal command that cleans up all associated files and configurations.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Remove capability interactively (recommended)</span>
+osprey<span class="w"> </span>remove<span class="w"> </span>capability<span class="w"> </span>--name<span class="w"> </span>weather_demo
+
+<span class="c1"># Force removal without confirmation</span>
+osprey<span class="w"> </span>remove<span class="w"> </span>capability<span class="w"> </span>--name<span class="w"> </span>weather_demo<span class="w"> </span>--force
+</pre></div>
+</div>
+<p><strong>What Gets Removed:</strong></p>
+<ul class="simple">
+<li><p><strong>Registry entries</strong>: Capability and context class registrations from <code class="docutils literal notranslate"><span class="pre">registry.py</span></code></p></li>
+<li><p><strong>Config model</strong>: The <code class="docutils literal notranslate"><span class="pre">{capability_name}_react</span></code> model configuration from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p></li>
+<li><p><strong>Capability file</strong>: The capability Python file</p></li>
+<li><p><strong>Automatic backups</strong>: <code class="docutils literal notranslate"><span class="pre">.bak</span></code> files are created before modifications</p></li>
+</ul>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="01_building-your-first-capability.html"><span class="doc">Building Your First Capability</span></a> - Understanding capability fundamentals</p></li>
+<li><p><a class="reference internal" href="../03_core-framework-systems/02_context-management-system.html"><span class="doc">Context Management System</span></a> - Context class design patterns</p></li>
+<li><p><a class="reference internal" href="../03_core-framework-systems/03_registry-and-discovery.html"><span class="doc">Registry and Discovery</span></a> - Registry system details</p></li>
+<li><p><a class="reference external" href="https://modelcontextprotocol.io/">MCP Specification</a> - Learn more about Model Context Protocol</p></li>
+<li><p><a class="reference external" href="https://github.com/jlowin/fastmcp">FastMCP Documentation</a> - Building MCP servers in Python</p></li>
+</ul>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="03_running-and-testing.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Running and Testing</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="05_soft-ioc-backends.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Soft IOC Custom Backends</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-you-ll-learn">What You’ll Learn</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#end-to-end-mcp-integration">End-to-End MCP Integration</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-generate-mcp-server">Step 1: Generate MCP Server</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-run-the-mcp-server">Step 2: Run the MCP Server</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-generate-capability-from-server">Step 3: Generate Capability from Server</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-test-your-capability">Step 4: Test Your Capability</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-5-try-direct-chat-mode-optional">Step 5: Try Direct Chat Mode (Optional)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#removing-capabilities">Removing Capabilities</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/developer-guides/02_quick-start-patterns/04_mcp-capability-generation.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

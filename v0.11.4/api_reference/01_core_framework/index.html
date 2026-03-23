@@ -1,0 +1,864 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Core Framework &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'api_reference/01_core_framework/index';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Base Components" href="01_base_components.html" />
+    <link rel="prev" title="API Reference" href="../index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">Core Framework</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="01_base_components.html">Base Components</a></li>
+<li class="toctree-l2"><a class="reference internal" href="02_state_and_context.html">State and Context Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="03_registry_system.html">Registry System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="04_configuration_system.html">Configuration System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="05_prompt_management.html">Prompt System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="06_command_system.html">Command System</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../02_infrastructure/index.html">Infrastructure</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/01_gateway.html">Gateway</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/02_task-extraction.html">Task Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/03_classification.html">Classification</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/04_orchestration.html">Orchestration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/05_execution-control.html">Execution Control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/06_message-generation.html">Message Generation</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../03_production_systems/index.html">Production Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/01_human-approval.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/02_data-management.html">Data Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/03_python-execution.html">Python Execution</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/04_memory-storage.html">Memory Storage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/05_container-management.html">Container Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/06_control-system-connectors.html">Control System Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/07_ariel-search.html">ARIEL Search Service</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../04_error_handling/index.html">Error Handling</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/01_classification_system.html">Classification System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/02_exception_reference.html">Exception Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/03_recovery_coordination.html">Recovery Coordination</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../05_framework_utilities/index.html">Framework Utilities</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">API Reference</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Core Framework</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="core-framework">
+<h1>Core Framework<a class="headerlink" href="#core-framework" title="Link to this heading">#</a></h1>
+<div class="toctree-wrapper compound">
+</div>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Find Here</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>Essential APIs for daily development:</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text"><strong>BaseCapability &amp; BaseInfrastructureNode</strong> - Foundation classes with LangGraph integration</p></li>
+<li><p class="sd-card-text"><strong>AgentState &amp; StateManager</strong> - LangGraph-native state management with selective persistence</p></li>
+<li><p class="sd-card-text"><strong>ContextManager &amp; CapabilityContext</strong> - Type-safe data exchange between components</p></li>
+<li><p class="sd-card-text"><strong>RegistryManager &amp; component discovery</strong> - Convention-based component loading</p></li>
+<li><p class="sd-card-text"><strong>Configuration &amp; environment resolution</strong> - Seamless configuration management</p></li>
+<li><p class="sd-card-text"><strong>FrameworkPromptProvider &amp; customization</strong> - Domain-agnostic prompt management</p></li>
+<li><p class="sd-card-text"><strong>CommandRegistry &amp; slash commands</strong> - Centralized command system with autocompletion</p></li>
+</ul>
+<p class="sd-card-text"><strong>Prerequisites:</strong> Basic Python knowledge and agentic system concepts</p>
+<p class="sd-card-text"><strong>Target Audience:</strong> Framework developers, capability authors, infrastructure builders</p>
+</div>
+</details><p>The Core Framework provides the <strong>essential foundation APIs</strong> that enable reliable, type-safe agentic system development. These five interconnected systems form the backbone of every capability, infrastructure node, and production deployment in the Osprey Framework.</p>
+<section id="system-architecture">
+<h2>System Architecture<a class="headerlink" href="#system-architecture" title="Link to this heading">#</a></h2>
+<p>The Core Framework implements a <strong>Type-Safe, Convention-Driven Architecture</strong> with five integrated components:</p>
+<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
+<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body text-center docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+🏗️ Base Components</div>
+<p class="sd-card-text"><strong>Foundation &amp; LangGraph Integration</strong></p>
+<p class="sd-card-text">BaseCapability, BaseInfrastructureNode, and decorators for seamless framework integration with error handling and planning.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="01_base_components.html"><span class="doc">Base Components</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body text-center docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+🔄 State &amp; Context Management</div>
+<p class="sd-card-text"><strong>Data Persistence &amp; Exchange</strong></p>
+<p class="sd-card-text">AgentState with selective persistence, ContextManager for type-safe data access, and Pydantic-based serialization.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="02_state_and_context.html"><span class="doc">State and Context Management</span></a></div>
+</div>
+</div>
+</div>
+<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
+<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body text-center docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+📋 Registry System</div>
+<p class="sd-card-text"><strong>Component Discovery &amp; Management</strong></p>
+<p class="sd-card-text">Configuration-driven component loading with lazy initialization, dependency resolution, and type-safe access.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="03_registry_system.html"><span class="doc">Registry System</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body text-center docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+⚙️ Configuration System</div>
+<p class="sd-card-text"><strong>Environment &amp; Settings Management</strong></p>
+<p class="sd-card-text">YAML-based configuration with environment resolution, model settings, and LangGraph integration.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="04_configuration_system.html"><span class="doc">Configuration System</span></a></div>
+</div>
+</div>
+</div>
+<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
+<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body text-center docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+💬 Prompt Management</div>
+<p class="sd-card-text"><strong>Domain-Agnostic Prompt System</strong></p>
+<p class="sd-card-text">Dependency injection for prompt customization with builder patterns, defaults, and application-specific overrides.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="05_prompt_management.html"><span class="doc">Prompt System</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body text-center docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+⚡ Command System</div>
+<p class="sd-card-text"><strong>Centralized Slash Commands</strong></p>
+<p class="sd-card-text">Unified command registry with categorization, autocompletion, and extensible handlers for all interfaces.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="06_command_system.html"><span class="doc">Command System</span></a></div>
+</div>
+</div>
+</div>
+</section>
+<section id="framework-integration-patterns">
+<h2>Framework Integration Patterns<a class="headerlink" href="#framework-integration-patterns" title="Link to this heading">#</a></h2>
+<p>These systems work together to provide a unified development experience:</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-0">
+Startup and Initialization</label><div class="sd-tab-content docutils">
+<p>How the framework initializes and loads components:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">initialize_registry</span><span class="p">,</span> <span class="n">get_registry</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">StateManager</span>
+
+<span class="c1"># 1. Initialize the global registry system (application startup)</span>
+<span class="n">initialize_registry</span><span class="p">()</span>  <span class="c1"># Loads all applications and components</span>
+
+<span class="c1"># 2. Access the initialized registry</span>
+<span class="n">registry</span> <span class="o">=</span> <span class="n">get_registry</span><span class="p">()</span>
+
+<span class="c1"># 3. Components are now available for use</span>
+<span class="n">capability</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_capability</span><span class="p">(</span><span class="s1">&#39;data_analysis&#39;</span><span class="p">)</span>
+<span class="n">context_class</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_context_class</span><span class="p">(</span><span class="s1">&#39;ANALYSIS_RESULTS&#39;</span><span class="p">)</span>
+<span class="n">data_source</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_data_source</span><span class="p">(</span><span class="s1">&#39;core_user_memory&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-1">
+State and Context Flow</label><div class="sd-tab-content docutils">
+<p>How state and context work together during execution:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">StateManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContextManager</span>
+
+<span class="c1"># 1. Create fresh state for new conversation</span>
+<span class="n">state</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">create_fresh_state</span><span class="p">(</span>
+    <span class="n">user_input</span><span class="o">=</span><span class="s2">&quot;Analyze beam performance data&quot;</span><span class="p">,</span>
+    <span class="n">current_state</span><span class="o">=</span><span class="n">previous_state</span>  <span class="c1"># Preserves context</span>
+<span class="p">)</span>
+
+<span class="c1"># 2. Access context through ContextManager (manual pattern)</span>
+<span class="n">context</span> <span class="o">=</span> <span class="n">ContextManager</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+
+<span class="c1"># 3. Retrieve typed context objects</span>
+<span class="n">pv_data</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">get_context</span><span class="p">(</span><span class="s1">&#39;PV_ADDRESSES&#39;</span><span class="p">,</span> <span class="s1">&#39;beam_current&#39;</span><span class="p">)</span>
+
+<span class="c1"># 4. Within capabilities, use helper methods instead:</span>
+<span class="c1"># contexts = self.get_required_contexts()</span>
+<span class="c1"># return self.store_output_context(analysis_results)</span>
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-2">
+Configuration Access</label><div class="sd-tab-content docutils">
+<p>How to access configuration values throughout the framework:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.config</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">get_config_value</span><span class="p">,</span> <span class="n">get_model_config</span><span class="p">,</span> <span class="n">get_full_configuration</span>
+<span class="p">)</span>
+
+<span class="c1"># Simple configuration access with defaults</span>
+<span class="n">timeout</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s1">&#39;execution.timeout&#39;</span><span class="p">,</span> <span class="mi">30</span><span class="p">)</span>
+<span class="n">debug_mode</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s1">&#39;development.debug&#39;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+
+<span class="c1"># Model-specific configuration</span>
+<span class="n">model_config</span> <span class="o">=</span> <span class="n">get_model_config</span><span class="p">(</span><span class="s1">&#39;orchestrator&#39;</span><span class="p">)</span>
+
+<span class="c1"># Full configuration for service passing</span>
+<span class="n">full_config</span> <span class="o">=</span> <span class="n">get_full_configuration</span><span class="p">()</span>
+<span class="n">service_config</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;configurable&quot;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="o">**</span><span class="n">full_config</span><span class="p">,</span>
+        <span class="s2">&quot;thread_id&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;my_service_</span><span class="si">{</span><span class="n">context_key</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-3" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-3">
+Capability Implementation</label><div class="sd-tab-content docutils">
+<p>Real capability implementation pattern from the framework:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseCapability</span><span class="p">,</span> <span class="n">capability_node</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_model_config</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">applications.als_assistant.context_classes</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalysisResultsContext</span>
+
+<span class="nd">@capability_node</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">DataAnalysisCapability</span><span class="p">(</span><span class="n">BaseCapability</span><span class="p">):</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;data_analysis&quot;</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="s2">&quot;General data analysis capability&quot;</span>
+    <span class="n">provides</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;ANALYSIS_RESULTS&quot;</span><span class="p">]</span>
+    <span class="n">requires</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;INPUT_DATA&quot;</span><span class="p">]</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="c1"># Get required contexts (automatically extracted)</span>
+        <span class="n">input_data</span><span class="p">,</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">()</span>
+
+        <span class="c1"># Get configuration for models/services</span>
+        <span class="n">model_config</span> <span class="o">=</span> <span class="n">get_model_config</span><span class="p">(</span><span class="s1">&#39;python_code_generator&#39;</span><span class="p">)</span>
+
+        <span class="c1"># Process data (actual implementation logic)</span>
+        <span class="n">analysis_results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">process_analysis</span><span class="p">(</span><span class="n">input_data</span><span class="p">)</span>
+
+        <span class="c1"># Create typed context object</span>
+        <span class="n">result_context</span> <span class="o">=</span> <span class="n">AnalysisResultsContext</span><span class="p">(</span>
+            <span class="n">analysis_summary</span><span class="o">=</span><span class="n">analysis_results</span><span class="o">.</span><span class="n">summary</span><span class="p">,</span>
+            <span class="n">confidence_score</span><span class="o">=</span><span class="n">analysis_results</span><span class="o">.</span><span class="n">confidence</span><span class="p">,</span>
+            <span class="o">**</span><span class="n">analysis_results</span><span class="o">.</span><span class="n">data</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Store results in state (automatic context_key handling)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">result_context</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-arrow-up-right" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.53 4.75A.75.75 0 0 1 5.28 4h6.01a.75.75 0 0 1 .75.75v6.01a.75.75 0 0 1-1.5 0v-4.2l-5.26 5.261a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L9.48 5.5h-4.2a.75.75 0 0 1-.75-.75Z"></path></svg></span><span class="sd-summary-text">Next Steps</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">After mastering the Core Framework APIs, explore related systems:</p>
+<div class="sd-container-fluid sd-sphinx-override sd-mb-4 guides-section-grid docutils">
+<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body text-center docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+⚡ Infrastructure APIs</div>
+<p class="sd-card-text">Gateway, task extraction, classification, and orchestration APIs for building intelligent processing pipelines</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="../02_infrastructure/index.html"><span class="doc">Infrastructure</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body text-center docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+🚀 Production Systems</div>
+<p class="sd-card-text">Human approval, data management, container deployment for production-ready agentic systems</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="../03_production_systems/index.html"><span class="doc">Production Systems</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body text-center docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+🔧 Framework Utilities</div>
+<p class="sd-card-text">Model factory, logging, streaming, and developer tools for advanced framework customization</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="../05_framework_utilities/index.html"><span class="doc">Framework Utilities</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body text-center docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+📖 Developer Guides</div>
+<p class="sd-card-text">Learning-oriented guides for understanding core framework architecture and advanced patterns</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="../../developer-guides/03_core-framework-systems/index.html"><span class="doc">Core Framework Systems</span></a></div>
+</div>
+</div>
+</div>
+</div>
+</details></section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="../index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">API Reference</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="01_base_components.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Base Components</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#system-architecture">System Architecture</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#framework-integration-patterns">Framework Integration Patterns</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/api_reference/01_core_framework/index.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

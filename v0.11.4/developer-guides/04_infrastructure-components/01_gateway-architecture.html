@@ -1,0 +1,1080 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Gateway Architecture &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'developer-guides/04_infrastructure-components/01_gateway-architecture';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Task Extraction" href="02_task-extraction-system.html" />
+    <link rel="prev" title="Infrastructure Components" href="index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../01_understanding-the-framework/index.html">Understanding Osprey</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/01_infrastructure-architecture.html">Infrastructure Architecture: Classification-Orchestration Pipeline</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/02_convention-over-configuration.html">Convention over Configuration: Configuration-Driven Registry Patterns</a></li>
+
+
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/03_langgraph-integration.html">LangGraph Integration: Native StateGraph and Workflow Execution</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/04_orchestration-architecture.html">Orchestration Architecture</a></li>
+
+
+
+
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../02_quick-start-patterns/index.html">Quick Start Patterns</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/00_cli-reference.html">CLI Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/01_building-your-first-capability.html">Building Your First Capability</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/02_state-and-context-essentials.html">State and Context Essentials</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/03_running-and-testing.html">Running and Testing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/04_mcp-capability-generation.html">MCP Capability Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/05_soft-ioc-backends.html">Soft IOC Custom Backends</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../03_core-framework-systems/index.html">Core Framework Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/01_state-management-architecture.html">State Management Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/02_context-management-system.html">Context Management System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/03_registry-and-discovery.html">Registry and Discovery</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/04_prompt-customization.html">Prompt Customization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/05_message-and-execution-flow.html">Message and Execution Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/06_configuration-architecture.html">Configuration Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/07_built-in-capabilities.html">Built-in Capabilities</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Infrastructure Components</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Gateway Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="02_task-extraction-system.html">Task Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="03_classification-and-routing.html">Classification and Routing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="04_orchestrator-planning.html">Orchestrator Planning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="05_message-generation.html">Message Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="06_error-handling-infrastructure.html">Error Handling</a></li>
+</ul>
+</details></li>
+
+
+
+<li class="toctree-l1 has-children"><a class="reference internal" href="../05_production-systems/index.html">Production Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/01_human-approval-workflows.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/02_data-source-integration.html">Data Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../05_production-systems/03_python-execution-service/index.html">Python Execution</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/service-overview.html">Python Service Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-basic.html">Basic LLM Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-claude.html">Claude Code Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-mock.html">Mock Generator</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/04_memory-storage-service.html">Memory Storage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/05_container-and-deployment.html">Container Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/06_control-system-integration.html">Control System Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/search-modes.html">Search Modes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/web-interface.html">Web Interface</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Developer Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Infrastructure Components</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Gateway Architecture</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="gateway-architecture">
+<h1>Gateway Architecture<a class="headerlink" href="#gateway-architecture" title="Link to this heading">#</a></h1>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">📚 What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>Key Concepts:</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text">How Gateway centralizes all message processing logic</p></li>
+<li><p class="sd-card-text">State lifecycle management and conversation handling</p></li>
+<li><p class="sd-card-text">Slash command integration and approval workflow coordination</p></li>
+<li><p class="sd-card-text">Interface implementation patterns</p></li>
+</ul>
+<p class="sd-card-text"><strong>Prerequisites:</strong> Understanding of <a class="reference internal" href="../03_core-framework-systems/01_state-management-architecture.html"><span class="doc">State Management Architecture</span></a></p>
+<p class="sd-card-text"><strong>Time Investment:</strong> 15 minutes for complete understanding</p>
+</div>
+</details><section id="core-concept">
+<h2>Core Concept<a class="headerlink" href="#core-concept" title="Link to this heading">#</a></h2>
+<p>Gateway serves as the <strong>single entry point</strong> for all message processing, eliminating interface duplication and ensuring consistent state management across CLI, web, and API interfaces. As an external coordinator, it operates outside the compiled LangGraph to handle preprocessing operations.</p>
+<p><strong>Problem Solved:</strong> Without centralized processing, each interface duplicates message logic, state creation, and approval handling.</p>
+<p><strong>Solution:</strong> All interfaces call <code class="docutils literal notranslate"><span class="pre">Gateway.process_message()</span></code> - Gateway handles preprocessing, interfaces handle presentation.</p>
+</section>
+<section id="architecture">
+<h2>Architecture<a class="headerlink" href="#architecture" title="Link to this heading">#</a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.infrastructure.gateway</span><span class="w"> </span><span class="kn">import</span> <span class="n">Gateway</span>
+
+<span class="c1"># Universal pattern for all interfaces</span>
+<span class="n">gateway</span> <span class="o">=</span> <span class="n">Gateway</span><span class="p">()</span>
+<span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">gateway</span><span class="o">.</span><span class="n">process_message</span><span class="p">(</span><span class="n">user_input</span><span class="p">,</span> <span class="n">graph</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+
+<span class="c1"># Execute based on result type</span>
+                <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">resume_command</span><span class="p">:</span>
+    <span class="c1"># Approval flow resumption</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">graph</span><span class="o">.</span><span class="n">ainvoke</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">resume_command</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+                <span class="k">elif</span> <span class="n">result</span><span class="o">.</span><span class="n">agent_state</span><span class="p">:</span>
+    <span class="c1"># Normal conversation turn</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">graph</span><span class="o">.</span><span class="n">ainvoke</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="key-features">
+<h2>Key Features<a class="headerlink" href="#key-features" title="Link to this heading">#</a></h2>
+<dl class="simple">
+<dt><strong>State Authority</strong></dt><dd><p>Gateway is the only component that creates agent state, ensuring consistency.</p>
+</dd>
+<dt><strong>Slash Commands</strong></dt><dd><p>Integrated with the centralized command system for <code class="docutils literal notranslate"><span class="pre">/planning:on</span></code>, <code class="docutils literal notranslate"><span class="pre">/approval:enabled</span></code>, <code class="docutils literal notranslate"><span class="pre">/debug:on</span></code>, and performance bypass commands.</p>
+</dd>
+<dt><strong>Approval Integration</strong></dt><dd><p>Automatic detection of approval/rejection responses with LangGraph interrupt handling.</p>
+</dd>
+<dt><strong>Interface Agnostic</strong></dt><dd><p>Same processing logic for CLI, OpenWebUI, APIs, or custom interfaces.</p>
+</dd>
+</dl>
+</section>
+<section id="implementation-patterns">
+<h2>Implementation Patterns<a class="headerlink" href="#implementation-patterns" title="Link to this heading">#</a></h2>
+<p><strong>Simple Interface Integration</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">MyInterface</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">gateway</span> <span class="o">=</span> <span class="n">Gateway</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">graph</span> <span class="o">=</span> <span class="n">create_graph</span><span class="p">()</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handle_message</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">gateway</span><span class="o">.</span><span class="n">process_message</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">graph</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Error: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">error</span><span class="si">}</span><span class="s2">&quot;</span>
+
+        <span class="c1"># Execute and extract response</span>
+        <span class="n">execution_input</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">resume_command</span> <span class="ow">or</span> <span class="n">result</span><span class="o">.</span><span class="n">agent_state</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">graph</span><span class="o">.</span><span class="n">ainvoke</span><span class="p">(</span><span class="n">execution_input</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extract_response</span><span class="p">(</span><span class="n">response</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Streaming Interface Integration</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handle_streaming</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">gateway</span><span class="o">.</span><span class="n">process_message</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">graph</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="p">{</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">error</span><span class="p">}</span>
+            <span class="k">return</span>
+
+    <span class="c1"># Stream execution</span>
+        <span class="n">execution_input</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">resume_command</span> <span class="ow">or</span> <span class="n">result</span><span class="o">.</span><span class="n">agent_state</span>
+        <span class="k">async</span> <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">graph</span><span class="o">.</span><span class="n">astream</span><span class="p">(</span><span class="n">execution_input</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">):</span>
+        <span class="k">yield</span> <span class="n">chunk</span>
+</pre></div>
+</div>
+</section>
+<section id="state-management">
+<h2>State Management<a class="headerlink" href="#state-management" title="Link to this heading">#</a></h2>
+<p>Gateway automatically handles:</p>
+<ul class="simple">
+<li><p><strong>Fresh state creation</strong> for new conversation turns</p></li>
+<li><p><strong>Persistent field preservation</strong> (execution history, user preferences)</p></li>
+<li><p><strong>Slash command application</strong> before execution</p></li>
+<li><p><strong>Approval state injection</strong> for interrupt resumption</p></li>
+</ul>
+<p><strong>State Creation Pattern:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Gateway handles this automatically</span>
+<span class="n">fresh_state</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">create_fresh_state</span><span class="p">(</span>
+    <span class="n">user_input</span><span class="o">=</span><span class="n">cleaned_message</span><span class="p">,</span>
+    <span class="n">current_state</span><span class="o">=</span><span class="n">current_state</span>  <span class="c1"># Preserves persistent fields</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="slash-commands">
+<span id="slash-commands-section"></span><h2>Slash Commands<a class="headerlink" href="#slash-commands" title="Link to this heading">#</a></h2>
+<p>Gateway parses and applies slash commands automatically:</p>
+<p><strong>Planning and Execution Control:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">/planning</span></code> or <code class="docutils literal notranslate"><span class="pre">/planning:on</span></code> - Enable planning mode</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/planning:off</span></code> - Disable planning mode (default)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/approval:on</span></code> - Enable approval workflows</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/approval:selective</span></code> - Selective approval mode</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/debug:on</span></code> - Enable debug logging</p></li>
+</ul>
+<p><strong>Performance Optimization:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">/task:off</span></code> - <a class="reference internal" href="../../getting-started/control-assistant-part4-customization.html#bypass-task-extraction-section"><span class="std std-ref">Bypass task extraction</span></a> (use full chat history)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/task:on</span></code> - Enable task extraction (default)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/caps:off</span></code> - Bypass capability selection (activate all capabilities)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/caps:on</span></code> - Enable capability selection (default)</p></li>
+</ul>
+<p>Commands are parsed from user input and applied to <code class="docutils literal notranslate"><span class="pre">agent_control</span></code> state before execution and can temporarily change bypass settings for the current conversation session, overriding system defaults.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-terminal" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM7.25 8a.749.749 0 0 1-.22.53l-2.25 2.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L5.44 8 3.72 6.28a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215l2.25 2.25c.141.14.22.331.22.53Zm1.5 1.5h3a.75.75 0 0 1 0 1.5h-3a.75.75 0 0 1 0-1.5Z"></path></svg></span><span class="sd-summary-text">💡 Slash Command Examples</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>Real CLI Sessions Demonstrating Different Modes</strong></p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" data-sync-group="tab" data-sync-id="planning" for="sd-tab-item-0">
+Planning Mode</label><div class="sd-tab-content docutils">
+<p class="sd-card-text"><strong>Human Approval Workflow Example</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>👤 You: /planning What&#39;s the weather in San Francisco?
+🔄 Processing: /planning What&#39;s the weather in San Francisco?
+✅ Processed commands: [&#39;planning&#39;]
+🔄 Extracting actionable task from conversation
+🔄 Analyzing task requirements...
+🔄 Generating execution plan...
+🔄 Requesting plan approval...
+
+⚠️ **HUMAN APPROVAL REQUIRED** ⚠️
+
+**Planned Steps (2 total):**
+**Step 1:** Retrieve current weather conditions for San Francisco including temperature, weather conditions, and timestamp (current_weather)
+**Step 2:** Present the current weather information for San Francisco to the user in a clear and readable format (respond)
+
+**To proceed, respond with:**
+- **`yes`** to approve and execute the plan
+- **`no`** to cancel this operation
+
+👤 You: yes
+🔄 Processing: yes
+🔄 Resuming from interrupt...
+🔄 Using approved execution plan
+🔄 Executing current_weather... (10%)
+🔄 Weather retrieved: San Francisco - 18.0°C
+🔄 Executing respond... (10%)
+📊 Execution completed (execution_step_results: 2 records)
+
+🤖 Here is the current weather in San Francisco:
+As of today, the weather in San Francisco is **18.0°C and Partly Cloudy**.
+</pre></div>
+</div>
+<p class="sd-card-text">Planning mode provides transparent oversight of multi-step operations before execution begins.</p>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" data-sync-group="tab" data-sync-id="performance" for="sd-tab-item-1">
+Performance Optimization</label><div class="sd-tab-content docutils">
+<p class="sd-card-text"><strong>Bypass Mode Examples for Faster Response Times</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span># Example 1: Task extraction bypass for context-rich queries
+👤 You: /task:off Analyze the correlation we discussed earlier
+🔄 Processing: /task:off Analyze the correlation we discussed earlier
+✅ Processed commands: [&#39;task:off&#39;]
+🔄 Bypassing task extraction - using full conversation context
+🔄 Analyzing task requirements...
+🔄 Classification completed with 3 active capabilities
+🔄 Generating execution plan...
+
+# Example 2: Full bypass for quick status queries
+👤 You: /task:off /caps:off What&#39;s the current beam status?
+🔄 Processing: /task:off /caps:off What&#39;s the current beam status?
+✅ Processed commands: [&#39;task:off&#39;, &#39;caps:off&#39;]
+🔄 Bypassing task extraction - using full conversation context
+🔄 Bypassing capability selection - activating all capabilities
+🔄 Generating execution plan...
+</pre></div>
+</div>
+<p class="sd-card-text"><strong>Performance Comparison:</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text"><strong>Normal Mode</strong>: Task Extraction → Classification → Orchestration → Execution (3 LLM calls)</p></li>
+<li><p class="sd-card-text"><strong>Task Bypass</strong>: Classification → Orchestration → Execution (2 LLM call)</p></li>
+<li><p class="sd-card-text"><strong>Caps Bypass</strong>: Task Extraction → Orchestration → Execution (2 LLM call)</p></li>
+<li><p class="sd-card-text"><strong>Full Bypass</strong>: Orchestration → Execution (1 preprocessing LLM calls)</p></li>
+</ul>
+</div>
+</div>
+</div>
+</details></section>
+<section id="approval-workflow-integration">
+<h2>Approval Workflow Integration<a class="headerlink" href="#approval-workflow-integration" title="Link to this heading">#</a></h2>
+<p>Gateway automatically detects approval responses using a two-tier detection system and creates resume commands:</p>
+<dl>
+<dt><strong>Explicit Yes/No Detection (Fast Path):</strong></dt><dd><p>First checks for simple, explicit approval/rejection responses without LLM calls:</p>
+<ul class="simple">
+<li><p><strong>Approval words</strong>: <code class="docutils literal notranslate"><span class="pre">yes</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code>, <code class="docutils literal notranslate"><span class="pre">yep</span></code>, <code class="docutils literal notranslate"><span class="pre">yeah</span></code>, <code class="docutils literal notranslate"><span class="pre">ok</span></code>, <code class="docutils literal notranslate"><span class="pre">okay</span></code> (case-insensitive, with optional punctuation like <code class="docutils literal notranslate"><span class="pre">.</span></code>, <code class="docutils literal notranslate"><span class="pre">!</span></code>, <code class="docutils literal notranslate"><span class="pre">?</span></code>)</p></li>
+<li><p><strong>Rejection words</strong>: <code class="docutils literal notranslate"><span class="pre">no</span></code>, <code class="docutils literal notranslate"><span class="pre">n</span></code>, <code class="docutils literal notranslate"><span class="pre">nope</span></code>, <code class="docutils literal notranslate"><span class="pre">nah</span></code>, <code class="docutils literal notranslate"><span class="pre">cancel</span></code> (case-insensitive, with optional punctuation)</p></li>
+</ul>
+<p>This provides instant, deterministic responses for common approval scenarios.</p>
+</dd>
+<dt><strong>LLM-Powered Approval Detection (Fallback):</strong></dt><dd><p>For complex responses (e.g., “I think we should proceed”), uses the configured <code class="docutils literal notranslate"><span class="pre">approval</span></code> model from <code class="docutils literal notranslate"><span class="pre">osprey.models</span></code> to classify user responses.</p>
+</dd>
+<dt><strong>Approval Model Configuration:</strong></dt><dd><p>Configured in <code class="docutils literal notranslate"><span class="pre">src/osprey/config.yml</span></code> under <code class="docutils literal notranslate"><span class="pre">osprey.models.approval</span></code>. Only invoked for complex responses.</p>
+</dd>
+<dt><strong>Fail-Safe Behavior:</strong></dt><dd><p>If LLM classification fails for any reason, the system defaults to “not approved” and logs a clear warning message.</p>
+</dd>
+<dt><strong>Resume Command Creation:</strong></dt><dd><p>Gateway extracts interrupt payload and injects approval decision into agent state for processing.</p>
+</dd>
+</dl>
+</section>
+<section id="direct-chat-mode-handling">
+<span id="gateway-direct-chat-mode"></span><h2>Direct Chat Mode Handling<a class="headerlink" href="#direct-chat-mode-handling" title="Link to this heading">#</a></h2>
+<p>Gateway provides special handling for direct chat mode, where users interact directly with a specific capability without going through the normal orchestration pipeline.</p>
+<p><strong>Mode Detection:</strong></p>
+<p>Gateway checks the current <code class="docutils literal notranslate"><span class="pre">session_state</span></code> to determine if direct chat mode is active:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Gateway detects direct chat mode from session state</span>
+<span class="n">session_state</span> <span class="o">=</span> <span class="n">current_state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;session_state&quot;</span><span class="p">,</span> <span class="p">{})</span>
+<span class="n">direct_chat_capability</span> <span class="o">=</span> <span class="n">session_state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;direct_chat_capability&quot;</span><span class="p">)</span>
+<span class="n">in_direct_chat</span> <span class="o">=</span> <span class="n">direct_chat_capability</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+
+<span class="k">if</span> <span class="n">in_direct_chat</span><span class="p">:</span>
+    <span class="c1"># Direct chat mode - preserve message history</span>
+    <span class="c1"># (handled within _handle_new_message_flow)</span>
+    <span class="o">...</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="c1"># Normal mode - create fresh state</span>
+    <span class="n">fresh_state</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">create_fresh_state</span><span class="p">(</span><span class="n">user_input</span><span class="p">,</span> <span class="n">current_state</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Message History Preservation:</strong></p>
+<p>The key difference between direct chat and normal mode is how messages are handled:</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-2" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-2">
+Normal Mode</label><div class="sd-tab-content docutils">
+<p>Creates fresh state with only the current message:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Normal mode: fresh state for each turn</span>
+<span class="n">fresh_state</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">create_fresh_state</span><span class="p">(</span>
+    <span class="n">user_input</span><span class="o">=</span><span class="n">cleaned_message</span><span class="p">,</span>
+    <span class="n">current_state</span><span class="o">=</span><span class="n">current_state</span>  <span class="c1"># Preserves persistent fields only</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>This ensures each orchestrated query is independent.</p>
+</div>
+<input id="sd-tab-item-3" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-3">
+Direct Chat Mode</label><div class="sd-tab-content docutils">
+<p>Preserves message history for multi-turn conversations:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Direct chat mode: append to existing messages</span>
+<span class="n">state_update</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;messages&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">new_message</span><span class="p">],</span>  <span class="c1"># LangGraph APPENDS to existing</span>
+    <span class="s2">&quot;session_state&quot;</span><span class="p">:</span> <span class="n">session_state</span><span class="p">,</span>
+    <span class="s2">&quot;execution_start_time&quot;</span><span class="p">:</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">(),</span>
+    <span class="s2">&quot;execution_last_result&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># Clear for new turn</span>
+    <span class="s2">&quot;planning_current_step_index&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="s2">&quot;planning_execution_plan&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>The capability sees the full conversation history, enabling context-aware follow-up questions.</p>
+</div>
+</div>
+<p><strong>Mode Switch Handling:</strong></p>
+<p>When entering or exiting direct chat mode (via <code class="docutils literal notranslate"><span class="pre">/chat:capability_name</span></code> or <code class="docutils literal notranslate"><span class="pre">/exit</span></code>), Gateway returns a state-only update:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Mode switch state - no active execution</span>
+<span class="n">mode_switch_state</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;session_state&quot;</span><span class="p">:</span> <span class="n">updated_session_state</span><span class="p">,</span>
+    <span class="s2">&quot;execution_start_time&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># Signals no active execution</span>
+    <span class="s2">&quot;planning_execution_plan&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="s2">&quot;planning_current_step_index&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="k">return</span> <span class="n">GatewayResult</span><span class="p">(</span>
+    <span class="n">agent_state</span><span class="o">=</span><span class="n">mode_switch_state</span><span class="p">,</span>
+    <span class="n">is_state_only_update</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>  <span class="c1"># Use update_state(), not ainvoke()</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Interface Integration:</strong></p>
+<p>Interfaces must handle the <code class="docutils literal notranslate"><span class="pre">is_state_only_update</span></code> and <code class="docutils literal notranslate"><span class="pre">exit_interface</span></code> flags:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">gateway</span><span class="o">.</span><span class="n">process_message</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">graph</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">exit_interface</span><span class="p">:</span>
+    <span class="c1"># Exit CLI or close session</span>
+    <span class="k">return</span>
+
+<span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">is_state_only_update</span> <span class="ow">and</span> <span class="n">result</span><span class="o">.</span><span class="n">agent_state</span><span class="p">:</span>
+    <span class="c1"># Mode switch - update state without running graph</span>
+    <span class="n">graph</span><span class="o">.</span><span class="n">update_state</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">as_node</span><span class="o">=</span><span class="s2">&quot;router&quot;</span><span class="p">)</span>
+<span class="k">elif</span> <span class="n">result</span><span class="o">.</span><span class="n">agent_state</span><span class="p">:</span>
+    <span class="c1"># Normal execution</span>
+    <span class="k">await</span> <span class="n">graph</span><span class="o">.</span><span class="n">ainvoke</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="error-handling">
+<h2>Error Handling<a class="headerlink" href="#error-handling" title="Link to this heading">#</a></h2>
+<p>Gateway provides graceful error handling:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Gateway returns structured results</span>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">GatewayResult</span><span class="p">:</span>
+    <span class="n">agent_state</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">resume_command</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Command</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">error</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">slash_commands_processed</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">approval_detected</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">is_state_only_update</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>  <span class="c1"># Mode switch, use update_state()</span>
+    <span class="n">exit_interface</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>        <span class="c1"># Exit CLI/session</span>
+</pre></div>
+</div>
+<p><strong>Field Reference:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">agent_state</span></code>: State to pass to <code class="docutils literal notranslate"><span class="pre">graph.ainvoke()</span></code> for normal execution</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">resume_command</span></code>: Command for resuming from approval interrupt</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">error</span></code>: Error message if processing failed</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">slash_commands_processed</span></code>: List of slash commands that were handled</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">approval_detected</span></code>: Whether an approval/rejection response was detected</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">is_state_only_update</span></code>: If True, use <code class="docutils literal notranslate"><span class="pre">graph.update_state()</span></code> instead of <code class="docutils literal notranslate"><span class="pre">ainvoke()</span></code> (for mode switches)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">exit_interface</span></code>: If True, the interface should exit (<code class="docutils literal notranslate"><span class="pre">/exit</span></code> outside direct chat mode)</p></li>
+</ul>
+<p>Common error scenarios:
+- Interrupt detection failures fall back to new message processing
+- State access errors are handled gracefully
+- Approval parsing failures provide clear guidance</p>
+</section>
+<section id="validation">
+<h2>Validation<a class="headerlink" href="#validation" title="Link to this heading">#</a></h2>
+<p>The Gateway pattern is validated by existing interfaces:</p>
+<ul class="simple">
+<li><p><strong>CLI Interface</strong> (<code class="docutils literal notranslate"><span class="pre">interfaces/cli/direct_conversation.py</span></code>)</p></li>
+<li><p><strong>OpenWebUI Pipeline</strong> (<code class="docutils literal notranslate"><span class="pre">interfaces/openwebui/main.py</span></code>)</p></li>
+</ul>
+<p>Both follow the documented patterns exactly, providing real-world validation.</p>
+</section>
+<section id="best-practices">
+<h2>Best Practices<a class="headerlink" href="#best-practices" title="Link to this heading">#</a></h2>
+<p><strong>Do:</strong>
+- Always use Gateway for message processing
+- Handle both normal and approval flows
+- Implement proper error handling for Gateway results</p>
+<p><strong>Don’t:</strong>
+- Create agent state manually in interfaces
+- Duplicate approval detection logic
+- Parse slash commands outside Gateway</p>
+</section>
+<section id="integration-example">
+<h2>Integration Example<a class="headerlink" href="#integration-example" title="Link to this heading">#</a></h2>
+<p>Complete CLI interface using Gateway:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">CLIInterface</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">gateway</span> <span class="o">=</span> <span class="n">Gateway</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">graph</span> <span class="o">=</span> <span class="n">create_graph</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;configurable&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;thread_id&quot;</span><span class="p">:</span> <span class="s2">&quot;cli_session&quot;</span><span class="p">}}</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">conversation_loop</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+            <span class="n">user_input</span> <span class="o">=</span> <span class="nb">input</span><span class="p">(</span><span class="s2">&quot;You: &quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">user_input</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;exit&#39;</span><span class="p">,</span> <span class="s1">&#39;quit&#39;</span><span class="p">]:</span>
+                <span class="k">break</span>
+
+            <span class="c1"># Process through Gateway</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">gateway</span><span class="o">.</span><span class="n">process_message</span><span class="p">(</span>
+                <span class="n">user_input</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">graph</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span>
+            <span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">error</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">continue</span>
+
+            <span class="c1"># Execute appropriate flow</span>
+            <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">resume_command</span><span class="p">:</span>
+                <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">graph</span><span class="o">.</span><span class="n">ainvoke</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">resume_command</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">graph</span><span class="o">.</span><span class="n">ainvoke</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">agent_state</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">)</span>
+
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Agent: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_extract_message</span><span class="p">(</span><span class="n">response</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Gateway Architecture provides the foundation for consistent, reliable message processing across all interfaces in the Osprey Framework.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../../api_reference/02_infrastructure/01_gateway.html"><span class="doc">Gateway</span></a></dt><dd><p>API reference for Gateway classes and functions</p>
+</dd>
+<dt><a class="reference internal" href="../03_core-framework-systems/01_state-management-architecture.html"><span class="doc">State Management Architecture</span></a></dt><dd><p>State lifecycle management and conversation handling</p>
+</dd>
+<dt><a class="reference internal" href="../05_production-systems/01_human-approval-workflows.html"><span class="doc">Human Approval</span></a></dt><dd><p>Advanced approval workflow integration patterns</p>
+</dd>
+<dt><a class="reference internal" href="../02_quick-start-patterns/00_cli-reference.html#direct-chat-mode"><span class="std std-ref">Direct Chat Mode</span></a></dt><dd><p>User guide for Direct Chat Mode commands and workflow</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Infrastructure Components</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="02_task-extraction-system.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Task Extraction</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#core-concept">Core Concept</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#architecture">Architecture</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#key-features">Key Features</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation-patterns">Implementation Patterns</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#state-management">State Management</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#slash-commands">Slash Commands</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#approval-workflow-integration">Approval Workflow Integration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#direct-chat-mode-handling">Direct Chat Mode Handling</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#error-handling">Error Handling</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#validation">Validation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#best-practices">Best Practices</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#integration-example">Integration Example</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/developer-guides/04_infrastructure-components/01_gateway-architecture.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

@@ -1,0 +1,1284 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Context Management System &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'developer-guides/03_core-framework-systems/02_context-management-system';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Registry and Discovery" href="03_registry-and-discovery.html" />
+    <link rel="prev" title="State Management Architecture" href="01_state-management-architecture.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../01_understanding-the-framework/index.html">Understanding Osprey</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/01_infrastructure-architecture.html">Infrastructure Architecture: Classification-Orchestration Pipeline</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/02_convention-over-configuration.html">Convention over Configuration: Configuration-Driven Registry Patterns</a></li>
+
+
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/03_langgraph-integration.html">LangGraph Integration: Native StateGraph and Workflow Execution</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/04_orchestration-architecture.html">Orchestration Architecture</a></li>
+
+
+
+
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../02_quick-start-patterns/index.html">Quick Start Patterns</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/00_cli-reference.html">CLI Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/01_building-your-first-capability.html">Building Your First Capability</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/02_state-and-context-essentials.html">State and Context Essentials</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/03_running-and-testing.html">Running and Testing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/04_mcp-capability-generation.html">MCP Capability Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/05_soft-ioc-backends.html">Soft IOC Custom Backends</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Core Framework Systems</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="01_state-management-architecture.html">State Management Architecture</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Context Management System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="03_registry-and-discovery.html">Registry and Discovery</a></li>
+<li class="toctree-l2"><a class="reference internal" href="04_prompt-customization.html">Prompt Customization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="05_message-and-execution-flow.html">Message and Execution Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="06_configuration-architecture.html">Configuration Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="07_built-in-capabilities.html">Built-in Capabilities</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../04_infrastructure-components/index.html">Infrastructure Components</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/01_gateway-architecture.html">Gateway Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/02_task-extraction-system.html">Task Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/03_classification-and-routing.html">Classification and Routing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/04_orchestrator-planning.html">Orchestrator Planning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/05_message-generation.html">Message Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/06_error-handling-infrastructure.html">Error Handling</a></li>
+</ul>
+</details></li>
+
+
+
+<li class="toctree-l1 has-children"><a class="reference internal" href="../05_production-systems/index.html">Production Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/01_human-approval-workflows.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/02_data-source-integration.html">Data Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../05_production-systems/03_python-execution-service/index.html">Python Execution</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/service-overview.html">Python Service Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-basic.html">Basic LLM Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-claude.html">Claude Code Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-mock.html">Mock Generator</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/04_memory-storage-service.html">Memory Storage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/05_container-and-deployment.html">Container Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/06_control-system-integration.html">Control System Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/search-modes.html">Search Modes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/web-interface.html">Web Interface</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Developer Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Core Framework Systems</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Context Management System</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="context-management-system">
+<h1>Context Management System<a class="headerlink" href="#context-management-system" title="Link to this heading">#</a></h1>
+<p>The Osprey Framework’s context management system provides type-safe data sharing between capabilities using Pydantic for automatic serialization and LangGraph-native dictionary storage.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">📚 What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>Key Concepts:</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text"><a class="reference internal" href="../../api_reference/01_core_framework/02_state_and_context.html#osprey.context.ContextManager" title="osprey.context.ContextManager"><code class="xref py py-class docutils literal notranslate"><span class="pre">ContextManager</span></code></a> and <a class="reference internal" href="../../api_reference/01_core_framework/02_state_and_context.html#osprey.context.CapabilityContext" title="osprey.context.CapabilityContext"><code class="xref py py-class docutils literal notranslate"><span class="pre">CapabilityContext</span></code></a> fundamentals</p></li>
+<li><p class="sd-card-text">Creating and registering context classes</p></li>
+<li><p class="sd-card-text">Storing and retrieving context data in capabilities</p></li>
+<li><p class="sd-card-text"><a class="reference internal" href="03_registry-and-discovery.html"><span class="doc">Registry and Discovery</span></a> integration for automatic context discovery</p></li>
+<li><p class="sd-card-text">Best practices for type-safe data sharing</p></li>
+</ul>
+<p class="sd-card-text"><strong>Prerequisites:</strong> Understanding of Pydantic models and <a class="reference internal" href="01_state-management-architecture.html"><span class="doc">State Management Architecture</span></a> (AgentState structure)</p>
+<p class="sd-card-text"><strong>Time Investment:</strong> 25-30 minutes for complete understanding</p>
+</div>
+</details><section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
+<p><strong>Core Components:</strong></p>
+<ul class="simple">
+<li><p><a class="reference internal" href="../../api_reference/01_core_framework/02_state_and_context.html#osprey.context.ContextManager" title="osprey.context.ContextManager"><code class="xref py py-class docutils literal notranslate"><span class="pre">ContextManager</span></code></a>: Primary interface for context operations with caching</p></li>
+<li><p><a class="reference internal" href="../../api_reference/01_core_framework/02_state_and_context.html#osprey.context.CapabilityContext" title="osprey.context.CapabilityContext"><code class="xref py py-class docutils literal notranslate"><span class="pre">CapabilityContext</span></code></a>: Pydantic base class for all context objects</p></li>
+<li><p><code class="xref py py-class docutils literal notranslate"><span class="pre">StateManager</span></code>: Utilities for storing context data in agent state</p></li>
+<li><p><strong>Registry Integration</strong>: Automatic context class discovery and validation</p></li>
+</ul>
+<p><strong>Key Benefits:</strong></p>
+<ul class="simple">
+<li><p><strong>Type Safety</strong>: Pydantic validation and type checking</p></li>
+<li><p><strong>LangGraph Native</strong>: Dictionary storage compatible with checkpointing</p></li>
+<li><p><strong>Performance</strong>: Object caching and efficient serialization</p></li>
+</ul>
+<p><strong>Data Structure:</strong></p>
+<p>Context data is stored in a three-level dictionary within the agent state’s <cite>capability_context_data</cite> field:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">capability_context_data</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="n">context_type</span><span class="p">:</span> <span class="p">{</span>           <span class="c1"># e.g., &quot;PV_ADDRESSES&quot;, &quot;PV_VALUES&quot;</span>
+        <span class="n">context_key</span><span class="p">:</span> <span class="p">{</span>        <span class="c1"># e.g., &quot;step_1&quot;, &quot;beam_current_data&quot;</span>
+            <span class="n">field</span><span class="p">:</span> <span class="n">value</span><span class="p">,</span>     <span class="c1"># Serialized Pydantic model fields</span>
+            <span class="o">...</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="context-management-patterns">
+<h2>Context Management Patterns<a class="headerlink" href="#context-management-patterns" title="Link to this heading">#</a></h2>
+<p>The framework provides two approaches to context management:</p>
+<ol class="arabic simple">
+<li><p><strong>Automatic (Recommended):</strong> Use BaseCapability helper methods</p></li>
+<li><p><strong>Manual (Advanced):</strong> Direct ContextManager usage</p></li>
+</ol>
+<section id="automatic-context-management">
+<h3>Automatic Context Management<a class="headerlink" href="#automatic-context-management" title="Link to this heading">#</a></h3>
+<p><strong>Recommended for most capabilities.</strong> Uses the <code class="docutils literal notranslate"><span class="pre">requires</span></code> field for declarative dependency management.</p>
+<p>The framework provides helper methods that eliminate boilerplate for context extraction and storage. This is the <strong>recommended pattern</strong> for all capabilities - it’s simple, type-safe, and maintainable.</p>
+<section id="basic-pattern">
+<h4>Basic Pattern<a class="headerlink" href="#basic-pattern" title="Link to this heading">#</a></h4>
+<p>Two ways to access extracted contexts:</p>
+<p><strong>Pattern 1: Tuple Unpacking (Recommended for most cases)</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@capability_node</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AnalysisCapability</span><span class="p">(</span><span class="n">BaseCapability</span><span class="p">):</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;analysis&quot;</span>
+    <span class="n">provides</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;ANALYSIS_RESULTS&quot;</span><span class="p">]</span>
+    <span class="n">requires</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;INPUT_DATA&quot;</span><span class="p">]</span>  <span class="c1"># Declarative dependencies</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="c1"># Elegant tuple unpacking (note the trailing comma for single context)</span>
+        <span class="n">input_data</span><span class="p">,</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">()</span>
+
+        <span class="c1"># Your business logic</span>
+        <span class="n">results</span> <span class="o">=</span> <span class="n">analyze</span><span class="p">(</span><span class="n">input_data</span><span class="p">)</span>
+
+        <span class="c1"># Automatic storage with type inference</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span>
+            <span class="n">AnalysisResults</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">results</span><span class="p">)</span>
+        <span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Pattern 2: Dict Access (Use for optional/soft contexts)</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@capability_node</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AnalysisCapability</span><span class="p">(</span><span class="n">BaseCapability</span><span class="p">):</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;analysis&quot;</span>
+    <span class="n">provides</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;ANALYSIS_RESULTS&quot;</span><span class="p">]</span>
+    <span class="n">requires</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;PRIMARY_DATA&quot;</span><span class="p">,</span> <span class="s2">&quot;OPTIONAL_METADATA&quot;</span><span class="p">]</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="c1"># Soft mode - at least one required, use dict access with .get()</span>
+        <span class="n">contexts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">(</span><span class="n">constraint_mode</span><span class="o">=</span><span class="s2">&quot;soft&quot;</span><span class="p">)</span>
+
+        <span class="n">primary</span> <span class="o">=</span> <span class="n">contexts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;PRIMARY_DATA&quot;</span><span class="p">)</span>
+        <span class="n">metadata</span> <span class="o">=</span> <span class="n">contexts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;OPTIONAL_METADATA&quot;</span><span class="p">)</span>  <span class="c1"># May be None</span>
+
+        <span class="c1"># Handle optional metadata</span>
+        <span class="n">results</span> <span class="o">=</span> <span class="n">analyze</span><span class="p">(</span><span class="n">primary</span><span class="p">,</span> <span class="n">metadata</span><span class="o">=</span><span class="n">metadata</span> <span class="k">if</span> <span class="n">metadata</span> <span class="k">else</span> <span class="p">{})</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">AnalysisResults</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">results</span><span class="p">))</span>
+</pre></div>
+</div>
+<p><strong>When to use each:</strong></p>
+<ul class="simple">
+<li><p><strong>Tuple unpacking</strong>: Default choice - cleaner and more Pythonic for production code</p></li>
+<li><p><strong>Dict access</strong>: Use when you need <code class="docutils literal notranslate"><span class="pre">.get()</span></code> for optional contexts or soft mode</p></li>
+</ul>
+<p><strong>Key Benefits:</strong></p>
+<ul class="simple">
+<li><p>No manual <code class="docutils literal notranslate"><span class="pre">StateManager</span></code> or <code class="docutils literal notranslate"><span class="pre">ContextManager</span></code> instantiation</p></li>
+<li><p>Automatic validation of required contexts</p></li>
+<li><p>Type-safe context extraction</p></li>
+<li><p>Cleaner, more readable code</p></li>
+</ul>
+</section>
+<section id="tuple-unpacking-recommended">
+<h4>Tuple Unpacking (Recommended)<a class="headerlink" href="#tuple-unpacking-recommended" title="Link to this heading">#</a></h4>
+<p>Tuple unpacking works for both single and multiple contexts (matches <code class="docutils literal notranslate"><span class="pre">requires</span></code> field order):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Single context - note the trailing comma!</span>
+<span class="n">requires</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;INPUT_DATA&quot;</span><span class="p">]</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="n">input_data</span><span class="p">,</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">()</span>  <span class="c1"># Trailing comma unpacks single item</span>
+
+    <span class="n">results</span> <span class="o">=</span> <span class="n">process</span><span class="p">(</span><span class="n">input_data</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">ResultContext</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">results</span><span class="p">))</span>
+</pre></div>
+</div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Multiple contexts - cleaner than dict access</span>
+<span class="n">requires</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;INPUT_DATA&quot;</span><span class="p">,</span> <span class="s2">&quot;TIME_RANGE&quot;</span><span class="p">]</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="n">input_data</span><span class="p">,</span> <span class="n">time_range</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">()</span>  <span class="c1"># Order matches requires</span>
+
+    <span class="n">results</span> <span class="o">=</span> <span class="n">process</span><span class="p">(</span><span class="n">input_data</span><span class="p">,</span> <span class="n">time_range</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">ResultContext</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">results</span><span class="p">))</span>
+</pre></div>
+</div>
+</section>
+<section id="soft-vs-hard-constraints">
+<h4>Soft vs Hard Constraints<a class="headerlink" href="#soft-vs-hard-constraints" title="Link to this heading">#</a></h4>
+<p>Control whether ALL contexts are required or AT LEAST ONE:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">requires</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;OPTIONAL_DATA&quot;</span><span class="p">,</span> <span class="s2">&quot;OTHER_OPTIONAL&quot;</span><span class="p">]</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="c1"># Hard mode (default): ALL contexts required - use tuple unpacking</span>
+    <span class="n">data1</span><span class="p">,</span> <span class="n">data2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">(</span><span class="n">constraint_mode</span><span class="o">=</span><span class="s2">&quot;hard&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Soft mode: AT LEAST ONE context required - use dict access</span>
+    <span class="n">contexts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">(</span><span class="n">constraint_mode</span><span class="o">=</span><span class="s2">&quot;soft&quot;</span><span class="p">)</span>
+    <span class="n">optional</span> <span class="o">=</span> <span class="n">contexts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;OPTIONAL_DATA&quot;</span><span class="p">)</span>  <span class="c1"># May be None</span>
+</pre></div>
+</div>
+<p><strong>When to use each mode:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">hard</span></code> (default): Use when all contexts are mandatory → <strong>use tuple unpacking</strong></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">soft</span></code>: Use for optional dependencies → <strong>use dict access with .get()</strong></p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Tuple unpacking with soft mode</strong> is unreliable because you don’t know how many contexts will be returned. Always use dict access for soft mode.</p>
+</div>
+</section>
+<section id="multiple-output-contexts">
+<h4>Multiple Output Contexts<a class="headerlink" href="#multiple-output-contexts" title="Link to this heading">#</a></h4>
+<p>Store multiple contexts in a single operation:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="n">primary</span> <span class="o">=</span> <span class="n">PrimaryContext</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">main_results</span><span class="p">)</span>
+    <span class="n">metadata</span> <span class="o">=</span> <span class="n">MetadataContext</span><span class="p">(</span><span class="n">info</span><span class="o">=</span><span class="n">processing_info</span><span class="p">)</span>
+    <span class="n">stats</span> <span class="o">=</span> <span class="n">StatisticsContext</span><span class="p">(</span><span class="n">stats</span><span class="o">=</span><span class="n">statistics</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_contexts</span><span class="p">(</span><span class="n">primary</span><span class="p">,</span> <span class="n">metadata</span><span class="p">,</span> <span class="n">stats</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="cardinality-constraints">
+<h4>Cardinality Constraints<a class="headerlink" href="#cardinality-constraints" title="Link to this heading">#</a></h4>
+<p>Control whether extracted contexts are single objects or lists using tuple format in the <code class="docutils literal notranslate"><span class="pre">requires</span></code> field.</p>
+<p><strong>Why Cardinality Matters</strong></p>
+<p>Without cardinality constraints, you must check types at runtime:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># ❌ Without cardinality - runtime uncertainty</span>
+<span class="n">requires</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;TIME_RANGE&quot;</span><span class="p">]</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="n">contexts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">()</span>
+    <span class="n">time_range</span> <span class="o">=</span> <span class="n">contexts</span><span class="p">[</span><span class="s2">&quot;TIME_RANGE&quot;</span><span class="p">]</span>
+
+    <span class="c1"># Is it a list or single object? Must check!</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">time_range</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+        <span class="n">time_range</span> <span class="o">=</span> <span class="n">time_range</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>  <span class="c1"># Take first?</span>
+
+    <span class="n">start_time</span> <span class="o">=</span> <span class="n">time_range</span><span class="o">.</span><span class="n">start</span>  <span class="c1"># Could fail if it&#39;s a list!</span>
+</pre></div>
+</div>
+<p>With cardinality constraints, types are guaranteed:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># ✅ With cardinality - compile-time guarantee</span>
+<span class="n">requires</span> <span class="o">=</span> <span class="p">[(</span><span class="s2">&quot;TIME_RANGE&quot;</span><span class="p">,</span> <span class="s2">&quot;single&quot;</span><span class="p">)]</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="n">time_range</span><span class="p">,</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">()</span>
+    <span class="n">start_time</span> <span class="o">=</span> <span class="n">time_range</span><span class="o">.</span><span class="n">start</span>  <span class="c1"># Guaranteed to work!</span>
+</pre></div>
+</div>
+<p><strong>Single Cardinality</strong></p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">&quot;single&quot;</span></code> when you need to <strong>enforce</strong> that exactly one instance is provided:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">requires</span> <span class="o">=</span> <span class="p">[(</span><span class="s2">&quot;TIME_RANGE&quot;</span><span class="p">,</span> <span class="s2">&quot;single&quot;</span><span class="p">)]</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="n">time_range</span><span class="p">,</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">()</span>
+    <span class="c1"># time_range is guaranteed to be a single object (validation fails if list)</span>
+</pre></div>
+</div>
+<p><strong>When to use:</strong> When you need to enforce that the orchestrator provides exactly one instance. The framework will <strong>raise ValueError</strong> if a list is provided.</p>
+<p><strong>Important:</strong> Use <code class="docutils literal notranslate"><span class="pre">&quot;single&quot;</span></code> only when you truly need single-instance enforcement. For contexts that could be either single or list, omit the cardinality constraint and handle both cases.</p>
+<p><strong>Multiple Cardinality</strong></p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">&quot;multiple&quot;</span></code> when you need to <strong>enforce</strong> that multiple items are provided (e.g., for comparison):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Example: Comparing two datasets requires both</span>
+<span class="n">requires</span> <span class="o">=</span> <span class="p">[(</span><span class="s2">&quot;DATASETS_TO_COMPARE&quot;</span><span class="p">,</span> <span class="s2">&quot;multiple&quot;</span><span class="p">)]</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="n">datasets</span><span class="p">,</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">()</span>
+    <span class="c1"># datasets is guaranteed to be a list with 2+ items (validation fails otherwise)</span>
+
+    <span class="n">comparison_result</span> <span class="o">=</span> <span class="n">compare</span><span class="p">(</span><span class="n">datasets</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">datasets</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">ComparisonContext</span><span class="p">(</span><span class="n">result</span><span class="o">=</span><span class="n">comparison_result</span><span class="p">))</span>
+</pre></div>
+</div>
+<p><strong>When to use:</strong> Rarely! Only when you truly need to enforce multiple instances (e.g., comparing two things). The framework will <strong>raise ValueError</strong> if only a single instance is provided.</p>
+<p><strong>Common Pattern - Flexible Handling Instead:</strong></p>
+<p>Most of the time, you want to handle both single and multiple contexts flexibly using <code class="docutils literal notranslate"><span class="pre">process_extracted_contexts()</span></code> hook:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># NO cardinality constraint - handle both cases</span>
+<span class="n">requires</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;CHANNEL_ADDRESSES&quot;</span><span class="p">]</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="c1"># Get contexts (could be single object or list)</span>
+    <span class="n">channels_to_retrieve</span><span class="p">,</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">()</span>
+    <span class="c1"># After process_extracted_contexts, this is a flat list of channel strings</span>
+
+    <span class="n">data</span> <span class="o">=</span> <span class="n">retrieve_data</span><span class="p">(</span><span class="n">channels_to_retrieve</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">DataContext</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">data</span><span class="p">))</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">process_extracted_contexts</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">contexts</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Hook to normalize CHANNEL_ADDRESSES into flat list.&quot;&quot;&quot;</span>
+    <span class="n">channels_raw</span> <span class="o">=</span> <span class="n">contexts</span><span class="p">[</span><span class="s2">&quot;CHANNEL_ADDRESSES&quot;</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">channels_raw</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+        <span class="c1"># Multiple contexts - flatten into single list</span>
+        <span class="n">channels_flat</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">ctx</span> <span class="ow">in</span> <span class="n">channels_raw</span><span class="p">:</span>
+            <span class="n">channels_flat</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">channels</span><span class="p">)</span>
+        <span class="n">contexts</span><span class="p">[</span><span class="s2">&quot;CHANNEL_ADDRESSES&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">channels_flat</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># Single context - extract channel list</span>
+        <span class="n">contexts</span><span class="p">[</span><span class="s2">&quot;CHANNEL_ADDRESSES&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">channels_raw</span><span class="o">.</span><span class="n">channels</span>
+
+    <span class="k">return</span> <span class="n">contexts</span>
+</pre></div>
+</div>
+<p><strong>Best Practices:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># ✅ Recommended: Flexible with normalization hook</span>
+<span class="n">requires</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">&quot;TIME_RANGE&quot;</span><span class="p">,</span> <span class="s2">&quot;single&quot;</span><span class="p">),</span>      <span class="c1"># Enforce exactly one</span>
+    <span class="s2">&quot;CHANNEL_ADDRESSES&quot;</span>            <span class="c1"># Flexible - handle in process_extracted_contexts</span>
+<span class="p">]</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">process_extracted_contexts</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">contexts</span><span class="p">):</span>
+    <span class="c1"># Normalize CHANNEL_ADDRESSES to flat list</span>
+    <span class="c1"># (See example in Multiple Cardinality section above)</span>
+    <span class="o">...</span>
+
+<span class="c1"># ✅ Also good: Simple single constraint when appropriate</span>
+<span class="n">requires</span> <span class="o">=</span> <span class="p">[(</span><span class="s2">&quot;TIME_RANGE&quot;</span><span class="p">,</span> <span class="s2">&quot;single&quot;</span><span class="p">)]</span>
+
+<span class="c1"># ⚠️ Rare: Only for enforcing comparisons</span>
+<span class="n">requires</span> <span class="o">=</span> <span class="p">[(</span><span class="s2">&quot;DATASETS_TO_COMPARE&quot;</span><span class="p">,</span> <span class="s2">&quot;multiple&quot;</span><span class="p">)]</span>
+
+<span class="c1"># ❌ Avoid: Too strict for most cases</span>
+<span class="n">requires</span> <span class="o">=</span> <span class="p">[(</span><span class="s2">&quot;CHANNEL_ADDRESSES&quot;</span><span class="p">,</span> <span class="s2">&quot;multiple&quot;</span><span class="p">)]</span>
+<span class="c1"># Better to omit constraint and use process_extracted_contexts hook</span>
+</pre></div>
+</div>
+<p><strong>Guidelines:</strong></p>
+<ol class="arabic simple">
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">&quot;single&quot;</span></code> when you need to enforce exactly one instance</p></li>
+<li><p>Use NO constraint (default) for flexible contexts - normalize in <code class="docutils literal notranslate"><span class="pre">process_extracted_contexts()</span></code></p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">&quot;multiple&quot;</span></code> only when truly enforcing 2+ items (e.g., comparisons)</p></li>
+<li><p>Document your normalization logic in <code class="docutils literal notranslate"><span class="pre">process_extracted_contexts()</span></code> docstring</p></li>
+</ol>
+</section>
+<section id="using-context-objects">
+<h4>Using Context Objects<a class="headerlink" href="#using-context-objects" title="Link to this heading">#</a></h4>
+<p>After extracting contexts, use their attributes directly without redundant nesting:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># ✅ RECOMMENDED: Use context attributes directly</span>
+<span class="n">location</span><span class="p">,</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">()</span>
+<span class="n">weather_data</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fetch_weather</span><span class="p">(</span><span class="n">location</span><span class="o">.</span><span class="n">city</span><span class="p">,</span> <span class="n">location</span><span class="o">.</span><span class="n">country</span><span class="p">)</span>
+<span class="c1"># Or pass the entire context if your function expects it</span>
+<span class="n">weather_data</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fetch_weather</span><span class="p">(</span><span class="n">location</span><span class="p">)</span>
+
+<span class="c1"># ✅ GOOD: Access context data fields</span>
+<span class="n">time_range</span><span class="p">,</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">()</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">query_database</span><span class="p">(</span><span class="n">time_range</span><span class="o">.</span><span class="n">start_date</span><span class="p">,</span> <span class="n">time_range</span><span class="o">.</span><span class="n">end_date</span><span class="p">)</span>
+
+<span class="c1"># ✅ GOOD: Work with lists from context</span>
+<span class="n">channels</span><span class="p">,</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">()</span>
+<span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">channels</span><span class="o">.</span><span class="n">channel_list</span><span class="p">:</span>
+    <span class="n">values</span> <span class="o">=</span> <span class="k">await</span> <span class="n">read_channel</span><span class="p">(</span><span class="n">channel</span><span class="p">)</span>
+
+<span class="c1"># ❌ AVOID: Redundant nesting (anti-pattern)</span>
+<span class="n">location_context</span><span class="p">,</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">()</span>
+<span class="n">weather_data</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fetch_weather</span><span class="p">(</span><span class="n">location_context</span><span class="o">.</span><span class="n">location</span><span class="p">)</span>
+<span class="c1"># This implies poor context design with unnecessary attribute wrapping</span>
+</pre></div>
+</div>
+<p><strong>Design Principle:</strong> Context classes should be designed so their attributes contain the data needed directly. Avoid creating contexts that simply wrap a single value with the same name as the context type.</p>
+</section>
+</section>
+<section id="manual-context-management">
+<h3>Manual Context Management<a class="headerlink" href="#manual-context-management" title="Link to this heading">#</a></h3>
+<p>Use direct ContextManager for advanced scenarios.</p>
+<p><strong>When to Use Manual:</strong></p>
+<ul class="simple">
+<li><p>Complex conditional logic for context selection</p></li>
+<li><p>Dynamic context type resolution</p></li>
+<li><p>Cross-step context aggregation</p></li>
+<li><p>Legacy code migration</p></li>
+</ul>
+<p><strong>Complex Conditional Logic Example:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContextManager</span>
+
+    <span class="n">context_manager</span> <span class="o">=</span> <span class="n">ContextManager</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">)</span>
+
+    <span class="c1"># Complex conditional extraction</span>
+    <span class="k">if</span> <span class="n">some_condition</span><span class="p">:</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">context_manager</span><span class="o">.</span><span class="n">get_context</span><span class="p">(</span><span class="s2">&quot;TYPE_A&quot;</span><span class="p">,</span> <span class="s2">&quot;key_1&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">context_manager</span><span class="o">.</span><span class="n">get_all_of_type</span><span class="p">(</span><span class="s2">&quot;TYPE_B&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Custom logic</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">complex_processing</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+    <span class="c1"># Can still use automatic storage</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Direct Access Patterns:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContextManager</span>
+
+<span class="n">context_manager</span> <span class="o">=</span> <span class="n">ContextManager</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+
+<span class="c1"># Get specific context by type and key</span>
+<span class="n">pv_data</span> <span class="o">=</span> <span class="n">context_manager</span><span class="o">.</span><span class="n">get_context</span><span class="p">(</span><span class="s2">&quot;PV_ADDRESSES&quot;</span><span class="p">,</span> <span class="s2">&quot;step_1&quot;</span><span class="p">)</span>
+
+<span class="c1"># Get all contexts of a specific type</span>
+<span class="n">all_pv_data</span> <span class="o">=</span> <span class="n">context_manager</span><span class="o">.</span><span class="n">get_all_of_type</span><span class="p">(</span><span class="s2">&quot;PV_ADDRESSES&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Automatic Extraction with Cardinality Constraints (Recommended):</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@capability_node</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AdvancedCapability</span><span class="p">(</span><span class="n">BaseCapability</span><span class="p">):</span>
+    <span class="n">requires</span> <span class="o">=</span> <span class="p">[(</span><span class="s2">&quot;PV_ADDRESSES&quot;</span><span class="p">,</span> <span class="s2">&quot;single&quot;</span><span class="p">)]</span>
+    <span class="n">provides</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;RESULTS&quot;</span><span class="p">]</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="c1"># Automatic extraction with cardinality constraints</span>
+        <span class="n">pv_addresses</span><span class="p">,</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">()</span>
+        <span class="c1"># The &quot;single&quot; constraint guarantees pv_addresses is not a list</span>
+
+        <span class="c1"># Process data</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">process</span><span class="p">(</span><span class="n">pv_addresses</span><span class="p">)</span>
+
+        <span class="c1"># Automatic storage with type inference</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>For advanced use cases requiring manual control, you can still use <code class="docutils literal notranslate"><span class="pre">ContextManager.extract_from_step()</span></code> and <code class="docutils literal notranslate"><span class="pre">StateManager.store_context()</span></code> directly.</p>
+</div>
+</section>
+</section>
+<section id="creating-context-classes">
+<h2>Creating Context Classes<a class="headerlink" href="#creating-context-classes" title="Link to this heading">#</a></h2>
+<p>Context classes define the structure of data shared between capabilities:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">CapabilityContext</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">ClassVar</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">PVAddresses</span><span class="p">(</span><span class="n">CapabilityContext</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Context class for storing EPICS PV address discovery results.&quot;&quot;&quot;</span>
+
+    <span class="c1"># Class constants for registration</span>
+    <span class="n">CONTEXT_TYPE</span><span class="p">:</span> <span class="n">ClassVar</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;PV_ADDRESSES&quot;</span>
+    <span class="n">CONTEXT_CATEGORY</span><span class="p">:</span> <span class="n">ClassVar</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;METADATA&quot;</span>
+
+    <span class="c1"># Data fields</span>
+    <span class="n">pvs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>  <span class="c1"># List of found PV addresses</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># Description of the PVs</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_access_details</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;pvs&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">pvs</span><span class="p">,</span>
+            <span class="s2">&quot;total_available&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">pvs</span><span class="p">),</span>
+            <span class="s2">&quot;comments&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">description</span><span class="p">,</span>
+            <span class="s2">&quot;data_structure&quot;</span><span class="p">:</span> <span class="s2">&quot;List of PV address strings&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;access_pattern&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;context.</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">CONTEXT_TYPE</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.pvs&quot;</span><span class="p">,</span>
+        <span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_summary</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;PV Addresses&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;total_pvs&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">pvs</span><span class="p">),</span>
+            <span class="s2">&quot;pv_list&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">pvs</span><span class="p">,</span>
+            <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">description</span><span class="p">,</span>
+        <span class="p">}</span>
+</pre></div>
+</div>
+<p><strong>Requirements:</strong></p>
+<ol class="arabic simple">
+<li><p>Inherit from <a class="reference internal" href="../../api_reference/01_core_framework/02_state_and_context.html#osprey.context.CapabilityContext" title="osprey.context.CapabilityContext"><code class="xref py py-class docutils literal notranslate"><span class="pre">CapabilityContext</span></code></a></p></li>
+<li><p>Define <code class="docutils literal notranslate"><span class="pre">CONTEXT_TYPE</span></code> and <code class="docutils literal notranslate"><span class="pre">CONTEXT_CATEGORY</span></code> class constants</p></li>
+<li><p>Implement <code class="docutils literal notranslate"><span class="pre">get_access_details()</span></code> and <code class="docutils literal notranslate"><span class="pre">get_summary()</span></code> methods</p></li>
+<li><p>Use JSON-serializable field types only</p></li>
+</ol>
+</section>
+<section id="registry-integration">
+<h2>Registry Integration<a class="headerlink" href="#registry-integration" title="Link to this heading">#</a></h2>
+<p>Context classes are automatically discovered through the registry system:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># In applications/als_assistant/registry.py</span>
+<span class="n">context_classes</span><span class="o">=</span><span class="p">[</span>
+    <span class="n">ContextClassRegistration</span><span class="p">(</span>
+        <span class="n">context_type</span><span class="o">=</span><span class="s2">&quot;PV_ADDRESSES&quot;</span><span class="p">,</span>
+        <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;applications.als_assistant.context_classes&quot;</span><span class="p">,</span>
+        <span class="n">class_name</span><span class="o">=</span><span class="s2">&quot;PVAddresses&quot;</span>
+    <span class="p">),</span>
+    <span class="n">ContextClassRegistration</span><span class="p">(</span>
+        <span class="n">context_type</span><span class="o">=</span><span class="s2">&quot;PV_VALUES&quot;</span><span class="p">,</span>
+        <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;applications.als_assistant.context_classes&quot;</span><span class="p">,</span>
+        <span class="n">class_name</span><span class="o">=</span><span class="s2">&quot;PVValues&quot;</span>
+    <span class="p">)</span>
+<span class="p">]</span>
+</pre></div>
+</div>
+</section>
+<section id="best-practices">
+<h2>Best Practices<a class="headerlink" href="#best-practices" title="Link to this heading">#</a></h2>
+<section id="state-management">
+<h3>State Management<a class="headerlink" href="#state-management" title="Link to this heading">#</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="c1"># ✅ Use helper methods</span>
+    <span class="n">task</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_task_objective</span><span class="p">()</span>
+
+    <span class="c1"># Process data and create context</span>
+    <span class="n">result_context</span> <span class="o">=</span> <span class="n">MyDataContext</span><span class="p">(</span>
+        <span class="n">processed_data</span><span class="o">=</span><span class="n">processed_results</span><span class="p">,</span>
+        <span class="n">timestamp</span><span class="o">=</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">()</span>
+    <span class="p">)</span>
+
+    <span class="c1"># ✅ Store context and return state updates</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">result_context</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="context-design">
+<h3>Context Design<a class="headerlink" href="#context-design" title="Link to this heading">#</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">MyDataContext</span><span class="p">(</span><span class="n">CapabilityContext</span><span class="p">):</span>
+    <span class="c1"># ✅ Use descriptive context types</span>
+    <span class="n">CONTEXT_TYPE</span><span class="p">:</span> <span class="n">ClassVar</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;PROCESSED_DATA&quot;</span>  <span class="c1"># Not &quot;DATA&quot;</span>
+    <span class="n">CONTEXT_CATEGORY</span><span class="p">:</span> <span class="n">ClassVar</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;ANALYSIS_RESULTS&quot;</span>
+
+    <span class="c1"># ✅ Include validation and metadata</span>
+    <span class="n">data</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Processed data&quot;</span><span class="p">)</span>
+    <span class="n">timestamp</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;ISO timestamp&quot;</span><span class="p">)</span>
+    <span class="n">count</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">ge</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Number of records&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Context Class Design:</strong>
+- Keep context classes simple with minimal fields
+- Use clear, descriptive field names and types
+- Implement meaningful <code class="docutils literal notranslate"><span class="pre">get_access_details()</span></code> and <code class="docutils literal notranslate"><span class="pre">get_summary()</span></code> methods
+- Use JSON-serializable types only</p>
+<p><strong>Storage Patterns:</strong>
+- <strong>Recommended:</strong> Use <code class="docutils literal notranslate"><span class="pre">self.store_output_context()</span></code> helper method for automatic type/key inference
+- <strong>Advanced:</strong> Use <code class="docutils literal notranslate"><span class="pre">StateManager.store_context()</span></code> for manual control
+- Always return the result directly from capability execute methods
+- Use meaningful context keys when using manual storage</p>
+<p><strong>Retrieval Patterns:</strong>
+- <strong>Recommended:</strong> Use <code class="docutils literal notranslate"><span class="pre">self.get_required_contexts()</span></code> with <code class="docutils literal notranslate"><span class="pre">requires</span></code> field for declarative dependencies
+- <strong>Advanced:</strong> Use <code class="docutils literal notranslate"><span class="pre">ContextManager.extract_from_step()</span></code> for complex conditional logic
+- Handle missing context gracefully with appropriate error messages</p>
+</section>
+<section id="multi-step-workflows">
+<h3>Multi-Step Workflows<a class="headerlink" href="#multi-step-workflows" title="Link to this heading">#</a></h3>
+<p>Handle progressive context building (uses manual pattern for complex conditional logic):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="n">context_manager</span> <span class="o">=</span> <span class="n">ContextManager</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">)</span>
+
+    <span class="c1"># Get existing partial results</span>
+    <span class="n">partial_results</span> <span class="o">=</span> <span class="n">context_manager</span><span class="o">.</span><span class="n">get_context</span><span class="p">(</span><span class="s2">&quot;PARTIAL_ANALYSIS&quot;</span><span class="p">,</span> <span class="s2">&quot;working&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">partial_results</span><span class="p">:</span>
+        <span class="n">current_data</span> <span class="o">=</span> <span class="n">partial_results</span><span class="o">.</span><span class="n">accumulated_data</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">current_data</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="c1"># Add new data and store updated results</span>
+    <span class="n">new_data</span> <span class="o">=</span> <span class="k">await</span> <span class="n">process_current_step</span><span class="p">()</span>
+    <span class="n">current_data</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">new_data</span><span class="p">)</span>
+
+    <span class="n">updated_context</span> <span class="o">=</span> <span class="n">PartialAnalysisContext</span><span class="p">(</span>
+        <span class="n">accumulated_data</span><span class="o">=</span><span class="n">current_data</span><span class="p">,</span>
+        <span class="n">steps_completed</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">current_data</span><span class="p">),</span>
+        <span class="n">last_updated</span><span class="o">=</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">()</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Can use helper method even with manual ContextManager</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">updated_context</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="common-issues">
+<h2>Common Issues<a class="headerlink" href="#common-issues" title="Link to this heading">#</a></h2>
+<p><strong>“Context not found”</strong></p>
+<p>Handle missing context gracefully:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">context_manager</span> <span class="o">=</span> <span class="n">ContextManager</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">)</span>
+<span class="n">required_data</span> <span class="o">=</span> <span class="n">context_manager</span><span class="o">.</span><span class="n">get_context</span><span class="p">(</span><span class="s2">&quot;REQUIRED_TYPE&quot;</span><span class="p">,</span> <span class="s2">&quot;key&quot;</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="ow">not</span> <span class="n">required_data</span><span class="p">:</span>
+    <span class="c1"># Raise exception instead of returning error dict</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Required data not available&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>“Context serialization failed”</strong></p>
+<p>Use only JSON-compatible types:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># ✅ Correct - JSON compatible</span>
+<span class="n">timestamp</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;ISO timestamp&quot;</span><span class="p">)</span>
+<span class="n">data</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+
+<span class="c1"># ❌ Wrong - not serializable</span>
+<span class="c1"># timestamp: datetime = Field(...)</span>
+<span class="c1"># custom_obj: MyClass = Field(...)</span>
+</pre></div>
+</div>
+<p><strong>Serialization Errors:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># ❌ Incorrect - using non-serializable types</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">BadContext</span><span class="p">(</span><span class="n">CapabilityContext</span><span class="p">):</span>
+    <span class="n">complex_object</span><span class="p">:</span> <span class="n">SomeComplexClass</span>  <span class="c1"># Not JSON serializable</span>
+
+<span class="c1"># ✅ Correct - using JSON-compatible types</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">GoodContext</span><span class="p">(</span><span class="n">CapabilityContext</span><span class="p">):</span>
+    <span class="n">data</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>  <span class="c1"># JSON serializable</span>
+    <span class="n">timestamp</span><span class="p">:</span> <span class="n">datetime</span>   <span class="c1"># Handled by Pydantic JSON encoders</span>
+</pre></div>
+</div>
+<p><strong>“State updates not persisting”</strong></p>
+<p>Always return the result from context storage:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># ✅ Correct - return the state updates</span>
+<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+
+<span class="c1"># ❌ Wrong - updates are lost</span>
+<span class="c1"># self.store_output_context(context)</span>
+<span class="c1"># return {}</span>
+</pre></div>
+</div>
+<p><strong>Context Not Persisting:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># ✅ Correct - using helper method (recommended)</span>
+<span class="n">context_obj</span> <span class="o">=</span> <span class="n">MyContext</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="s1">&#39;value&#39;</span><span class="p">)</span>
+<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">context_obj</span><span class="p">)</span>
+
+<span class="c1"># ✅ Also correct - manual storage (advanced)</span>
+<span class="k">return</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">store_context</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="s1">&#39;NEW_TYPE&#39;</span><span class="p">,</span> <span class="s1">&#39;key&#39;</span><span class="p">,</span> <span class="n">context_obj</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Performance:</strong>
+- ContextManager implements intelligent caching for performance optimization
+- First access reconstructs objects; subsequent access returns cached objects
+- Context objects are cached per ContextManager instance</p>
+<p><strong>Context Window Management:</strong>
+- Use <code class="docutils literal notranslate"><span class="pre">recursively_summarize_data()</span></code> utility function for large nested data structures
+- Automatically truncates large lists and dictionaries to prevent LLM context window overflow
+- Available from <code class="docutils literal notranslate"><span class="pre">osprey.context.context_manager</span></code> for use in <code class="docutils literal notranslate"><span class="pre">get_summary()</span></code> methods</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.context.context_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">recursively_summarize_data</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_summary</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Human-readable summary with automatic data truncation.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;analysis_results&quot;</span><span class="p">:</span> <span class="n">recursively_summarize_data</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">results</span><span class="p">),</span>
+        <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;Analysis Context&quot;</span>
+    <span class="p">}</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="01_state-management-architecture.html"><span class="doc">State Management Architecture</span></a></dt><dd><p>State management and context integration patterns</p>
+</dd>
+<dt><a class="reference internal" href="03_registry-and-discovery.html"><span class="doc">Registry and Discovery</span></a></dt><dd><p>Component registration and convention-based loading mechanisms</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="01_state-management-architecture.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">State Management Architecture</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="03_registry-and-discovery.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Registry and Discovery</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#context-management-patterns">Context Management Patterns</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#automatic-context-management">Automatic Context Management</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#basic-pattern">Basic Pattern</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#tuple-unpacking-recommended">Tuple Unpacking (Recommended)</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#soft-vs-hard-constraints">Soft vs Hard Constraints</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#multiple-output-contexts">Multiple Output Contexts</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#cardinality-constraints">Cardinality Constraints</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#using-context-objects">Using Context Objects</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#manual-context-management">Manual Context Management</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#creating-context-classes">Creating Context Classes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#registry-integration">Registry Integration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#best-practices">Best Practices</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#state-management">State Management</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#context-design">Context Design</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multi-step-workflows">Multi-Step Workflows</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#common-issues">Common Issues</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/developer-guides/03_core-framework-systems/02_context-management-system.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

@@ -1,0 +1,1578 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey.services.python_executor.exceptions &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
+
+
+
+
+
+const initStyles = () => {
+    const defaultStyle = document.createElement('style');
+    defaultStyle.textContent = `pre.mermaid {
+    /* Same as .mermaid-container > pre */
+    display: block;
+    width: 100%;
+}
+
+pre.mermaid > svg {
+    /* Same as .mermaid-container > pre > svg */
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}`;
+    document.head.appendChild(defaultStyle);
+
+    const fullscreenStyle = document.createElement('style');
+    fullscreenStyle.textContent = `.mermaid-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.mermaid-container > pre {
+    display: block;
+    width: 100%;
+}
+
+.mermaid-container > pre > svg {
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}
+
+.mermaid-fullscreen-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    color: #333;
+}
+
+.mermaid-fullscreen-btn:hover {
+    opacity: 100% !important;
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-btn.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-btn.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 95vw;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.98);
+    z-index: 9999;
+    padding: 20px;
+    overflow: auto;
+}
+
+.mermaid-fullscreen-modal.dark-theme {
+    background: rgba(0, 0, 0, 0.98);
+}
+
+.mermaid-fullscreen-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen {
+    position: relative;
+    width: 95vw;
+    height: 90vh;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen.dark-theme {
+    background: #1a1a1a;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-container-fullscreen pre.mermaid {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen .mermaid svg {
+    height: 100% !important;
+    width: 100% !important;
+    cursor: grab;
+}
+
+.mermaid-fullscreen-close {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    font-size: 24px;
+    line-height: 1;
+    color: #333;
+}
+
+.mermaid-fullscreen-close:hover {
+    background: white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-close.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-close.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
+    display: none !important;
+}`;
+    document.head.appendChild(fullscreenStyle);
+}
+
+// Detect if page has dark background
+const isDarkTheme = () => {
+    // We use a set of heuristics:
+    // 1. Check for common dark mode classes or attributes
+    // 2. Check computed background color brightness
+    if (document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        document.body.getAttribute('data-theme') === 'dark') {
+        // console.log("Dark theme detected via class/attribute");
+        return true;
+    }
+    if (document.documentElement.classList.contains('light') ||
+        document.documentElement.getAttribute('data-theme') === 'light' ||
+        document.body.classList.contains('light') ||
+        document.body.getAttribute('data-theme') === 'light') {
+        // console.log("Light theme detected via class/attribute");
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // console.log("Dark theme detected via prefers-color-scheme");
+        return true;
+    }
+    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        // console.log("Background color brightness:", brightness);
+        return brightness < 128;
+    }
+    // console.log("No dark or light theme detected, defaulting to light theme");
+    return false;
+};
+
+let darkTheme = isDarkTheme();
+let modal = null;
+let modalContent = null;
+let previousScrollOffset = [window.scrollX, window.scrollY];
+
+const runMermaid = async (rerun) => {
+    console.log("Running mermaid diagrams, rerun =", rerun);
+    // clear all existing mermaid charts
+    let all_mermaids = document.querySelectorAll(".mermaid");
+
+    if (rerun) {
+        all_mermaids.forEach((el) => {
+            if(!el.hasAttribute("data-original-code")) {
+                // store original code
+                // console.log(`Storing original code for first run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+            if(el.getAttribute("data-processed") === "true") {
+                // remove and restore original
+                el.removeAttribute("data-processed");
+                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
+                el.innerHTML = el.getAttribute('data-original-code');
+            } else {
+                // store original code
+                // console.log(`Storing original code for re-run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+        });
+        await mermaid.run();
+    }
+
+    all_mermaids = document.querySelectorAll(".mermaid");
+    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
+
+    if ("False" === "True") {
+        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
+        if(mermaids_to_add_zoom > 0) {
+            var svgs = d3.selectAll("");
+            if(all_mermaids.length !== mermaids_processed.length) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else if(svgs.size() !== mermaids_to_add_zoom) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else {
+                svgs.each(function() {
+                    var svg = d3.select(this);
+                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
+                    var inner = svg.select("g");
+                    var zoom = d3.zoom().on("zoom", function(event) {
+                        inner.attr("transform", event.transform);
+                    });
+                    svg.call(zoom);
+                });
+            }
+        }
+    } else if(all_mermaids.length !== mermaids_processed.length) {
+        // Wait for mermaid to process all diagrams
+        setTimeout(() => runMermaid(false), 200);
+        return;
+    }
+
+    // Stop here if not adding fullscreen capability
+    if ("True" !== "True") return;
+
+    if (modal !== null ) {
+        // Destroy existing modal
+        modal.remove();
+        modal = null;
+        modalContent = null;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
+    modal.innerHTML = `
+        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
+        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
+    `;
+    document.body.appendChild(modal);
+
+    modalContent = modal.querySelector('.mermaid-container-fullscreen');
+    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
+
+    const closeModal = () => {
+        modal.classList.remove('active');
+        modalContent.innerHTML = '';
+        document.body.style.overflow = ''
+        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+        }
+    });
+
+    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
+        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
+            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
+            // Already processed, adjust button class if needed
+            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
+            if (existingBtn) {
+                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+            }
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.className = 'mermaid-container';
+        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
+        container.appendChild(mermaidDiv);
+
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
+        fullscreenBtn.textContent = '⛶';
+        fullscreenBtn.style.opacity = '50%';
+
+        // Calculate dynamic position based on diagram's margin and padding
+        const diagramStyle = window.getComputedStyle(mermaidDiv);
+        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
+        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
+        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
+        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
+        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
+        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
+
+        fullscreenBtn.addEventListener('click', () => {
+            previousScrollOffset = [window.scroll, window.scrollY];
+            const clone = mermaidDiv.cloneNode(true);
+            modalContent.innerHTML = '';
+            modalContent.appendChild(clone);
+
+            const svg = clone.querySelector('svg');
+            if (svg) {
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxWidth = '100%';
+                svg.style.sdisplay = 'block';
+
+                if ("False" === "True") {
+                    setTimeout(() => {
+                        const g = svg.querySelector('g');
+                        if (g) {
+                            var svgD3 = d3.select(svg);
+                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
+                            var inner = svgD3.select("g");
+                            var zoom = d3.zoom().on("zoom", function(event) {
+                                inner.attr("transform", event.transform);
+                            });
+                            svgD3.call(zoom);
+                        }
+                    }, 100);
+                }
+            }
+
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+        container.appendChild(fullscreenBtn);
+    });
+};
+
+const load = async () => {
+    initStyles();
+
+    await runMermaid(true);
+
+    const reRunIfThemeChanges = async () => {
+        const newDarkTheme = isDarkTheme();
+        if (newDarkTheme !== darkTheme) {
+            darkTheme = newDarkTheme;
+            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
+            await mermaid.initialize(
+                {...JSON.parse(
+                    `{"startOnLoad": false}`
+                ),
+                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+                }
+            );
+            await runMermaid(true);
+        }
+    };
+
+    // Update theme classes when theme changes
+    const themeObserver = new MutationObserver(reRunIfThemeChanges);
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+    themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+};
+
+
+
+
+
+console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
+mermaid.initialize(
+    {...JSON.parse(
+        `{"startOnLoad": false}`
+    ),
+    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+    }
+);
+
+window.addEventListener("load", load);</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey/services/python_executor/exceptions';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey.services.python_executor.exceptions</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey.services.python_executor.exceptions</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Comprehensive Exception Hierarchy for Python Executor Service.</span>
+
+<span class="sd">This module defines a clean, categorized exception hierarchy that provides precise</span>
+<span class="sd">error classification for all failure modes in the Python executor service. The</span>
+<span class="sd">exceptions are designed to support intelligent retry logic, user-friendly error</span>
+<span class="sd">reporting, and comprehensive debugging information.</span>
+
+<span class="sd">The exception system follows a principled design based on error categories that</span>
+<span class="sd">determine appropriate recovery strategies:</span>
+
+<span class="sd">**Infrastructure Errors**: Issues with container connectivity, configuration, or</span>
+<span class="sd">external service dependencies. These errors typically warrant execution retries</span>
+<span class="sd">without code regeneration.</span>
+
+<span class="sd">**Code-Related Errors**: Problems with generated or user-provided code including</span>
+<span class="sd">syntax errors, runtime failures, and logical issues. These errors trigger code</span>
+<span class="sd">regeneration and analysis retry cycles.</span>
+
+<span class="sd">**Workflow Errors**: Service workflow control issues including timeouts, approval</span>
+<span class="sd">requirements, and maximum retry limits. These errors require special handling</span>
+<span class="sd">or user intervention.</span>
+
+<span class="sd">**Configuration Errors**: Invalid configuration settings or missing required</span>
+<span class="sd">configuration data. These errors typically indicate deployment or setup issues.</span>
+
+<span class="sd">Key Design Principles:</span>
+<span class="sd">    - **Categorized Recovery**: Each exception includes category information that</span>
+<span class="sd">      determines the appropriate recovery strategy (retry execution, regenerate code,</span>
+<span class="sd">      or abort with user notification)</span>
+<span class="sd">    - **Rich Context**: Exceptions capture technical details, file paths, and</span>
+<span class="sd">      metadata to support comprehensive debugging and error reporting</span>
+<span class="sd">    - **User-Friendly Messages**: Infrastructure errors provide user-friendly</span>
+<span class="sd">      messages that abstract technical details while preserving debugging information</span>
+<span class="sd">    - **Audit Trail**: Exceptions include error chains and attempt tracking to</span>
+<span class="sd">      provide complete visibility into failure sequences</span>
+
+<span class="sd">The exception hierarchy integrates with the service&#39;s retry logic and error</span>
+<span class="sd">handling strategies to provide robust failure recovery while maintaining</span>
+<span class="sd">clear separation between different types of errors.</span>
+
+<span class="sd">.. note::</span>
+<span class="sd">   All exceptions inherit from PythonExecutorException, which provides common</span>
+<span class="sd">   functionality for error categorization and context management.</span>
+
+<span class="sd">.. seealso::</span>
+<span class="sd">   :class:`PythonExecutorService` : Service that raises and handles these exceptions</span>
+<span class="sd">   :class:`ErrorCategory` : Enumeration of error categories for recovery logic</span>
+<span class="sd">   :func:`osprey.services.python_executor.analysis.node` : Analysis node error handling</span>
+
+<span class="sd">Examples:</span>
+<span class="sd">    Catching and handling different error categories::</span>
+
+<span class="sd">        &gt;&gt;&gt; try:</span>
+<span class="sd">        ...     result = await executor.execute_code(code)</span>
+<span class="sd">        ... except ContainerConnectivityError as e:</span>
+<span class="sd">        ...     logger.warning(f&quot;Container unreachable: {e.get_user_message()}&quot;)</span>
+<span class="sd">        ...     # Retry with different container or fallback to local execution</span>
+<span class="sd">        ... except CodeRuntimeError as e:</span>
+<span class="sd">        ...     logger.info(f&quot;Code failed, regenerating: {e.message}&quot;)</span>
+<span class="sd">        ...     # Trigger code regeneration with error feedback</span>
+<span class="sd">        ... except ExecutionTimeoutError as e:</span>
+<span class="sd">        ...     logger.error(f&quot;Execution timeout: {e.timeout_seconds}s&quot;)</span>
+<span class="sd">        ...     # Notify user and potentially increase timeout</span>
+
+<span class="sd">    Error category-based retry logic::</span>
+
+<span class="sd">        &gt;&gt;&gt; if exception.should_retry_execution():</span>
+<span class="sd">        ...     # Infrastructure error - retry same code</span>
+<span class="sd">        ...     await retry_execution(code)</span>
+<span class="sd">        ... elif exception.should_retry_code_generation():</span>
+<span class="sd">        ...     # Code error - regenerate and retry</span>
+<span class="sd">        ...     new_code = await regenerate_code(error_feedback=str(exception))</span>
+<span class="sd">        ...     await execute_code(new_code)</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">enum</span><span class="w"> </span><span class="kn">import</span> <span class="n">Enum</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+
+<div class="viewcode-block" id="ErrorCategory">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.ErrorCategory">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ErrorCategory</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;High-level error categories that determine appropriate recovery strategies.</span>
+
+<span class="sd">    This enumeration classifies all Python executor errors into categories that</span>
+<span class="sd">    directly correspond to different recovery and retry strategies. The categorization</span>
+<span class="sd">    enables intelligent error handling that can automatically determine whether to</span>
+<span class="sd">    retry execution, regenerate code, or require user intervention.</span>
+
+<span class="sd">    :cvar INFRASTRUCTURE: Container connectivity, network, or external service issues</span>
+<span class="sd">    :cvar CODE_RELATED: Syntax errors, runtime failures, or logical issues in generated code</span>
+<span class="sd">    :cvar WORKFLOW: Service workflow control issues like timeouts or retry limits</span>
+<span class="sd">    :cvar CONFIGURATION: Invalid or missing configuration settings</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       Error categories are used by the service&#39;s retry logic to determine the</span>
+<span class="sd">       appropriate recovery strategy without requiring explicit error type checking.</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`PythonExecutorException` : Base exception class using these categories</span>
+<span class="sd">       :meth:`PythonExecutorException.should_retry_execution` : Infrastructure retry logic</span>
+<span class="sd">       :meth:`PythonExecutorException.should_retry_code_generation` : Code regeneration logic</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">INFRASTRUCTURE</span> <span class="o">=</span> <span class="s2">&quot;infrastructure&quot;</span>  <span class="c1"># Container/connectivity issues</span>
+    <span class="n">CODE_RELATED</span> <span class="o">=</span> <span class="s2">&quot;code_related&quot;</span>  <span class="c1"># Syntax/runtime/logic errors</span>
+    <span class="n">WORKFLOW</span> <span class="o">=</span> <span class="s2">&quot;workflow&quot;</span>  <span class="c1"># Approval, timeout, etc.</span>
+    <span class="n">CONFIGURATION</span> <span class="o">=</span> <span class="s2">&quot;configuration&quot;</span>  <span class="c1"># Config/setup issues</span></div>
+
+
+
+<div class="viewcode-block" id="PythonExecutorException">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.PythonExecutorException">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">PythonExecutorException</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Base exception class for all Python executor service operations.</span>
+
+<span class="sd">    This abstract base class provides common functionality for all Python executor</span>
+<span class="sd">    exceptions, including error categorization, context management, and retry logic</span>
+<span class="sd">    determination. It serves as the foundation for the entire exception hierarchy</span>
+<span class="sd">    and enables consistent error handling across the service.</span>
+
+<span class="sd">    The class implements a category-based approach to error handling that allows</span>
+<span class="sd">    the service to automatically determine appropriate recovery strategies without</span>
+<span class="sd">    requiring explicit exception type checking in the retry logic.</span>
+
+<span class="sd">    :param message: Human-readable error description</span>
+<span class="sd">    :type message: str</span>
+<span class="sd">    :param category: Error category that determines recovery strategy</span>
+<span class="sd">    :type category: ErrorCategory</span>
+<span class="sd">    :param technical_details: Additional technical information for debugging</span>
+<span class="sd">    :type technical_details: Dict[str, Any], optional</span>
+<span class="sd">    :param folder_path: Path to execution folder if available for debugging</span>
+<span class="sd">    :type folder_path: Path, optional</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       This base class should not be raised directly. Use specific exception</span>
+<span class="sd">       subclasses that provide more detailed error information.</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`ErrorCategory` : Error categorization for recovery strategies</span>
+<span class="sd">       :class:`ContainerConnectivityError` : Infrastructure error example</span>
+<span class="sd">       :class:`CodeRuntimeError` : Code-related error example</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="PythonExecutorException.__init__">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.PythonExecutorException.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">category</span><span class="p">:</span> <span class="n">ErrorCategory</span><span class="p">,</span>
+        <span class="n">technical_details</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">folder_path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">message</span> <span class="o">=</span> <span class="n">message</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">category</span> <span class="o">=</span> <span class="n">category</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">technical_details</span> <span class="o">=</span> <span class="n">technical_details</span> <span class="ow">or</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">folder_path</span> <span class="o">=</span> <span class="n">folder_path</span></div>
+
+
+<div class="viewcode-block" id="PythonExecutorException.is_infrastructure_error">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.PythonExecutorException.is_infrastructure_error">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">is_infrastructure_error</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Check if this is an infrastructure or connectivity error.</span>
+
+<span class="sd">        Infrastructure errors indicate problems with external dependencies like</span>
+<span class="sd">        container connectivity, network issues, or service availability. These</span>
+<span class="sd">        errors typically warrant retrying the same operation after a delay.</span>
+
+<span class="sd">        :return: True if this is an infrastructure error</span>
+<span class="sd">        :rtype: bool</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Checking error type for retry logic::</span>
+
+<span class="sd">                &gt;&gt;&gt; try:</span>
+<span class="sd">                ...     await execute_code(code)</span>
+<span class="sd">                ... except PythonExecutorException as e:</span>
+<span class="sd">                ...     if e.is_infrastructure_error():</span>
+<span class="sd">                ...         await asyncio.sleep(1)  # Brief delay</span>
+<span class="sd">                ...         await execute_code(code)  # Retry same code</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">category</span> <span class="o">==</span> <span class="n">ErrorCategory</span><span class="o">.</span><span class="n">INFRASTRUCTURE</span></div>
+
+
+<div class="viewcode-block" id="PythonExecutorException.is_code_error">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.PythonExecutorException.is_code_error">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">is_code_error</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Check if this is a code-related error requiring code regeneration.</span>
+
+<span class="sd">        Code errors indicate problems with the generated or provided Python code,</span>
+<span class="sd">        including syntax errors, runtime failures, or logical issues. These errors</span>
+<span class="sd">        typically require regenerating the code with error feedback.</span>
+
+<span class="sd">        :return: True if this is a code-related error</span>
+<span class="sd">        :rtype: bool</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Handling code errors with regeneration::</span>
+
+<span class="sd">                &gt;&gt;&gt; try:</span>
+<span class="sd">                ...     await execute_code(code)</span>
+<span class="sd">                ... except PythonExecutorException as e:</span>
+<span class="sd">                ...     if e.is_code_error():</span>
+<span class="sd">                ...         new_code = await regenerate_code(error_feedback=str(e))</span>
+<span class="sd">                ...         await execute_code(new_code)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">category</span> <span class="o">==</span> <span class="n">ErrorCategory</span><span class="o">.</span><span class="n">CODE_RELATED</span></div>
+
+
+<div class="viewcode-block" id="PythonExecutorException.is_workflow_error">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.PythonExecutorException.is_workflow_error">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">is_workflow_error</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Check if this is a workflow control error requiring special handling.</span>
+
+<span class="sd">        Workflow errors indicate issues with the service&#39;s execution workflow,</span>
+<span class="sd">        such as timeouts, maximum retry limits, or approval requirements. These</span>
+<span class="sd">        errors typically require user intervention or service configuration changes.</span>
+
+<span class="sd">        :return: True if this is a workflow control error</span>
+<span class="sd">        :rtype: bool</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Handling workflow errors with user notification::</span>
+
+<span class="sd">                &gt;&gt;&gt; try:</span>
+<span class="sd">                ...     await execute_code(code)</span>
+<span class="sd">                ... except PythonExecutorException as e:</span>
+<span class="sd">                ...     if e.is_workflow_error():</span>
+<span class="sd">                ...         await notify_user(f&quot;Execution failed: {e.message}&quot;)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">category</span> <span class="o">==</span> <span class="n">ErrorCategory</span><span class="o">.</span><span class="n">WORKFLOW</span></div>
+
+
+<div class="viewcode-block" id="PythonExecutorException.should_retry_execution">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.PythonExecutorException.should_retry_execution">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">should_retry_execution</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Determine if the same code execution should be retried.</span>
+
+<span class="sd">        Returns True for infrastructure errors where the code itself is likely</span>
+<span class="sd">        correct but external dependencies (containers, network) caused the failure.</span>
+<span class="sd">        This enables automatic retry of the same code without regeneration.</span>
+
+<span class="sd">        :return: True if execution should be retried with the same code</span>
+<span class="sd">        :rtype: bool</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Automatic retry logic based on error category::</span>
+
+<span class="sd">                &gt;&gt;&gt; if exception.should_retry_execution():</span>
+<span class="sd">                ...     logger.info(&quot;Infrastructure issue, retrying execution...&quot;)</span>
+<span class="sd">                ...     await retry_execution_with_backoff(code)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">category</span> <span class="o">==</span> <span class="n">ErrorCategory</span><span class="o">.</span><span class="n">INFRASTRUCTURE</span></div>
+
+
+<div class="viewcode-block" id="PythonExecutorException.should_retry_code_generation">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.PythonExecutorException.should_retry_code_generation">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">should_retry_code_generation</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Determine if code should be regenerated and execution retried.</span>
+
+<span class="sd">        Returns True for code-related errors where the generated code has issues</span>
+<span class="sd">        that require regeneration with error feedback. This enables automatic</span>
+<span class="sd">        code improvement through iterative generation.</span>
+
+<span class="sd">        :return: True if code should be regenerated and execution retried</span>
+<span class="sd">        :rtype: bool</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Code regeneration retry logic::</span>
+
+<span class="sd">                &gt;&gt;&gt; if exception.should_retry_code_generation():</span>
+<span class="sd">                ...     logger.info(&quot;Code issue, regenerating with feedback...&quot;)</span>
+<span class="sd">                ...     improved_code = await regenerate_with_feedback(str(exception))</span>
+<span class="sd">                ...     await execute_code(improved_code)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">category</span> <span class="o">==</span> <span class="n">ErrorCategory</span><span class="o">.</span><span class="n">CODE_RELATED</span></div>
+</div>
+
+
+
+<span class="c1"># =============================================================================</span>
+<span class="c1"># INFRASTRUCTURE ERRORS (Container/Connectivity Issues)</span>
+<span class="c1"># =============================================================================</span>
+
+
+<div class="viewcode-block" id="ContainerConnectivityError">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.ContainerConnectivityError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ContainerConnectivityError</span><span class="p">(</span><span class="n">PythonExecutorException</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Exception raised when Jupyter container is unreachable or connection fails.</span>
+
+<span class="sd">    This infrastructure error indicates that the Python executor service cannot</span>
+<span class="sd">    establish communication with the configured Jupyter container endpoint. This</span>
+<span class="sd">    typically occurs due to network issues, container startup problems, or</span>
+<span class="sd">    configuration mismatches.</span>
+
+<span class="sd">    The error provides both technical details for debugging and user-friendly</span>
+<span class="sd">    messages that abstract the underlying infrastructure complexity while</span>
+<span class="sd">    preserving essential information for troubleshooting.</span>
+
+<span class="sd">    :param message: Technical error description for debugging</span>
+<span class="sd">    :type message: str</span>
+<span class="sd">    :param host: Container host address that failed to connect</span>
+<span class="sd">    :type host: str</span>
+<span class="sd">    :param port: Container port that failed to connect</span>
+<span class="sd">    :type port: int</span>
+<span class="sd">    :param technical_details: Additional technical information for debugging</span>
+<span class="sd">    :type technical_details: Dict[str, Any], optional</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       This error triggers automatic retry logic since the code itself is likely</span>
+<span class="sd">       correct and the issue is with external infrastructure.</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`ContainerConfigurationError` : Configuration-related container issues</span>
+<span class="sd">       :class:`PythonExecutorException.should_retry_execution` : Retry logic for infrastructure errors</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Handling container connectivity issues::</span>
+
+<span class="sd">            &gt;&gt;&gt; try:</span>
+<span class="sd">            ...     result = await container_executor.execute_code(code)</span>
+<span class="sd">            ... except ContainerConnectivityError as e:</span>
+<span class="sd">            ...     logger.warning(f&quot;Container issue: {e.get_user_message()}&quot;)</span>
+<span class="sd">            ...     # Automatic retry or fallback to local execution</span>
+<span class="sd">            ...     result = await local_executor.execute_code(code)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ContainerConnectivityError.__init__">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.ContainerConnectivityError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">host</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">port</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">technical_details</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">ErrorCategory</span><span class="o">.</span><span class="n">INFRASTRUCTURE</span><span class="p">,</span> <span class="n">technical_details</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">host</span> <span class="o">=</span> <span class="n">host</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">port</span> <span class="o">=</span> <span class="n">port</span></div>
+
+
+<div class="viewcode-block" id="ContainerConnectivityError.get_user_message">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.ContainerConnectivityError.get_user_message">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_user_message</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get user-friendly error message abstracting technical details.</span>
+
+<span class="sd">        Provides a clear, non-technical explanation of the connectivity issue</span>
+<span class="sd">        that users can understand without needing to know about container</span>
+<span class="sd">        infrastructure details.</span>
+
+<span class="sd">        :return: User-friendly error description</span>
+<span class="sd">        :rtype: str</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Displaying user-friendly error messages::</span>
+
+<span class="sd">                &gt;&gt;&gt; error = ContainerConnectivityError(</span>
+<span class="sd">                ...     &quot;Connection refused&quot;, &quot;localhost&quot;, 8888</span>
+<span class="sd">                ... )</span>
+<span class="sd">                &gt;&gt;&gt; print(error.get_user_message())</span>
+<span class="sd">                Python execution environment is not reachable at localhost:8888</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Python execution environment is not reachable at </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">host</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="si">}</span><span class="s2">&quot;</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="ContainerConfigurationError">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.ContainerConfigurationError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ContainerConfigurationError</span><span class="p">(</span><span class="n">PythonExecutorException</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Container configuration is invalid&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ContainerConfigurationError.__init__">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.ContainerConfigurationError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">technical_details</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">ErrorCategory</span><span class="o">.</span><span class="n">CONFIGURATION</span><span class="p">,</span> <span class="n">technical_details</span><span class="p">)</span></div>
+</div>
+
+
+
+<span class="c1"># =============================================================================</span>
+<span class="c1"># CODE-RELATED ERRORS (Require Code Regeneration)</span>
+<span class="c1"># =============================================================================</span>
+
+
+<div class="viewcode-block" id="CodeGenerationError">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.CodeGenerationError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">CodeGenerationError</span><span class="p">(</span><span class="n">PythonExecutorException</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;LLM failed to generate valid code&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="CodeGenerationError.__init__">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.CodeGenerationError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">generation_attempt</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">error_chain</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+        <span class="n">technical_details</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">ErrorCategory</span><span class="o">.</span><span class="n">CODE_RELATED</span><span class="p">,</span> <span class="n">technical_details</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">generation_attempt</span> <span class="o">=</span> <span class="n">generation_attempt</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">error_chain</span> <span class="o">=</span> <span class="n">error_chain</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="CodeSyntaxError">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.CodeSyntaxError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">CodeSyntaxError</span><span class="p">(</span><span class="n">PythonExecutorException</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Generated code has syntax errors&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="CodeSyntaxError.__init__">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.CodeSyntaxError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">syntax_issues</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+        <span class="n">technical_details</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">ErrorCategory</span><span class="o">.</span><span class="n">CODE_RELATED</span><span class="p">,</span> <span class="n">technical_details</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">syntax_issues</span> <span class="o">=</span> <span class="n">syntax_issues</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="CodeRuntimeError">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.CodeRuntimeError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">CodeRuntimeError</span><span class="p">(</span><span class="n">PythonExecutorException</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Code failed during execution due to runtime errors&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="CodeRuntimeError.__init__">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.CodeRuntimeError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">traceback_info</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">execution_attempt</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">technical_details</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">folder_path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">ErrorCategory</span><span class="o">.</span><span class="n">CODE_RELATED</span><span class="p">,</span> <span class="n">technical_details</span><span class="p">,</span> <span class="n">folder_path</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">traceback_info</span> <span class="o">=</span> <span class="n">traceback_info</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">execution_attempt</span> <span class="o">=</span> <span class="n">execution_attempt</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="ChannelLimitsViolationError">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.ChannelLimitsViolationError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelLimitsViolationError</span><span class="p">(</span><span class="n">PythonExecutorException</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Raised when a channel write violates configured limits.</span>
+
+<span class="sd">    This code-related error indicates that generated or user code attempted to</span>
+<span class="sd">    write a value to a channel that violates safety limits defined in the</span>
+<span class="sd">    limits database. This includes min/max limit violations, read-only channel</span>
+<span class="sd">    writes, excessive step sizes, or writes to unlisted channels.</span>
+
+<span class="sd">    The error provides comprehensive details about the violation including the</span>
+<span class="sd">    channel address, attempted value, current value (for step violations), and the</span>
+<span class="sd">    configured limits to help users understand why the write was blocked.</span>
+
+<span class="sd">    :param channel_address: Channel address that was accessed</span>
+<span class="sd">    :type channel_address: str</span>
+<span class="sd">    :param value: The value that was attempted to be written</span>
+<span class="sd">    :type value: Any</span>
+<span class="sd">    :param violation_type: Type of violation (MIN_EXCEEDED, MAX_EXCEEDED, READ_ONLY_CHANNEL,</span>
+<span class="sd">                          UNLISTED_CHANNEL, MAX_STEP_EXCEEDED, STEP_CHECK_FAILED)</span>
+<span class="sd">    :type violation_type: str</span>
+<span class="sd">    :param violation_reason: Human-readable explanation of the violation</span>
+<span class="sd">    :type violation_reason: str</span>
+<span class="sd">    :param min_value: Configured minimum value for the channel</span>
+<span class="sd">    :type min_value: float, optional</span>
+<span class="sd">    :param max_value: Configured maximum value for the channel</span>
+<span class="sd">    :type max_value: float, optional</span>
+<span class="sd">    :param max_step: Configured maximum step size for the channel</span>
+<span class="sd">    :type max_step: float, optional</span>
+<span class="sd">    :param current_value: Current channel value (for step violations)</span>
+<span class="sd">    :type current_value: Any, optional</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       This error is raised during code execution when runtime channel limits</span>
+<span class="sd">       checking is enabled and detects a safety violation.</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`LimitsValidator` : Validation engine that raises this exception</span>
+<span class="sd">       :class:`ChannelLimitsConfig` : Configuration for channel limits</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Handling channel limits violations::</span>
+
+<span class="sd">            &gt;&gt;&gt; try:</span>
+<span class="sd">            ...     await executor.execute_code(code)</span>
+<span class="sd">            ... except ChannelLimitsViolationError as e:</span>
+<span class="sd">            ...     logger.error(f&quot;Safety violation: {e.violation_reason}&quot;)</span>
+<span class="sd">            ...     logger.error(f&quot;Attempted to write {e.attempted_value} to {e.channel_address}&quot;)</span>
+<span class="sd">            ...     # Code should be regenerated with safer values</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ChannelLimitsViolationError.__init__">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.ChannelLimitsViolationError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+        <span class="n">violation_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">violation_reason</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">min_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">max_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">max_step</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">current_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">channel_address</span> <span class="o">=</span> <span class="n">channel_address</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attempted_value</span> <span class="o">=</span> <span class="n">value</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">violation_type</span> <span class="o">=</span> <span class="n">violation_type</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">violation_reason</span> <span class="o">=</span> <span class="n">violation_reason</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">min_value</span> <span class="o">=</span> <span class="n">min_value</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">max_value</span> <span class="o">=</span> <span class="n">max_value</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">max_step</span> <span class="o">=</span> <span class="n">max_step</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">current_value</span> <span class="o">=</span> <span class="n">current_value</span>
+
+        <span class="n">message</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_format_violation_message</span><span class="p">()</span>
+
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">message</span><span class="o">=</span><span class="n">message</span><span class="p">,</span> <span class="n">category</span><span class="o">=</span><span class="n">ErrorCategory</span><span class="o">.</span><span class="n">CODE_RELATED</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_format_violation_message</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Format a user-friendly violation message with all relevant details.&quot;&quot;&quot;</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span> <span class="o">+</span> <span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="mi">70</span><span class="p">,</span>
+            <span class="s2">&quot;CHANNEL LIMITS VIOLATION DETECTED&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="mi">70</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;Channel Address: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;Attempted Value: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">attempted_value</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="p">]</span>
+
+        <span class="c1"># Include current value for step violations</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">msg</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Current Value: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">current_value</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">msg</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Violation: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">violation_reason</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Show allowed range if available</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">min_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">msg</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Allowed Range: [</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">min_value</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">max_value</span><span class="si">}</span><span class="s2">]&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Show max step if available</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_step</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">msg</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Maximum Step Size: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">max_step</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">msg</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span>
+            <span class="p">[</span>
+                <span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="mi">70</span><span class="p">,</span>
+                <span class="s2">&quot;⚠️  Write operation BLOCKED for safety&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="mi">70</span><span class="p">,</span>
+            <span class="p">]</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># Backward compatibility aliases</span>
+<span class="n">PVBoundaryViolationError</span> <span class="o">=</span> <span class="n">ChannelLimitsViolationError</span>
+<span class="n">ChannelBoundaryViolationError</span> <span class="o">=</span> <span class="n">ChannelLimitsViolationError</span>
+
+
+<span class="c1"># =============================================================================</span>
+<span class="c1"># WORKFLOW ERRORS (Special Flow Control)</span>
+<span class="c1"># =============================================================================</span>
+
+
+<div class="viewcode-block" id="ExecutionTimeoutError">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.ExecutionTimeoutError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ExecutionTimeoutError</span><span class="p">(</span><span class="n">PythonExecutorException</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Code execution exceeded timeout&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ExecutionTimeoutError.__init__">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.ExecutionTimeoutError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">timeout_seconds</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">technical_details</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">folder_path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="n">message</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Python code execution timeout after </span><span class="si">{</span><span class="n">timeout_seconds</span><span class="si">}</span><span class="s2"> seconds&quot;</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">ErrorCategory</span><span class="o">.</span><span class="n">WORKFLOW</span><span class="p">,</span> <span class="n">technical_details</span><span class="p">,</span> <span class="n">folder_path</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">timeout_seconds</span> <span class="o">=</span> <span class="n">timeout_seconds</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="MaxAttemptsExceededError">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.MaxAttemptsExceededError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">MaxAttemptsExceededError</span><span class="p">(</span><span class="n">PythonExecutorException</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Maximum execution attempts exceeded&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="MaxAttemptsExceededError.__init__">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.MaxAttemptsExceededError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">operation_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>  <span class="c1"># &quot;code_generation&quot;, &quot;execution&quot;, &quot;connectivity&quot;</span>
+        <span class="n">max_attempts</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">error_chain</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+        <span class="n">technical_details</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">folder_path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="n">message</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Maximum </span><span class="si">{</span><span class="n">operation_type</span><span class="si">}</span><span class="s2"> attempts (</span><span class="si">{</span><span class="n">max_attempts</span><span class="si">}</span><span class="s2">) exceeded&quot;</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">ErrorCategory</span><span class="o">.</span><span class="n">WORKFLOW</span><span class="p">,</span> <span class="n">technical_details</span><span class="p">,</span> <span class="n">folder_path</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">operation_type</span> <span class="o">=</span> <span class="n">operation_type</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">max_attempts</span> <span class="o">=</span> <span class="n">max_attempts</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">error_chain</span> <span class="o">=</span> <span class="n">error_chain</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="WorkflowError">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.WorkflowError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">WorkflowError</span><span class="p">(</span><span class="n">PythonExecutorException</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Unexpected workflow error (bugs in our code, not user code)&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="WorkflowError.__init__">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.WorkflowError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">stage</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>  <span class="c1"># &quot;code_generation&quot;, &quot;static_analysis&quot;, &quot;execution&quot;, &quot;orchestration&quot;</span>
+        <span class="n">original_exception</span><span class="p">:</span> <span class="ne">Exception</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">technical_details</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">folder_path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">ErrorCategory</span><span class="o">.</span><span class="n">WORKFLOW</span><span class="p">,</span> <span class="n">technical_details</span><span class="p">,</span> <span class="n">folder_path</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stage</span> <span class="o">=</span> <span class="n">stage</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">original_exception</span> <span class="o">=</span> <span class="n">original_exception</span></div>
+
+
+<div class="viewcode-block" id="WorkflowError.get_user_message">
+<a class="viewcode-back" href="../../../../api_reference/04_error_handling/02_exception_reference.html#osprey.services.python_executor.exceptions.WorkflowError.get_user_message">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_user_message</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;An unexpected error occurred in the Python executor during </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">stage</span><span class="si">}</span><span class="s2">&quot;</span></div>
+</div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

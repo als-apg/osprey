@@ -1,0 +1,1101 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Classification and Routing &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'developer-guides/04_infrastructure-components/03_classification-and-routing';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Orchestrator Planning" href="04_orchestrator-planning.html" />
+    <link rel="prev" title="Task Extraction" href="02_task-extraction-system.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../01_understanding-the-framework/index.html">Understanding Osprey</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/01_infrastructure-architecture.html">Infrastructure Architecture: Classification-Orchestration Pipeline</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/02_convention-over-configuration.html">Convention over Configuration: Configuration-Driven Registry Patterns</a></li>
+
+
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/03_langgraph-integration.html">LangGraph Integration: Native StateGraph and Workflow Execution</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/04_orchestration-architecture.html">Orchestration Architecture</a></li>
+
+
+
+
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../02_quick-start-patterns/index.html">Quick Start Patterns</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/00_cli-reference.html">CLI Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/01_building-your-first-capability.html">Building Your First Capability</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/02_state-and-context-essentials.html">State and Context Essentials</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/03_running-and-testing.html">Running and Testing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/04_mcp-capability-generation.html">MCP Capability Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/05_soft-ioc-backends.html">Soft IOC Custom Backends</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../03_core-framework-systems/index.html">Core Framework Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/01_state-management-architecture.html">State Management Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/02_context-management-system.html">Context Management System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/03_registry-and-discovery.html">Registry and Discovery</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/04_prompt-customization.html">Prompt Customization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/05_message-and-execution-flow.html">Message and Execution Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/06_configuration-architecture.html">Configuration Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/07_built-in-capabilities.html">Built-in Capabilities</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Infrastructure Components</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="01_gateway-architecture.html">Gateway Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="02_task-extraction-system.html">Task Extraction</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Classification and Routing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="04_orchestrator-planning.html">Orchestrator Planning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="05_message-generation.html">Message Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="06_error-handling-infrastructure.html">Error Handling</a></li>
+</ul>
+</details></li>
+
+
+
+<li class="toctree-l1 has-children"><a class="reference internal" href="../05_production-systems/index.html">Production Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/01_human-approval-workflows.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/02_data-source-integration.html">Data Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../05_production-systems/03_python-execution-service/index.html">Python Execution</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/service-overview.html">Python Service Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-basic.html">Basic LLM Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-claude.html">Claude Code Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-mock.html">Mock Generator</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/04_memory-storage-service.html">Memory Storage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/05_container-and-deployment.html">Container Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/06_control-system-integration.html">Control System Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/search-modes.html">Search Modes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/web-interface.html">Web Interface</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Developer Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Infrastructure Components</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Classification and Routing</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="classification-and-routing">
+<h1>Classification and Routing<a class="headerlink" href="#classification-and-routing" title="Link to this heading">#</a></h1>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">📚 What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>Key Concepts:</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text">How tasks are matched to appropriate capabilities</p></li>
+<li><p class="sd-card-text">LLM-based classification with few-shot examples</p></li>
+<li><p class="sd-card-text">Central routing logic and execution coordination</p></li>
+<li><p class="sd-card-text">Always-active capability handling</p></li>
+</ul>
+<p class="sd-card-text"><strong>Prerequisites:</strong> Understanding of <a class="reference internal" href="02_task-extraction-system.html"><span class="doc">Task Extraction</span></a> and <a class="reference internal" href="../03_core-framework-systems/03_registry-and-discovery.html"><span class="doc">Registry and Discovery</span></a></p>
+<p class="sd-card-text"><strong>Time Investment:</strong> 15 minutes for complete understanding</p>
+</div>
+</details><section id="core-concept">
+<h2>Core Concept<a class="headerlink" href="#core-concept" title="Link to this heading">#</a></h2>
+<p>Classification determines which capabilities are needed for extracted tasks using intelligent analysis and registry configuration.</p>
+<dl class="simple">
+<dt><strong>Two-Phase Selection:</strong></dt><dd><ol class="arabic simple">
+<li><p><strong>Always-Active Capabilities</strong> - Registry-configured capabilities selected automatically (e.g., “respond”)</p></li>
+<li><p><strong>LLM Classification</strong> - Remaining capabilities analyzed using few-shot examples</p></li>
+</ol>
+</dd>
+</dl>
+<p><strong>Routing</strong> provides centralized execution flow control based on agent state.</p>
+</section>
+<section id="classification-architecture">
+<h2>Classification Architecture<a class="headerlink" href="#classification-architecture" title="Link to this heading">#</a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@infrastructure_node</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ClassificationNode</span><span class="p">(</span><span class="n">BaseInfrastructureNode</span><span class="p">):</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;classifier&quot;</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="s2">&quot;Task Classification and Capability Selection&quot;</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="n">current_task</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;task_current_task&quot;</span><span class="p">)</span>
+        <span class="n">available_capabilities</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_all_capabilities</span><span class="p">()</span>
+
+        <span class="c1"># Detect reclassification scenario from error state</span>
+        <span class="n">previous_failure</span> <span class="o">=</span> <span class="n">_detect_reclassification_scenario</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+
+        <span class="c1"># Run parallel capability selection with concurrency control</span>
+        <span class="n">active_capabilities</span> <span class="o">=</span> <span class="k">await</span> <span class="n">select_capabilities</span><span class="p">(</span>
+            <span class="n">task</span><span class="o">=</span><span class="n">current_task</span><span class="p">,</span>
+            <span class="n">available_capabilities</span><span class="o">=</span><span class="n">available_capabilities</span><span class="p">,</span>
+            <span class="n">state</span><span class="o">=</span><span class="n">state</span><span class="p">,</span>
+            <span class="n">logger</span><span class="o">=</span><span class="n">logger</span><span class="p">,</span>
+            <span class="n">previous_failure</span><span class="o">=</span><span class="n">previous_failure</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;planning_active_capabilities&quot;</span><span class="p">:</span> <span class="n">active_capabilities</span><span class="p">,</span>
+            <span class="s2">&quot;planning_execution_plan&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s2">&quot;planning_current_step_index&quot;</span><span class="p">:</span> <span class="mi">0</span>
+        <span class="p">}</span>
+</pre></div>
+</div>
+<p><strong>Parallel Classification Components:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">CapabilityClassifier</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Handles individual capability classification with proper resource management.&quot;&quot;&quot;</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">classify</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">capability</span><span class="p">:</span> <span class="n">BaseCapability</span><span class="p">,</span> <span class="n">semaphore</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Semaphore</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Classify a single capability with semaphore-controlled concurrency.&quot;&quot;&quot;</span>
+        <span class="k">async</span> <span class="k">with</span> <span class="n">semaphore</span><span class="p">:</span>  <span class="c1"># Proper semaphore usage</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_perform_classification</span><span class="p">(</span><span class="n">capability</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="capability-selection-process">
+<h2>Capability Selection Process<a class="headerlink" href="#capability-selection-process" title="Link to this heading">#</a></h2>
+<p><strong>Step 1: Always-Active Capabilities</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Registry configuration determines always-active capabilities</span>
+<span class="n">always_active_names</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_always_active_capability_names</span><span class="p">()</span>
+
+<span class="c1"># Add always-active capabilities first</span>
+<span class="k">for</span> <span class="n">capability</span> <span class="ow">in</span> <span class="n">available_capabilities</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">capability</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="n">always_active_names</span><span class="p">:</span>
+        <span class="n">active_capabilities</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">capability</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Step 2: Parallel LLM-Based Classification</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Get classification configuration for concurrency control</span>
+<span class="n">classification_config</span> <span class="o">=</span> <span class="n">get_classification_config</span><span class="p">()</span>
+<span class="n">max_concurrent</span> <span class="o">=</span> <span class="n">classification_config</span><span class="p">[</span><span class="s1">&#39;max_concurrent_classifications&#39;</span><span class="p">]</span>
+
+<span class="c1"># Create classifier instance with shared context</span>
+<span class="n">classifier</span> <span class="o">=</span> <span class="n">CapabilityClassifier</span><span class="p">(</span><span class="n">task</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">logger</span><span class="p">,</span> <span class="n">previous_failure</span><span class="p">)</span>
+
+<span class="c1"># Create semaphore for concurrency control</span>
+<span class="n">semaphore</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Semaphore</span><span class="p">(</span><span class="n">max_concurrent</span><span class="p">)</span>
+
+<span class="c1"># Create classification tasks with proper semaphore usage</span>
+<span class="n">classification_tasks</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">classifier</span><span class="o">.</span><span class="n">classify</span><span class="p">(</span><span class="n">capability</span><span class="p">,</span> <span class="n">semaphore</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">capability</span> <span class="ow">in</span> <span class="n">remaining_capabilities</span>
+<span class="p">]</span>
+
+<span class="c1"># Execute all classifications in parallel with semaphore control</span>
+<span class="n">classification_results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="o">*</span><span class="n">classification_tasks</span><span class="p">,</span> <span class="n">return_exceptions</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="c1"># Process results and collect active capabilities</span>
+<span class="k">for</span> <span class="n">capability</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">remaining_capabilities</span><span class="p">,</span> <span class="n">classification_results</span><span class="p">):</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">):</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Classification failed for capability &#39;</span><span class="si">{</span><span class="n">capability</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39;: </span><span class="si">{</span><span class="n">result</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">continue</span>
+    <span class="k">elif</span> <span class="n">result</span> <span class="ow">is</span> <span class="kc">True</span><span class="p">:</span>
+        <span class="n">active_capabilities</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">capability</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Step 3: Dependency Expansion</strong></p>
+<p>After LLM classification, the system automatically ensures that provider capabilities are included for any unsatisfied dependencies:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># After classification, expand dependencies transitively</span>
+<span class="n">active_capabilities</span> <span class="o">=</span> <span class="n">_expand_capability_dependencies</span><span class="p">(</span>
+    <span class="n">active_capabilities</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">logger</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>For each selected capability, the system checks its <code class="docutils literal notranslate"><span class="pre">requires</span></code> list. If a required context type is not already available in <code class="docutils literal notranslate"><span class="pre">capability_context_data</span></code> (from a previous turn), the capability that <code class="docutils literal notranslate"><span class="pre">provides</span></code> that type is automatically added to the active set. This expansion is transitive — added providers are themselves checked for their own dependencies.</p>
+<p><strong>Example:</strong> Selecting <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> (which requires <code class="docutils literal notranslate"><span class="pre">CHANNEL_ADDRESSES</span></code>) automatically adds <code class="docutils literal notranslate"><span class="pre">channel_finding</span></code> (which provides <code class="docutils literal notranslate"><span class="pre">CHANNEL_ADDRESSES</span></code>), unless <code class="docutils literal notranslate"><span class="pre">CHANNEL_ADDRESSES</span></code> is already present in the state from a prior turn.</p>
+<p>The reactive orchestrator also has a complementary safety net: if a capability’s requirements are unresolved at dispatch time, the missing provider is auto-added to the active set and the LLM is prompted to call it first.</p>
+<p>The parallel classification system includes configurable concurrency limits to balance performance with API rate limits:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># config.yml</span>
+<span class="nt">execution_control</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">limits</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">max_concurrent_classifications</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span><span class="w">  </span><span class="c1"># Maximum concurrent LLM requests</span>
+</pre></div>
+</div>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-secondary sd-bg-text-secondary">
+<span class="sd-summary-text">Bypass LLM-based Capability Selection</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">Capability selection supports a configurable bypass mode to streamline execution. By default, bypass mode can be enabled via the <a class="reference internal" href="../01_understanding-the-framework/02_convention-over-configuration.html#performance-configuration-section"><span class="std std-ref">configuration system</span></a>, allowing the system to skip LLM-based classification and activate all registered capabilities automatically. Additionally, users can dynamically toggle capability selection at runtime using the <code class="docutils literal notranslate"><span class="pre">/caps:off</span></code> <a class="reference internal" href="01_gateway-architecture.html#slash-commands-section"><span class="std std-ref">slash command</span></a>, providing flexibility for development, testing, or high-throughput scenarios.</p>
+<dl class="simple">
+<dt><strong>Bypass Behavior:</strong></dt><dd><ul class="simple">
+<li><p class="sd-card-text">Skips LLM-based capability classification entirely</p></li>
+<li><p class="sd-card-text">Activates all available capabilities from the registry</p></li>
+<li><p class="sd-card-text">Provides orchestrator with complete capability access</p></li>
+<li><p class="sd-card-text">Maintains always-active capability handling</p></li>
+</ul>
+</dd>
+<dt><strong>When to Use Bypass Mode:</strong></dt><dd><ul class="simple">
+<li><p class="sd-card-text">Exploratory R&amp;D scenarios where capability requirements are uncertain</p></li>
+<li><p class="sd-card-text">Small capability registries where classification overhead exceeds benefits</p></li>
+<li><p class="sd-card-text">High-throughput applications requiring reduced LLM call latency (trades orchestrator processing cost for classification speed)</p></li>
+</ul>
+</dd>
+<dt><strong>Advantages:</strong></dt><dd><ul class="simple">
+<li><p class="sd-card-text">Faster upstream pipeline (skips LLM-based capability selection)</p></li>
+<li><p class="sd-card-text">No risk of missing relevant capabilities</p></li>
+</ul>
+</dd>
+<dt><strong>Disadvantages:</strong></dt><dd><ul class="simple">
+<li><p class="sd-card-text">Longer orchestrator prompts (all capabilities included)</p></li>
+<li><p class="sd-card-text">Slower plan generation (more tokens to process)</p></li>
+<li><p class="sd-card-text">Potential for confusing or brittle execution plans</p></li>
+<li><p class="sd-card-text">Orchestrator may struggle with too many capability options</p></li>
+</ul>
+</dd>
+</dl>
+</div>
+</details></section>
+<section id="few-shot-classification-examples">
+<h2>Few-Shot Classification Examples<a class="headerlink" href="#few-shot-classification-examples" title="Link to this heading">#</a></h2>
+<p>Capabilities provide classifier guides with examples:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Example capability classifier guide</span>
+<span class="k">return</span> <span class="n">TaskClassifierGuide</span><span class="p">(</span>
+    <span class="n">instructions</span><span class="o">=</span><span class="s2">&quot;Activate when user requests weather information&quot;</span><span class="p">,</span>
+    <span class="n">examples</span><span class="o">=</span><span class="p">[</span>
+        <span class="n">ClassifierExample</span><span class="p">(</span>
+            <span class="n">query</span><span class="o">=</span><span class="s2">&quot;What&#39;s the weather like?&quot;</span><span class="p">,</span>
+            <span class="n">result</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;Direct weather request&quot;</span>
+        <span class="p">),</span>
+        <span class="n">ClassifierExample</span><span class="p">(</span>
+            <span class="n">query</span><span class="o">=</span><span class="s2">&quot;What time is it?&quot;</span><span class="p">,</span>
+            <span class="n">result</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;Time request, not weather&quot;</span>
+        <span class="p">)</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="central-router-architecture">
+<h2>Central Router Architecture<a class="headerlink" href="#central-router-architecture" title="Link to this heading">#</a></h2>
+<p>Router serves as the central decision point for execution flow. The routing logic differs based on the configured orchestration mode.</p>
+<p><strong>Mode Selection:</strong></p>
+<p>At the top of <code class="docutils literal notranslate"><span class="pre">router_conditional_edge()</span></code>, the router checks the configured orchestration mode and delegates to the appropriate routing function:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">router_conditional_edge</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Central routing logic - delegates based on orchestration mode.&quot;&quot;&quot;</span>
+
+    <span class="c1"># Reactive mode early exit</span>
+    <span class="n">orchestration_mode</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span>
+        <span class="s2">&quot;execution_control.agent_control.orchestration_mode&quot;</span><span class="p">,</span> <span class="s2">&quot;plan_first&quot;</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">orchestration_mode</span> <span class="o">==</span> <span class="s2">&quot;react&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_reactive_routing</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">logger</span><span class="p">)</span>
+
+    <span class="c1"># ... plan-first routing logic follows ...</span>
+</pre></div>
+</div>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-0">
+Plan-First Routing</label><div class="sd-tab-content docutils">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">router_conditional_edge</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Plan-first routing logic.&quot;&quot;&quot;</span>
+
+    <span class="c1"># 1. Direct chat mode - route directly to capability</span>
+    <span class="k">if</span> <span class="n">direct_chat_capability</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">direct_chat_capability</span>  <span class="c1"># or &quot;END&quot; if turn complete</span>
+
+    <span class="c1"># 2. Handle errors</span>
+    <span class="k">if</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;control_has_error&#39;</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">handle_error_routing</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+
+    <span class="c1"># 3. Check execution progress</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;task_current_task&quot;</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;task_extraction&quot;</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;planning_active_capabilities&#39;</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;classifier&quot;</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">get_execution_plan</span><span class="p">(</span><span class="n">state</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;orchestrator&quot;</span>
+
+    <span class="c1"># 4. Execute next step in plan</span>
+    <span class="k">return</span> <span class="n">get_next_step_capability</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The router evaluates conditions in order and returns the first matching route:</p>
+<ol class="arabic simple">
+<li><p>Direct chat mode → route to specified capability</p></li>
+<li><p>Error state → error handling (RETRIABLE retries, others to error node)</p></li>
+<li><p>Missing task → task extraction</p></li>
+<li><p>Missing capabilities → classifier</p></li>
+<li><p>Missing plan → orchestrator</p></li>
+<li><p>Default → next step in execution plan</p></li>
+</ol>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-1">
+Reactive Routing</label><div class="sd-tab-content docutils">
+<p>When <code class="docutils literal notranslate"><span class="pre">orchestration_mode:</span> <span class="pre">react</span></code> is configured, the router uses <code class="docutils literal notranslate"><span class="pre">_reactive_routing()</span></code> with different priorities:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">_reactive_routing</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">,</span> <span class="n">logger</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Routing logic for reactive (ReAct) orchestration mode.&quot;&quot;&quot;</span>
+
+    <span class="c1"># 1. Direct chat mode (same as plan-first)</span>
+    <span class="k">if</span> <span class="n">direct_chat_capability</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">direct_chat_capability</span>
+
+    <span class="c1"># 2. Error handling</span>
+    <span class="k">if</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;control_has_error&quot;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">error_classification</span><span class="o">.</span><span class="n">severity</span> <span class="o">==</span> <span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RETRIABLE</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">capability_name</span>  <span class="c1"># retry</span>
+        <span class="k">return</span> <span class="s2">&quot;reactive_orchestrator&quot;</span>  <span class="c1"># all other errors</span>
+
+    <span class="c1"># 3. Max iterations guard</span>
+    <span class="k">if</span> <span class="n">react_step_count</span> <span class="o">&gt;=</span> <span class="n">max_iterations</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;error&quot;</span>  <span class="c1"># safety limit reached</span>
+
+    <span class="c1"># 4. Normal pipeline</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">current_task</span><span class="p">:</span> <span class="k">return</span> <span class="s2">&quot;task_extraction&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">active_capabilities</span><span class="p">:</span> <span class="k">return</span> <span class="s2">&quot;classifier&quot;</span>
+
+    <span class="c1"># 5. After capability execution: back to reactive orchestrator</span>
+    <span class="k">if</span> <span class="n">current_index</span> <span class="o">&gt;=</span> <span class="nb">len</span><span class="p">(</span><span class="n">plan_steps</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;reactive_orchestrator&quot;</span>
+
+    <span class="c1"># 6. Execute pending step</span>
+    <span class="k">return</span> <span class="n">step_capability</span>
+</pre></div>
+</div>
+<p>Key differences from plan-first routing:</p>
+<ul class="simple">
+<li><p><strong>Routes all capabilities</strong> (including respond/clarify) via execution plan dispatch</p></li>
+<li><p><strong>Routes back to</strong> <code class="docutils literal notranslate"><span class="pre">reactive_orchestrator</span></code> after each capability execution (instead of following a fixed plan)</p></li>
+<li><p><strong>Max iterations guard</strong> (default: 100 steps) prevents infinite loops</p></li>
+<li><p><strong>Error recovery</strong>: RETRIABLE errors retry the capability; all other severities route to <code class="docutils literal notranslate"><span class="pre">reactive_orchestrator</span></code> for re-evaluation (instead of the error node)</p></li>
+</ul>
+</div>
+</div>
+</section>
+<section id="error-handling-and-retry">
+<h2>Error Handling and Retry<a class="headerlink" href="#error-handling-and-retry" title="Link to this heading">#</a></h2>
+<p><strong>Retry Logic in Router:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Router handles retries for RETRIABLE errors</span>
+<span class="k">if</span> <span class="n">error_classification</span><span class="o">.</span><span class="n">severity</span> <span class="o">==</span> <span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RETRIABLE</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">retry_count</span> <span class="o">&lt;</span> <span class="n">max_retries</span><span class="p">:</span>
+        <span class="c1"># Apply exponential backoff</span>
+        <span class="n">delay</span> <span class="o">=</span> <span class="n">delay_seconds</span> <span class="o">*</span> <span class="p">(</span><span class="n">backoff_factor</span> <span class="o">**</span> <span class="n">retry_count</span><span class="p">)</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">delay</span><span class="p">)</span>
+
+        <span class="n">state</span><span class="p">[</span><span class="s1">&#39;control_retry_count&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">retry_count</span> <span class="o">+</span> <span class="mi">1</span>
+        <span class="k">return</span> <span class="n">capability_name</span>  <span class="c1"># Retry same capability</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;error&quot;</span>  <span class="c1"># Route to error node</span>
+</pre></div>
+</div>
+<p><strong>Classification Error Handling:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@staticmethod</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">classify_error</span><span class="p">(</span><span class="n">exc</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="nb">dict</span><span class="p">):</span>
+    <span class="c1"># Retry LLM timeouts</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="p">(</span><span class="ne">ConnectionError</span><span class="p">,</span> <span class="ne">TimeoutError</span><span class="p">)):</span>
+        <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+            <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RETRIABLE</span><span class="p">,</span>
+            <span class="n">user_message</span><span class="o">=</span><span class="s2">&quot;Classification service temporarily unavailable, retrying...&quot;</span>
+        <span class="p">)</span>
+
+    <span class="c1"># Don&#39;t retry validation errors</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">)):</span>
+        <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+            <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">,</span>
+            <span class="n">user_message</span><span class="o">=</span><span class="s2">&quot;Classification configuration error&quot;</span>
+        <span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="reclassification-support">
+<h2>Reclassification Support<a class="headerlink" href="#reclassification-support" title="Link to this heading">#</a></h2>
+<p>System supports reclassification when initial selection fails:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Triggered by RECLASSIFICATION severity errors from capabilities</span>
+<span class="k">if</span> <span class="n">error_classification</span><span class="o">.</span><span class="n">severity</span> <span class="o">==</span> <span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RECLASSIFICATION</span><span class="p">:</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;control_needs_reclassification&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="s2">&quot;control_reclassification_reason&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Capability </span><span class="si">{</span><span class="n">capability_name</span><span class="si">}</span><span class="s2"> requested reclassification: </span><span class="si">{</span><span class="n">error_classification</span><span class="o">.</span><span class="n">user_message</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">}</span>
+</pre></div>
+</div>
+<p><strong>Reclassification Handling:</strong>
+- Triggered by capabilities returning ErrorSeverity.RECLASSIFICATION
+- Router checks reclassification count against configured limits
+- Uses same selection logic with previous failure context
+- Increments reclassification counter
+- Clears previous state for fresh analysis
+- Routes to error node when limits exceeded</p>
+</section>
+<section id="usage-examples">
+<h2>Usage Examples<a class="headerlink" href="#usage-examples" title="Link to this heading">#</a></h2>
+<p><strong>Basic Classification Flow:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Task: &quot;What&#39;s the weather like?&quot;</span>
+<span class="c1"># Result: [&quot;current_weather&quot;, &quot;respond&quot;] (always-active + classified)</span>
+
+<span class="n">state</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;task_current_task&quot;</span><span class="p">:</span> <span class="s2">&quot;What&#39;s the weather like?&quot;</span><span class="p">}</span>
+<span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ClassificationNode</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+<span class="n">capabilities</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;planning_active_capabilities&quot;</span><span class="p">]</span>
+</pre></div>
+</div>
+<p><strong>Router Decision Flow:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># State progression through router</span>
+<span class="n">state</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;task_current_task&quot;</span><span class="p">:</span> <span class="s2">&quot;Check weather&quot;</span><span class="p">}</span>
+
+<span class="c1"># Router decisions:</span>
+<span class="c1"># 1. No capabilities → &quot;classifier&quot;</span>
+<span class="c1"># 2. No execution plan → &quot;orchestrator&quot;</span>
+<span class="c1"># 3. Has plan → next step capability</span>
+</pre></div>
+</div>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-2" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-2">
+Integration Patterns</label><div class="sd-tab-content docutils">
+<dl class="simple">
+<dt><strong>Registry Integration:</strong></dt><dd><ul class="simple">
+<li><p>Always-active capabilities configured in registry</p></li>
+<li><p>Capability classifier guides provide examples</p></li>
+<li><p>Dynamic capability discovery supported</p></li>
+</ul>
+</dd>
+<dt><strong>State Management:</strong></dt><dd><ul class="simple">
+<li><p>Classification results stored in <code class="docutils literal notranslate"><span class="pre">planning_active_capabilities</span></code></p></li>
+<li><p>Router tracks retry counts and error states</p></li>
+<li><p>State updates use LangGraph-compatible patterns</p></li>
+</ul>
+</dd>
+<dt><strong>Error Recovery:</strong></dt><dd><ul class="simple">
+<li><p>Automatic retry for network issues</p></li>
+<li><p>Reclassification for capability selection problems (RECLASSIFICATION severity)</p></li>
+<li><p>Replanning for execution strategy issues (REPLANNING severity)</p></li>
+<li><p>Router coordination for failed executions</p></li>
+</ul>
+</dd>
+</dl>
+</div>
+<input id="sd-tab-item-3" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-3">
+Troubleshooting</label><div class="sd-tab-content docutils">
+<dl class="simple">
+<dt><strong>No Capabilities Selected:</strong></dt><dd><ul class="simple">
+<li><p>Check always-active capability configuration in registry</p></li>
+<li><p>Verify capability classifier guides are implemented</p></li>
+<li><p>Review few-shot examples for relevance</p></li>
+</ul>
+</dd>
+<dt><strong>Classification Errors:</strong></dt><dd><ul class="simple">
+<li><p>Enable debug logging to see LLM decisions</p></li>
+<li><p>Check capability classifier guide examples</p></li>
+<li><p>Verify model configuration for classification</p></li>
+</ul>
+</dd>
+<dt><strong>Router Loops:</strong></dt><dd><ul class="simple">
+<li><p>Ensure execution plans end with “respond” or “clarify”</p></li>
+<li><p>Check state field values at each routing decision</p></li>
+<li><p>Verify all referenced capabilities are registered</p></li>
+<li><p>In reactive mode, the max iterations guard (<code class="docutils literal notranslate"><span class="pre">graph_recursion_limit</span></code>, default: 100) prevents infinite loops. If hit, check why the reactive orchestrator isn’t converging to a respond/clarify action.</p></li>
+</ul>
+</dd>
+</dl>
+</div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../../api_reference/02_infrastructure/03_classification.html"><span class="doc">Classification</span></a></dt><dd><p>API reference for classification and routing system</p>
+</dd>
+<dt><a class="reference internal" href="../03_core-framework-systems/03_registry-and-discovery.html"><span class="doc">Registry and Discovery</span></a></dt><dd><p>Capability registration and discovery patterns</p>
+</dd>
+<dt><a class="reference internal" href="02_task-extraction-system.html"><span class="doc">Task Extraction</span></a></dt><dd><p>Task analysis and capability selection prerequisites</p>
+</dd>
+<dt><a class="reference internal" href="04_orchestrator-planning.html"><span class="doc">Orchestrator Planning</span></a></dt><dd><p>How selected capabilities become execution plans</p>
+</dd>
+<dt><a class="reference internal" href="06_error-handling-infrastructure.html"><span class="doc">Error Handling</span></a></dt><dd><p>Error handling patterns</p>
+</dd>
+<dt><a class="reference internal" href="../02_quick-start-patterns/00_cli-reference.html#direct-chat-mode"><span class="std std-ref">Direct Chat Mode</span></a></dt><dd><p>User guide for Direct Chat Mode (bypasses classification and routing)</p>
+</dd>
+</dl>
+</div>
+<p>Classification and Routing determines which capabilities are needed and coordinates their execution through the framework’s infrastructure.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="02_task-extraction-system.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Task Extraction</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="04_orchestrator-planning.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Orchestrator Planning</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#core-concept">Core Concept</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#classification-architecture">Classification Architecture</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#capability-selection-process">Capability Selection Process</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#few-shot-classification-examples">Few-Shot Classification Examples</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#central-router-architecture">Central Router Architecture</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#error-handling-and-retry">Error Handling and Retry</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reclassification-support">Reclassification Support</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage-examples">Usage Examples</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/developer-guides/04_infrastructure-components/03_classification-and-routing.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

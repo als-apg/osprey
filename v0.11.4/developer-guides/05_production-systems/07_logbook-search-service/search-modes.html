@@ -1,0 +1,923 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Search Modes &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'developer-guides/05_production-systems/07_logbook-search-service/search-modes';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+    <link rel="next" title="Osprey Integration" href="osprey-integration.html" />
+    <link rel="prev" title="Data Ingestion" href="data-ingestion.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../01_understanding-the-framework/index.html">Understanding Osprey</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../01_understanding-the-framework/01_infrastructure-architecture.html">Infrastructure Architecture: Classification-Orchestration Pipeline</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../../01_understanding-the-framework/02_convention-over-configuration.html">Convention over Configuration: Configuration-Driven Registry Patterns</a></li>
+
+
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../../01_understanding-the-framework/03_langgraph-integration.html">LangGraph Integration: Native StateGraph and Workflow Execution</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../../01_understanding-the-framework/04_orchestration-architecture.html">Orchestration Architecture</a></li>
+
+
+
+
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../02_quick-start-patterns/index.html">Quick Start Patterns</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../02_quick-start-patterns/00_cli-reference.html">CLI Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../02_quick-start-patterns/01_building-your-first-capability.html">Building Your First Capability</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../02_quick-start-patterns/02_state-and-context-essentials.html">State and Context Essentials</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../02_quick-start-patterns/03_running-and-testing.html">Running and Testing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../02_quick-start-patterns/04_mcp-capability-generation.html">MCP Capability Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../02_quick-start-patterns/05_soft-ioc-backends.html">Soft IOC Custom Backends</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../03_core-framework-systems/index.html">Core Framework Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../03_core-framework-systems/01_state-management-architecture.html">State Management Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../03_core-framework-systems/02_context-management-system.html">Context Management System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../03_core-framework-systems/03_registry-and-discovery.html">Registry and Discovery</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../03_core-framework-systems/04_prompt-customization.html">Prompt Customization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../03_core-framework-systems/05_message-and-execution-flow.html">Message and Execution Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../03_core-framework-systems/06_configuration-architecture.html">Configuration Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../03_core-framework-systems/07_built-in-capabilities.html">Built-in Capabilities</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../04_infrastructure-components/index.html">Infrastructure Components</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../04_infrastructure-components/01_gateway-architecture.html">Gateway Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../04_infrastructure-components/02_task-extraction-system.html">Task Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../04_infrastructure-components/03_classification-and-routing.html">Classification and Routing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../04_infrastructure-components/04_orchestrator-planning.html">Orchestrator Planning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../04_infrastructure-components/05_message-generation.html">Message Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../04_infrastructure-components/06_error-handling-infrastructure.html">Error Handling</a></li>
+</ul>
+</details></li>
+
+
+
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="../index.html">Production Systems</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../01_human-approval-workflows.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_data-source-integration.html">Data Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../03_python-execution-service/index.html">Python Execution</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../03_python-execution-service/service-overview.html">Python Service Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../03_python-execution-service/generator-basic.html">Basic LLM Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../03_python-execution-service/generator-claude.html">Claude Code Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../03_python-execution-service/generator-mock.html">Mock Generator</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_memory-storage-service.html">Memory Storage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_container-and-deployment.html">Container Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../06_control-system-integration.html">Control System Integration</a></li>
+<li class="toctree-l2 current active has-children"><a class="reference internal" href="index.html">Logbook Search Service (ARIEL)</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l3 current active"><a class="current reference internal" href="#">Search Modes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="web-interface.html">Web Interface</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Developer Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Production Systems</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Logbook Search Service (ARIEL)</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Search Modes</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="search-modes">
+<h1>Search Modes<a class="headerlink" href="#search-modes" title="Link to this heading">#</a></h1>
+<p>ARIEL’s search system is organized into two layers: <strong>search modules</strong> and <strong>pipelines</strong>. Search modules are leaf-level functions that each implement a single retrieval strategy — keyword full-text search or embedding-based semantic similarity. Pipelines are higher-level execution strategies that compose one or more search modules with LLM reasoning to produce richer answers. At query time, the <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> routes each request to one of four modes: the two search modules can be called directly for fast, focused lookups; the RAG pipeline retrieves, fuses, and generates a cited answer deterministically; and the agent mode lets a ReAct agent autonomously decide which tools to call and how many times. All four modes share the same underlying <a class="reference internal" href="data-ingestion.html#database"><span class="std std-ref">database</span></a> and produce a common <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code>.</p>
+<p>Both layers are designed for extensibility. Search modules and pipelines are discovered through Osprey’s <a class="reference internal" href="../../03_core-framework-systems/03_registry-and-discovery.html"><span class="doc">central registry</span></a>, so you can add your own without modifying any framework code. A custom search module only needs to export a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function; a custom pipeline only needs to export a <code class="docutils literal notranslate"><span class="pre">get_pipeline_descriptor()</span></code> function. Once registered, they are automatically available in the agent executor, the RAG pipeline’s retrieval list, and the web interface.</p>
+<section id="search-architecture">
+<h2>Search Architecture<a class="headerlink" href="#search-architecture" title="Link to this heading">#</a></h2>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>User Query
+    ↓
+ARIELSearchService.search(mode=...)
+    ├── KEYWORD  → keyword_search()      → ranked entries
+    ├── SEMANTIC → semantic_search()      → ranked entries
+    ├── RAG      → RAGPipeline.execute()
+    │                ├── Retrieve (keyword ∥ semantic)
+    │                ├── Fuse (Reciprocal Rank Fusion)
+    │                ├── Assemble (token-aware context)
+    │                └── Generate (LLM + citations)
+    └── AGENT    → AgentExecutor.execute()
+                     └── ReAct loop (search tools → synthesize)
+    ↓
+ARIELSearchResult (entries, answer, sources, reasoning)
+</pre></div>
+</div>
+<p>The service validates that the requested mode is enabled in configuration before routing. Keyword and semantic are direct function calls; RAG and agent instantiate their respective classes with the repository, config, and an embedder loader. All four modes return an <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code> with entries, an optional LLM-generated answer, source entry IDs, and a reasoning string.</p>
+<section id="search-modules">
+<h3>Search Modules<a class="headerlink" href="#search-modules" title="Link to this heading">#</a></h3>
+<p>Search modules are leaf-level functions that execute a single search strategy against the database. They are the building blocks that pipelines compose. Each module exports a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function that describes its capabilities, input schema, and execution function so the rest of the system — the agent executor, the RAG pipeline, and the web interface — can discover and use it automatically. The framework ships with the following built-in search modules:</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-0">
+Keyword Search</label><div class="sd-tab-content docutils">
+<p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">search/keyword.py</span></code></p>
+<p>PostgreSQL full-text search with optional fuzzy matching fallback. Best for specific terms, equipment names, PV names, and exact phrases.</p>
+<p><strong>Query syntax:</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span># Simple terms (implicit AND)
+RF cavity fault
+
+# Boolean operators
+RF AND cavity
+vacuum OR pressure
+beam NOT injection
+
+# Quoted phrases
+&quot;RF cavity trip&quot;
+
+# Field prefixes
+author:smith
+date:2024-06
+
+# Combined
+author:jones &quot;beam loss&quot; date:2024-01
+</pre></div>
+</div>
+<p><strong>How it works:</strong></p>
+<ol class="arabic">
+<li><p>Validates and preprocesses the query — empty queries return immediately, queries longer than 1,000 characters are truncated, and unbalanced quotes are auto-balanced by removing the last unmatched quote</p></li>
+<li><p>Parses the query to extract field filters (<code class="docutils literal notranslate"><span class="pre">author:</span></code>, <code class="docutils literal notranslate"><span class="pre">date:</span></code>), quoted phrases, and remaining search terms</p></li>
+<li><p>Builds a PostgreSQL <code class="docutils literal notranslate"><span class="pre">tsquery</span></code> using the function appropriate for the query shape:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">plainto_tsquery</span></code> — for simple terms (implicit AND)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">websearch_to_tsquery</span></code> — for queries with Boolean operators (AND, OR, NOT)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">phraseto_tsquery</span></code> — for quoted phrases</p></li>
+</ul>
+<p>When multiple components are present (e.g. terms <em>and</em> phrases), they are combined with <code class="docutils literal notranslate"><span class="pre">&amp;&amp;</span></code> (tsquery AND).</p>
+</li>
+<li><p>Executes full-text search against the <code class="docutils literal notranslate"><span class="pre">raw_text</span></code> column with <code class="docutils literal notranslate"><span class="pre">ts_rank</span></code> scoring, applying any field filters (<code class="docutils literal notranslate"><span class="pre">author</span> <span class="pre">ILIKE</span></code>, date range) and time range constraints</p></li>
+<li><p>If no results and fuzzy fallback is enabled, falls back to <code class="docutils literal notranslate"><span class="pre">pg_trgm</span></code> trigram similarity (default threshold: 0.3)</p></li>
+<li><p>Returns results as <code class="docutils literal notranslate"><span class="pre">(entry,</span> <span class="pre">score,</span> <span class="pre">highlights)</span></code> tuples — highlights are generated via <code class="docutils literal notranslate"><span class="pre">ts_headline</span></code></p></li>
+</ol>
+<p><strong>Configuration:</strong></p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">search_modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">keyword</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-1">
+Semantic Search</label><div class="sd-tab-content docutils">
+<p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">search/semantic.py</span></code></p>
+<p>Embedding-based similarity search using pgvector. Best for conceptual queries where exact keywords may not appear in the text.</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p>Resolves the similarity threshold using a 3-tier priority:</p>
+<ol class="loweralpha simple">
+<li><p>Per-query <code class="docutils literal notranslate"><span class="pre">similarity_threshold</span></code> parameter (highest)</p></li>
+<li><p>Config value (<code class="docutils literal notranslate"><span class="pre">search_modules.semantic.settings.similarity_threshold</span></code>)</p></li>
+<li><p>Hardcoded default: 0.7 (lowest)</p></li>
+</ol>
+</li>
+<li><p>Determines the embedding model from config (<code class="docutils literal notranslate"><span class="pre">search_modules.semantic.model</span></code>) and resolves provider credentials via Osprey’s centralized <code class="docutils literal notranslate"><span class="pre">api.providers</span></code> configuration</p></li>
+<li><p>Generates a query embedding using the configured provider, with a dimension-mismatch warning if the returned embedding size does not match the configured <code class="docutils literal notranslate"><span class="pre">embedding_dimension</span></code></p></li>
+<li><p>Searches the per-model embedding table using cosine distance (<code class="docutils literal notranslate"><span class="pre">&lt;=&gt;</span></code> operator)</p></li>
+<li><p>Filters results by similarity threshold and optional time range</p></li>
+<li><p>Returns results as <code class="docutils literal notranslate"><span class="pre">(entry,</span> <span class="pre">similarity_score)</span></code> tuples</p></li>
+</ol>
+<p><strong>Configuration:</strong></p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">search_modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">semantic</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ollama</span>
+<span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nomic-embed-text</span>
+<span class="w">    </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">similarity_threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.7</span>
+<span class="w">      </span><span class="nt">embedding_dimension</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">768</span>
+</pre></div>
+</div>
+<p><strong>Requirements:</strong> Ollama (or another embedding provider) running with the configured model, embedding table populated via the <code class="docutils literal notranslate"><span class="pre">text_embedding</span></code> <a class="reference internal" href="data-ingestion.html#enhancement-pipeline"><span class="std std-ref">enhancement module</span></a>, and the pgvector extension installed in PostgreSQL.</p>
+</div>
+</div>
+<p><strong>Registering a custom search module:</strong></p>
+<p>To add your own search module, create a Python module that exports <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> (and optionally <code class="docutils literal notranslate"><span class="pre">get_parameter_descriptors()</span></code>), then register it through your application’s registry configuration:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry.helpers</span><span class="w"> </span><span class="kn">import</span> <span class="n">extend_framework_registry</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArielSearchModuleRegistration</span>
+
+<span class="n">app_config</span> <span class="o">=</span> <span class="n">extend_framework_registry</span><span class="p">(</span>
+    <span class="n">ariel_search_modules</span><span class="o">=</span><span class="p">[</span>
+        <span class="n">ArielSearchModuleRegistration</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_search&quot;</span><span class="p">,</span>
+            <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;my_app.search.my_module&quot;</span><span class="p">,</span>
+            <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Custom search module for my facility&quot;</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="p">],</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Once registered and enabled in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (<code class="docutils literal notranslate"><span class="pre">search_modules.my_search.enabled:</span> <span class="pre">true</span></code>), the module is automatically available as a tool in the agent executor, as a retrieval source in any pipeline that lists it in <code class="docutils literal notranslate"><span class="pre">retrieval_modules</span></code>, and as a search option in the web interface. The <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function must return a <code class="docutils literal notranslate"><span class="pre">SearchToolDescriptor</span></code>:</p>
+<p><code class="xref py py-class docutils literal notranslate"><span class="pre">SearchToolDescriptor</span></code> — a frozen dataclass whose key fields are <code class="docutils literal notranslate"><span class="pre">execute</span></code> (the async search function), <code class="docutils literal notranslate"><span class="pre">format_result</span></code> (formats results for agent consumption), and <code class="docutils literal notranslate"><span class="pre">args_schema</span></code> (a Pydantic model for input validation). See the <a class="reference internal" href="../../../api_reference/03_production_systems/07_ariel-search.html"><span class="doc">ARIEL API reference</span></a> for the full field list.</p>
+<p>Modules may also export <code class="docutils literal notranslate"><span class="pre">get_parameter_descriptors()</span></code> to declare tunable parameters for the frontend capabilities API. Each <code class="xref py py-class docutils literal notranslate"><span class="pre">ParameterDescriptor</span></code> describes a single knob — its name, type, default, range, and UI grouping — so the web interface can render controls dynamically. See the <a class="reference internal" href="../../../api_reference/03_production_systems/07_ariel-search.html"><span class="doc">ARIEL API reference</span></a> for the full field list.</p>
+<div class="outreach admonition">
+<p class="admonition-title">Collaboration Welcome</p>
+<p>If you implement a search module that could benefit other facilities — for example, a structured-metadata search, a time-series correlation search, or a cross-entry linking search — we encourage you to open a pull request so it becomes natively available in Osprey.</p>
+</div>
+</section>
+<section id="pipelines">
+<h3>Pipelines<a class="headerlink" href="#pipelines" title="Link to this heading">#</a></h3>
+<p>Pipelines compose search modules into higher-level execution strategies. Each pipeline specifies which <code class="docutils literal notranslate"><span class="pre">retrieval_modules</span></code> it uses in configuration and is declared through a <code class="docutils literal notranslate"><span class="pre">PipelineDescriptor</span></code> that provides metadata and tunable parameters for the web interface. Like search modules, pipelines are discovered through the Osprey <a class="reference internal" href="../../03_core-framework-systems/03_registry-and-discovery.html"><span class="doc">registry</span></a> — you can register your own execution strategy without modifying any framework code. The framework ships with the following built-in pipelines:</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-2" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-2">
+RAG Pipeline</label><div class="sd-tab-content docutils">
+<p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">rag.py</span></code></p>
+<p>Deterministic 4-stage pipeline for direct question answering. Produces auditable, reproducible results.</p>
+<p><strong>Stages:</strong></p>
+<ol class="arabic">
+<li><p><strong>Retrieve</strong> — runs the pipeline’s configured <code class="docutils literal notranslate"><span class="pre">retrieval_modules</span></code> (keyword and/or semantic) in parallel using <code class="docutils literal notranslate"><span class="pre">asyncio.gather</span></code>. If a retrieval module fails, it logs a warning and continues with whichever modules succeeded.</p></li>
+<li><p><strong>Fuse</strong> — combines results using Reciprocal Rank Fusion (RRF). Each entry’s score from a single source is <code class="docutils literal notranslate"><span class="pre">1</span> <span class="pre">/</span> <span class="pre">(k</span> <span class="pre">+</span> <span class="pre">rank</span> <span class="pre">+</span> <span class="pre">1)</span></code> where <em>k</em> is the fusion parameter (default: 60) and <em>rank</em> is the 0-based position in that source’s result list. When an entry appears in both keyword and semantic results, its RRF scores are summed. When only one source returns results, they pass through directly with their single-source RRF scores.</p></li>
+<li><p><strong>Assemble</strong> — builds a token-aware context window from fused entries. Each entry is formatted as:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>ENTRY #&lt;id&gt; | &lt;timestamp&gt; | Author: &lt;name&gt; | &lt;title&gt;
+&lt;content truncated to max_chars_per_entry&gt;
+</pre></div>
+</div>
+<p>Entries are joined with <code class="docutils literal notranslate"><span class="pre">---</span></code> separators. Total context is limited to <code class="docutils literal notranslate"><span class="pre">max_context_chars</span></code> (default: 12,000). If the limit is reached mid-entry and at least 100 characters remain, the entry is truncated with <code class="docutils literal notranslate"><span class="pre">...</span></code>; otherwise it is excluded entirely. The pipeline tracks whether truncation occurred.</p>
+</li>
+<li><p><strong>Generate</strong> — sends the assembled context and query to the configured LLM using a prompt that instructs the model to cite entries using <code class="docutils literal notranslate"><span class="pre">[#id]</span></code> notation. The prompt, temperature, provider, and model are all configurable.</p></li>
+</ol>
+<p><strong>Citation extraction:</strong> After generation, the pipeline extracts <code class="docutils literal notranslate"><span class="pre">[#id]</span></code> patterns from the answer to produce a list of unique source entry IDs in order of appearance. If no citations are found in the text, the pipeline falls back to citing all entries that were included in the context.</p>
+<p><strong>Configuration:</strong></p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">pipelines</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">rag</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">retrieval_modules</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">keyword</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">semantic</span><span class="p p-Indicator">]</span><span class="w">  </span><span class="c1"># Which search modules to use</span>
+
+<span class="nt">reasoning</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">  </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic/claude-haiku</span>
+<span class="w">  </span><span class="nt">temperature</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.1</span>
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-3" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-3">
+Agent Mode</label><div class="sd-tab-content docutils">
+<p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">agent/executor.py</span></code></p>
+<p>ReAct agent via LangGraph’s <code class="docutils literal notranslate"><span class="pre">create_react_agent</span></code>. The agent autonomously decides which search tools to call and how to synthesize an answer from multiple invocations. Unlike the RAG pipeline, the agent can refine its searches iteratively — for example, broadening a query that returned no results, or issuing follow-up searches to corroborate initial findings.</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Tool discovery</strong> — loads <code class="docutils literal notranslate"><span class="pre">SearchToolDescriptor</span></code> instances from the registry, filtered to the pipeline’s configured <code class="docutils literal notranslate"><span class="pre">retrieval_modules</span></code> and further filtered to only those that are enabled. Each descriptor is wrapped into a LangChain <code class="docutils literal notranslate"><span class="pre">StructuredTool</span></code> with its Pydantic <code class="docutils literal notranslate"><span class="pre">args_schema</span></code> for input validation.</p></li>
+<li><p><strong>Time range resolution</strong> — each tool call uses a 3-tier priority for date filtering:</p>
+<ol class="loweralpha simple">
+<li><p>Tool call parameter (highest) — agent explicitly passes <code class="docutils literal notranslate"><span class="pre">start_date</span></code>/<code class="docutils literal notranslate"><span class="pre">end_date</span></code></p></li>
+<li><p>Request context — from the capability’s <code class="docutils literal notranslate"><span class="pre">time_range</span></code></p></li>
+<li><p>No filter (lowest) — search all entries</p></li>
+</ol>
+</li>
+<li><p><strong>Agent creation</strong> — creates a ReAct agent with a system prompt that instructs it to search the logbook, cite entry IDs, and synthesize findings. The LLM is lazy-loaded from Osprey’s centralized provider configuration.</p></li>
+<li><p><strong>Execution</strong> — runs the agent with a configurable recursion limit (<code class="docutils literal notranslate"><span class="pre">max_iterations</span> <span class="pre">*</span> <span class="pre">2</span> <span class="pre">+</span> <span class="pre">1</span></code>) and a total timeout enforced via <code class="docutils literal notranslate"><span class="pre">asyncio.wait_for</span></code>. Timeout produces a graceful <code class="docutils literal notranslate"><span class="pre">SearchTimeoutError</span></code> rather than crashing.</p></li>
+<li><p><strong>Result parsing</strong> — extracts the final answer from the last AI message, citation IDs from <code class="docutils literal notranslate"><span class="pre">[#id]</span></code> patterns, and which search modes were actually invoked by inspecting the tool call history.</p></li>
+</ol>
+<p><strong>Configuration:</strong></p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">pipelines</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">agent</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">retrieval_modules</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">keyword</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">semantic</span><span class="p p-Indicator">]</span><span class="w">  </span><span class="c1"># Which search tools the agent can use</span>
+
+<span class="nt">reasoning</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">  </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic/claude-haiku</span>
+<span class="w">  </span><span class="nt">max_iterations</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span><span class="w">              </span><span class="c1"># Maximum ReAct cycles</span>
+<span class="w">  </span><span class="nt">temperature</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.1</span>
+<span class="w">  </span><span class="nt">total_timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">120</span><span class="w">     </span><span class="c1"># Total agent timeout</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="tip admonition">
+<p class="admonition-title">RAG vs. Agent</p>
+<p>The RAG pipeline and agent mode are peers, not layers — they are two independent execution strategies. <strong>RAG</strong> is deterministic and auditable: the same query always follows the same retrieve-fuse-assemble-generate path, making it ideal for operational use where reproducibility matters. <strong>Agent</strong> is exploratory and non-deterministic: the LLM decides what to search and may iterate, making it better for complex questions that require multi-step reasoning or query refinement.</p>
+</div>
+<p><strong>Registering a custom pipeline:</strong></p>
+<p>To add your own execution strategy, create a Python module that exports <code class="docutils literal notranslate"><span class="pre">get_pipeline_descriptor()</span></code>, then register it through your application’s registry configuration:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry.helpers</span><span class="w"> </span><span class="kn">import</span> <span class="n">extend_framework_registry</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArielPipelineRegistration</span>
+
+<span class="n">app_config</span> <span class="o">=</span> <span class="n">extend_framework_registry</span><span class="p">(</span>
+    <span class="n">ariel_pipelines</span><span class="o">=</span><span class="p">[</span>
+        <span class="n">ArielPipelineRegistration</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_pipeline&quot;</span><span class="p">,</span>
+            <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;my_app.pipelines.my_pipeline&quot;</span><span class="p">,</span>
+            <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Custom execution strategy&quot;</span><span class="p">,</span>
+            <span class="n">category</span><span class="o">=</span><span class="s2">&quot;llm&quot;</span><span class="p">,</span>  <span class="c1"># &quot;llm&quot; for LLM-powered, &quot;direct&quot; for deterministic</span>
+        <span class="p">),</span>
+    <span class="p">],</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">get_pipeline_descriptor()</span></code> function must return a <code class="xref py py-class docutils literal notranslate"><span class="pre">PipelineDescriptor</span></code> — a frozen dataclass with <code class="docutils literal notranslate"><span class="pre">name</span></code>, <code class="docutils literal notranslate"><span class="pre">label</span></code>, <code class="docutils literal notranslate"><span class="pre">description</span></code>, <code class="docutils literal notranslate"><span class="pre">category</span></code> (<code class="docutils literal notranslate"><span class="pre">&quot;llm&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;direct&quot;</span></code>), and <code class="docutils literal notranslate"><span class="pre">parameters</span></code> (a list of <code class="xref py py-class docutils literal notranslate"><span class="pre">ParameterDescriptor</span></code>). See the <a class="reference internal" href="../../../api_reference/03_production_systems/07_ariel-search.html"><span class="doc">ARIEL API reference</span></a> for the full field list.</p>
+<p>Once registered, enable the pipeline in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (<code class="docutils literal notranslate"><span class="pre">pipelines.my_pipeline.enabled:</span> <span class="pre">true</span></code>) and configure its <code class="docutils literal notranslate"><span class="pre">retrieval_modules</span></code> to control which search modules it uses. The pipeline will appear in the web interface alongside the built-in options.</p>
+<div class="outreach admonition">
+<p class="admonition-title">Collaboration Welcome</p>
+<p>The built-in pipelines cover the most common retrieval patterns, but there is plenty of room for new strategies — for example, a multi-hop pipeline that chains searches based on intermediate results, a map-reduce pipeline that summarizes large result sets, or a hybrid pipeline that combines RAG with structured database queries. If you build a useful pipeline, we encourage you to open a pull request so it becomes natively available to all Osprey users.</p>
+</div>
+</section>
+<section id="see-also">
+<h3>See Also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h3>
+<dl class="simple">
+<dt><a class="reference internal" href="data-ingestion.html"><span class="doc">Data Ingestion</span></a></dt><dd><p>How data gets into the system — facility adapters, enhancement modules, and database schema</p>
+</dd>
+<dt><a class="reference internal" href="osprey-integration.html"><span class="doc">Osprey Integration</span></a></dt><dd><p>Capability, context flow, and error classification</p>
+</dd>
+<dt><a class="reference internal" href="web-interface.html"><span class="doc">Web Interface</span></a></dt><dd><p>Web interface architecture and capabilities API</p>
+</dd>
+<dt><a class="reference internal" href="../../../api_reference/03_production_systems/07_ariel-search.html"><span class="doc">ARIEL Search Service</span></a></dt><dd><p>Full API reference and YAML configuration</p>
+</dd>
+<dt><a class="reference internal" href="../../03_core-framework-systems/03_registry-and-discovery.html"><span class="doc">Registry and Discovery</span></a></dt><dd><p>Registry system used for search module and pipeline discovery</p>
+</dd>
+<dt><a class="reference internal" href="../../03_core-framework-systems/07_built-in-capabilities.html"><span class="doc">Built-in Capabilities</span></a></dt><dd><p><code class="docutils literal notranslate"><span class="pre">logbook_search</span></code> capability reference</p>
+</dd>
+</dl>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="data-ingestion.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Data Ingestion</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="osprey-integration.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Osprey Integration</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#search-architecture">Search Architecture</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#search-modules">Search Modules</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pipelines">Pipelines</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See Also</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/developer-guides/05_production-systems/07_logbook-search-service/search-modes.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

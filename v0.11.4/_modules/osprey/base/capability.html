@@ -1,0 +1,2159 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey.base.capability &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
+
+
+
+
+
+const initStyles = () => {
+    const defaultStyle = document.createElement('style');
+    defaultStyle.textContent = `pre.mermaid {
+    /* Same as .mermaid-container > pre */
+    display: block;
+    width: 100%;
+}
+
+pre.mermaid > svg {
+    /* Same as .mermaid-container > pre > svg */
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}`;
+    document.head.appendChild(defaultStyle);
+
+    const fullscreenStyle = document.createElement('style');
+    fullscreenStyle.textContent = `.mermaid-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.mermaid-container > pre {
+    display: block;
+    width: 100%;
+}
+
+.mermaid-container > pre > svg {
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}
+
+.mermaid-fullscreen-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    color: #333;
+}
+
+.mermaid-fullscreen-btn:hover {
+    opacity: 100% !important;
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-btn.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-btn.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 95vw;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.98);
+    z-index: 9999;
+    padding: 20px;
+    overflow: auto;
+}
+
+.mermaid-fullscreen-modal.dark-theme {
+    background: rgba(0, 0, 0, 0.98);
+}
+
+.mermaid-fullscreen-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen {
+    position: relative;
+    width: 95vw;
+    height: 90vh;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen.dark-theme {
+    background: #1a1a1a;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-container-fullscreen pre.mermaid {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen .mermaid svg {
+    height: 100% !important;
+    width: 100% !important;
+    cursor: grab;
+}
+
+.mermaid-fullscreen-close {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    font-size: 24px;
+    line-height: 1;
+    color: #333;
+}
+
+.mermaid-fullscreen-close:hover {
+    background: white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-close.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-close.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
+    display: none !important;
+}`;
+    document.head.appendChild(fullscreenStyle);
+}
+
+// Detect if page has dark background
+const isDarkTheme = () => {
+    // We use a set of heuristics:
+    // 1. Check for common dark mode classes or attributes
+    // 2. Check computed background color brightness
+    if (document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        document.body.getAttribute('data-theme') === 'dark') {
+        // console.log("Dark theme detected via class/attribute");
+        return true;
+    }
+    if (document.documentElement.classList.contains('light') ||
+        document.documentElement.getAttribute('data-theme') === 'light' ||
+        document.body.classList.contains('light') ||
+        document.body.getAttribute('data-theme') === 'light') {
+        // console.log("Light theme detected via class/attribute");
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // console.log("Dark theme detected via prefers-color-scheme");
+        return true;
+    }
+    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        // console.log("Background color brightness:", brightness);
+        return brightness < 128;
+    }
+    // console.log("No dark or light theme detected, defaulting to light theme");
+    return false;
+};
+
+let darkTheme = isDarkTheme();
+let modal = null;
+let modalContent = null;
+let previousScrollOffset = [window.scrollX, window.scrollY];
+
+const runMermaid = async (rerun) => {
+    console.log("Running mermaid diagrams, rerun =", rerun);
+    // clear all existing mermaid charts
+    let all_mermaids = document.querySelectorAll(".mermaid");
+
+    if (rerun) {
+        all_mermaids.forEach((el) => {
+            if(!el.hasAttribute("data-original-code")) {
+                // store original code
+                // console.log(`Storing original code for first run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+            if(el.getAttribute("data-processed") === "true") {
+                // remove and restore original
+                el.removeAttribute("data-processed");
+                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
+                el.innerHTML = el.getAttribute('data-original-code');
+            } else {
+                // store original code
+                // console.log(`Storing original code for re-run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+        });
+        await mermaid.run();
+    }
+
+    all_mermaids = document.querySelectorAll(".mermaid");
+    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
+
+    if ("False" === "True") {
+        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
+        if(mermaids_to_add_zoom > 0) {
+            var svgs = d3.selectAll("");
+            if(all_mermaids.length !== mermaids_processed.length) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else if(svgs.size() !== mermaids_to_add_zoom) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else {
+                svgs.each(function() {
+                    var svg = d3.select(this);
+                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
+                    var inner = svg.select("g");
+                    var zoom = d3.zoom().on("zoom", function(event) {
+                        inner.attr("transform", event.transform);
+                    });
+                    svg.call(zoom);
+                });
+            }
+        }
+    } else if(all_mermaids.length !== mermaids_processed.length) {
+        // Wait for mermaid to process all diagrams
+        setTimeout(() => runMermaid(false), 200);
+        return;
+    }
+
+    // Stop here if not adding fullscreen capability
+    if ("True" !== "True") return;
+
+    if (modal !== null ) {
+        // Destroy existing modal
+        modal.remove();
+        modal = null;
+        modalContent = null;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
+    modal.innerHTML = `
+        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
+        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
+    `;
+    document.body.appendChild(modal);
+
+    modalContent = modal.querySelector('.mermaid-container-fullscreen');
+    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
+
+    const closeModal = () => {
+        modal.classList.remove('active');
+        modalContent.innerHTML = '';
+        document.body.style.overflow = ''
+        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+        }
+    });
+
+    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
+        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
+            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
+            // Already processed, adjust button class if needed
+            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
+            if (existingBtn) {
+                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+            }
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.className = 'mermaid-container';
+        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
+        container.appendChild(mermaidDiv);
+
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
+        fullscreenBtn.textContent = '⛶';
+        fullscreenBtn.style.opacity = '50%';
+
+        // Calculate dynamic position based on diagram's margin and padding
+        const diagramStyle = window.getComputedStyle(mermaidDiv);
+        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
+        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
+        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
+        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
+        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
+        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
+
+        fullscreenBtn.addEventListener('click', () => {
+            previousScrollOffset = [window.scroll, window.scrollY];
+            const clone = mermaidDiv.cloneNode(true);
+            modalContent.innerHTML = '';
+            modalContent.appendChild(clone);
+
+            const svg = clone.querySelector('svg');
+            if (svg) {
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxWidth = '100%';
+                svg.style.sdisplay = 'block';
+
+                if ("False" === "True") {
+                    setTimeout(() => {
+                        const g = svg.querySelector('g');
+                        if (g) {
+                            var svgD3 = d3.select(svg);
+                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
+                            var inner = svgD3.select("g");
+                            var zoom = d3.zoom().on("zoom", function(event) {
+                                inner.attr("transform", event.transform);
+                            });
+                            svgD3.call(zoom);
+                        }
+                    }, 100);
+                }
+            }
+
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+        container.appendChild(fullscreenBtn);
+    });
+};
+
+const load = async () => {
+    initStyles();
+
+    await runMermaid(true);
+
+    const reRunIfThemeChanges = async () => {
+        const newDarkTheme = isDarkTheme();
+        if (newDarkTheme !== darkTheme) {
+            darkTheme = newDarkTheme;
+            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
+            await mermaid.initialize(
+                {...JSON.parse(
+                    `{"startOnLoad": false}`
+                ),
+                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+                }
+            );
+            await runMermaid(true);
+        }
+    };
+
+    // Update theme classes when theme changes
+    const themeObserver = new MutationObserver(reRunIfThemeChanges);
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+    themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+};
+
+
+
+
+
+console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
+mermaid.initialize(
+    {...JSON.parse(
+        `{"startOnLoad": false}`
+    ),
+    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+    }
+);
+
+window.addEventListener("load", load);</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey/base/capability';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey.base.capability</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey.base.capability</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Base Capability Class - LangGraph Migration</span>
+
+<span class="sd">Convention-based base class for all capabilities in the Osprey Agent framework.</span>
+<span class="sd">Implements the LangGraph-native architecture with configuration-driven patterns.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Literal</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ErrorClassification</span><span class="p">,</span> <span class="n">ErrorSeverity</span>
+
+<span class="c1"># Import types for type hints</span>
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">CapabilityContext</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">AgentState</span>
+
+<span class="c1"># Direct imports - no circular dependencies in practice</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">slash_command</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Read a capability-specific slash command from state.</span>
+
+<span class="sd">    This is a module-level helper function for reading capability-specific slash</span>
+<span class="sd">    commands that were parsed by the Gateway but not handled by registered commands.</span>
+<span class="sd">    Capabilities can use these commands to customize their behavior.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        name: Command name (without leading slash)</span>
+<span class="sd">        state: Current agent state</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        - str: If command was provided with a value (/beam:diagnostic -&gt; &quot;diagnostic&quot;)</span>
+<span class="sd">        - True: If command was provided without value (/verbose -&gt; True)</span>
+<span class="sd">        - None: If command was not provided</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Using in a capability&#39;s execute method::</span>
+
+<span class="sd">            from osprey.base.capability import slash_command</span>
+
+<span class="sd">            async def execute(state: AgentState, **kwargs) -&gt; dict[str, Any]:</span>
+<span class="sd">                # Check for /beam:mode command</span>
+<span class="sd">                if mode := slash_command(&quot;beam&quot;, state):</span>
+<span class="sd">                    # mode is &quot;diagnostic&quot; if user typed /beam:diagnostic</span>
+<span class="sd">                    pass</span>
+
+<span class="sd">                # Check for /verbose flag</span>
+<span class="sd">                if slash_command(&quot;verbose&quot;, state):</span>
+<span class="sd">                    # User typed /verbose</span>
+<span class="sd">                    pass</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">commands</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;_capability_slash_commands&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="k">return</span> <span class="n">commands</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">RequiredContexts</span><span class="p">(</span><span class="nb">dict</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Special dict that supports tuple unpacking in the order of requires field.</span>
+
+<span class="sd">    This class enables elegant syntax like:</span>
+<span class="sd">        channels, time_range = self.get_required_contexts()</span>
+
+<span class="sd">    While maintaining backward compatibility with dict access:</span>
+<span class="sd">        contexts = self.get_required_contexts()</span>
+<span class="sd">        channels = contexts[&quot;CHANNEL_ADDRESSES&quot;]</span>
+
+<span class="sd">    The iteration order matches the order in the capability&#39;s requires field.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span> <span class="n">order</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initialize RequiredContexts with data and ordered keys.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            data: Dictionary mapping context type names to context objects</span>
+<span class="sd">            order: List of context type names in the order they appear in requires</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_order</span> <span class="o">=</span> <span class="n">order</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Iterate in the order specified by requires field for tuple unpacking.&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_order</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="p">:</span>
+                <span class="k">yield</span> <span class="bp">self</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+
+
+<div class="viewcode-block" id="BaseCapability">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/01_base_components.html#osprey.base.BaseCapability">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">BaseCapability</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Base class for framework capabilities using convention-based configuration.</span>
+
+<span class="sd">    This class provides the foundation for all capabilities in the Osprey Agent framework.</span>
+<span class="sd">    Capabilities are self-contained business logic components that perform specific tasks</span>
+<span class="sd">    and integrate seamlessly with the LangGraph execution model through convention-based</span>
+<span class="sd">    patterns and automatic discovery.</span>
+
+<span class="sd">    The BaseCapability class enforces a strict contract through reflection-based validation:</span>
+<span class="sd">    capabilities must define required components and can optionally implement guidance</span>
+<span class="sd">    systems for orchestration and classification. The @capability_node decorator provides</span>
+<span class="sd">    complete LangGraph integration including error handling, retry policies, and</span>
+<span class="sd">    execution tracking.</span>
+
+<span class="sd">    Required Components (enforced at initialization):</span>
+<span class="sd">        - name: Unique capability identifier used for registration and routing</span>
+<span class="sd">        - description: Human-readable description for documentation and logging</span>
+<span class="sd">        - execute(): Async static method containing the main business logic</span>
+
+<span class="sd">    Optional Components (with defaults provided):</span>
+<span class="sd">        - provides: List of data types this capability generates (default: [])</span>
+<span class="sd">        - requires: List of data types this capability depends on (default: [])</span>
+<span class="sd">        - classify_error(): Domain-specific error classification (default: all CRITICAL)</span>
+<span class="sd">        - get_retry_policy(): Retry configuration for failure recovery (default: 3 attempts)</span>
+<span class="sd">        - _create_orchestrator_guide(): Integration guidance for execution planning</span>
+<span class="sd">        - _create_classifier_guide(): Task classification guidance for capability selection</span>
+
+<span class="sd">    Architecture Integration:</span>
+<span class="sd">        The capability integrates with multiple framework systems:</span>
+
+<span class="sd">        1. **Execution System**: Via @capability_node decorator for LangGraph nodes</span>
+<span class="sd">        2. **Planning System**: Via orchestrator guides for step planning</span>
+<span class="sd">        3. **Classification System**: Via classifier guides for capability selection</span>
+<span class="sd">        4. **Error Handling**: Via error classification for recovery strategies</span>
+<span class="sd">        5. **Registry System**: Via convention-based configuration</span>
+
+<span class="sd">    :param name: Unique capability identifier for registry and routing</span>
+<span class="sd">    :type name: str</span>
+<span class="sd">    :param description: Human-readable description for documentation</span>
+<span class="sd">    :type description: str</span>
+<span class="sd">    :param provides: Data types generated by this capability</span>
+<span class="sd">    :type provides: List[str]</span>
+<span class="sd">    :param requires: Data types required by this capability</span>
+<span class="sd">    :type requires: List[str]</span>
+
+<span class="sd">    :raises NotImplementedError: If required class attributes or methods are missing</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       Use the @capability_node decorator to enable LangGraph integration with</span>
+<span class="sd">       automatic error handling, retry policies, and execution tracking.</span>
+
+<span class="sd">    .. warning::</span>
+<span class="sd">       The execute method must be implemented as a static method and should</span>
+<span class="sd">       return a dictionary of state updates for LangGraph to merge.</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Basic capability implementation::</span>
+
+<span class="sd">            @capability_node</span>
+<span class="sd">            class WeatherCapability(BaseCapability):</span>
+<span class="sd">                name = &quot;weather_data&quot;</span>
+<span class="sd">                description = &quot;Retrieve current weather conditions&quot;</span>
+<span class="sd">                provides = [&quot;WEATHER_DATA&quot;]</span>
+<span class="sd">                requires = [&quot;LOCATION&quot;]</span>
+
+<span class="sd">                @staticmethod</span>
+<span class="sd">                async def execute(state: AgentState, **kwargs) -&gt; Dict[str, Any]:</span>
+<span class="sd">                    location = state.get(&quot;location&quot;)</span>
+<span class="sd">                    weather_data = await fetch_weather(location)</span>
+<span class="sd">                    return {</span>
+<span class="sd">                        &quot;weather_current_conditions&quot;: weather_data,</span>
+<span class="sd">                        &quot;weather_last_updated&quot;: datetime.now().isoformat()</span>
+<span class="sd">                    }</span>
+
+<span class="sd">        Capability with custom error handling::</span>
+
+<span class="sd">            @capability_node</span>
+<span class="sd">            class DatabaseCapability(BaseCapability):</span>
+<span class="sd">                name = &quot;database_query&quot;</span>
+<span class="sd">                description = &quot;Execute database queries with connection handling&quot;</span>
+
+<span class="sd">                @staticmethod</span>
+<span class="sd">                def classify_error(exc: Exception, context: dict) -&gt; ErrorClassification:</span>
+<span class="sd">                    if isinstance(exc, ConnectionError):</span>
+<span class="sd">                        return ErrorClassification(</span>
+<span class="sd">                            severity=ErrorSeverity.RETRIABLE,</span>
+<span class="sd">                            user_message=&quot;Database connection lost, retrying...&quot;,</span>
+<span class="sd">                            metadata={&quot;technical_details&quot;: str(exc)}</span>
+<span class="sd">                        )</span>
+<span class="sd">                    return ErrorClassification(</span>
+<span class="sd">                        severity=ErrorSeverity.CRITICAL,</span>
+<span class="sd">                        user_message=f&quot;Database error: {exc}&quot;,</span>
+<span class="sd">                        metadata={&quot;technical_details&quot;: str(exc)}</span>
+<span class="sd">                    )</span>
+
+<span class="sd">                @staticmethod</span>
+<span class="sd">                async def execute(state: AgentState, **kwargs) -&gt; Dict[str, Any]:</span>
+<span class="sd">                    # Implementation with database operations</span>
+<span class="sd">                    pass</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :func:`capability_node` : Decorator for LangGraph integration</span>
+<span class="sd">       :class:`BaseInfrastructureNode` : Infrastructure components base class</span>
+<span class="sd">       :class:`ErrorClassification` : Error classification system</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># Required class attributes - must be overridden in subclasses</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="c1"># Optional class attributes - defaults provided</span>
+    <span class="n">provides</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">requires</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;single&quot;</span><span class="p">,</span> <span class="s2">&quot;multiple&quot;</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="c1"># Instance attributes (injected by @capability_node decorator at runtime)</span>
+    <span class="c1"># These are set by the decorator before calling execute() and are available within execute()</span>
+    <span class="n">_state</span><span class="p">:</span> <span class="n">AgentState</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">_step</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+<div class="viewcode-block" id="BaseCapability.__init__">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/01_base_components.html#osprey.base.BaseCapability.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the capability and validate required components.</span>
+
+<span class="sd">        Performs comprehensive validation of the capability class to ensure all</span>
+<span class="sd">        required components are properly defined. This validation happens at</span>
+<span class="sd">        initialization time to provide immediate feedback during development</span>
+<span class="sd">        rather than waiting for runtime execution failures.</span>
+
+<span class="sd">        The validation process checks:</span>
+<span class="sd">        1. Required class attributes (name, description) are defined and non-None</span>
+<span class="sd">        2. The execute method is implemented as a static method</span>
+<span class="sd">        3. Optional attributes are properly initialized with defaults if missing</span>
+<span class="sd">        4. The &#39;requires&#39; field format is valid (strings or (context_type, cardinality) tuples)</span>
+
+<span class="sd">        :raises NotImplementedError: If name or description class attributes are missing</span>
+<span class="sd">        :raises NotImplementedError: If execute static method is not implemented</span>
+<span class="sd">        :raises ValueError: If requires field contains invalid format</span>
+
+<span class="sd">        .. note::</span>
+<span class="sd">           This initialization performs validation only. The actual LangGraph</span>
+<span class="sd">           integration happens through the @capability_node decorator.</span>
+
+<span class="sd">        .. warning::</span>
+<span class="sd">           Subclasses should not override this method unless they need additional</span>
+<span class="sd">           validation. Override _create_orchestrator_guide() or _create_classifier_guide()</span>
+<span class="sd">           for customization instead.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Validate that subclass has defined required attributes</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> must define &#39;name&#39; class attribute&quot;</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">description</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> must define &#39;description&#39; class attribute&quot;</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Validate that execute method is implemented</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">,</span> <span class="s2">&quot;execute&quot;</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> must implement &#39;execute&#39; static method&quot;</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Set defaults for optional attributes if not defined</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">,</span> <span class="s2">&quot;provides&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">provides</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="n">provides</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">,</span> <span class="s2">&quot;requires&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">requires</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="n">requires</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c1"># Validate requires field format at initialization</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">requires</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">req</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">requires</span><span class="p">):</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">req</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+                    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">req</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.requires[</span><span class="si">{</span><span class="n">idx</span><span class="si">}</span><span class="s2">]: &quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;Invalid tuple format </span><span class="si">{</span><span class="n">req</span><span class="si">}</span><span class="s2">. &quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;Expected (context_type: str, cardinality: &#39;single&#39;|&#39;multiple&#39;)&quot;</span>
+                        <span class="p">)</span>
+                    <span class="n">context_type</span><span class="p">,</span> <span class="n">cardinality</span> <span class="o">=</span> <span class="n">req</span>
+                    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">context_type</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.requires[</span><span class="si">{</span><span class="n">idx</span><span class="si">}</span><span class="s2">]: &quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;Context type must be string, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">context_type</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span>
+                        <span class="p">)</span>
+                    <span class="k">if</span> <span class="n">cardinality</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;single&quot;</span><span class="p">,</span> <span class="s2">&quot;multiple&quot;</span><span class="p">):</span>
+                        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.requires[</span><span class="si">{</span><span class="n">idx</span><span class="si">}</span><span class="s2">]: &quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;Invalid cardinality &#39;</span><span class="si">{</span><span class="n">cardinality</span><span class="si">}</span><span class="s2">&#39;. &quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;Must be &#39;single&#39; or &#39;multiple&#39;. &quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;NOTE: constraint_mode (&#39;hard&#39;/&#39;soft&#39;) is NOT a tuple value!</span><span class="se">\n</span><span class="s2">&quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;Use constraint_mode parameter in get_required_contexts() instead.</span><span class="se">\n</span><span class="s2">&quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;Example:</span><span class="se">\n</span><span class="s2">&quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;  requires = [&#39;OPTIONAL_DATA_TYPE1&#39;, &#39;OPTIONAL_DATA_TYPE2&#39;]  # No tuple!</span><span class="se">\n</span><span class="s2">&quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;  contexts = self.get_required_contexts(constraint_mode=&#39;soft&#39;)&quot;</span>
+                        <span class="p">)</span>
+                <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">req</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.requires[</span><span class="si">{</span><span class="n">idx</span><span class="si">}</span><span class="s2">]: &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;Invalid type </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">req</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">. &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;Expected string or (string, cardinality) tuple&quot;</span>
+                    <span class="p">)</span></div>
+
+
+    <span class="c1"># ========================================</span>
+    <span class="c1"># NEW: Automatic Context Management Methods</span>
+    <span class="c1"># ========================================</span>
+
+<div class="viewcode-block" id="BaseCapability.get_required_contexts">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/01_base_components.html#osprey.base.BaseCapability.get_required_contexts">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_required_contexts</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">constraint_mode</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;hard&quot;</span><span class="p">,</span> <span class="s2">&quot;soft&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;hard&quot;</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RequiredContexts</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Automatically extract contexts based on &#39;requires&#39; field.</span>
+
+<span class="sd">        The constraint_mode applies uniformly to ALL requirements.</span>
+<span class="sd">        Use &quot;hard&quot; when all are required, &quot;soft&quot; when at least one is required.</span>
+
+<span class="sd">        Tuple format is ONLY for cardinality constraints:</span>
+<span class="sd">        - &quot;single&quot;: Must be exactly one instance (not a list)</span>
+<span class="sd">        - &quot;multiple&quot;: Must be a list (not single instance)</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            constraint_mode: &quot;hard&quot; (all required) or &quot;soft&quot; (at least one required)</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            RequiredContexts object supporting both dict and tuple unpacking access</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            RuntimeError: If called outside execute() (state not injected)</span>
+<span class="sd">            ValueError: If required contexts missing or cardinality violated</span>
+<span class="sd">            AttributeError: If context type not found in registry</span>
+
+<span class="sd">        Example:</span>
+<span class="sd">            ```python</span>
+<span class="sd">            # Define requirements</span>
+<span class="sd">            requires = [&quot;CHANNEL_ADDRESSES&quot;, (&quot;TIME_RANGE&quot;, &quot;single&quot;)]</span>
+
+<span class="sd">            # Elegant tuple unpacking (matches order in requires)</span>
+<span class="sd">            channels, time_range = self.get_required_contexts()</span>
+
+<span class="sd">            # Traditional dict access (backward compatible)</span>
+<span class="sd">            contexts = self.get_required_contexts()</span>
+<span class="sd">            channels = contexts[&quot;CHANNEL_ADDRESSES&quot;]</span>
+<span class="sd">            time_range = contexts[&quot;TIME_RANGE&quot;]</span>
+<span class="sd">            ```</span>
+
+<span class="sd">        .. note::</span>
+<span class="sd">           Tuple unpacking only works reliably with constraint_mode=&quot;hard&quot; (default).</span>
+<span class="sd">           When using &quot;soft&quot; mode, use dict access instead since the number of</span>
+<span class="sd">           returned contexts may vary:</span>
+
+<span class="sd">               contexts = self.get_required_contexts(constraint_mode=&quot;soft&quot;)</span>
+<span class="sd">               a = contexts.get(&quot;CONTEXT_A&quot;)</span>
+<span class="sd">               b = contexts.get(&quot;CONTEXT_B&quot;)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">requires</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">RequiredContexts</span><span class="p">({},</span> <span class="p">[])</span>
+
+        <span class="c1"># Ensure we&#39;re in execution context (state injected by decorator)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.get_required_contexts() requires self._state &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;to be injected by @capability_node decorator.</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Possible causes:</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;  1. Calling outside of execute() method</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;  2. Missing @capability_node decorator on class</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;  3. Manual instantiation without state injection</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Solution: Ensure @capability_node decorator is applied and only call &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;this method from within execute()&quot;</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Import here to avoid circular dependencies</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.context.context_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContextManager</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_registry</span>
+
+        <span class="n">registry</span> <span class="o">=</span> <span class="n">get_registry</span><span class="p">()</span>
+        <span class="n">context_manager</span> <span class="o">=</span> <span class="n">ContextManager</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">)</span>
+
+        <span class="c1"># Parse requirements into constraints</span>
+        <span class="c1"># Format: &quot;CONTEXT_TYPE&quot; or (&quot;CONTEXT_TYPE&quot;, &quot;single&quot;|&quot;multiple&quot;)</span>
+        <span class="n">constraints</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">resolved_types</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>  <span class="c1"># Cache resolved types to avoid redundant lookups</span>
+
+        <span class="k">for</span> <span class="n">req</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">requires</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">req</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+                <span class="n">ctx_type_name</span><span class="p">,</span> <span class="n">cardinality</span> <span class="o">=</span> <span class="n">req</span>
+
+                <span class="c1"># Look up context type in registry with error handling</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">ctx_type</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">registry</span><span class="o">.</span><span class="n">context_types</span><span class="p">,</span> <span class="n">ctx_type_name</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+                    <span class="n">available</span> <span class="o">=</span> <span class="p">[</span>
+                        <span class="n">attr</span> <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="nb">dir</span><span class="p">(</span><span class="n">registry</span><span class="o">.</span><span class="n">context_types</span><span class="p">)</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">attr</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;_&quot;</span><span class="p">)</span>
+                    <span class="p">]</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">] Context type &#39;</span><span class="si">{</span><span class="n">ctx_type_name</span><span class="si">}</span><span class="s2">&#39; not found in registry.</span><span class="se">\n</span><span class="s2">&quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;Available types: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">available</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="kc">None</span>
+
+                <span class="n">resolved_types</span><span class="p">[</span><span class="n">ctx_type_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">ctx_type</span>
+                <span class="n">constraints</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">ctx_type</span><span class="p">,</span> <span class="n">cardinality</span><span class="p">))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># Simple string format</span>
+                <span class="n">ctx_type_name</span> <span class="o">=</span> <span class="n">req</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">ctx_type</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">registry</span><span class="o">.</span><span class="n">context_types</span><span class="p">,</span> <span class="n">ctx_type_name</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+                    <span class="n">available</span> <span class="o">=</span> <span class="p">[</span>
+                        <span class="n">attr</span> <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="nb">dir</span><span class="p">(</span><span class="n">registry</span><span class="o">.</span><span class="n">context_types</span><span class="p">)</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">attr</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;_&quot;</span><span class="p">)</span>
+                    <span class="p">]</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">] Context type &#39;</span><span class="si">{</span><span class="n">ctx_type_name</span><span class="si">}</span><span class="s2">&#39; not found in registry.</span><span class="se">\n</span><span class="s2">&quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;Available types: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">available</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="kc">None</span>
+
+                <span class="n">resolved_types</span><span class="p">[</span><span class="n">ctx_type_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">ctx_type</span>
+                <span class="n">constraints</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ctx_type</span><span class="p">)</span>
+
+        <span class="c1"># Extract contexts with uniform constraint mode</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">raw_contexts</span> <span class="o">=</span> <span class="n">context_manager</span><span class="o">.</span><span class="n">extract_from_step</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_step</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">,</span>
+                <span class="n">constraints</span><span class="o">=</span><span class="n">constraints</span><span class="p">,</span>
+                <span class="n">constraint_mode</span><span class="o">=</span><span class="n">constraint_mode</span><span class="p">,</span>  <span class="c1"># Applies uniformly to ALL</span>
+            <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="c1"># Add capability context to errors</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">] Failed to extract required contexts: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+
+        <span class="c1"># Convert registry types to string keys for cleaner access</span>
+        <span class="c1"># Note: In soft mode, raw_contexts might not have all requested keys</span>
+        <span class="n">string_keyed</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">CapabilityContext</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="n">CapabilityContext</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">ordered_keys</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c1"># Track order for tuple unpacking</span>
+
+        <span class="k">for</span> <span class="n">req</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">requires</span><span class="p">:</span>
+            <span class="n">ctx_type_name</span> <span class="o">=</span> <span class="n">req</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">req</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)</span> <span class="k">else</span> <span class="n">req</span>
+            <span class="n">ctx_type</span> <span class="o">=</span> <span class="n">resolved_types</span><span class="p">[</span><span class="n">ctx_type_name</span><span class="p">]</span>  <span class="c1"># Reuse cached lookup</span>
+            <span class="c1"># Only add if context was actually found (important for soft mode)</span>
+            <span class="k">if</span> <span class="n">ctx_type</span> <span class="ow">in</span> <span class="n">raw_contexts</span><span class="p">:</span>
+                <span class="n">string_keyed</span><span class="p">[</span><span class="n">ctx_type_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">raw_contexts</span><span class="p">[</span><span class="n">ctx_type</span><span class="p">]</span>
+                <span class="n">ordered_keys</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ctx_type_name</span><span class="p">)</span>
+
+        <span class="c1"># Apply custom processing hook</span>
+        <span class="n">processed</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">process_extracted_contexts</span><span class="p">(</span><span class="n">string_keyed</span><span class="p">)</span>
+
+        <span class="c1"># Return RequiredContexts with order preserved for tuple unpacking</span>
+        <span class="k">return</span> <span class="n">RequiredContexts</span><span class="p">(</span><span class="n">processed</span><span class="p">,</span> <span class="n">ordered_keys</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="BaseCapability.process_extracted_contexts">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/01_base_components.html#osprey.base.BaseCapability.process_extracted_contexts">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">process_extracted_contexts</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">contexts</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">CapabilityContext</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="n">CapabilityContext</span><span class="p">]]</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">CapabilityContext</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="n">CapabilityContext</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Override to customize extracted contexts (e.g., flatten lists).</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            contexts: Dict mapping context type names to extracted objects</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Processed contexts dict</span>
+
+<span class="sd">        Example:</span>
+<span class="sd">            ```python</span>
+<span class="sd">            def process_extracted_contexts(self, contexts):</span>
+<span class="sd">                &#39;&#39;&#39;Flatten list of CHANNEL_ADDRESSES.&#39;&#39;&#39;</span>
+<span class="sd">                channels_raw = contexts[&quot;CHANNEL_ADDRESSES&quot;]</span>
+
+<span class="sd">                if isinstance(channels_raw, list):</span>
+<span class="sd">                    flat = []</span>
+<span class="sd">                    for ctx in channels_raw:</span>
+<span class="sd">                        flat.extend(ctx.channels)</span>
+<span class="sd">                    contexts[&quot;CHANNEL_ADDRESSES&quot;] = flat</span>
+<span class="sd">                else:</span>
+<span class="sd">                    contexts[&quot;CHANNEL_ADDRESSES&quot;] = channels_raw.channels</span>
+
+<span class="sd">                return contexts</span>
+<span class="sd">            ```</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">contexts</span></div>
+
+
+<div class="viewcode-block" id="BaseCapability.get_parameters">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/01_base_components.html#osprey.base.BaseCapability.get_parameters">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get parameters from the current step.</span>
+
+<span class="sd">        The orchestrator can provide optional parameters in the step definition</span>
+<span class="sd">        that control capability behavior (e.g., precision, timeout, mode).</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            default: Default value to return if no parameters exist (defaults to empty dict)</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Parameters dictionary from the step</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            RuntimeError: If called outside execute() (state not injected)</span>
+
+<span class="sd">        Example:</span>
+<span class="sd">            ```python</span>
+<span class="sd">            async def execute(self) -&gt; dict[str, Any]:</span>
+<span class="sd">                params = self.get_parameters()</span>
+<span class="sd">                precision_ms = params.get(&#39;precision_ms&#39;, 1000)</span>
+<span class="sd">                timeout = params.get(&#39;timeout&#39;, 30)</span>
+
+<span class="sd">                # Or with a custom default</span>
+<span class="sd">                params = self.get_parameters(default={&#39;precision_ms&#39;: 1000})</span>
+<span class="sd">                ```</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.get_parameters() requires self._step &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;to be injected by @capability_node decorator.</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;This method can only be called from within execute().&quot;</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">default</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">default</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="c1"># Handle case where &#39;parameters&#39; key exists but is None</span>
+        <span class="n">params</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;parameters&quot;</span><span class="p">,</span> <span class="n">default</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">params</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">default</span>
+        <span class="k">return</span> <span class="n">params</span></div>
+
+
+<div class="viewcode-block" id="BaseCapability.get_task_objective">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/01_base_components.html#osprey.base.BaseCapability.get_task_objective">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_task_objective</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the task objective for the current step.</span>
+
+<span class="sd">        The orchestrator provides task_objective in each step to describe what</span>
+<span class="sd">        the capability should accomplish. This is commonly used for logging,</span>
+<span class="sd">        search queries, and LLM prompts.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            default: Default value if task_objective not in step.</span>
+<span class="sd">                    If None, falls back to current task from state.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Task objective string</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            RuntimeError: If called outside execute() (state not injected)</span>
+
+<span class="sd">        Example:</span>
+<span class="sd">            ```python</span>
+<span class="sd">            async def execute(self) -&gt; dict[str, Any]:</span>
+<span class="sd">                # Get task objective with automatic fallback</span>
+<span class="sd">                task = self.get_task_objective()</span>
+<span class="sd">                logger = self.get_logger()</span>
+<span class="sd">                logger.status(f&quot;Starting: {task}&quot;)  # Emits StatusEvent</span>
+
+<span class="sd">                # Or with custom default</span>
+<span class="sd">                task = self.get_task_objective(default=&quot;unknown task&quot;)</span>
+
+<span class="sd">                # Common pattern: use as search query</span>
+<span class="sd">                search_query = self.get_task_objective().lower()</span>
+<span class="sd">                ```</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.get_task_objective() requires self._step and self._state &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;to be injected by @capability_node decorator.</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;This method can only be called from within execute().&quot;</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Try to get from step first</span>
+        <span class="n">task_objective</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;task_objective&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">task_objective</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">task_objective</span>
+
+        <span class="c1"># If not in step, use provided default or fall back to current task</span>
+        <span class="k">if</span> <span class="n">default</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">default</span>
+
+        <span class="c1"># Import here to avoid circular dependencies</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">StateManager</span>
+
+        <span class="k">return</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">get_current_task</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="BaseCapability.get_step_inputs">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/01_base_components.html#osprey.base.BaseCapability.get_step_inputs">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_step_inputs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the inputs list from the current step.</span>
+
+<span class="sd">        The orchestrator provides inputs in each step as a list of {context_type: context_key}</span>
+<span class="sd">        mappings that specify which contexts are available for this step. This is commonly</span>
+<span class="sd">        used for building context descriptions, validation, and informing the LLM about</span>
+<span class="sd">        available data.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            default: Default value to return if no inputs exist (defaults to empty list)</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            List of input mappings from the step</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            RuntimeError: If called outside execute() (state not injected)</span>
+
+<span class="sd">        Example:</span>
+<span class="sd">            ```python</span>
+<span class="sd">            async def execute(self) -&gt; dict[str, Any]:</span>
+<span class="sd">                # Get step inputs</span>
+<span class="sd">                step_inputs = self.get_step_inputs()</span>
+
+<span class="sd">                # Use with ContextManager to build description</span>
+<span class="sd">                from osprey.context import ContextManager</span>
+<span class="sd">                context_manager = ContextManager(self._state)</span>
+<span class="sd">                context_description = context_manager.get_context_access_description(step_inputs)</span>
+
+<span class="sd">                # Or with a custom default</span>
+<span class="sd">                step_inputs = self.get_step_inputs(default=[])</span>
+<span class="sd">                ```</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.get_step_inputs() requires self._step &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;to be injected by @capability_node decorator.</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;This method can only be called from within execute().&quot;</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">default</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">default</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c1"># Handle case where &#39;inputs&#39; key exists but is None</span>
+        <span class="n">inputs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;inputs&quot;</span><span class="p">,</span> <span class="n">default</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">inputs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">default</span>
+        <span class="k">return</span> <span class="n">inputs</span></div>
+
+
+<div class="viewcode-block" id="BaseCapability.store_output_context">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/01_base_components.html#osprey.base.BaseCapability.store_output_context">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">store_output_context</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">context_data</span><span class="p">:</span> <span class="n">CapabilityContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Store single output context - uses context&#39;s CONTEXT_TYPE attribute.</span>
+
+<span class="sd">        No need for provides field or state/step parameters!</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            context_data: Context object with CONTEXT_TYPE class variable</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            State updates dict for LangGraph to merge</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            AttributeError: If context_data lacks CONTEXT_TYPE class variable</span>
+<span class="sd">            RuntimeError: If called outside execute() (state not injected)</span>
+<span class="sd">            ValueError: If context_key missing from step</span>
+
+<span class="sd">        Example:</span>
+<span class="sd">            ```python</span>
+<span class="sd">            return self.store_output_context(ArchiverDataContext(...))</span>
+<span class="sd">            ```</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Delegate to the multiple contexts version</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_contexts</span><span class="p">(</span><span class="n">context_data</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="BaseCapability.store_output_contexts">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/01_base_components.html#osprey.base.BaseCapability.store_output_contexts">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">store_output_contexts</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">context_objects</span><span class="p">:</span> <span class="n">CapabilityContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Store multiple output contexts - all self-describing.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            *context_objects: Context objects with CONTEXT_TYPE attributes</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Merged state updates dict for LangGraph</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            AttributeError: If any context lacks CONTEXT_TYPE</span>
+<span class="sd">            RuntimeError: If called outside execute()</span>
+<span class="sd">            ValueError: If context types don&#39;t match provides field</span>
+
+<span class="sd">        Example:</span>
+<span class="sd">            ```python</span>
+<span class="sd">            return self.store_output_contexts(</span>
+<span class="sd">                ArchiverDataContext(...),</span>
+<span class="sd">                MetadataContext(...),</span>
+<span class="sd">                StatisticsContext(...)</span>
+<span class="sd">            )</span>
+<span class="sd">            ```</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.store_output_contexts() requires self._state and self._step &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;to be injected by @capability_node decorator.</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;This method can only be called from within execute().&quot;</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Import here to avoid circular dependencies</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_registry</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">StateManager</span>
+
+        <span class="n">registry</span> <span class="o">=</span> <span class="n">get_registry</span><span class="p">()</span>
+
+        <span class="c1"># Optional validation if provides field exists</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">provides</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">provides</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">context_types</span> <span class="o">=</span> <span class="p">{</span><span class="n">obj</span><span class="o">.</span><span class="n">CONTEXT_TYPE</span> <span class="k">for</span> <span class="n">obj</span> <span class="ow">in</span> <span class="n">context_objects</span><span class="p">}</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">context_types</span><span class="o">.</span><span class="n">issubset</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">provides</span><span class="p">)):</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">] Context types </span><span class="si">{</span><span class="n">context_types</span><span class="si">}</span><span class="s2"> don&#39;t match provides: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">provides</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+
+        <span class="c1"># Validate context_key exists</span>
+        <span class="n">context_key</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;context_key&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">context_key</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">] No context_key in step - cannot store outputs.</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;This indicates a framework issue: orchestrator must provide context_key.</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Step contents: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_step</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Extract task_objective for context metadata (enables orchestrator context reuse)</span>
+        <span class="n">task_objective</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;task_objective&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Store each and merge updates</span>
+        <span class="n">merged</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">obj</span> <span class="ow">in</span> <span class="n">context_objects</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="s2">&quot;CONTEXT_TYPE&quot;</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">AttributeError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Context </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> must have CONTEXT_TYPE class variable&quot;</span>
+                <span class="p">)</span>
+
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">ctx_type</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">registry</span><span class="o">.</span><span class="n">context_types</span><span class="p">,</span> <span class="n">obj</span><span class="o">.</span><span class="n">CONTEXT_TYPE</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+                <span class="n">available</span> <span class="o">=</span> <span class="p">[</span>
+                    <span class="n">attr</span> <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="nb">dir</span><span class="p">(</span><span class="n">registry</span><span class="o">.</span><span class="n">context_types</span><span class="p">)</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">attr</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;_&quot;</span><span class="p">)</span>
+                <span class="p">]</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">] Context type &#39;</span><span class="si">{</span><span class="n">obj</span><span class="o">.</span><span class="n">CONTEXT_TYPE</span><span class="si">}</span><span class="s2">&#39; not found in registry.</span><span class="se">\n</span><span class="s2">&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;Available types: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">available</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="kc">None</span>
+
+            <span class="n">updates</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">store_context</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">,</span> <span class="n">ctx_type</span><span class="p">,</span> <span class="n">context_key</span><span class="p">,</span> <span class="n">obj</span><span class="p">,</span> <span class="n">task_objective</span><span class="o">=</span><span class="n">task_objective</span>
+            <span class="p">)</span>
+            <span class="n">merged</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">merged</span><span class="p">,</span> <span class="o">**</span><span class="n">updates</span><span class="p">}</span>
+
+        <span class="k">return</span> <span class="n">merged</span></div>
+
+
+<div class="viewcode-block" id="BaseCapability.get_logger">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/01_base_components.html#osprey.base.BaseCapability.get_logger">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_logger</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get unified logger with automatic streaming support.</span>
+
+<span class="sd">        Creates a logger that:</span>
+<span class="sd">        - Uses this capability&#39;s name automatically</span>
+<span class="sd">        - Has access to state for streaming via self._state</span>
+<span class="sd">        - Streams high-level messages automatically when in LangGraph context</span>
+<span class="sd">        - Logs to CLI with Rich formatting</span>
+
+<span class="sd">        The logger intelligently handles both CLI output and web UI streaming through</span>
+<span class="sd">        a single API. High-level status updates (status, error, success) automatically</span>
+<span class="sd">        stream to the web UI, while detailed logging (info, debug) goes to CLI only</span>
+<span class="sd">        by default.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            ComponentLogger instance with streaming capability</span>
+
+<span class="sd">        Example:</span>
+<span class="sd">            ```python</span>
+<span class="sd">            async def execute(self) -&gt; dict[str, Any]:</span>
+<span class="sd">                logger = self.get_logger()</span>
+
+<span class="sd">                # Status updates - emits StatusEvent</span>
+<span class="sd">                logger.status(&quot;Creating execution plan...&quot;)</span>
+
+<span class="sd">                # Info messages - emits StatusEvent with level=&quot;info&quot;</span>
+<span class="sd">                logger.info(f&quot;Active capabilities: {capabilities}&quot;)</span>
+
+<span class="sd">                # Debug messages - emits StatusEvent with level=&quot;debug&quot;</span>
+<span class="sd">                logger.debug(&quot;Detailed state information...&quot;)</span>
+
+<span class="sd">                # Errors - emits ErrorEvent</span>
+<span class="sd">                logger.error(&quot;Validation failed&quot;, validation_errors=[...])</span>
+
+<span class="sd">                # Success with metadata - emits StatusEvent with level=&quot;success&quot;</span>
+<span class="sd">                logger.success(&quot;Plan created&quot;, steps=5, total_time=2.3)</span>
+
+<span class="sd">                return self.store_output_context(result)</span>
+<span class="sd">            ```</span>
+
+<span class="sd">        .. note::</span>
+<span class="sd">           All logger methods emit TypedEvents. The transport is handled automatically</span>
+<span class="sd">           via LangGraph streaming (during graph execution) or fallback handlers</span>
+<span class="sd">           (outside graph). Downstream clients (CLI, TUI) filter and render events.</span>
+
+<span class="sd">        .. seealso::</span>
+<span class="sd">           :class:`ComponentLogger` : Logger class with streaming methods</span>
+<span class="sd">           :func:`get_logger` : Underlying logger factory function</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
+
+        <span class="k">return</span> <span class="n">get_logger</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">state</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="BaseCapability.slash_command">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/01_base_components.html#osprey.base.BaseCapability.slash_command">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">slash_command</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Read a capability-specific slash command from state.</span>
+
+<span class="sd">        Convenience method that uses self._state automatically. This allows</span>
+<span class="sd">        capabilities to read custom slash commands that were not registered</span>
+<span class="sd">        in the command registry.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            name: Command name (without leading slash)</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            - str: If command was provided with a value (/beam:diagnostic -&gt; &quot;diagnostic&quot;)</span>
+<span class="sd">            - True: If command was provided without value (/verbose -&gt; True)</span>
+<span class="sd">            - None: If command was not provided</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            RuntimeError: If called outside execute() (state not injected)</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Using in a capability&#39;s execute method::</span>
+
+<span class="sd">                async def execute(self) -&gt; dict[str, Any]:</span>
+<span class="sd">                    # Check for /beam:mode command</span>
+<span class="sd">                    if mode := self.slash_command(&quot;beam&quot;):</span>
+<span class="sd">                        # mode is &quot;diagnostic&quot; if user typed /beam:diagnostic</span>
+<span class="sd">                        self._state[&quot;beam_mode&quot;] = mode</span>
+
+<span class="sd">                    # Check for /verbose flag</span>
+<span class="sd">                    if self.slash_command(&quot;verbose&quot;):</span>
+<span class="sd">                        # User typed /verbose</span>
+<span class="sd">                        self._state[&quot;beamline_verbose&quot;] = True</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.slash_command() called before state injection. &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;This method can only be called from within execute().&quot;</span>
+            <span class="p">)</span>
+        <span class="n">commands</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;_capability_slash_commands&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="k">return</span> <span class="n">commands</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="BaseCapability.execute">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/01_base_components.html#osprey.base.BaseCapability.execute">[docs]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Execute the main capability logic with comprehensive state management.</span>
+
+<span class="sd">        This is the core method that all capabilities must implement. It contains</span>
+<span class="sd">        the primary business logic and integrates with the framework&#39;s state</span>
+<span class="sd">        management system.</span>
+
+<span class="sd">        **NEW PATTERN** (Recommended - Simplified):</span>
+<span class="sd">            - NO parameters needed - use self._state and self._step</span>
+<span class="sd">            - Use self.get_required_contexts() for input extraction</span>
+<span class="sd">            - Use self.store_output_context() for result storage</span>
+<span class="sd">            - Access state via self._state, step via self._step</span>
+<span class="sd">            - NO @staticmethod decorator</span>
+
+<span class="sd">        **OLD PATTERN** (Legacy - Still Supported):</span>
+<span class="sd">            - Static method with state parameter (and **kwargs that was never used)</span>
+<span class="sd">            - Manual StateManager and ContextManager usage</span>
+<span class="sd">            - Works during migration period</span>
+
+<span class="sd">        The @capability_node decorator injects self._state and self._step before</span>
+<span class="sd">        calling execute(), so they are always available in the new pattern.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Dictionary of state updates for LangGraph to merge into agent state</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            NotImplementedError: This is an abstract method that must be implemented</span>
+<span class="sd">            ValidationError: If required state data is missing or invalid</span>
+<span class="sd">            CapabilityError: For capability-specific execution failures</span>
+
+<span class="sd">        Example (NEW PATTERN - Recommended):</span>
+<span class="sd">            ```python</span>
+<span class="sd">            async def execute(self) -&gt; dict[str, Any]:</span>
+<span class="sd">                # Auto-extract contexts using requires field</span>
+<span class="sd">                contexts = self.get_required_contexts()</span>
+<span class="sd">                input_data = contexts[&quot;INPUT_DATA&quot;]</span>
+
+<span class="sd">                # Business logic</span>
+<span class="sd">                result = await process_data(input_data)</span>
+
+<span class="sd">                # Auto-store with type inference</span>
+<span class="sd">                return self.store_output_context(OutputContext(result))</span>
+<span class="sd">            ```</span>
+
+<span class="sd">        Example (OLD PATTERN - Still Supported):</span>
+<span class="sd">            ```python</span>
+<span class="sd">            @staticmethod</span>
+<span class="sd">            async def execute(state: AgentState) -&gt; dict[str, Any]:</span>
+<span class="sd">                step = StateManager.get_current_step(state)</span>
+<span class="sd">                # ... manual extraction and storage ...</span>
+<span class="sd">                return state_updates</span>
+<span class="sd">            ```</span>
+
+<span class="sd">        .. note::</span>
+<span class="sd">           The decorator provides automatic error handling, retry policies,</span>
+<span class="sd">           timing, and execution tracking. Focus on the core business logic.</span>
+
+<span class="sd">        .. seealso::</span>
+<span class="sd">           :func:`capability_node` : Decorator that provides execution infrastructure</span>
+<span class="sd">           :meth:`get_required_contexts` : Automatic context extraction</span>
+<span class="sd">           :meth:`store_output_context` : Automatic context storage</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Emit warning via TypedEvent system</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.events</span><span class="w"> </span><span class="kn">import</span> <span class="n">EventEmitter</span><span class="p">,</span> <span class="n">StatusEvent</span>
+
+        <span class="n">emitter</span> <span class="o">=</span> <span class="n">EventEmitter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="k">else</span> <span class="s2">&quot;unknown&quot;</span><span class="p">)</span>
+        <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+            <span class="n">StatusEvent</span><span class="p">(</span>
+                <span class="n">component</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="k">else</span> <span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
+                <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Capability is using empty base execute() - consider implementing execute() for proper functionality&quot;</span><span class="p">,</span>
+                <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+        <span class="k">pass</span></div>
+
+
+    <span class="c1"># Optional methods for registry configuration - implement as needed</span>
+
+<div class="viewcode-block" id="BaseCapability.classify_error">
+<a class="viewcode-back" href="../../../api_reference/04_error_handling/01_classification_system.html#osprey.base.BaseCapability.classify_error">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">classify_error</span><span class="p">(</span><span class="n">exc</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ErrorClassification</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Classify errors for capability-specific error handling and recovery.</span>
+
+<span class="sd">        This method provides domain-specific error classification to determine</span>
+<span class="sd">        appropriate recovery strategies. The default implementation treats all</span>
+<span class="sd">        errors as critical, but capabilities should override this method to</span>
+<span class="sd">        provide sophisticated error handling based on their specific failure modes.</span>
+
+<span class="sd">        The error classification determines how the framework responds to failures:</span>
+<span class="sd">        - CRITICAL: End execution immediately</span>
+<span class="sd">        - RETRIABLE: Retry with same parameters</span>
+<span class="sd">        - REPLANNING: Create new execution plan</span>
+<span class="sd">        - RECLASSIFICATION: Reclassify task capabilities</span>
+<span class="sd">        - FATAL: System-level failure, terminate execution</span>
+
+<span class="sd">        :param exc: The exception that occurred during capability execution</span>
+<span class="sd">        :type exc: Exception</span>
+<span class="sd">        :param context: Error context including capability info and execution state</span>
+<span class="sd">        :type context: dict</span>
+<span class="sd">        :return: Error classification with recovery strategy, or None to use default</span>
+<span class="sd">        :rtype: Optional[ErrorClassification]</span>
+
+<span class="sd">        .. note::</span>
+<span class="sd">           The context dictionary contains useful information including:</span>
+<span class="sd">           - &#39;capability&#39;: capability name</span>
+<span class="sd">           - &#39;current_step_index&#39;: step being executed</span>
+<span class="sd">           - &#39;execution_time&#39;: time spent before failure</span>
+<span class="sd">           - &#39;current_state&#39;: agent state at time of error</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Network-aware error classification::</span>
+
+<span class="sd">                @staticmethod</span>
+<span class="sd">                def classify_error(exc: Exception, context: dict) -&gt; ErrorClassification:</span>
+<span class="sd">                    # Retry network timeouts and connection errors</span>
+<span class="sd">                    if isinstance(exc, (ConnectionError, TimeoutError)):</span>
+<span class="sd">                        return ErrorClassification(</span>
+<span class="sd">                            severity=ErrorSeverity.RETRIABLE,</span>
+<span class="sd">                            user_message=&quot;Network issue detected, retrying...&quot;,</span>
+<span class="sd">                            metadata={&quot;technical_details&quot;: str(exc)}</span>
+<span class="sd">                        )</span>
+
+
+<span class="sd">                    # Default to critical for unexpected errors</span>
+<span class="sd">                    return ErrorClassification(</span>
+<span class="sd">                        severity=ErrorSeverity.CRITICAL,</span>
+<span class="sd">                        user_message=f&quot;Unexpected error: {exc}&quot;,</span>
+<span class="sd">                        metadata={&quot;technical_details&quot;: str(exc)}</span>
+<span class="sd">                    )</span>
+
+<span class="sd">            Missing input data requiring replanning::</span>
+
+<span class="sd">                @staticmethod</span>
+<span class="sd">                def classify_error(exc: Exception, context: dict) -&gt; ErrorClassification:</span>
+<span class="sd">                    if isinstance(exc, KeyError) and &quot;context&quot; in str(exc):</span>
+<span class="sd">                        return ErrorClassification(</span>
+<span class="sd">                            severity=ErrorSeverity.REPLANNING,</span>
+<span class="sd">                            user_message=&quot;Required data not available, trying different approach&quot;,</span>
+<span class="sd">                            metadata={&quot;technical_details&quot;: f&quot;Missing context data: {str(exc)}&quot;}</span>
+<span class="sd">                        )</span>
+<span class="sd">                    return BaseCapability.classify_error(exc, context)</span>
+
+<span class="sd">        .. seealso::</span>
+<span class="sd">           :class:`ErrorClassification` : Error classification result structure</span>
+<span class="sd">           :class:`ErrorSeverity` : Available severity levels and their meanings</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">capability_name</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;capability&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown_capability&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+            <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">,</span>
+            <span class="n">user_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Unhandled error in </span><span class="si">{</span><span class="n">capability_name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)},</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="BaseCapability.get_retry_policy">
+<a class="viewcode-back" href="../../../api_reference/04_error_handling/01_classification_system.html#osprey.base.BaseCapability.get_retry_policy">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_retry_policy</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get retry policy configuration for failure recovery strategies.</span>
+
+<span class="sd">        This method provides retry configuration that the framework uses for</span>
+<span class="sd">        manual retry handling when capabilities fail with RETRIABLE errors.</span>
+<span class="sd">        The default policy provides reasonable defaults for most capabilities,</span>
+<span class="sd">        but should be overridden for capabilities with specific timing or</span>
+<span class="sd">        retry requirements.</span>
+
+<span class="sd">        The retry policy controls:</span>
+<span class="sd">        - Maximum number of retry attempts before giving up</span>
+<span class="sd">        - Initial delay between retry attempts</span>
+<span class="sd">        - Backoff factor for exponential delay increase</span>
+
+<span class="sd">        :return: Dictionary containing retry configuration parameters</span>
+<span class="sd">        :rtype: Dict[str, Any]</span>
+
+<span class="sd">        .. note::</span>
+<span class="sd">           The framework uses manual retry handling rather than LangGraph&#39;s</span>
+<span class="sd">           native retry policies to ensure consistent behavior across all</span>
+<span class="sd">           components and to enable sophisticated error classification.</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Aggressive retry for network-dependent capability::</span>
+
+<span class="sd">                @staticmethod</span>
+<span class="sd">                def get_retry_policy() -&gt; Dict[str, Any]:</span>
+<span class="sd">                    return {</span>
+<span class="sd">                        &quot;max_attempts&quot;: 5,      # More attempts for network issues</span>
+<span class="sd">                        &quot;delay_seconds&quot;: 2.0,   # Longer delay for external services</span>
+<span class="sd">                        &quot;backoff_factor&quot;: 2.0   # Exponential backoff</span>
+<span class="sd">                    }</span>
+
+<span class="sd">            Conservative retry for expensive operations::</span>
+
+<span class="sd">                @staticmethod</span>
+<span class="sd">                def get_retry_policy() -&gt; Dict[str, Any]:</span>
+<span class="sd">                    return {</span>
+<span class="sd">                        &quot;max_attempts&quot;: 2,      # Minimal retries for expensive ops</span>
+<span class="sd">                        &quot;delay_seconds&quot;: 0.1,   # Quick retry for transient issues</span>
+<span class="sd">                        &quot;backoff_factor&quot;: 1.0   # No backoff for fast operations</span>
+<span class="sd">                    }</span>
+
+<span class="sd">        .. seealso::</span>
+<span class="sd">           :func:`classify_error` : Error classification that determines when to retry</span>
+<span class="sd">           :class:`ErrorSeverity` : RETRIABLE severity triggers retry policy usage</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;max_attempts&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span> <span class="s2">&quot;delay_seconds&quot;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">,</span> <span class="s2">&quot;backoff_factor&quot;</span><span class="p">:</span> <span class="mf">1.5</span><span class="p">}</span></div>
+
+
+<div class="viewcode-block" id="BaseCapability._create_orchestrator_guide">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/01_base_components.html#osprey.base.BaseCapability._create_orchestrator_guide">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_create_orchestrator_guide</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Template Method: Create orchestrator guide for planning integration.</span>
+
+<span class="sd">        IMPLEMENTATION APPROACHES (choose based on your needs):</span>
+
+<span class="sd">        1. **Production (Recommended)**: Use prompt builders through registry::</span>
+
+<span class="sd">               def _create_orchestrator_guide(self):</span>
+<span class="sd">                   prompt_provider = get_framework_prompts()</span>
+<span class="sd">                   builder = prompt_provider.get_my_capability_prompt_builder()</span>
+<span class="sd">                   return builder.get_orchestrator_guide()</span>
+
+<span class="sd">        2. **R&amp;D/Experimentation**: Direct implementation for quick prototyping::</span>
+
+<span class="sd">               def _create_orchestrator_guide(self):</span>
+<span class="sd">                   return OrchestratorGuide(</span>
+<span class="sd">                       instructions=&quot;Use when user mentions X, Y, Z...&quot;,</span>
+<span class="sd">                       examples=[...], priority=10</span>
+<span class="sd">                   )</span>
+
+<span class="sd">        :return: Orchestrator snippet for planning integration, or None if not needed</span>
+<span class="sd">        :rtype: Optional[OrchestratorGuide]</span>
+
+<span class="sd">        Example::</span>
+
+<span class="sd">            def _create_orchestrator_guide(self) -&gt; Optional[OrchestratorGuide]:</span>
+<span class="sd">                return OrchestratorGuide(</span>
+<span class="sd">                    capability_name=&quot;time_range_parsing&quot;,</span>
+<span class="sd">                    description=&quot;Parse time references into structured datetime ranges&quot;,</span>
+<span class="sd">                    when_to_use=&quot;When user mentions time periods, dates, or relative time references&quot;,</span>
+<span class="sd">                    provides_context=&quot;TIME_RANGE with start_date and end_date datetime objects&quot;,</span>
+<span class="sd">                    example_usage=&quot;For &#39;show me data from last week&#39; or &#39;yesterday&#39;s performance&#39;&quot;</span>
+<span class="sd">                )</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Emit warning via TypedEvent system</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.events</span><span class="w"> </span><span class="kn">import</span> <span class="n">EventEmitter</span><span class="p">,</span> <span class="n">StatusEvent</span>
+
+        <span class="n">emitter</span> <span class="o">=</span> <span class="n">EventEmitter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+        <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+            <span class="n">StatusEvent</span><span class="p">(</span>
+                <span class="n">component</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+                <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Capability &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39; is using base _create_orchestrator_guide() - consider implementing for proper integration&quot;</span><span class="p">,</span>
+                <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="BaseCapability._create_classifier_guide">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/01_base_components.html#osprey.base.BaseCapability._create_classifier_guide">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_create_classifier_guide</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Template Method: Create classifier guide for capability activation.</span>
+
+<span class="sd">        IMPLEMENTATION APPROACHES (choose based on your needs):</span>
+
+<span class="sd">        1. **Production (Recommended)**: Use prompt builders through registry::</span>
+
+<span class="sd">               def _create_classifier_guide(self):</span>
+<span class="sd">                   prompt_provider = get_framework_prompts()</span>
+<span class="sd">                   builder = prompt_provider.get_my_capability_prompt_builder()</span>
+<span class="sd">                   return builder.get_classifier_guide()</span>
+
+<span class="sd">        2. **R&amp;D/Experimentation**: Direct implementation for quick testing::</span>
+
+<span class="sd">               def _create_classifier_guide(self):</span>
+<span class="sd">                   return TaskClassifierGuide(</span>
+<span class="sd">                       instructions=&quot;Activate when user mentions time-related data requests&quot;,</span>
+<span class="sd">                       examples=[</span>
+<span class="sd">                           ClassifierExample(</span>
+<span class="sd">                               query=&quot;Show me data from last week&quot;,</span>
+<span class="sd">                               result=True,</span>
+<span class="sd">                               reason=&quot;Contains time range requiring parsing&quot;</span>
+<span class="sd">                           ),</span>
+<span class="sd">                           ClassifierExample(</span>
+<span class="sd">                               query=&quot;What is the current status?&quot;,</span>
+<span class="sd">                               result=False,</span>
+<span class="sd">                               reason=&quot;Current status request, no time parsing needed&quot;</span>
+<span class="sd">                           )</span>
+<span class="sd">                       ]</span>
+<span class="sd">                   )</span>
+
+<span class="sd">        :return: Classifier guide for capability selection, or None if not needed</span>
+<span class="sd">        :rtype: Optional[TaskClassifierGuide]</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Emit warning via TypedEvent system</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.events</span><span class="w"> </span><span class="kn">import</span> <span class="n">EventEmitter</span><span class="p">,</span> <span class="n">StatusEvent</span>
+
+        <span class="n">emitter</span> <span class="o">=</span> <span class="n">EventEmitter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+        <span class="n">emitter</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span>
+            <span class="n">StatusEvent</span><span class="p">(</span>
+                <span class="n">component</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+                <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Capability &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39; is using base _create_classifier_guide() - consider implementing for proper task classification&quot;</span><span class="p">,</span>
+                <span class="n">level</span><span class="o">=</span><span class="s2">&quot;warning&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="kc">None</span></div>
+
+
+    <span class="c1"># Properties for compatibility and introspection</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">orchestrator_guide</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the orchestrator guide for this capability (lazy-loaded).</span>
+
+<span class="sd">        Standardized interface used by the framework. Automatically calls</span>
+<span class="sd">        _create_orchestrator_guide() on first access and caches the result.</span>
+
+<span class="sd">        :return: Orchestrator guide for execution planning integration, or None if not needed</span>
+<span class="sd">        :rtype: Optional[OrchestratorGuide]</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;_orchestrator_guide&quot;</span><span class="p">):</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_orchestrator_guide</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_orchestrator_guide</span><span class="p">()</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Failed to create orchestrator guide for capability &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39;: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_orchestrator_guide</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_orchestrator_guide</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">classifier_guide</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the classifier guide for this capability (lazy-loaded).</span>
+
+<span class="sd">        Standardized interface used by the framework. Automatically calls</span>
+<span class="sd">        _create_classifier_guide() on first access and caches the result.</span>
+
+<span class="sd">        :return: Classifier guide for capability activation, or None if not needed</span>
+<span class="sd">        :rtype: Optional[TaskClassifierGuide]</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;_classifier_guide&quot;</span><span class="p">):</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_classifier_guide</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_classifier_guide</span><span class="p">()</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Failed to create classifier guide for capability &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39;: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_classifier_guide</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_classifier_guide</span>
+
+<div class="viewcode-block" id="BaseCapability.__repr__">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/01_base_components.html#osprey.base.BaseCapability.__repr__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return a string representation of the capability.</span>
+
+<span class="sd">        :return: String representation including class name and capability name</span>
+<span class="sd">        :rtype: str</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;&lt;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&gt;&quot;</span></div>
+</div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

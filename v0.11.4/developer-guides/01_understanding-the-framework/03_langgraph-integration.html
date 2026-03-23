@@ -1,0 +1,1058 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>LangGraph Integration: Native StateGraph and Workflow Execution &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'developer-guides/01_understanding-the-framework/03_langgraph-integration';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Orchestration Architecture" href="04_orchestration-architecture.html" />
+    <link rel="prev" title="Convention over Configuration: Configuration-Driven Registry Patterns" href="02_convention-over-configuration.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Understanding Osprey</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="01_infrastructure-architecture.html">Infrastructure Architecture: Classification-Orchestration Pipeline</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="02_convention-over-configuration.html">Convention over Configuration: Configuration-Driven Registry Patterns</a></li>
+
+
+
+
+
+
+
+
+
+
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">LangGraph Integration: Native StateGraph and Workflow Execution</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="04_orchestration-architecture.html">Orchestration Architecture</a></li>
+
+
+
+
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../02_quick-start-patterns/index.html">Quick Start Patterns</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/00_cli-reference.html">CLI Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/01_building-your-first-capability.html">Building Your First Capability</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/02_state-and-context-essentials.html">State and Context Essentials</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/03_running-and-testing.html">Running and Testing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/04_mcp-capability-generation.html">MCP Capability Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_quick-start-patterns/05_soft-ioc-backends.html">Soft IOC Custom Backends</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../03_core-framework-systems/index.html">Core Framework Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/01_state-management-architecture.html">State Management Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/02_context-management-system.html">Context Management System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/03_registry-and-discovery.html">Registry and Discovery</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/04_prompt-customization.html">Prompt Customization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/05_message-and-execution-flow.html">Message and Execution Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/06_configuration-architecture.html">Configuration Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/07_built-in-capabilities.html">Built-in Capabilities</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../04_infrastructure-components/index.html">Infrastructure Components</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/01_gateway-architecture.html">Gateway Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/02_task-extraction-system.html">Task Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/03_classification-and-routing.html">Classification and Routing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/04_orchestrator-planning.html">Orchestrator Planning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/05_message-generation.html">Message Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/06_error-handling-infrastructure.html">Error Handling</a></li>
+</ul>
+</details></li>
+
+
+
+<li class="toctree-l1 has-children"><a class="reference internal" href="../05_production-systems/index.html">Production Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/01_human-approval-workflows.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/02_data-source-integration.html">Data Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../05_production-systems/03_python-execution-service/index.html">Python Execution</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/service-overview.html">Python Service Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-basic.html">Basic LLM Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-claude.html">Claude Code Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-mock.html">Mock Generator</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/04_memory-storage-service.html">Memory Storage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/05_container-and-deployment.html">Container Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/06_control-system-integration.html">Control System Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/search-modes.html">Search Modes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/web-interface.html">Web Interface</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Developer Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Understanding Osprey</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">LangGraph Integration: Native StateGraph and Workflow Execution</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="langgraph-integration-native-stategraph-and-workflow-execution">
+<h1>LangGraph Integration: Native StateGraph and Workflow Execution<a class="headerlink" href="#langgraph-integration-native-stategraph-and-workflow-execution" title="Link to this heading">#</a></h1>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">📚 What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>Key Concepts:</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text">How the framework uses LangGraph’s StateGraph for workflow execution</p></li>
+<li><p class="sd-card-text">Native state management with MessagesState integration</p></li>
+<li><p class="sd-card-text">Checkpoint-based persistence for conversation continuity</p></li>
+<li><p class="sd-card-text">Interrupt system for human approval workflows</p></li>
+<li><p class="sd-card-text">Real-time streaming implementation</p></li>
+</ul>
+<p class="sd-card-text"><strong>Prerequisites:</strong> Basic understanding of LangGraph concepts</p>
+<p class="sd-card-text"><strong>Time Investment:</strong> 15-20 minutes for complete understanding</p>
+</div>
+</details></section>
+<section id="overview">
+<h1>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h1>
+<p>The Osprey Framework leverages LangGraph’s native features for production conversational agentic systems:</p>
+<ol class="arabic simple">
+<li><p><strong>StateGraph Workflow</strong>: Registry-based node discovery with router-controlled flow</p></li>
+<li><p><strong>MessagesState Foundation</strong>: Native message handling with selective persistence</p></li>
+<li><p><strong>Checkpoint System</strong>: PostgreSQL and memory-based conversation persistence</p></li>
+<li><p><strong>Native Interrupts</strong>: Built-in human-in-the-loop for approval workflows</p></li>
+<li><p><strong>Custom Streaming</strong>: Real-time status updates through LangGraph’s streaming API</p></li>
+</ol>
+</section>
+<section id="core-langgraph-integration">
+<h1>Core LangGraph Integration<a class="headerlink" href="#core-langgraph-integration" title="Link to this heading">#</a></h1>
+<section id="stategraph-workflow-creation">
+<h2>StateGraph Workflow Creation<a class="headerlink" href="#stategraph-workflow-creation" title="Link to this heading">#</a></h2>
+<p>The framework creates LangGraph workflows using registry-discovered components:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">langgraph.graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">StateGraph</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">AgentState</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_registry</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.graph.graph_builder</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_graph</span>
+
+<span class="c1"># Framework automatically creates StateGraph from registry</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_graph</span><span class="p">(</span><span class="n">registry</span><span class="p">:</span> <span class="n">RegistryManager</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StateGraph</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create LangGraph workflow with all framework components.&quot;&quot;&quot;</span>
+
+    <span class="c1"># Use framework&#39;s native state structure</span>
+    <span class="n">workflow</span> <span class="o">=</span> <span class="n">StateGraph</span><span class="p">(</span><span class="n">AgentState</span><span class="p">)</span>
+
+    <span class="c1"># Add all nodes from registry (infrastructure + capabilities)</span>
+    <span class="n">all_nodes</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_all_nodes</span><span class="p">()</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">node_callable</span> <span class="ow">in</span> <span class="n">all_nodes</span><span class="p">:</span>
+        <span class="n">workflow</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">node_callable</span><span class="p">)</span>
+
+    <span class="c1"># Router controls all flow via conditional edges</span>
+    <span class="n">workflow</span><span class="o">.</span><span class="n">add_conditional_edges</span><span class="p">(</span><span class="s2">&quot;router&quot;</span><span class="p">,</span> <span class="n">router_conditional_edge</span><span class="p">,</span> <span class="p">{</span>
+        <span class="s2">&quot;task_extraction&quot;</span><span class="p">:</span> <span class="s2">&quot;task_extraction&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;classifier&quot;</span><span class="p">:</span> <span class="s2">&quot;classifier&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;orchestrator&quot;</span><span class="p">:</span> <span class="s2">&quot;orchestrator&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;pv_address_finding&quot;</span><span class="p">:</span> <span class="s2">&quot;pv_address_finding&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;respond&quot;</span><span class="p">:</span> <span class="s2">&quot;respond&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;END&quot;</span><span class="p">:</span> <span class="n">END</span>
+    <span class="p">})</span>
+
+    <span class="c1"># All nodes route back to router for next decision</span>
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">node_names</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;router&quot;</span><span class="p">,</span> <span class="s2">&quot;respond&quot;</span><span class="p">,</span> <span class="s2">&quot;clarify&quot;</span><span class="p">,</span> <span class="s2">&quot;error&quot;</span><span class="p">]:</span>
+            <span class="n">workflow</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="s2">&quot;router&quot;</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">workflow</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">checkpointer</span><span class="o">=</span><span class="n">checkpointer</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Key integration points:</strong>
+- <strong>AgentState</strong>: Extends LangGraph’s MessagesState for compatibility
+- <strong>Node Functions</strong>: All decorators create LangGraph-compatible callables
+- <strong>Router Control</strong>: Central routing using LangGraph’s conditional edges
+- <strong>Automatic Compilation</strong>: Framework handles checkpointer configuration</p>
+</section>
+<section id="native-state-management">
+<h2>Native State Management<a class="headerlink" href="#native-state-management" title="Link to this heading">#</a></h2>
+<p>The framework’s state extends LangGraph’s MessagesState with selective persistence:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">langgraph.graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">MessagesState</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Annotated</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Any</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">AgentState</span><span class="p">(</span><span class="n">MessagesState</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Framework state extending LangGraph&#39;s MessagesState.&quot;&quot;&quot;</span>
+
+    <span class="c1"># LangGraph automatically manages &#39;messages&#39; field</span>
+
+    <span class="c1"># PERSISTENT: Only this field survives conversation turns</span>
+    <span class="n">capability_context_data</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
+        <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]],</span>
+        <span class="n">merge_capability_context_data</span>  <span class="c1"># Custom reducer</span>
+    <span class="p">]</span>
+
+    <span class="c1"># EXECUTION-SCOPED: Reset automatically each turn</span>
+    <span class="n">task_current_task</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+    <span class="n">planning_active_capabilities</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+    <span class="n">planning_execution_plan</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ExecutionPlan</span><span class="p">]</span>
+    <span class="n">planning_current_step_index</span><span class="p">:</span> <span class="nb">int</span>
+</pre></div>
+</div>
+<p><strong>State management features:</strong></p>
+<ul class="simple">
+<li><p><strong>Native Messages</strong>: LangGraph handles message history automatically</p></li>
+<li><p><strong>Selective Persistence</strong>: Only <cite>capability_context_data</cite> persists across conversations</p></li>
+<li><p><strong>Custom Reducer</strong>: Framework provides specialized context merging</p></li>
+<li><p><strong>Type Safety</strong>: Full TypedDict definitions with proper annotations</p></li>
+</ul>
+</section>
+<section id="checkpoint-based-persistence">
+<h2>Checkpoint-Based Persistence<a class="headerlink" href="#checkpoint-based-persistence" title="Link to this heading">#</a></h2>
+<p>LangGraph’s checkpointer system provides automatic state persistence:</p>
+<div class="note admonition">
+<p class="admonition-title">Checkpoint Implementation Options</p>
+<p><strong>Recommended Default</strong>: The framework uses LangGraph’s <strong>in-memory checkpointer</strong> (<cite>MemorySaver</cite>) as the recommended default for most use cases, providing fast performance and simple setup.</p>
+<p><strong>PostgreSQL Support</strong>: PostgreSQL checkpointing is available through <cite>use_postgres=True</cite> for scenarios requiring long-term state persistence across system restarts and container lifecycles.</p>
+</div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">langgraph.checkpoint.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemorySaver</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">langgraph.checkpoint.postgres</span><span class="w"> </span><span class="kn">import</span> <span class="n">PostgresSaver</span>
+
+<span class="c1"># Development: In-memory checkpointer</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_development_graph</span><span class="p">(</span><span class="n">registry</span><span class="p">):</span>
+    <span class="n">checkpointer</span> <span class="o">=</span> <span class="n">MemorySaver</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">create_graph</span><span class="p">(</span><span class="n">registry</span><span class="p">,</span> <span class="n">checkpointer</span><span class="o">=</span><span class="n">checkpointer</span><span class="p">)</span>
+
+<span class="c1"># Production: PostgreSQL checkpointer</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_production_graph</span><span class="p">(</span><span class="n">registry</span><span class="p">):</span>
+    <span class="n">checkpointer</span> <span class="o">=</span> <span class="n">create_async_postgres_checkpointer</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">create_graph</span><span class="p">(</span><span class="n">registry</span><span class="p">,</span> <span class="n">checkpointer</span><span class="o">=</span><span class="n">checkpointer</span><span class="p">)</span>
+
+<span class="c1"># Usage with conversation continuity</span>
+<span class="n">config</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;configurable&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;thread_id&quot;</span><span class="p">:</span> <span class="s2">&quot;user-123&quot;</span><span class="p">}}</span>
+
+<span class="c1"># First conversation</span>
+<span class="n">response1</span> <span class="o">=</span> <span class="k">await</span> <span class="n">graph</span><span class="o">.</span><span class="n">ainvoke</span><span class="p">(</span>
+    <span class="p">{</span><span class="s2">&quot;messages&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">HumanMessage</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="s2">&quot;Find beam current PVs&quot;</span><span class="p">)]},</span>
+    <span class="n">config</span><span class="o">=</span><span class="n">config</span>
+<span class="p">)</span>
+
+<span class="c1"># Later conversation - automatically resumes with context</span>
+<span class="n">response2</span> <span class="o">=</span> <span class="k">await</span> <span class="n">graph</span><span class="o">.</span><span class="n">ainvoke</span><span class="p">(</span>
+    <span class="p">{</span><span class="s2">&quot;messages&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">HumanMessage</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="s2">&quot;Show me the analysis&quot;</span><span class="p">)]},</span>
+    <span class="n">config</span><span class="o">=</span><span class="n">config</span>  <span class="c1"># Same thread_id = same conversation</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="human-approval-workflows">
+<h1>Human Approval Workflows<a class="headerlink" href="#human-approval-workflows" title="Link to this heading">#</a></h1>
+<p>The framework uses LangGraph’s native interrupt system for human-in-the-loop operations:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">langgraph.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">interrupt</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.approval.approval_system</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_code_approval_interrupt</span>
+
+<span class="c1"># In Python executor service - request human approval</span>
+<span class="nd">@staticmethod</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">analyze_code</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">PythonExecutionState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="c1"># Analyze code for safety</span>
+    <span class="n">safety_analysis</span> <span class="o">=</span> <span class="n">analyze_code_safety</span><span class="p">(</span><span class="n">generated_code</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">safety_analysis</span><span class="o">.</span><span class="n">requires_approval</span><span class="p">:</span>
+        <span class="c1"># Create structured approval interrupt</span>
+        <span class="n">approval_data</span> <span class="o">=</span> <span class="n">create_code_approval_interrupt</span><span class="p">(</span>
+            <span class="n">code</span><span class="o">=</span><span class="n">generated_code</span><span class="p">,</span>
+            <span class="n">safety_concerns</span><span class="o">=</span><span class="n">safety_analysis</span><span class="o">.</span><span class="n">concerns</span><span class="p">,</span>
+            <span class="n">execution_environment</span><span class="o">=</span><span class="s2">&quot;container&quot;</span>
+        <span class="p">)</span>
+
+        <span class="c1"># LangGraph interrupt - execution stops here</span>
+        <span class="n">interrupt</span><span class="p">(</span><span class="n">approval_data</span><span class="p">)</span>
+
+    <span class="c1"># Continue if no approval needed</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;analysis_complete&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
+</pre></div>
+</div>
+<p><strong>Interrupt workflow:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># 1. Service generates code and requests approval</span>
+<span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">python_service</span><span class="o">.</span><span class="n">ainvoke</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+<span class="c1"># Execution pauses - interrupt created</span>
+
+<span class="c1"># 2. Check for interrupts</span>
+<span class="n">graph_state</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">get_state</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<span class="k">if</span> <span class="n">graph_state</span><span class="o">.</span><span class="n">interrupts</span><span class="p">:</span>
+    <span class="n">interrupt_data</span> <span class="o">=</span> <span class="n">graph_state</span><span class="o">.</span><span class="n">interrupts</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="c1"># Show approval UI with interrupt_data</span>
+
+<span class="c1"># 3. Human approves/rejects</span>
+<span class="n">approval_response</span> <span class="o">=</span> <span class="s2">&quot;approved&quot;</span>  <span class="c1"># or &quot;rejected&quot;</span>
+
+<span class="c1"># 4. Resume with approval</span>
+<span class="n">resume_command</span> <span class="o">=</span> <span class="n">Command</span><span class="p">(</span><span class="n">resume</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;approved&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">})</span>
+<span class="k">await</span> <span class="n">graph</span><span class="o">.</span><span class="n">ainvoke</span><span class="p">(</span><span class="n">resume_command</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+</pre></div>
+</div>
+<section id="service-integration-with-interrupts">
+<h2>Service Integration with Interrupts<a class="headerlink" href="#service-integration-with-interrupts" title="Link to this heading">#</a></h2>
+<p>The framework handles service calls that may generate interrupts:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.approval.approval_system</span><span class="w"> </span><span class="kn">import</span> <span class="n">handle_service_with_interrupts</span>
+
+<span class="nd">@capability_node</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">PythonExecutorCapability</span><span class="p">(</span><span class="n">BaseCapability</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Execute Python code with approval workflows.&quot;&quot;&quot;</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="c1"># Get Python executor service</span>
+        <span class="n">service</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_service</span><span class="p">(</span><span class="s2">&quot;python_executor&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Handle service with interrupt propagation</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">handle_service_with_interrupts</span><span class="p">(</span>
+                <span class="n">service</span><span class="o">=</span><span class="n">service</span><span class="p">,</span>
+                <span class="n">request</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;code&quot;</span><span class="p">:</span> <span class="n">python_code</span><span class="p">,</span> <span class="s2">&quot;mode&quot;</span><span class="p">:</span> <span class="s2">&quot;execute&quot;</span><span class="p">},</span>
+                <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span>
+                <span class="n">logger</span><span class="o">=</span><span class="n">logger</span><span class="p">,</span>
+                <span class="n">capability_name</span><span class="o">=</span><span class="s2">&quot;python_executor&quot;</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;execution_results&quot;</span><span class="p">:</span> <span class="n">result</span><span class="p">}</span>
+
+        <span class="k">except</span> <span class="ne">RuntimeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Service execution failed: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">}</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="real-time-streaming">
+<h1>Real-Time Streaming<a class="headerlink" href="#real-time-streaming" title="Link to this heading">#</a></h1>
+<p>The framework provides real-time status updates through LangGraph’s streaming via the unified logger:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@capability_node</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">DataAnalysisCapability</span><span class="p">(</span><span class="n">BaseCapability</span><span class="p">):</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="c1"># Get unified logger with automatic streaming</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span>
+
+        <span class="c1"># Provide real-time status updates</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="s2">&quot;Loading data sources...&quot;</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="k">await</span> <span class="n">load_data_sources</span><span class="p">()</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="s2">&quot;Performing analysis...&quot;</span><span class="p">)</span>
+        <span class="n">analysis</span> <span class="o">=</span> <span class="k">await</span> <span class="n">perform_analysis</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">success</span><span class="p">(</span><span class="s2">&quot;Analysis complete&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;analysis_results&quot;</span><span class="p">:</span> <span class="n">analysis</span><span class="p">}</span>
+
+<span class="c1"># Client receives real-time updates</span>
+<span class="k">async</span> <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">astream</span><span class="p">(</span><span class="n">input_data</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">stream_mode</span><span class="o">=</span><span class="s2">&quot;custom&quot;</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">chunk</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;event_type&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;status&quot;</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Status: </span><span class="si">{</span><span class="n">chunk</span><span class="p">[</span><span class="s1">&#39;message&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="configuration-options">
+<h1>Configuration Options<a class="headerlink" href="#configuration-options" title="Link to this heading">#</a></h1>
+<section id="postgresql-checkpointer-setup">
+<h2>PostgreSQL Checkpointer Setup<a class="headerlink" href="#postgresql-checkpointer-setup" title="Link to this heading">#</a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.graph.graph_builder</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_async_postgres_checkpointer</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">create_production_checkpointer</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create PostgreSQL checkpointer for production.&quot;&quot;&quot;</span>
+    <span class="c1"># Uses environment POSTGRESQL_URI or defaults to local</span>
+    <span class="n">checkpointer</span> <span class="o">=</span> <span class="n">create_async_postgres_checkpointer</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">checkpointer</span>
+
+<span class="c1"># Production graph with persistence</span>
+<span class="n">production_graph</span> <span class="o">=</span> <span class="n">create_graph</span><span class="p">(</span>
+    <span class="n">registry</span><span class="o">=</span><span class="n">get_registry</span><span class="p">(),</span>
+    <span class="n">use_postgres</span><span class="o">=</span><span class="kc">True</span>  <span class="c1"># Automatically uses PostgreSQL</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="checkpointer-options">
+<h2>Checkpointer Options<a class="headerlink" href="#checkpointer-options" title="Link to this heading">#</a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Recommended default: In-memory checkpointer (fast, simple setup)</span>
+<span class="n">default_graph</span> <span class="o">=</span> <span class="n">create_graph</span><span class="p">(</span><span class="n">registry</span><span class="p">,</span> <span class="n">use_postgres</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+<span class="c1"># Long-term persistence: PostgreSQL (requires database setup)</span>
+<span class="c1"># Note: Available but not extensively production-tested</span>
+<span class="n">persistent_graph</span> <span class="o">=</span> <span class="n">create_graph</span><span class="p">(</span><span class="n">registry</span><span class="p">,</span> <span class="n">use_postgres</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="c1"># Testing: No persistence for isolated tests</span>
+<span class="n">test_graph</span> <span class="o">=</span> <span class="n">create_graph</span><span class="p">(</span><span class="n">registry</span><span class="p">,</span> <span class="n">checkpointer</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="benefits-of-native-langgraph-integration">
+<h1>Benefits of Native LangGraph Integration<a class="headerlink" href="#benefits-of-native-langgraph-integration" title="Link to this heading">#</a></h1>
+<dl class="simple">
+<dt><strong>Zero-Configuration Persistence</strong></dt><dd><p>Automatic conversation memory across restarts</p>
+</dd>
+<dt><strong>Built-in Human-in-the-Loop</strong></dt><dd><p>Native approval workflows through interrupts</p>
+</dd>
+<dt><strong>Production-Ready Streaming</strong></dt><dd><p>Real-time status updates from all framework components</p>
+</dd>
+<dt><strong>Fault Tolerance</strong></dt><dd><p>Conversations survive system crashes and can resume from checkpoints</p>
+</dd>
+</dl>
+</section>
+<section id="common-integration-patterns">
+<h1>Common Integration Patterns<a class="headerlink" href="#common-integration-patterns" title="Link to this heading">#</a></h1>
+<section id="interrupt-handling">
+<h2>Interrupt Handling<a class="headerlink" href="#interrupt-handling" title="Link to this heading">#</a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Check for pending interrupts</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">check_interrupts</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
+    <span class="n">state</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">get_state</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">state</span><span class="o">.</span><span class="n">interrupts</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;has_interrupts&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+            <span class="s2">&quot;interrupt_data&quot;</span><span class="p">:</span> <span class="n">state</span><span class="o">.</span><span class="n">interrupts</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+            <span class="s2">&quot;next&quot;</span><span class="p">:</span> <span class="n">state</span><span class="o">.</span><span class="n">next</span>
+        <span class="p">}</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;has_interrupts&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="custom-state-updates">
+<h2>Custom State Updates<a class="headerlink" href="#custom-state-updates" title="Link to this heading">#</a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Framework provides StateManager for consistent state updates</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">StateManager</span>
+
+<span class="c1"># Store capability results (or use self.store_output_context in capabilities)</span>
+<span class="k">return</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">store_context</span><span class="p">(</span>
+    <span class="n">state</span><span class="p">,</span> <span class="s2">&quot;PV_ADDRESSES&quot;</span><span class="p">,</span> <span class="n">context_key</span><span class="p">,</span> <span class="n">pv_data</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="troubleshooting">
+<h1>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h1>
+<p><strong>Issue</strong>: State not persisting between conversations
+.. code-block:: python</p>
+<blockquote>
+<div><p># Problem: No checkpointer configured
+graph = create_graph(registry)  # No persistence</p>
+<p># Solution: Configure checkpointer
+graph = create_graph(registry, use_postgres=True)
+config = {“configurable”: {“thread_id”: “user-123”}}</p>
+</div></blockquote>
+<p><strong>Issue</strong>: Streaming not working</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Problem: Wrong stream mode</span>
+<span class="k">async</span> <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">astream</span><span class="p">(</span><span class="n">input_data</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
+    <span class="c1"># Only gets final results</span>
+
+<span class="c1"># Solution: Use custom stream mode</span>
+<span class="k">async</span> <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">astream</span><span class="p">(</span><span class="n">input_data</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">stream_mode</span><span class="o">=</span><span class="s2">&quot;custom&quot;</span><span class="p">):</span>
+    <span class="c1"># Gets real-time status updates</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../02_quick-start-patterns/01_building-your-first-capability.html"><span class="doc">Building Your First Capability</span></a></dt><dd><p>Create LangGraph-integrated capabilities</p>
+</dd>
+<dt><a class="reference internal" href="../03_core-framework-systems/01_state-management-architecture.html"><span class="doc">State Management Architecture</span></a></dt><dd><p>Deep dive into state patterns</p>
+</dd>
+<dt><a class="reference internal" href="../05_production-systems/05_container-and-deployment.html"><span class="doc">Container Deployment</span></a></dt><dd><p>Deploy with PostgreSQL checkpointing</p>
+</dd>
+<dt><a class="reference internal" href="../05_production-systems/01_human-approval-workflows.html"><span class="doc">Human Approval</span></a></dt><dd><p>Complex interrupt handling</p>
+</dd>
+<dt><a class="reference internal" href="../../api_reference/01_core_framework/02_state_and_context.html"><span class="doc">State and Context Management</span></a></dt><dd><p>Complete state structure and MessagesState integration</p>
+</dd>
+<dt><a class="reference internal" href="../../api_reference/02_infrastructure/01_gateway.html"><span class="doc">Gateway</span></a></dt><dd><p>LangGraph integration entry point for message processing</p>
+</dd>
+<dt><a class="reference internal" href="../../api_reference/03_production_systems/01_human-approval.html"><span class="doc">Human Approval</span></a></dt><dd><p>Interrupt system API for human-in-the-loop workflows</p>
+</dd>
+<dt><a class="reference internal" href="../../api_reference/03_production_systems/05_container-management.html"><span class="doc">Container Management</span></a></dt><dd><p>Production deployment patterns with PostgreSQL checkpointing</p>
+</dd>
+</dl>
+</div>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="02_convention-over-configuration.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Convention over Configuration: Configuration-Driven Registry Patterns</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="04_orchestration-architecture.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Orchestration Architecture</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#">LangGraph Integration: Native StateGraph and Workflow Execution</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#core-langgraph-integration">Core LangGraph Integration</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#stategraph-workflow-creation">StateGraph Workflow Creation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#native-state-management">Native State Management</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#checkpoint-based-persistence">Checkpoint-Based Persistence</a></li>
+</ul>
+</li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#human-approval-workflows">Human Approval Workflows</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#service-integration-with-interrupts">Service Integration with Interrupts</a></li>
+</ul>
+</li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#real-time-streaming">Real-Time Streaming</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-options">Configuration Options</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#postgresql-checkpointer-setup">PostgreSQL Checkpointer Setup</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#checkpointer-options">Checkpointer Options</a></li>
+</ul>
+</li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#benefits-of-native-langgraph-integration">Benefits of Native LangGraph Integration</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#common-integration-patterns">Common Integration Patterns</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#interrupt-handling">Interrupt Handling</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-state-updates">Custom State Updates</a></li>
+</ul>
+</li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a></li>
+</ul>
+
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/developer-guides/01_understanding-the-framework/03_langgraph-integration.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

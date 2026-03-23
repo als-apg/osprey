@@ -1,0 +1,1804 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Container Management &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'api_reference/03_production_systems/05_container-management';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Control System Connectors" href="06_control-system-connectors.html" />
+    <link rel="prev" title="Memory Storage" href="04_memory-storage.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../01_core_framework/index.html">Core Framework</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/01_base_components.html">Base Components</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/02_state_and_context.html">State and Context Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/03_registry_system.html">Registry System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/04_configuration_system.html">Configuration System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/05_prompt_management.html">Prompt System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/06_command_system.html">Command System</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../02_infrastructure/index.html">Infrastructure</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/01_gateway.html">Gateway</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/02_task-extraction.html">Task Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/03_classification.html">Classification</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/04_orchestration.html">Orchestration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/05_execution-control.html">Execution Control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/06_message-generation.html">Message Generation</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Production Systems</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="01_human-approval.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="02_data-management.html">Data Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="03_python-execution.html">Python Execution</a></li>
+<li class="toctree-l2"><a class="reference internal" href="04_memory-storage.html">Memory Storage</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Container Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="06_control-system-connectors.html">Control System Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="07_ariel-search.html">ARIEL Search Service</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../04_error_handling/index.html">Error Handling</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/01_classification_system.html">Classification System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/02_exception_reference.html">Exception Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/03_recovery_coordination.html">Recovery Coordination</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../05_framework_utilities/index.html">Framework Utilities</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">API Reference</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Production Systems</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Container Management</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="container-management">
+<h1>Container Management<a class="headerlink" href="#container-management" title="Link to this heading">#</a></h1>
+<p>Container orchestration and deployment system for managing framework and application services.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>For implementation guides and examples, see <a class="reference internal" href="../../developer-guides/05_production-systems/05_container-and-deployment.html"><span class="doc">Container Deployment</span></a>.</p>
+</div>
+<section id="module-osprey.deployment.container_manager">
+<span id="container-orchestration"></span><h2>Container Orchestration<a class="headerlink" href="#module-osprey.deployment.container_manager" title="Link to this heading">#</a></h2>
+<p>Container Management and Service Orchestration System.</p>
+<p>This module provides comprehensive container orchestration capabilities for the
+deployment framework, handling service discovery, template rendering, build
+directory management, and Podman Compose integration. The system supports
+hierarchical service configurations with framework and application-specific
+services that can be independently deployed and managed.</p>
+<p>The container manager implements a sophisticated template processing pipeline
+that converts Jinja2 templates into Docker Compose files, copies necessary
+source code and configuration files, and orchestrates multi-service deployments
+through Podman Compose with proper networking and dependency management.</p>
+<dl class="simple">
+<dt>Key Features:</dt><dd><ul class="simple">
+<li><p>Hierarchical service discovery (osprey.service, applications.app.service)</p></li>
+<li><p>Jinja2 template rendering with configuration context</p></li>
+<li><p>Intelligent build directory management with selective file copying</p></li>
+<li><p>Environment variable expansion and configuration flattening</p></li>
+<li><p>Podman Compose orchestration with multi-file support</p></li>
+<li><p>Kernel template processing for Jupyter notebook environments</p></li>
+</ul>
+</dd>
+<dt>Architecture:</dt><dd><p>The system supports two service categories:</p>
+<ol class="arabic simple">
+<li><p>Framework Services: Core infrastructure services like databases,
+web interfaces, and development tools (jupyter, open-webui, pipelines)</p></li>
+<li><p>Application Services: Domain-specific services tied to particular
+applications (als_assistant.mongo, als_assistant.pv_finder)</p></li>
+</ol>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Basic service deployment:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ python container_manager.py config.yml up -d
+# Deploys all services listed in deployed_services configuration
+</pre></div>
+</div>
+<p>Service discovery patterns:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Framework service (short name)</span>
+<span class="n">deployed_services</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;jupyter&quot;</span><span class="p">,</span> <span class="s2">&quot;pipelines&quot;</span><span class="p">]</span>
+
+<span class="c1"># Framework service (full path)</span>
+<span class="n">deployed_services</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;osprey.jupyter&quot;</span><span class="p">,</span> <span class="s2">&quot;osprey.pipelines&quot;</span><span class="p">]</span>
+
+<span class="c1"># Application service (full path required)</span>
+<span class="n">deployed_services</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;applications.als_assistant.mongo&quot;</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>Template rendering workflow:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="mf">1.</span> <span class="n">Load</span> <span class="n">configuration</span> <span class="k">with</span> <span class="n">imports</span> <span class="ow">and</span> <span class="n">merging</span>
+<span class="mf">2.</span> <span class="n">Discover</span> <span class="n">services</span> <span class="n">listed</span> <span class="ow">in</span> <span class="n">deployed_services</span>
+<span class="mf">3.</span> <span class="n">Process</span> <span class="n">Jinja2</span> <span class="n">templates</span> <span class="k">with</span> <span class="n">configuration</span> <span class="n">context</span>
+<span class="mf">4.</span> <span class="n">Copy</span> <span class="n">source</span> <span class="n">code</span> <span class="ow">and</span> <span class="n">additional</span> <span class="n">directories</span> <span class="k">as</span> <span class="n">specified</span>
+<span class="mf">5.</span> <span class="n">Flatten</span> <span class="n">configuration</span> <span class="n">files</span> <span class="k">for</span> <span class="n">container</span> <span class="n">consumption</span>
+<span class="mf">6.</span> <span class="n">Execute</span> <span class="n">Podman</span> <span class="n">Compose</span> <span class="k">with</span> <span class="n">generated</span> <span class="n">files</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><code class="xref py py-mod docutils literal notranslate"><span class="pre">deployment.loader</span></code> : Configuration loading system used by this module
+<code class="xref py py-class docutils literal notranslate"><span class="pre">configs.config.ConfigBuilder</span></code> : Configuration management
+<a class="reference internal" href="#osprey.deployment.container_manager.find_service_config" title="osprey.deployment.container_manager.find_service_config"><code class="xref py py-func docutils literal notranslate"><span class="pre">find_service_config()</span></code></a> : Service discovery implementation
+<a class="reference internal" href="#osprey.deployment.container_manager.render_template" title="osprey.deployment.container_manager.render_template"><code class="xref py py-func docutils literal notranslate"><span class="pre">render_template()</span></code></a> : Template processing engine</p>
+</div>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.deployment.container_manager.find_service_config">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.container_manager.</span></span><span class="sig-name descname"><span class="pre">find_service_config</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">service_name</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/container_manager.html#find_service_config"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.container_manager.find_service_config" title="Link to this definition">#</a></dt>
+<dd><p>Locate service configuration and template path for deployment.</p>
+<p>This function implements the service discovery logic for the container
+management system, supporting both hierarchical service naming (full paths)
+and legacy short names for backward compatibility. The system searches
+through framework services and application-specific services to find
+the requested service configuration.</p>
+<p>Service naming supports three patterns:
+1. Framework services: “osprey.service_name” or just “service_name”
+2. Application services: “applications.app_name.service_name”
+3. Legacy services: “service_name” (deprecated, for backward compatibility)</p>
+<p>The function returns both the service configuration object and the path
+to the Docker Compose template, enabling the caller to access service
+settings and initiate template rendering.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>config</strong> (<em>dict</em>) – Configuration containing service definitions</p></li>
+<li><p><strong>service_name</strong> (<em>str</em>) – Service identifier (short name or full dotted path)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Tuple containing service configuration and template path,
+or (None, None) if service not found</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>tuple[dict, str] or tuple[None, None]</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Framework service discovery:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;osprey&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;services&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;jupyter&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;path&#39;</span><span class="p">:</span> <span class="s1">&#39;services/osprey/jupyter&#39;</span><span class="p">}}}}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">service_config</span><span class="p">,</span> <span class="n">template_path</span> <span class="o">=</span> <span class="n">find_service_config</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s1">&#39;osprey.jupyter&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">template_path</span><span class="p">)</span>  <span class="c1"># &#39;services/osprey/jupyter/docker-compose.yml.j2&#39;</span>
+</pre></div>
+</div>
+<p>Application service discovery:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;applications&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;als_assistant&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;services&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;mongo&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;path&#39;</span><span class="p">:</span> <span class="s1">&#39;services/applications/als_assistant/mongo&#39;</span><span class="p">}}}}}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">service_config</span><span class="p">,</span> <span class="n">template_path</span> <span class="o">=</span> <span class="n">find_service_config</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s1">&#39;applications.als_assistant.mongo&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">template_path</span><span class="p">)</span>  <span class="c1"># &#39;services/applications/als_assistant/mongo/docker-compose.yml.j2&#39;</span>
+</pre></div>
+</div>
+<p>Legacy service discovery:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;services&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;legacy_service&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;path&#39;</span><span class="p">:</span> <span class="s1">&#39;services/legacy&#39;</span><span class="p">}}}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">service_config</span><span class="p">,</span> <span class="n">template_path</span> <span class="o">=</span> <span class="n">find_service_config</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s1">&#39;legacy_service&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">template_path</span><span class="p">)</span>  <span class="c1"># &#39;services/legacy/docker-compose.yml.j2&#39;</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Legacy service support (services.* configuration) is deprecated and
+will be removed in future versions. Use osprey.* or applications.*
+naming patterns for new services.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><a class="reference internal" href="#osprey.deployment.container_manager.get_templates" title="osprey.deployment.container_manager.get_templates"><code class="xref py py-func docutils literal notranslate"><span class="pre">get_templates()</span></code></a> : Uses this function to build template lists
+<a class="reference internal" href="#osprey.deployment.container_manager.setup_build_dir" title="osprey.deployment.container_manager.setup_build_dir"><code class="xref py py-func docutils literal notranslate"><span class="pre">setup_build_dir()</span></code></a> : Processes discovered services for deployment</p>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.deployment.container_manager.get_templates">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.container_manager.</span></span><span class="sig-name descname"><span class="pre">get_templates</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/container_manager.html#get_templates"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.container_manager.get_templates" title="Link to this definition">#</a></dt>
+<dd><p>Collect template paths for all deployed services in the configuration.</p>
+<p>This function builds a comprehensive list of Docker Compose template paths
+based on the services specified in the deployed_services configuration.
+It processes both the root services template and individual service templates,
+providing the complete set of templates needed for deployment.</p>
+<p>The function always includes the root services template (services/docker-compose.yml.j2)
+which defines the shared network configuration and other global service settings.
+Individual service templates are then discovered through the service discovery
+system and added to the template list.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>config</strong> (<em>dict</em>) – Configuration containing deployed_services list</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of template file paths for processing</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list[str]</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>Warning</strong> – Prints warning if deployed_services is not configured</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Template collection for mixed services:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+<span class="gp">... </span>    <span class="s1">&#39;deployed_services&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;osprey.jupyter&#39;</span><span class="p">,</span> <span class="s1">&#39;applications.als_assistant.mongo&#39;</span><span class="p">],</span>
+<span class="gp">... </span>    <span class="s1">&#39;osprey&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;services&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;jupyter&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;path&#39;</span><span class="p">:</span> <span class="s1">&#39;services/osprey/jupyter&#39;</span><span class="p">}}},</span>
+<span class="gp">... </span>    <span class="s1">&#39;applications&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;als_assistant&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;services&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;mongo&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;path&#39;</span><span class="p">:</span> <span class="s1">&#39;services/applications/als_assistant/mongo&#39;</span><span class="p">}}}}</span>
+<span class="gp">... </span><span class="p">}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">templates</span> <span class="o">=</span> <span class="n">get_templates</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">templates</span><span class="p">)</span>
+<span class="go">[&#39;services/docker-compose.yml.j2&#39;,</span>
+<span class="go"> &#39;services/osprey/jupyter/docker-compose.yml.j2&#39;,</span>
+<span class="go"> &#39;services/applications/als_assistant/mongo/docker-compose.yml.j2&#39;]</span>
+</pre></div>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>If deployed_services is not configured or empty, only the root services
+template will be returned, which may not provide functional services.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><a class="reference internal" href="#osprey.deployment.container_manager.find_service_config" title="osprey.deployment.container_manager.find_service_config"><code class="xref py py-func docutils literal notranslate"><span class="pre">find_service_config()</span></code></a> : Service discovery used by this function
+<a class="reference internal" href="#osprey.deployment.container_manager.render_template" title="osprey.deployment.container_manager.render_template"><code class="xref py py-func docutils literal notranslate"><span class="pre">render_template()</span></code></a> : Processes the templates returned by this function</p>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.deployment.container_manager.render_template">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.container_manager.</span></span><span class="sig-name descname"><span class="pre">render_template</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">template_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">out_dir</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/container_manager.html#render_template"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.container_manager.render_template" title="Link to this definition">#</a></dt>
+<dd><p>Render Jinja2 template with configuration context to output directory.</p>
+<p>This function processes Jinja2 templates using the configuration
+as context, generating concrete configuration files for container deployment.
+The system supports multiple template types including Docker Compose files
+and Jupyter kernel configurations, with intelligent output filename detection.</p>
+<p>Template rendering uses the complete configuration dictionary as Jinja2 context,
+enabling templates to access any configuration value including environment
+variables, service settings, and application-specific parameters. Environment
+variables can be referenced directly in templates using ${VAR_NAME} syntax
+for deployment-specific configurations like proxy settings. The output
+directory is created automatically if it doesn’t exist.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>template_path</strong> (<em>str</em>) – Path to the Jinja2 template file to render</p></li>
+<li><p><strong>config</strong> (<em>dict</em>) – Configuration dictionary to use as template context</p></li>
+<li><p><strong>out_dir</strong> (<em>str</em>) – Output directory for the rendered file</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Full path to the rendered output file</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Docker Compose template rendering:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;database&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;host&#39;</span><span class="p">:</span> <span class="s1">&#39;localhost&#39;</span><span class="p">,</span> <span class="s1">&#39;port&#39;</span><span class="p">:</span> <span class="mi">5432</span><span class="p">}}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">output_path</span> <span class="o">=</span> <span class="n">render_template</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="s1">&#39;services/mongo/docker-compose.yml.j2&#39;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">config</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="s1">&#39;build/services/mongo&#39;</span>
+<span class="gp">... </span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">output_path</span><span class="p">)</span>  <span class="c1"># &#39;build/services/mongo/docker-compose.yml&#39;</span>
+</pre></div>
+</div>
+<p>Jupyter kernel template rendering:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;project_root&#39;</span><span class="p">:</span> <span class="s1">&#39;/home/user/project&#39;</span><span class="p">}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">output_path</span> <span class="o">=</span> <span class="n">render_template</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="s1">&#39;services/jupyter/python3-epics/kernel.json.j2&#39;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">config</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="s1">&#39;build/services/jupyter/python3-epics&#39;</span>
+<span class="gp">... </span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">output_path</span><span class="p">)</span>  <span class="c1"># &#39;build/services/jupyter/python3-epics/kernel.json&#39;</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The function automatically determines output filenames based on template
+naming conventions: .j2 extension is removed, and specific patterns
+like docker-compose.yml.j2 and kernel.json.j2 are recognized.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><a class="reference internal" href="#osprey.deployment.container_manager.setup_build_dir" title="osprey.deployment.container_manager.setup_build_dir"><code class="xref py py-func docutils literal notranslate"><span class="pre">setup_build_dir()</span></code></a> : Uses this function for service template processing
+<a class="reference internal" href="#osprey.deployment.container_manager.render_kernel_templates" title="osprey.deployment.container_manager.render_kernel_templates"><code class="xref py py-func docutils literal notranslate"><span class="pre">render_kernel_templates()</span></code></a> : Batch processing of kernel templates</p>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.deployment.container_manager.render_kernel_templates">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.container_manager.</span></span><span class="sig-name descname"><span class="pre">render_kernel_templates</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">source_dir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">out_dir</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/container_manager.html#render_kernel_templates"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.container_manager.render_kernel_templates" title="Link to this definition">#</a></dt>
+<dd><p>Process all Jupyter kernel templates in a service directory.</p>
+<p>This function provides batch processing for Jupyter kernel configuration
+templates, automatically discovering all kernel.json.j2 files within a
+service directory and rendering them with the current configuration context.
+This is particularly useful for Jupyter services that provide multiple
+kernel environments with different configurations.</p>
+<p>The function recursively searches the source directory for kernel template
+files and processes each one, maintaining the relative directory structure
+in the output. This ensures that kernel configurations are placed in the
+correct locations for Jupyter to discover them.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>source_dir</strong> (<em>str</em>) – Source directory to search for kernel templates</p></li>
+<li><p><strong>config</strong> (<em>dict</em>) – Configuration dictionary for template rendering</p></li>
+<li><p><strong>out_dir</strong> (<em>str</em>) – Base output directory for rendered kernel files</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Kernel template processing for Jupyter service:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Source structure:</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># services/jupyter/</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1">#   ├── python3-epics-readonly/kernel.json.j2</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1">#   └── python3-epics-write/kernel.json.j2</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">render_kernel_templates</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="s1">&#39;services/jupyter&#39;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="p">{</span><span class="s1">&#39;project_root&#39;</span><span class="p">:</span> <span class="s1">&#39;/home/user/project&#39;</span><span class="p">},</span>
+<span class="gp">... </span>    <span class="s1">&#39;build/services/jupyter&#39;</span>
+<span class="gp">... </span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Output structure:</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># build/services/jupyter/</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1">#   ├── python3-epics-readonly/kernel.json</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1">#   └── python3-epics-write/kernel.json</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This function is typically called automatically by setup_build_dir when
+a service configuration includes ‘render_kernel_templates: true’.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><a class="reference internal" href="#osprey.deployment.container_manager.render_template" title="osprey.deployment.container_manager.render_template"><code class="xref py py-func docutils literal notranslate"><span class="pre">render_template()</span></code></a> : Core template rendering used by this function
+<a class="reference internal" href="#osprey.deployment.container_manager.setup_build_dir" title="osprey.deployment.container_manager.setup_build_dir"><code class="xref py py-func docutils literal notranslate"><span class="pre">setup_build_dir()</span></code></a> : Calls this function for kernel template processing</p>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.deployment.container_manager.setup_build_dir">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.container_manager.</span></span><span class="sig-name descname"><span class="pre">setup_build_dir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">template_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">container_cfg</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dev_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/container_manager.html#setup_build_dir"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.container_manager.setup_build_dir" title="Link to this definition">#</a></dt>
+<dd><p>Create complete build environment for service deployment.</p>
+<p>This function orchestrates the complete build directory setup process for
+a service, including template rendering, source code copying, configuration
+flattening, and additional directory management. It creates a self-contained
+build environment that contains everything needed for container deployment.</p>
+<p>The build process follows these steps:
+1. Create clean build directory for the service
+2. Render the Docker Compose template with configuration context
+3. Copy service-specific files (excluding templates)
+4. Copy source code if requested (copy_src: true)
+5. Copy additional directories as specified
+6. Create flattened configuration file for container use
+7. Process kernel templates if specified</p>
+<p>Source code copying includes intelligent handling of requirements files,
+automatically copying global requirements.txt to the container source
+directory to ensure dependency management works correctly in containers.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>template_path</strong> (<em>str</em>) – Path to the service’s Docker Compose template</p></li>
+<li><p><strong>config</strong> (<em>dict</em>) – Complete configuration dictionary for template rendering</p></li>
+<li><p><strong>container_cfg</strong> (<em>dict</em>) – Service-specific configuration settings</p></li>
+<li><p><strong>dev_mode</strong> (<em>bool</em>) – Development mode - copy local framework to containers</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Path to the rendered Docker Compose file</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Basic service build directory setup:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">container_cfg</span> <span class="o">=</span> <span class="p">{</span>
+<span class="gp">... </span>    <span class="s1">&#39;copy_src&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="s1">&#39;additional_dirs&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;docs&#39;</span><span class="p">,</span> <span class="s1">&#39;scripts&#39;</span><span class="p">],</span>
+<span class="gp">... </span>    <span class="s1">&#39;render_kernel_templates&#39;</span><span class="p">:</span> <span class="kc">False</span>
+<span class="gp">... </span><span class="p">}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">compose_path</span> <span class="o">=</span> <span class="n">setup_build_dir</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="s1">&#39;services/osprey/jupyter/docker-compose.yml.j2&#39;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">config</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">container_cfg</span>
+<span class="gp">... </span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">compose_path</span><span class="p">)</span>  <span class="c1"># &#39;build/services/osprey/jupyter/docker-compose.yml&#39;</span>
+</pre></div>
+</div>
+<p>Advanced service with custom directory mapping:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">container_cfg</span> <span class="o">=</span> <span class="p">{</span>
+<span class="gp">... </span>    <span class="s1">&#39;copy_src&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="s1">&#39;additional_dirs&#39;</span><span class="p">:</span> <span class="p">[</span>
+<span class="gp">... </span>        <span class="s1">&#39;docs&#39;</span><span class="p">,</span>  <span class="c1"># Simple directory copy</span>
+<span class="gp">... </span>        <span class="p">{</span><span class="s1">&#39;src&#39;</span><span class="p">:</span> <span class="s1">&#39;external_data&#39;</span><span class="p">,</span> <span class="s1">&#39;dst&#39;</span><span class="p">:</span> <span class="s1">&#39;data&#39;</span><span class="p">}</span>  <span class="c1"># Custom mapping</span>
+<span class="gp">... </span>    <span class="p">],</span>
+<span class="gp">... </span>    <span class="s1">&#39;render_kernel_templates&#39;</span><span class="p">:</span> <span class="kc">True</span>
+<span class="gp">... </span><span class="p">}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">compose_path</span> <span class="o">=</span> <span class="n">setup_build_dir</span><span class="p">(</span><span class="n">template_path</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">container_cfg</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The function automatically handles build directory cleanup, removing
+existing directories to ensure clean builds. Global requirements.txt
+is automatically copied to container source directories when present.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>This function performs destructive operations on build directories.
+Ensure build_dir is properly configured to avoid data loss.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><a class="reference internal" href="#osprey.deployment.container_manager.render_template" title="osprey.deployment.container_manager.render_template"><code class="xref py py-func docutils literal notranslate"><span class="pre">render_template()</span></code></a> : Template rendering used by this function
+<a class="reference internal" href="#osprey.deployment.container_manager.render_kernel_templates" title="osprey.deployment.container_manager.render_kernel_templates"><code class="xref py py-func docutils literal notranslate"><span class="pre">render_kernel_templates()</span></code></a> : Kernel template processing
+<code class="xref py py-class docutils literal notranslate"><span class="pre">configs.config.ConfigBuilder</span></code> : Configuration flattening</p>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.deployment.container_manager.parse_args">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.container_manager.</span></span><span class="sig-name descname"><span class="pre">parse_args</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/container_manager.html#parse_args"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.container_manager.parse_args" title="Link to this definition">#</a></dt>
+<dd><p>Parse command-line arguments for container management operations.</p>
+<p>This function defines and processes the command-line interface for the
+container management system, supporting configuration file specification,
+deployment commands (up/down), and operational flags like detached mode.</p>
+<p>The argument parser enforces logical constraints, such as requiring the
+‘up’ command when using detached mode, and provides clear error messages
+for invalid argument combinations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Parsed command-line arguments</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>argparse.Namespace</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>SystemExit</strong> – If invalid argument combinations are provided</p>
+</dd>
+</dl>
+<dl>
+<dt>Command-line Interface:</dt><dd><p>python container_manager.py CONFIG [COMMAND] [OPTIONS]</p>
+<dl class="simple">
+<dt>Positional Arguments:</dt><dd><p>CONFIG: Path to the configuration file (required)
+COMMAND: Deployment command - ‘up’ or ‘down’ (optional)</p>
+</dd>
+<dt>Options:</dt><dd><p>-d, –detached: Run in detached mode (only with ‘up’ or ‘rebuild’)
+–dev: Development mode - use local osprey package instead of PyPI</p>
+</dd>
+</dl>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Generate compose files only:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ python container_manager.py config.yml
+# Creates build directory and compose files without deployment
+</pre></div>
+</div>
+<p>Deploy services in foreground:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ python container_manager.py config.yml up
+# Deploys services and shows output (uses PyPI framework)
+</pre></div>
+</div>
+<p>Deploy services in background:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ python container_manager.py config.yml up -d
+# Deploys services in detached mode (uses PyPI framework)
+</pre></div>
+</div>
+<p>Deploy with local osprey for development:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ python container_manager.py config.yml up --dev
+# Deploys services using local osprey package for testing
+</pre></div>
+</div>
+<p>Deploy with local osprey in background:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ python container_manager.py config.yml up -d --dev
+# Deploys services in detached mode with local osprey
+</pre></div>
+</div>
+<p>Stop services:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ python container_manager.py config.yml down
+# Stops and removes deployed services
+</pre></div>
+</div>
+<p>Clean deployment (remove images/volumes):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ python container_manager.py config.yml clean
+# Removes containers, images, volumes, and networks
+</pre></div>
+</div>
+<p>Rebuild from scratch with local framework:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ python container_manager.py config.yml rebuild -d --dev
+# Clean + rebuild + start in detached mode with local framework
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><code class="xref py py-func docutils literal notranslate"><span class="pre">main</span> <span class="pre">execution</span> <span class="pre">block()</span></code> : Uses parsed arguments for deployment operations</p>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.deployment.container_manager.find_existing_compose_files">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.container_manager.</span></span><span class="sig-name descname"><span class="pre">find_existing_compose_files</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deployed_services</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quiet</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/container_manager.html#find_existing_compose_files"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.container_manager.find_existing_compose_files" title="Link to this definition">#</a></dt>
+<dd><p>Find existing compose files without rebuilding directories.</p>
+<p>This function locates existing docker-compose.yml files in the build directory
+for the specified services without triggering any rebuild operations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>config</strong> (<em>dict</em>) – Configuration dictionary containing build_dir</p></li>
+<li><p><strong>deployed_services</strong> (<em>list</em>) – List of service names to find compose files for</p></li>
+<li><p><strong>quiet</strong> (<em>bool</em>) – If True, suppress warning messages about missing files</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of paths to existing compose files</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p>compose_files = find_existing_compose_files(config, [‘osprey.jupyter’])
+# Returns: [‘./build/services/docker-compose.yml’,
+#          ‘./build/services/osprey/jupyter/docker-compose.yml’]</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.deployment.container_manager.clean_deployment">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.container_manager.</span></span><span class="sig-name descname"><span class="pre">clean_deployment</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">compose_files</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/container_manager.html#clean_deployment"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.container_manager.clean_deployment" title="Link to this definition">#</a></dt>
+<dd><p>Clean up containers, images, volumes, and networks for a fresh deployment.</p>
+<p>This function provides comprehensive cleanup capabilities for container
+deployments, removing containers, images, volumes, and networks to enable
+fresh rebuilds. It’s particularly useful when configuration changes require
+complete environment reconstruction.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>compose_files</strong> (<em>list</em><em>[</em><em>str</em><em>]</em>) – List of Docker Compose file paths for the deployment</p></li>
+<li><p><strong>config</strong> (<em>dict</em><em>, </em><em>optional</em>) – Optional configuration dictionary for runtime detection</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.deployment.container_manager.prepare_compose_files">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.container_manager.</span></span><span class="sig-name descname"><span class="pre">prepare_compose_files</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dev_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expose_network</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/container_manager.html#prepare_compose_files"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.container_manager.prepare_compose_files" title="Link to this definition">#</a></dt>
+<dd><p>Prepare compose files from configuration.</p>
+<p>Loads configuration and generates all necessary compose files for deployment.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>config_path</strong> (<em>str</em>) – Path to the configuration file</p></li>
+<li><p><strong>dev_mode</strong> (<em>bool</em>) – Development mode - copy local framework to containers</p></li>
+<li><p><strong>expose_network</strong> (<em>bool</em>) – Expose services to all network interfaces (0.0.0.0)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Tuple of (config dict, list of compose file paths)</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>tuple[dict, list[str]]</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>RuntimeError</strong> – If configuration loading fails</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.deployment.container_manager.deploy_up">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.container_manager.</span></span><span class="sig-name descname"><span class="pre">deploy_up</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">detached</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dev_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expose_network</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/container_manager.html#deploy_up"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.container_manager.deploy_up" title="Link to this definition">#</a></dt>
+<dd><p>Start services using container runtime (Docker or Podman).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>config_path</strong> (<em>str</em>) – Path to the configuration file</p></li>
+<li><p><strong>detached</strong> (<em>bool</em>) – Run in detached mode</p></li>
+<li><p><strong>dev_mode</strong> (<em>bool</em>) – Development mode for local framework testing</p></li>
+<li><p><strong>expose_network</strong> (<em>bool</em>) – Expose services to all network interfaces (0.0.0.0)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.deployment.container_manager.deploy_down">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.container_manager.</span></span><span class="sig-name descname"><span class="pre">deploy_down</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dev_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/container_manager.html#deploy_down"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.container_manager.deploy_down" title="Link to this definition">#</a></dt>
+<dd><p>Stop services using container runtime (Docker or Podman).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>config_path</strong> (<em>str</em>) – Path to the configuration file</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.deployment.container_manager.deploy_restart">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.container_manager.</span></span><span class="sig-name descname"><span class="pre">deploy_restart</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">detached</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expose_network</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/container_manager.html#deploy_restart"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.container_manager.deploy_restart" title="Link to this definition">#</a></dt>
+<dd><p>Restart services using container runtime (Docker or Podman).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>config_path</strong> (<em>str</em>) – Path to the configuration file</p></li>
+<li><p><strong>detached</strong> (<em>bool</em>) – Run in detached mode</p></li>
+<li><p><strong>expose_network</strong> (<em>bool</em>) – Expose services to all network interfaces (0.0.0.0)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.deployment.container_manager.show_status">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.container_manager.</span></span><span class="sig-name descname"><span class="pre">show_status</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_path</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/container_manager.html#show_status"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.container_manager.show_status" title="Link to this definition">#</a></dt>
+<dd><p>Show detailed status of services with formatted output.</p>
+<p>Uses direct container runtime ps to show actual container state, independent of compose files.
+Displays containers for this project separately from other running containers.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>config_path</strong> (<em>str</em>) – Path to the configuration file</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.deployment.container_manager.rebuild_deployment">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.container_manager.</span></span><span class="sig-name descname"><span class="pre">rebuild_deployment</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">detached</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dev_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expose_network</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/container_manager.html#rebuild_deployment"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.container_manager.rebuild_deployment" title="Link to this definition">#</a></dt>
+<dd><p>Rebuild deployment from scratch (clean + up).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>config_path</strong> (<em>str</em>) – Path to the configuration file</p></li>
+<li><p><strong>detached</strong> (<em>bool</em>) – Run in detached mode</p></li>
+<li><p><strong>dev_mode</strong> (<em>bool</em>) – Development mode for local framework testing</p></li>
+<li><p><strong>expose_network</strong> (<em>bool</em>) – Expose services to all network interfaces (0.0.0.0)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-osprey.deployment.runtime_helper">
+<span id="runtime-detection"></span><h2>Runtime Detection<a class="headerlink" href="#module-osprey.deployment.runtime_helper" title="Link to this heading">#</a></h2>
+<p>Simple container runtime detection for Docker and Podman.</p>
+<p>Detects available container runtime and provides command helpers.
+Requires modern runtimes: Docker Desktop 4.0+ or Podman 4.0+.</p>
+<p class="rubric">Examples</p>
+<p>Basic usage:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.deployment.runtime_helper</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_runtime_command</span>
+
+<span class="n">cmd</span> <span class="o">=</span> <span class="n">get_runtime_command</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<span class="c1"># Returns: [&#39;docker&#39;, &#39;compose&#39;] or [&#39;podman&#39;, &#39;compose&#39;]</span>
+</pre></div>
+</div>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.deployment.runtime_helper.get_runtime_command">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.runtime_helper.</span></span><span class="sig-name descname"><span class="pre">get_runtime_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/runtime_helper.html#get_runtime_command"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.runtime_helper.get_runtime_command" title="Link to this definition">#</a></dt>
+<dd><p>Get container compose command.</p>
+<p>Checks CONTAINER_RUNTIME env var, then config.container_runtime,
+auto-detects if ‘auto’ or not set. Result is cached after first detection.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>config</strong> (<em>dict</em><em> | </em><em>None</em>) – Optional configuration dictionary</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>[‘docker’, ‘compose’] or [‘podman’, ‘compose’]</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Command list</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>RuntimeError</strong> – If no container runtime with compose support found</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.deployment.runtime_helper.verify_runtime_is_running">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.runtime_helper.</span></span><span class="sig-name descname"><span class="pre">verify_runtime_is_running</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/runtime_helper.html#verify_runtime_is_running"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.runtime_helper.verify_runtime_is_running" title="Link to this definition">#</a></dt>
+<dd><p>Verify that the detected container runtime is actually running.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>config</strong> (<em>dict</em><em> | </em><em>None</em>) – Optional configuration dictionary</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>bool, error_message: str)
+If running: (True, “”)
+If not running: (False, helpful error message)</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Tuple of (is_running</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.deployment.runtime_helper.get_ps_command">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.runtime_helper.</span></span><span class="sig-name descname"><span class="pre">get_ps_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">all_containers</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/runtime_helper.html#get_ps_command"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.runtime_helper.get_ps_command" title="Link to this definition">#</a></dt>
+<dd><p>Get container ps command.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>config</strong> (<em>dict</em><em> | </em><em>None</em>) – Optional configuration dictionary</p></li>
+<li><p><strong>all_containers</strong> (<em>bool</em>) – Include stopped containers (-a flag)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Command list for ps operation with JSON format</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list[str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-osprey.deployment.loader">
+<span id="configuration-loading"></span><h2>Configuration Loading<a class="headerlink" href="#module-osprey.deployment.loader" title="Link to this heading">#</a></h2>
+<p>Configuration Parameter Loading and Management System.</p>
+<p>This module provides a sophisticated parameter loading system that supports YAML
+configuration files with import directives, hierarchical parameter access, and
+environment variable expansion. The system is designed for flexible deployment
+configurations where complex service arrangements need robust parameter management.</p>
+<p>The module implements a type-safe parameter access pattern through the Params class,
+which provides dot-notation access to nested configuration data while maintaining
+validation and error handling. Invalid parameter access returns InvalidParam objects
+rather than raising exceptions, enabling graceful degradation in configuration scenarios.</p>
+<dl class="simple">
+<dt>Key Features:</dt><dd><ul class="simple">
+<li><p>Recursive YAML file imports with circular dependency detection</p></li>
+<li><p>Environment variable expansion in string values</p></li>
+<li><p>Type-safe parameter access with validation</p></li>
+<li><p>Graceful error handling for missing configuration keys</p></li>
+<li><p>Deep dictionary merging for configuration composition</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Basic parameter loading:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">params</span> <span class="o">=</span> <span class="n">load_params</span><span class="p">(</span><span class="s1">&#39;config.yml&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">database_host</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">database</span><span class="o">.</span><span class="n">host</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">timeout</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">services</span><span class="o">.</span><span class="n">timeout</span>
+</pre></div>
+</div>
+<p>Configuration with imports:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># base_config.yml</span>
+<span class="n">database</span><span class="p">:</span>
+  <span class="n">host</span><span class="p">:</span> <span class="n">localhost</span>
+  <span class="n">port</span><span class="p">:</span> <span class="mi">5432</span>
+
+<span class="c1"># app_config.yml</span>
+<span class="n">import</span><span class="p">:</span> <span class="n">base_config</span><span class="o">.</span><span class="n">yml</span>
+<span class="n">database</span><span class="p">:</span>
+  <span class="n">name</span><span class="p">:</span> <span class="n">myapp</span>  <span class="c1"># Merged with base config</span>
+<span class="n">services</span><span class="p">:</span>
+  <span class="n">timeout</span><span class="p">:</span> <span class="mi">30</span>
+
+<span class="o">&gt;&gt;&gt;</span> <span class="n">params</span> <span class="o">=</span> <span class="n">load_params</span><span class="p">(</span><span class="s1">&#39;app_config.yml&#39;</span><span class="p">)</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="nb">print</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">database</span><span class="o">.</span><span class="n">host</span><span class="p">)</span>  <span class="c1"># &#39;localhost&#39; from base</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="nb">print</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">database</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>  <span class="c1"># &#39;myapp&#39; from app config</span>
+</pre></div>
+</div>
+<p>Environment variable expansion:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span># config.yml
+project_root: ${PROJECT_ROOT}
+data_dir: ${PROJECT_ROOT}/data
+
+&gt;&gt;&gt; os.environ[&#39;PROJECT_ROOT&#39;] = &#39;/home/user/project&#39;
+&gt;&gt;&gt; params = load_params(&#39;config.yml&#39;)
+&gt;&gt;&gt; print(params.data_dir)  # &#39;/home/user/project/data&#39;
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><a class="reference internal" href="#osprey.deployment.loader.Params" title="osprey.deployment.loader.Params"><code class="xref py py-class docutils literal notranslate"><span class="pre">Params</span></code></a> : Main parameter container with hierarchical access
+<a class="reference internal" href="#osprey.deployment.loader.InvalidParam" title="osprey.deployment.loader.InvalidParam"><code class="xref py py-class docutils literal notranslate"><span class="pre">InvalidParam</span></code></a> : Error handling for missing configuration keys
+<code class="xref py py-func docutils literal notranslate"><span class="pre">_load_yaml()</span></code> : Core YAML loading with import processing
+<code class="xref py py-mod docutils literal notranslate"><span class="pre">deployment.container_manager</span></code> : Uses this system for service configuration</p>
+</div>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.deployment.loader.load_params">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.loader.</span></span><span class="sig-name descname"><span class="pre">load_params</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">file_path</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#load_params"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.load_params" title="Link to this definition">#</a></dt>
+<dd><p>Load configuration parameters from YAML file into a Params object.</p>
+<p>This is the main entry point for the configuration loading system. It loads
+a YAML configuration file (processing any import directives) and wraps the
+resulting data in a Params object that provides type-safe, hierarchical
+access to configuration values.</p>
+<p>The function handles the complete configuration loading pipeline including
+import processing, environment variable expansion, and parameter object
+creation. The resulting Params object provides dot-notation access to
+nested configuration data with built-in validation and error handling.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>file_path</strong> (<em>str</em>) – Path to the YAML configuration file to load</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>FileNotFoundError</strong> – If the configuration file cannot be found</p></li>
+<li><p><strong>yaml.YAMLError</strong> – If YAML parsing fails</p></li>
+<li><p><strong>ValueError</strong> – If circular imports are detected</p></li>
+</ul>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Parameter container with hierarchical access to configuration data</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#osprey.deployment.loader.Params" title="osprey.deployment.loader.Params">Params</a></p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Basic configuration loading:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># config.yml</span>
+<span class="n">database</span><span class="p">:</span>
+  <span class="n">host</span><span class="p">:</span> <span class="n">localhost</span>
+  <span class="n">port</span><span class="p">:</span> <span class="mi">5432</span>
+<span class="n">services</span><span class="p">:</span>
+  <span class="n">timeout</span><span class="p">:</span> <span class="mi">30</span>
+  <span class="n">retry_count</span><span class="p">:</span> <span class="mi">3</span>
+
+<span class="o">&gt;&gt;&gt;</span> <span class="n">params</span> <span class="o">=</span> <span class="n">load_params</span><span class="p">(</span><span class="s1">&#39;config.yml&#39;</span><span class="p">)</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">db_host</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">database</span><span class="o">.</span><span class="n">host</span>  <span class="c1"># &#39;localhost&#39;</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">timeout</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">services</span><span class="o">.</span><span class="n">timeout</span>  <span class="c1"># 30</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">invalid</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">nonexistent</span><span class="o">.</span><span class="n">key</span>  <span class="c1"># InvalidParam, not exception</span>
+</pre></div>
+</div>
+<p>Environment variable expansion:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span># config.yml
+project_root: ${PROJECT_ROOT}
+data_directory: ${PROJECT_ROOT}/data
+
+&gt;&gt;&gt; import os
+&gt;&gt;&gt; os.environ[&#39;PROJECT_ROOT&#39;] = &#39;/home/user/project&#39;
+&gt;&gt;&gt; params = load_params(&#39;config.yml&#39;)
+&gt;&gt;&gt; print(params.data_directory)  # &#39;/home/user/project/data&#39;
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><code class="xref py py-func docutils literal notranslate"><span class="pre">_load_yaml()</span></code> : Core YAML loading implementation
+<a class="reference internal" href="#osprey.deployment.loader.Params" title="osprey.deployment.loader.Params"><code class="xref py py-class docutils literal notranslate"><span class="pre">Params</span></code></a> : Return type providing parameter access
+<a class="reference internal" href="#osprey.deployment.loader.InvalidParam" title="osprey.deployment.loader.InvalidParam"><code class="xref py py-class docutils literal notranslate"><span class="pre">InvalidParam</span></code></a> : Error handling for missing configuration keys
+<code class="xref py py-mod docutils literal notranslate"><span class="pre">deployment.container_manager</span></code> : Primary consumer of this functionality</p>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey.deployment.loader.AbstractParam">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.deployment.loader.</span></span><span class="sig-name descname"><span class="pre">AbstractParam</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#AbstractParam"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.AbstractParam" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.deployment.loader.AbstractParam.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#AbstractParam.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.AbstractParam.__init__" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.deployment.loader.AbstractParam.get_path">
+<span class="sig-name descname"><span class="pre">get_path</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#AbstractParam.get_path"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.AbstractParam.get_path" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.deployment.loader.AbstractParam.copy">
+<span class="sig-name descname"><span class="pre">copy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#AbstractParam.copy"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.AbstractParam.copy" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.deployment.loader.AbstractParam.is_valid">
+<span class="sig-name descname"><span class="pre">is_valid</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#AbstractParam.is_valid"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.AbstractParam.is_valid" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey.deployment.loader.InvalidParam">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.deployment.loader.</span></span><span class="sig-name descname"><span class="pre">InvalidParam</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#InvalidParam"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.InvalidParam" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#osprey.deployment.loader.AbstractParam" title="osprey.deployment.loader.AbstractParam"><code class="xref py py-class docutils literal notranslate"><span class="pre">AbstractParam</span></code></a></p>
+<p>Parameter object representing missing or invalid configuration data.</p>
+<p>This class provides graceful error handling for configuration access patterns
+where requested parameters don’t exist. Instead of raising exceptions immediately,
+the system returns InvalidParam objects that maintain the access chain and
+provide meaningful error messages when finally used.</p>
+<p>InvalidParam objects support continued dot-notation access, allowing code to
+chain parameter lookups naturally even when intermediate parameters are missing.
+The error is only raised when the parameter is actually used (e.g., in a boolean
+context or when converted to a string).</p>
+<p>This approach enables defensive programming patterns where configuration access
+can be attempted optimistically, with errors handled at the point of actual use.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>name</strong> (<em>str</em>) – Name of the missing parameter</p></li>
+<li><p><strong>parent</strong> (<a class="reference internal" href="#osprey.deployment.loader.AbstractParam" title="osprey.deployment.loader.AbstractParam"><em>AbstractParam</em></a><em>, </em><em>optional</em>) – Parent parameter object in the access chain</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Graceful error handling:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">params</span> <span class="o">=</span> <span class="n">load_params</span><span class="p">(</span><span class="s1">&#39;config.yml&#39;</span><span class="p">)</span>  <span class="c1"># Missing &#39;database.timeout&#39;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">timeout</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">database</span><span class="o">.</span><span class="n">timeout</span>  <span class="c1"># Returns InvalidParam, no exception</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">if</span> <span class="n">timeout</span><span class="p">:</span>  <span class="c1"># Now evaluates to False</span>
+<span class="gp">... </span>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Timeout: </span><span class="si">{</span><span class="n">timeout</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">... </span><span class="k">else</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Using default timeout&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Error chain preservation:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">missing</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">nonexistent</span><span class="o">.</span><span class="n">deeply</span><span class="o">.</span><span class="n">nested</span><span class="o">.</span><span class="n">value</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">missing</span><span class="p">)</span>  <span class="c1"># Shows path to first missing parameter</span>
+<span class="go">&lt;InvalidParam: &#39;root.nonexistent&#39;&gt;</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><a class="reference internal" href="#osprey.deployment.loader.Params" title="osprey.deployment.loader.Params"><code class="xref py py-class docutils literal notranslate"><span class="pre">Params</span></code></a> : Valid parameter container that returns InvalidParam for missing keys
+<a class="reference internal" href="#osprey.deployment.loader.AbstractParam.get_path" title="osprey.deployment.loader.AbstractParam.get_path"><code class="xref py py-meth docutils literal notranslate"><span class="pre">AbstractParam.get_path()</span></code></a> : Path construction used in error messages</p>
+</div>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.deployment.loader.InvalidParam.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#InvalidParam.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.InvalidParam.__init__" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.deployment.loader.InvalidParam.is_valid">
+<span class="sig-name descname"><span class="pre">is_valid</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#InvalidParam.is_valid"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.InvalidParam.is_valid" title="Link to this definition">#</a></dt>
+<dd><p>Check if this parameter is valid.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Always False for InvalidParam objects</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.deployment.loader.InvalidParam.__getattr__">
+<span class="sig-name descname"><span class="pre">__getattr__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#InvalidParam.__getattr__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.InvalidParam.__getattr__" title="Link to this definition">#</a></dt>
+<dd><p>Support continued dot-notation access on invalid parameters.</p>
+<p>Allows chaining of parameter access even when intermediate parameters
+are missing, maintaining the error state through the access chain.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>key</strong> (<em>str</em>) – Attribute name being accessed</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>New InvalidParam representing the continued invalid access</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#osprey.deployment.loader.InvalidParam" title="osprey.deployment.loader.InvalidParam">InvalidParam</a></p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Continued access on missing parameters:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">invalid</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">missing</span><span class="o">.</span><span class="n">parameter</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">still_invalid</span> <span class="o">=</span> <span class="n">invalid</span><span class="o">.</span><span class="n">more</span><span class="o">.</span><span class="n">nested</span><span class="o">.</span><span class="n">access</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">still_invalid</span><span class="o">.</span><span class="n">is_valid</span><span class="p">())</span>  <span class="c1"># False</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.deployment.loader.InvalidParam.__getitem__">
+<span class="sig-name descname"><span class="pre">__getitem__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#InvalidParam.__getitem__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.InvalidParam.__getitem__" title="Link to this definition">#</a></dt>
+<dd><p>Raise error when bracket notation is used on invalid parameters.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>key</strong> (<em>str</em><em> or </em><em>int</em>) – Key being accessed</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>TypeError</strong> – Always raises with error message showing the invalid path</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Unlike dot notation (__getattr__), bracket notation immediately raises
+an error to provide clear feedback about the invalid parameter access.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.deployment.loader.InvalidParam.__bool__">
+<span class="sig-name descname"><span class="pre">__bool__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#InvalidParam.__bool__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.InvalidParam.__bool__" title="Link to this definition">#</a></dt>
+<dd><p>Evaluate InvalidParam objects as False in boolean contexts.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Always False</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>bool</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Boolean evaluation for error handling:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">param</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">possibly</span><span class="o">.</span><span class="n">missing</span><span class="o">.</span><span class="n">value</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">if</span> <span class="n">param</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="n">process_value</span><span class="p">(</span><span class="n">param</span><span class="p">)</span>
+<span class="gp">... </span><span class="k">else</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="n">use_default_value</span><span class="p">()</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.deployment.loader.InvalidParam.__repr__">
+<span class="sig-name descname"><span class="pre">__repr__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#InvalidParam.__repr__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.InvalidParam.__repr__" title="Link to this definition">#</a></dt>
+<dd><p>Provide clear error message showing the invalid parameter path.</p>
+<p>Traces back through the InvalidParam chain to find the first missing
+parameter and displays its full path for debugging.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>String representation showing the invalid parameter path</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Error message generation:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">missing</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">database</span><span class="o">.</span><span class="n">missing</span><span class="o">.</span><span class="n">timeout</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">missing</span><span class="p">)</span>
+<span class="go">&lt;InvalidParam: &#39;root.database.missing&#39;&gt;</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey.deployment.loader.Params">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.deployment.loader.</span></span><span class="sig-name descname"><span class="pre">Params</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#Params"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.Params" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#osprey.deployment.loader.AbstractParam" title="osprey.deployment.loader.AbstractParam"><code class="xref py py-class docutils literal notranslate"><span class="pre">AbstractParam</span></code></a></p>
+<p>Primary parameter container providing hierarchical access to configuration data.</p>
+<p>This class wraps configuration data (dictionaries, lists, or scalar values) and
+provides type-safe, hierarchical access through dot notation and bracket notation.
+The class handles environment variable expansion, supports deep copying, and
+provides graceful error handling through InvalidParam objects.</p>
+<p>Params objects automatically detect the data type (dict, list, or scalar) and
+provide appropriate access methods. Nested structures are recursively wrapped
+in Params objects, creating a complete hierarchy that maintains parent-child
+relationships for path tracking and error reporting.</p>
+<p>Environment variable expansion is performed on string values using os.expandvars,
+allowing configuration files to reference environment variables with ${VAR} syntax.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>data</strong> (<em>dict</em><em> or </em><em>list</em><em> or </em><em>Any</em>) – Configuration data to wrap (dict, list, or scalar value)</p></li>
+<li><p><strong>name</strong> (<em>str</em>) – Name of this parameter within its parent container</p></li>
+<li><p><strong>parent</strong> (<a class="reference internal" href="#osprey.deployment.loader.AbstractParam" title="osprey.deployment.loader.AbstractParam"><em>AbstractParam</em></a><em>, </em><em>optional</em>) – Parent parameter object, None for root parameters</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Dictionary access patterns:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">config_data</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;database&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;host&#39;</span><span class="p">:</span> <span class="s1">&#39;localhost&#39;</span><span class="p">,</span> <span class="s1">&#39;port&#39;</span><span class="p">:</span> <span class="mi">5432</span><span class="p">}}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">params</span> <span class="o">=</span> <span class="n">Params</span><span class="p">(</span><span class="n">config_data</span><span class="p">,</span> <span class="s1">&#39;root&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">host</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">database</span><span class="o">.</span><span class="n">host</span>  <span class="c1"># &#39;localhost&#39;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">port</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">database</span><span class="p">[</span><span class="s1">&#39;port&#39;</span><span class="p">]</span>  <span class="c1"># 5432</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">missing</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">cache</span><span class="o">.</span><span class="n">timeout</span>  <span class="c1"># InvalidParam, not exception</span>
+</pre></div>
+</div>
+<p>List access patterns:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">config_data</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;servers&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;web1&#39;</span><span class="p">,</span> <span class="s1">&#39;web2&#39;</span><span class="p">,</span> <span class="s1">&#39;api1&#39;</span><span class="p">]}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">params</span> <span class="o">=</span> <span class="n">Params</span><span class="p">(</span><span class="n">config_data</span><span class="p">,</span> <span class="s1">&#39;root&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">first_server</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">servers</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>  <span class="c1"># &#39;web1&#39;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">server_count</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">servers</span><span class="p">)</span>  <span class="c1"># 3</span>
+</pre></div>
+</div>
+<p>Environment variable expansion:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">config_data</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;path&#39;</span><span class="p">:</span> <span class="s1">&#39;$</span><span class="si">{HOME}</span><span class="s1">/data&#39;</span><span class="p">,</span> <span class="s1">&#39;url&#39;</span><span class="p">:</span> <span class="s1">&#39;$</span><span class="si">{API_HOST}</span><span class="s1">:$</span><span class="si">{API_PORT}</span><span class="s1">&#39;</span><span class="p">}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">params</span> <span class="o">=</span> <span class="n">Params</span><span class="p">(</span><span class="n">config_data</span><span class="p">,</span> <span class="s1">&#39;root&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Environment variables are expanded when values are accessed</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">data_path</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">path</span>  <span class="c1"># &#39;/home/user/data&#39; (if HOME is set)</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><a class="reference internal" href="#osprey.deployment.loader.InvalidParam" title="osprey.deployment.loader.InvalidParam"><code class="xref py py-class docutils literal notranslate"><span class="pre">InvalidParam</span></code></a> : Error handling for missing configuration keys
+<a class="reference internal" href="#osprey.deployment.loader.AbstractParam" title="osprey.deployment.loader.AbstractParam"><code class="xref py py-class docutils literal notranslate"><span class="pre">AbstractParam</span></code></a> : Base class defining the parameter interface
+<a class="reference internal" href="#osprey.deployment.loader.load_params" title="osprey.deployment.loader.load_params"><code class="xref py py-func docutils literal notranslate"><span class="pre">load_params()</span></code></a> : Main entry point for creating Params from YAML files</p>
+</div>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.deployment.loader.Params.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#Params.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.Params.__init__" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.deployment.loader.Params.is_valid">
+<span class="sig-name descname"><span class="pre">is_valid</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#Params.is_valid"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.Params.is_valid" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.deployment.loader.Params.keys">
+<span class="sig-name descname"><span class="pre">keys</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#Params.keys"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.Params.keys" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.deployment.loader.Params.values">
+<span class="sig-name descname"><span class="pre">values</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#Params.values"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.Params.values" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.deployment.loader.Params.items">
+<span class="sig-name descname"><span class="pre">items</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#Params.items"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.Params.items" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.deployment.loader.Params.get">
+<span class="sig-name descname"><span class="pre">get</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#Params.get"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.Params.get" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.deployment.loader.Params.__deepcopy__">
+<span class="sig-name descname"><span class="pre">__deepcopy__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">memo</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/deployment/loader.html#Params.__deepcopy__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.deployment.loader.Params.__deepcopy__" title="Link to this definition">#</a></dt>
+<dd><p>Copies the data into its native format, without Param objects.</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-constants">
+<h2>Module Constants<a class="headerlink" href="#module-constants" title="Link to this heading">#</a></h2>
+<dl class="py data">
+<dt class="sig sig-object py" id="osprey.deployment.container_manager.SERVICES_DIR">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.container_manager.</span></span><span class="sig-name descname"><span class="pre">SERVICES_DIR</span></span><a class="headerlink" href="#osprey.deployment.container_manager.SERVICES_DIR" title="Link to this definition">#</a></dt>
+<dd><p>Directory name for service configurations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+<dt class="field-even">Value<span class="colon">:</span></dt>
+<dd class="field-even"><p>“services”</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="osprey.deployment.container_manager.TEMPLATE_FILENAME">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.container_manager.</span></span><span class="sig-name descname"><span class="pre">TEMPLATE_FILENAME</span></span><a class="headerlink" href="#osprey.deployment.container_manager.TEMPLATE_FILENAME" title="Link to this definition">#</a></dt>
+<dd><p>Standard filename for Docker Compose templates.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+<dt class="field-even">Value<span class="colon">:</span></dt>
+<dd class="field-even"><p>“docker-compose.yml.j2”</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="osprey.deployment.container_manager.COMPOSE_FILE_NAME">
+<span class="sig-prename descclassname"><span class="pre">osprey.deployment.container_manager.</span></span><span class="sig-name descname"><span class="pre">COMPOSE_FILE_NAME</span></span><a class="headerlink" href="#osprey.deployment.container_manager.COMPOSE_FILE_NAME" title="Link to this definition">#</a></dt>
+<dd><p>Standard filename for rendered Docker Compose files.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+<dt class="field-even">Value<span class="colon">:</span></dt>
+<dd class="field-even"><p>“docker-compose.yml”</p>
+</dd>
+</dl>
+</dd></dl>
+
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../../developer-guides/05_production-systems/05_container-and-deployment.html"><span class="doc">Container Deployment</span></a></dt><dd><p>Complete guide to container deployment patterns</p>
+</dd>
+<dt><a class="reference internal" href="../01_core_framework/04_configuration_system.html"><span class="doc">Configuration System</span></a></dt><dd><p>Framework configuration system integration</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="04_memory-storage.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Memory Storage</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="06_control-system-connectors.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Control System Connectors</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-osprey.deployment.container_manager">Container Orchestration</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.container_manager.find_service_config"><code class="docutils literal notranslate"><span class="pre">find_service_config()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.container_manager.get_templates"><code class="docutils literal notranslate"><span class="pre">get_templates()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.container_manager.render_template"><code class="docutils literal notranslate"><span class="pre">render_template()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.container_manager.render_kernel_templates"><code class="docutils literal notranslate"><span class="pre">render_kernel_templates()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.container_manager.setup_build_dir"><code class="docutils literal notranslate"><span class="pre">setup_build_dir()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.container_manager.parse_args"><code class="docutils literal notranslate"><span class="pre">parse_args()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.container_manager.find_existing_compose_files"><code class="docutils literal notranslate"><span class="pre">find_existing_compose_files()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.container_manager.clean_deployment"><code class="docutils literal notranslate"><span class="pre">clean_deployment()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.container_manager.prepare_compose_files"><code class="docutils literal notranslate"><span class="pre">prepare_compose_files()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.container_manager.deploy_up"><code class="docutils literal notranslate"><span class="pre">deploy_up()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.container_manager.deploy_down"><code class="docutils literal notranslate"><span class="pre">deploy_down()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.container_manager.deploy_restart"><code class="docutils literal notranslate"><span class="pre">deploy_restart()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.container_manager.show_status"><code class="docutils literal notranslate"><span class="pre">show_status()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.container_manager.rebuild_deployment"><code class="docutils literal notranslate"><span class="pre">rebuild_deployment()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-osprey.deployment.runtime_helper">Runtime Detection</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.runtime_helper.get_runtime_command"><code class="docutils literal notranslate"><span class="pre">get_runtime_command()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.runtime_helper.verify_runtime_is_running"><code class="docutils literal notranslate"><span class="pre">verify_runtime_is_running()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.runtime_helper.get_ps_command"><code class="docutils literal notranslate"><span class="pre">get_ps_command()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-osprey.deployment.loader">Configuration Loading</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.load_params"><code class="docutils literal notranslate"><span class="pre">load_params()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.AbstractParam"><code class="docutils literal notranslate"><span class="pre">AbstractParam</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.AbstractParam.__init__"><code class="docutils literal notranslate"><span class="pre">AbstractParam.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.AbstractParam.get_path"><code class="docutils literal notranslate"><span class="pre">AbstractParam.get_path()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.AbstractParam.copy"><code class="docutils literal notranslate"><span class="pre">AbstractParam.copy()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.AbstractParam.is_valid"><code class="docutils literal notranslate"><span class="pre">AbstractParam.is_valid()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.InvalidParam"><code class="docutils literal notranslate"><span class="pre">InvalidParam</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.InvalidParam.__init__"><code class="docutils literal notranslate"><span class="pre">InvalidParam.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.InvalidParam.is_valid"><code class="docutils literal notranslate"><span class="pre">InvalidParam.is_valid()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.InvalidParam.__getattr__"><code class="docutils literal notranslate"><span class="pre">InvalidParam.__getattr__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.InvalidParam.__getitem__"><code class="docutils literal notranslate"><span class="pre">InvalidParam.__getitem__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.InvalidParam.__bool__"><code class="docutils literal notranslate"><span class="pre">InvalidParam.__bool__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.InvalidParam.__repr__"><code class="docutils literal notranslate"><span class="pre">InvalidParam.__repr__()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.Params"><code class="docutils literal notranslate"><span class="pre">Params</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.Params.__init__"><code class="docutils literal notranslate"><span class="pre">Params.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.Params.is_valid"><code class="docutils literal notranslate"><span class="pre">Params.is_valid()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.Params.keys"><code class="docutils literal notranslate"><span class="pre">Params.keys()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.Params.values"><code class="docutils literal notranslate"><span class="pre">Params.values()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.Params.items"><code class="docutils literal notranslate"><span class="pre">Params.items()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.Params.get"><code class="docutils literal notranslate"><span class="pre">Params.get()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.loader.Params.__deepcopy__"><code class="docutils literal notranslate"><span class="pre">Params.__deepcopy__()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-constants">Module Constants</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.container_manager.SERVICES_DIR"><code class="docutils literal notranslate"><span class="pre">SERVICES_DIR</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.container_manager.TEMPLATE_FILENAME"><code class="docutils literal notranslate"><span class="pre">TEMPLATE_FILENAME</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.deployment.container_manager.COMPOSE_FILE_NAME"><code class="docutils literal notranslate"><span class="pre">COMPOSE_FILE_NAME</span></code></a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/api_reference/03_production_systems/05_container-management.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

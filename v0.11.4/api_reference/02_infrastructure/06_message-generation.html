@@ -1,0 +1,2011 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Message Generation &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'api_reference/02_infrastructure/06_message-generation';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Production Systems" href="../03_production_systems/index.html" />
+    <link rel="prev" title="Execution Control" href="05_execution-control.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../01_core_framework/index.html">Core Framework</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/01_base_components.html">Base Components</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/02_state_and_context.html">State and Context Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/03_registry_system.html">Registry System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/04_configuration_system.html">Configuration System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/05_prompt_management.html">Prompt System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/06_command_system.html">Command System</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Infrastructure</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="01_gateway.html">Gateway</a></li>
+<li class="toctree-l2"><a class="reference internal" href="02_task-extraction.html">Task Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="03_classification.html">Classification</a></li>
+<li class="toctree-l2"><a class="reference internal" href="04_orchestration.html">Orchestration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="05_execution-control.html">Execution Control</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Message Generation</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../03_production_systems/index.html">Production Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/01_human-approval.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/02_data-management.html">Data Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/03_python-execution.html">Python Execution</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/04_memory-storage.html">Memory Storage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/05_container-management.html">Container Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/06_control-system-connectors.html">Control System Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/07_ariel-search.html">ARIEL Search Service</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../04_error_handling/index.html">Error Handling</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/01_classification_system.html">Classification System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/02_exception_reference.html">Exception Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/03_recovery_coordination.html">Recovery Coordination</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../05_framework_utilities/index.html">Framework Utilities</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">API Reference</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Infrastructure</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Message Generation</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="message-generation">
+<h1>Message Generation<a class="headerlink" href="#message-generation" title="Link to this heading">#</a></h1>
+<p>Message generation capabilities for responding to user queries and requesting clarification when needed.</p>
+<section id="respond-capability">
+<h2>Respond Capability<a class="headerlink" href="#respond-capability" title="Link to this heading">#</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.infrastructure.respond_node.</span></span><span class="sig-name descname"><span class="pre">RespondCapability</span></span><a class="reference internal" href="../../_modules/osprey/infrastructure/respond_node.html#RespondCapability"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.BaseCapability" title="osprey.base.capability.BaseCapability"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseCapability</span></code></a></p>
+<p>Respond to user queries with appropriate response strategy.</p>
+<p>Generates comprehensive responses for both technical queries requiring
+execution context and conversational queries. Adapts response strategy
+based on available context and execution history.</p>
+<p>Initialize the capability and validate required components.</p>
+<p>Performs comprehensive validation of the capability class to ensure all
+required components are properly defined. This validation happens at
+initialization time to provide immediate feedback during development
+rather than waiting for runtime execution failures.</p>
+<p>The validation process checks:
+1. Required class attributes (name, description) are defined and non-None
+2. The execute method is implemented as a static method
+3. Optional attributes are properly initialized with defaults if missing
+4. The ‘requires’ field format is valid (strings or (context_type, cardinality) tuples)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>NotImplementedError</strong> – If name or description class attributes are missing</p></li>
+<li><p><strong>NotImplementedError</strong> – If execute static method is not implemented</p></li>
+<li><p><strong>ValueError</strong> – If requires field contains invalid format</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This initialization performs validation only. The actual LangGraph
+integration happens through the &#64;capability_node decorator.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Subclasses should not override this method unless they need additional
+validation. Override _create_orchestrator_guide() or _create_classifier_guide()
+for customization instead.</p>
+</div>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.name">
+<span class="sig-name descname"><span class="pre">name</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'respond'</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.name" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.description">
+<span class="sig-name descname"><span class="pre">description</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'Respond</span> <span class="pre">to</span> <span class="pre">user</span> <span class="pre">queries</span> <span class="pre">by</span> <span class="pre">generating</span> <span class="pre">appropriate</span> <span class="pre">responses</span> <span class="pre">for</span> <span class="pre">both</span> <span class="pre">technical</span> <span class="pre">and</span> <span class="pre">conversational</span> <span class="pre">questions'</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.description" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.provides">
+<span class="sig-name descname"><span class="pre">provides</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">['FINAL_RESPONSE']</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.provides" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.requires">
+<span class="sig-name descname"><span class="pre">requires</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">[]</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.requires" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.execute">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">execute</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/respond_node.html#RespondCapability.execute"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.execute" title="Link to this definition">#</a></dt>
+<dd><p>Generate appropriate response using unified dynamic prompt construction.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>State update with generated response</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dict[str, Any]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.classify_error">
+<span class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">classify_error</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">exc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/respond_node.html#RespondCapability.classify_error"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.classify_error" title="Link to this definition">#</a></dt>
+<dd><p>Response generation error classification.</p>
+<dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.__init__" title="Link to this definition">#</a></dt>
+<dd><p>Initialize the capability and validate required components.</p>
+<p>Performs comprehensive validation of the capability class to ensure all
+required components are properly defined. This validation happens at
+initialization time to provide immediate feedback during development
+rather than waiting for runtime execution failures.</p>
+<p>The validation process checks:
+1. Required class attributes (name, description) are defined and non-None
+2. The execute method is implemented as a static method
+3. Optional attributes are properly initialized with defaults if missing
+4. The ‘requires’ field format is valid (strings or (context_type, cardinality) tuples)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>NotImplementedError</strong> – If name or description class attributes are missing</p></li>
+<li><p><strong>NotImplementedError</strong> – If execute static method is not implemented</p></li>
+<li><p><strong>ValueError</strong> – If requires field contains invalid format</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This initialization performs validation only. The actual LangGraph
+integration happens through the &#64;capability_node decorator.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Subclasses should not override this method unless they need additional
+validation. Override _create_orchestrator_guide() or _create_classifier_guide()
+for customization instead.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.__repr__">
+<span class="sig-name descname"><span class="pre">__repr__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.__repr__" title="Link to this definition">#</a></dt>
+<dd><p>Return a string representation of the capability.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>String representation including class name and capability name</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.classifier_guide">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">classifier_guide</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Any</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.classifier_guide" title="Link to this definition">#</a></dt>
+<dd><p>Get the classifier guide for this capability (lazy-loaded).</p>
+<p>Standardized interface used by the framework. Automatically calls
+_create_classifier_guide() on first access and caches the result.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Classifier guide for capability activation, or None if not needed</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Optional[<a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.TaskClassifierGuide" title="osprey.base.TaskClassifierGuide">TaskClassifierGuide</a>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.get_logger">
+<span class="sig-name descname"><span class="pre">get_logger</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.get_logger" title="Link to this definition">#</a></dt>
+<dd><p>Get unified logger with automatic streaming support.</p>
+<p>Creates a logger that:
+- Uses this capability’s name automatically
+- Has access to state for streaming via self._state
+- Streams high-level messages automatically when in LangGraph context
+- Logs to CLI with Rich formatting</p>
+<p>The logger intelligently handles both CLI output and web UI streaming through
+a single API. High-level status updates (status, error, success) automatically
+stream to the web UI, while detailed logging (info, debug) goes to CLI only
+by default.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>ComponentLogger instance with streaming capability</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id1"><span class="problematic" id="id2">``</span></a><a href="#id3"><span class="problematic" id="id4">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p>logger = self.get_logger()</p>
+<p># Status updates - emits StatusEvent
+logger.status(“Creating execution plan…”)</p>
+<p># Info messages - emits StatusEvent with level=”info”
+logger.info(f”Active capabilities: {capabilities}”)</p>
+<p># Debug messages - emits StatusEvent with level=”debug”
+logger.debug(“Detailed state information…”)</p>
+<p># Errors - emits ErrorEvent
+logger.error(“Validation failed”, validation_errors=[…])</p>
+<p># Success with metadata - emits StatusEvent with level=”success”
+logger.success(“Plan created”, steps=5, total_time=2.3)</p>
+<p>return self.store_output_context(result)</p>
+</div></blockquote>
+<p><a href="#id5"><span class="problematic" id="id6">``</span></a><a href="#id7"><span class="problematic" id="id8">`</span></a></p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>All logger methods emit TypedEvents. The transport is handled automatically
+via LangGraph streaming (during graph execution) or fallback handlers
+(outside graph). Downstream clients (CLI, TUI) filter and render events.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><code class="xref py py-class docutils literal notranslate"><span class="pre">ComponentLogger</span></code> : Logger class with streaming methods
+<a class="reference internal" href="#osprey.infrastructure.respond_node.RespondCapability.get_logger" title="osprey.infrastructure.respond_node.RespondCapability.get_logger"><code class="xref py py-func docutils literal notranslate"><span class="pre">get_logger()</span></code></a> : Underlying logger factory function</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.get_parameters">
+<span class="sig-name descname"><span class="pre">get_parameters</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">default</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.get_parameters" title="Link to this definition">#</a></dt>
+<dd><p>Get parameters from the current step.</p>
+<p>The orchestrator can provide optional parameters in the step definition
+that control capability behavior (e.g., precision, timeout, mode).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>default</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – Default value to return if no parameters exist (defaults to empty dict)</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Parameters dictionary from the step</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>RuntimeError</strong> – If called outside execute() (state not injected)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id9"><span class="problematic" id="id10">``</span></a><a href="#id11"><span class="problematic" id="id12">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p>params = self.get_parameters()
+precision_ms = params.get(‘precision_ms’, 1000)
+timeout = params.get(‘timeout’, 30)</p>
+<p># Or with a custom default
+params = self.get_parameters(default={‘precision_ms’: 1000})
+<a href="#id13"><span class="problematic" id="id14">``</span></a><a href="#id15"><span class="problematic" id="id16">`</span></a></p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.get_required_contexts">
+<span class="sig-name descname"><span class="pre">get_required_contexts</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">constraint_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'hard'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.get_required_contexts" title="Link to this definition">#</a></dt>
+<dd><p>Automatically extract contexts based on ‘requires’ field.</p>
+<p>The constraint_mode applies uniformly to ALL requirements.
+Use “hard” when all are required, “soft” when at least one is required.</p>
+<p>Tuple format is ONLY for cardinality constraints:
+- “single”: Must be exactly one instance (not a list)
+- “multiple”: Must be a list (not single instance)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>constraint_mode</strong> (<em>Literal</em><em>[</em><em>'hard'</em><em>, </em><em>'soft'</em><em>]</em>) – “hard” (all required) or “soft” (at least one required)</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>RequiredContexts object supporting both dict and tuple unpacking access</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>RuntimeError</strong> – If called outside execute() (state not injected)</p></li>
+<li><p><strong>ValueError</strong> – If required contexts missing or cardinality violated</p></li>
+<li><p><strong>AttributeError</strong> – If context type not found in registry</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><em>RequiredContexts</em></p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id17"><span class="problematic" id="id18">``</span></a><a href="#id19"><span class="problematic" id="id20">`</span></a>python
+# Define requirements
+requires = [“CHANNEL_ADDRESSES”, (“TIME_RANGE”, “single”)]</p>
+<p># Elegant tuple unpacking (matches order in requires)
+channels, time_range = self.get_required_contexts()</p>
+<p># Traditional dict access (backward compatible)
+contexts = self.get_required_contexts()
+channels = contexts[“CHANNEL_ADDRESSES”]
+time_range = contexts[“TIME_RANGE”]
+<a href="#id21"><span class="problematic" id="id22">``</span></a><a href="#id23"><span class="problematic" id="id24">`</span></a></p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Tuple unpacking only works reliably with constraint_mode=”hard” (default).
+When using “soft” mode, use dict access instead since the number of
+returned contexts may vary:</p>
+<blockquote>
+<div><p>contexts = self.get_required_contexts(constraint_mode=”soft”)
+a = contexts.get(“CONTEXT_A”)
+b = contexts.get(“CONTEXT_B”)</p>
+</div></blockquote>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.get_retry_policy">
+<span class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">get_retry_policy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.get_retry_policy" title="Link to this definition">#</a></dt>
+<dd><p>Get retry policy configuration for failure recovery strategies.</p>
+<p>This method provides retry configuration that the framework uses for
+manual retry handling when capabilities fail with RETRIABLE errors.
+The default policy provides reasonable defaults for most capabilities,
+but should be overridden for capabilities with specific timing or
+retry requirements.</p>
+<p>The retry policy controls:
+- Maximum number of retry attempts before giving up
+- Initial delay between retry attempts
+- Backoff factor for exponential delay increase</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Dictionary containing retry configuration parameters</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dict[str, Any]</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The framework uses manual retry handling rather than LangGraph’s
+native retry policies to ensure consistent behavior across all
+components and to enable sophisticated error classification.</p>
+</div>
+<p class="rubric">Examples</p>
+<p>Aggressive retry for network-dependent capability:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="nd">@staticmethod</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_retry_policy</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;max_attempts&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span>      <span class="c1"># More attempts for network issues</span>
+        <span class="s2">&quot;delay_seconds&quot;</span><span class="p">:</span> <span class="mf">2.0</span><span class="p">,</span>   <span class="c1"># Longer delay for external services</span>
+        <span class="s2">&quot;backoff_factor&quot;</span><span class="p">:</span> <span class="mf">2.0</span>   <span class="c1"># Exponential backoff</span>
+    <span class="p">}</span>
+</pre></div>
+</div>
+<p>Conservative retry for expensive operations:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="nd">@staticmethod</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_retry_policy</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;max_attempts&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>      <span class="c1"># Minimal retries for expensive ops</span>
+        <span class="s2">&quot;delay_seconds&quot;</span><span class="p">:</span> <span class="mf">0.1</span><span class="p">,</span>   <span class="c1"># Quick retry for transient issues</span>
+        <span class="s2">&quot;backoff_factor&quot;</span><span class="p">:</span> <span class="mf">1.0</span>   <span class="c1"># No backoff for fast operations</span>
+    <span class="p">}</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><a class="reference internal" href="#osprey.infrastructure.respond_node.RespondCapability.classify_error" title="osprey.infrastructure.respond_node.RespondCapability.classify_error"><code class="xref py py-func docutils literal notranslate"><span class="pre">classify_error()</span></code></a> : Error classification that determines when to retry
+<code class="xref py py-class docutils literal notranslate"><span class="pre">ErrorSeverity</span></code> : RETRIABLE severity triggers retry policy usage</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.get_step_inputs">
+<span class="sig-name descname"><span class="pre">get_step_inputs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">default</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.get_step_inputs" title="Link to this definition">#</a></dt>
+<dd><p>Get the inputs list from the current step.</p>
+<p>The orchestrator provides inputs in each step as a list of {context_type: context_key}
+mappings that specify which contexts are available for this step. This is commonly
+used for building context descriptions, validation, and informing the LLM about
+available data.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>default</strong> (<em>list</em><em>[</em><em>dict</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em><em>] </em><em>| </em><em>None</em>) – Default value to return if no inputs exist (defaults to empty list)</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of input mappings from the step</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>RuntimeError</strong> – If called outside execute() (state not injected)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>list[dict[str, str]]</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id25"><span class="problematic" id="id26">``</span></a><a href="#id27"><span class="problematic" id="id28">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p># Get step inputs
+step_inputs = self.get_step_inputs()</p>
+<p># Use with ContextManager to build description
+from osprey.context import ContextManager
+context_manager = ContextManager(self._state)
+context_description = context_manager.get_context_access_description(step_inputs)</p>
+<p># Or with a custom default
+step_inputs = self.get_step_inputs(default=[])
+<a href="#id29"><span class="problematic" id="id30">``</span></a><a href="#id31"><span class="problematic" id="id32">`</span></a></p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.get_task_objective">
+<span class="sig-name descname"><span class="pre">get_task_objective</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">default</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.get_task_objective" title="Link to this definition">#</a></dt>
+<dd><p>Get the task objective for the current step.</p>
+<p>The orchestrator provides task_objective in each step to describe what
+the capability should accomplish. This is commonly used for logging,
+search queries, and LLM prompts.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>default</strong> (<em>str</em><em> | </em><em>None</em>) – Default value if task_objective not in step.
+If None, falls back to current task from state.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Task objective string</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>RuntimeError</strong> – If called outside execute() (state not injected)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id33"><span class="problematic" id="id34">``</span></a><a href="#id35"><span class="problematic" id="id36">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p># Get task objective with automatic fallback
+task = self.get_task_objective()
+logger = self.get_logger()
+logger.status(f”Starting: {task}”)  # Emits StatusEvent</p>
+<p># Or with custom default
+task = self.get_task_objective(default=”unknown task”)</p>
+<p># Common pattern: use as search query
+search_query = self.get_task_objective().lower()
+<a href="#id37"><span class="problematic" id="id38">``</span></a><a href="#id39"><span class="problematic" id="id40">`</span></a></p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.langgraph_node">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">langgraph_node</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.langgraph_node" title="Link to this definition">#</a></dt>
+<dd><p>LangGraph-native node function with manual retry handling via router.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.orchestrator_guide">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">orchestrator_guide</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Any</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.orchestrator_guide" title="Link to this definition">#</a></dt>
+<dd><p>Get the orchestrator guide for this capability (lazy-loaded).</p>
+<p>Standardized interface used by the framework. Automatically calls
+_create_orchestrator_guide() on first access and caches the result.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Orchestrator guide for execution planning integration, or None if not needed</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Optional[<a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.OrchestratorGuide" title="osprey.base.OrchestratorGuide">OrchestratorGuide</a>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.process_extracted_contexts">
+<span class="sig-name descname"><span class="pre">process_extracted_contexts</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">contexts</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.process_extracted_contexts" title="Link to this definition">#</a></dt>
+<dd><p>Override to customize extracted contexts (e.g., flatten lists).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>contexts</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.context.CapabilityContext" title="osprey.context.CapabilityContext"><em>CapabilityContext</em></a><em> | </em><em>list</em><em>[</em><a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.context.CapabilityContext" title="osprey.context.CapabilityContext"><em>CapabilityContext</em></a><em>]</em><em>]</em>) – Dict mapping context type names to extracted objects</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Processed contexts dict</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict[str, <a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.context.CapabilityContext" title="osprey.context.CapabilityContext">CapabilityContext</a> | list[<a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.context.CapabilityContext" title="osprey.context.CapabilityContext">CapabilityContext</a>]]</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id41"><span class="problematic" id="id42">``</span></a><a href="#id43"><span class="problematic" id="id44">`</span></a>python
+def process_extracted_contexts(self, contexts):</p>
+<blockquote>
+<div><p>‘’’Flatten list of CHANNEL_ADDRESSES.’’’
+channels_raw = contexts[“CHANNEL_ADDRESSES”]</p>
+<dl>
+<dt>if isinstance(channels_raw, list):</dt><dd><p>flat = []
+for ctx in channels_raw:</p>
+<blockquote>
+<div><p>flat.extend(ctx.channels)</p>
+</div></blockquote>
+<p>contexts[“CHANNEL_ADDRESSES”] = flat</p>
+</dd>
+<dt>else:</dt><dd><p>contexts[“CHANNEL_ADDRESSES”] = channels_raw.channels</p>
+</dd>
+</dl>
+<p>return contexts</p>
+</div></blockquote>
+<p><a href="#id45"><span class="problematic" id="id46">``</span></a><a href="#id47"><span class="problematic" id="id48">`</span></a></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.slash_command">
+<span class="sig-name descname"><span class="pre">slash_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.slash_command" title="Link to this definition">#</a></dt>
+<dd><p>Read a capability-specific slash command from state.</p>
+<p>Convenience method that uses self._state automatically. This allows
+capabilities to read custom slash commands that were not registered
+in the command registry.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>name</strong> (<em>str</em>) – Command name (without leading slash)</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>If command was provided with a value (/beam:diagnostic -&gt; “diagnostic”)
+- True: If command was provided without value (/verbose -&gt; True)
+- None: If command was not provided</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><ul class="simple">
+<li><p>str</p></li>
+</ul>
+</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>RuntimeError</strong> – If called outside execute() (state not injected)</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Using in a capability’s execute method:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="c1"># Check for /beam:mode command</span>
+    <span class="k">if</span> <span class="n">mode</span> <span class="o">:=</span> <span class="bp">self</span><span class="o">.</span><span class="n">slash_command</span><span class="p">(</span><span class="s2">&quot;beam&quot;</span><span class="p">):</span>
+        <span class="c1"># mode is &quot;diagnostic&quot; if user typed /beam:diagnostic</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">[</span><span class="s2">&quot;beam_mode&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">mode</span>
+
+    <span class="c1"># Check for /verbose flag</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">slash_command</span><span class="p">(</span><span class="s2">&quot;verbose&quot;</span><span class="p">):</span>
+        <span class="c1"># User typed /verbose</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">[</span><span class="s2">&quot;beamline_verbose&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.store_output_context">
+<span class="sig-name descname"><span class="pre">store_output_context</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">context_data</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.store_output_context" title="Link to this definition">#</a></dt>
+<dd><p>Store single output context - uses context’s CONTEXT_TYPE attribute.</p>
+<p>No need for provides field or state/step parameters!</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>context_data</strong> (<a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.context.CapabilityContext" title="osprey.context.CapabilityContext"><em>CapabilityContext</em></a>) – Context object with CONTEXT_TYPE class variable</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>State updates dict for LangGraph to merge</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>AttributeError</strong> – If context_data lacks CONTEXT_TYPE class variable</p></li>
+<li><p><strong>RuntimeError</strong> – If called outside execute() (state not injected)</p></li>
+<li><p><strong>ValueError</strong> – If context_key missing from step</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, Any]</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><code class="docutils literal notranslate"><span class="pre">`python</span>
+<span class="pre">return</span> <span class="pre">self.store_output_context(ArchiverDataContext(...))</span>
+<span class="pre">`</span></code></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.RespondCapability.store_output_contexts">
+<span class="sig-name descname"><span class="pre">store_output_contexts</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">context_objects</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.respond_node.RespondCapability.store_output_contexts" title="Link to this definition">#</a></dt>
+<dd><p>Store multiple output contexts - all self-describing.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>*context_objects</strong> (<a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.context.CapabilityContext" title="osprey.context.CapabilityContext"><em>CapabilityContext</em></a>) – Context objects with CONTEXT_TYPE attributes</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Merged state updates dict for LangGraph</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>AttributeError</strong> – If any context lacks CONTEXT_TYPE</p></li>
+<li><p><strong>RuntimeError</strong> – If called outside execute()</p></li>
+<li><p><strong>ValueError</strong> – If context types don’t match provides field</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, Any]</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id49"><span class="problematic" id="id50">``</span></a><a href="#id51"><span class="problematic" id="id52">`</span></a>python
+return self.store_output_contexts(</p>
+<blockquote>
+<div><p>ArchiverDataContext(…),
+MetadataContext(…),
+StatisticsContext(…)</p>
+</div></blockquote>
+<section id="id53">
+<h3>)<a class="headerlink" href="#id53" title="Link to this heading">#</a></h3>
+</section>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.ResponseContext">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.infrastructure.respond_node.</span></span><span class="sig-name descname"><span class="pre">ResponseContext</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">current_task</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">execution_history</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">relevant_context</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_killed</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kill_reason</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">capabilities_overview</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">total_steps_executed</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">execution_start_time</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reclassification_count</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">current_date</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">figures_available</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">commands_available</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">notebooks_available</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interface_context</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chat_history</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/respond_node.html#ResponseContext"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.respond_node.ResponseContext" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Container for all information needed for response generation.</p>
+<p>Aggregates all relevant information from the agent state for
+comprehensive response generation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>current_task</strong> (<em>str</em>) – The current task being addressed</p></li>
+<li><p><strong>execution_history</strong> (<em>List</em><em>[</em><em>Any</em><em>]</em>) – List of executed steps</p></li>
+<li><p><strong>relevant_context</strong> (<em>List</em><em>[</em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>]</em>) – Context data relevant to the response (list of summary dicts)</p></li>
+<li><p><strong>is_killed</strong> (<em>bool</em>) – Whether execution was terminated</p></li>
+<li><p><strong>kill_reason</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – Reason for termination if applicable</p></li>
+<li><p><strong>capabilities_overview</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – Overview of available capabilities</p></li>
+<li><p><strong>total_steps_executed</strong> (<em>int</em>) – Total number of steps executed</p></li>
+<li><p><strong>execution_start_time</strong> (<em>Optional</em><em>[</em><em>float</em><em>]</em>) – When execution started</p></li>
+<li><p><strong>reclassification_count</strong> (<em>int</em>) – Number of reclassification attempts</p></li>
+<li><p><strong>current_date</strong> (<em>str</em>) – Current date for temporal context</p></li>
+<li><p><strong>figures_available</strong> (<em>int</em>) – Number of figures available for display</p></li>
+<li><p><strong>commands_available</strong> (<em>int</em>) – Number of launchable commands available</p></li>
+<li><p><strong>notebooks_available</strong> (<em>int</em>) – Number of notebook links available</p></li>
+<li><p><strong>interface_context</strong> (<em>str</em>) – Interface type (openwebui, cli, etc.)</p></li>
+<li><p><strong>chat_history</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – Formatted chat history when task depends on conversation context</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.ResponseContext.current_task">
+<span class="sig-name descname"><span class="pre">current_task</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.ResponseContext.current_task" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.ResponseContext.execution_history">
+<span class="sig-name descname"><span class="pre">execution_history</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.ResponseContext.execution_history" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.ResponseContext.relevant_context">
+<span class="sig-name descname"><span class="pre">relevant_context</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.ResponseContext.relevant_context" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.ResponseContext.is_killed">
+<span class="sig-name descname"><span class="pre">is_killed</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.ResponseContext.is_killed" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.ResponseContext.kill_reason">
+<span class="sig-name descname"><span class="pre">kill_reason</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.ResponseContext.kill_reason" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.ResponseContext.capabilities_overview">
+<span class="sig-name descname"><span class="pre">capabilities_overview</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.ResponseContext.capabilities_overview" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.ResponseContext.total_steps_executed">
+<span class="sig-name descname"><span class="pre">total_steps_executed</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.ResponseContext.total_steps_executed" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.ResponseContext.execution_start_time">
+<span class="sig-name descname"><span class="pre">execution_start_time</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.ResponseContext.execution_start_time" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.ResponseContext.reclassification_count">
+<span class="sig-name descname"><span class="pre">reclassification_count</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.ResponseContext.reclassification_count" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.ResponseContext.current_date">
+<span class="sig-name descname"><span class="pre">current_date</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.ResponseContext.current_date" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.ResponseContext.figures_available">
+<span class="sig-name descname"><span class="pre">figures_available</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.ResponseContext.figures_available" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.ResponseContext.commands_available">
+<span class="sig-name descname"><span class="pre">commands_available</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.ResponseContext.commands_available" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.ResponseContext.notebooks_available">
+<span class="sig-name descname"><span class="pre">notebooks_available</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.ResponseContext.notebooks_available" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.ResponseContext.interface_context">
+<span class="sig-name descname"><span class="pre">interface_context</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.ResponseContext.interface_context" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.ResponseContext.chat_history">
+<span class="sig-name descname"><span class="pre">chat_history</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.infrastructure.respond_node.ResponseContext.chat_history" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.respond_node.ResponseContext.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">current_task</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">execution_history</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">relevant_context</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_killed</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kill_reason</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">capabilities_overview</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">total_steps_executed</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">execution_start_time</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reclassification_count</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">current_date</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">figures_available</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">commands_available</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">notebooks_available</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interface_context</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chat_history</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.respond_node.ResponseContext.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="clarify-capability">
+<h2>Clarify Capability<a class="headerlink" href="#clarify-capability" title="Link to this heading">#</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.infrastructure.clarify_node.</span></span><span class="sig-name descname"><span class="pre">ClarifyCapability</span></span><a class="reference internal" href="../../_modules/osprey/infrastructure/clarify_node.html#ClarifyCapability"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.BaseCapability" title="osprey.base.capability.BaseCapability"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseCapability</span></code></a></p>
+<p>Ask user for clarification when queries are ambiguous.</p>
+<p>Communication capability that generates targeted questions to clarify
+user intent when requests lack sufficient detail or context.</p>
+<p>Initialize the capability and validate required components.</p>
+<p>Performs comprehensive validation of the capability class to ensure all
+required components are properly defined. This validation happens at
+initialization time to provide immediate feedback during development
+rather than waiting for runtime execution failures.</p>
+<p>The validation process checks:
+1. Required class attributes (name, description) are defined and non-None
+2. The execute method is implemented as a static method
+3. Optional attributes are properly initialized with defaults if missing
+4. The ‘requires’ field format is valid (strings or (context_type, cardinality) tuples)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>NotImplementedError</strong> – If name or description class attributes are missing</p></li>
+<li><p><strong>NotImplementedError</strong> – If execute static method is not implemented</p></li>
+<li><p><strong>ValueError</strong> – If requires field contains invalid format</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This initialization performs validation only. The actual LangGraph
+integration happens through the &#64;capability_node decorator.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Subclasses should not override this method unless they need additional
+validation. Override _create_orchestrator_guide() or _create_classifier_guide()
+for customization instead.</p>
+</div>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.name">
+<span class="sig-name descname"><span class="pre">name</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'clarify'</span></span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.name" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.description">
+<span class="sig-name descname"><span class="pre">description</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'Ask</span> <span class="pre">specific</span> <span class="pre">questions</span> <span class="pre">when</span> <span class="pre">user</span> <span class="pre">queries</span> <span class="pre">are</span> <span class="pre">ambiguous</span> <span class="pre">or</span> <span class="pre">missing</span> <span class="pre">critical</span> <span class="pre">details'</span></span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.description" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.provides">
+<span class="sig-name descname"><span class="pre">provides</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">[]</span></span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.provides" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.requires">
+<span class="sig-name descname"><span class="pre">requires</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">[]</span></span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.requires" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.execute">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">execute</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/clarify_node.html#ClarifyCapability.execute"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.execute" title="Link to this definition">#</a></dt>
+<dd><p>Generate specific questions to ask user based on missing information.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>State update with clarification response</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dict[str, Any]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.classify_error">
+<span class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">classify_error</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">exc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/clarify_node.html#ClarifyCapability.classify_error"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.classify_error" title="Link to this definition">#</a></dt>
+<dd><p>Clarify error classification.</p>
+<dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.__init__" title="Link to this definition">#</a></dt>
+<dd><p>Initialize the capability and validate required components.</p>
+<p>Performs comprehensive validation of the capability class to ensure all
+required components are properly defined. This validation happens at
+initialization time to provide immediate feedback during development
+rather than waiting for runtime execution failures.</p>
+<p>The validation process checks:
+1. Required class attributes (name, description) are defined and non-None
+2. The execute method is implemented as a static method
+3. Optional attributes are properly initialized with defaults if missing
+4. The ‘requires’ field format is valid (strings or (context_type, cardinality) tuples)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>NotImplementedError</strong> – If name or description class attributes are missing</p></li>
+<li><p><strong>NotImplementedError</strong> – If execute static method is not implemented</p></li>
+<li><p><strong>ValueError</strong> – If requires field contains invalid format</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This initialization performs validation only. The actual LangGraph
+integration happens through the &#64;capability_node decorator.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Subclasses should not override this method unless they need additional
+validation. Override _create_orchestrator_guide() or _create_classifier_guide()
+for customization instead.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.__repr__">
+<span class="sig-name descname"><span class="pre">__repr__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.__repr__" title="Link to this definition">#</a></dt>
+<dd><p>Return a string representation of the capability.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>String representation including class name and capability name</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.classifier_guide">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">classifier_guide</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Any</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.classifier_guide" title="Link to this definition">#</a></dt>
+<dd><p>Get the classifier guide for this capability (lazy-loaded).</p>
+<p>Standardized interface used by the framework. Automatically calls
+_create_classifier_guide() on first access and caches the result.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Classifier guide for capability activation, or None if not needed</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Optional[<a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.TaskClassifierGuide" title="osprey.base.TaskClassifierGuide">TaskClassifierGuide</a>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.get_logger">
+<span class="sig-name descname"><span class="pre">get_logger</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.get_logger" title="Link to this definition">#</a></dt>
+<dd><p>Get unified logger with automatic streaming support.</p>
+<p>Creates a logger that:
+- Uses this capability’s name automatically
+- Has access to state for streaming via self._state
+- Streams high-level messages automatically when in LangGraph context
+- Logs to CLI with Rich formatting</p>
+<p>The logger intelligently handles both CLI output and web UI streaming through
+a single API. High-level status updates (status, error, success) automatically
+stream to the web UI, while detailed logging (info, debug) goes to CLI only
+by default.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>ComponentLogger instance with streaming capability</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id54"><span class="problematic" id="id55">``</span></a><a href="#id56"><span class="problematic" id="id57">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p>logger = self.get_logger()</p>
+<p># Status updates - emits StatusEvent
+logger.status(“Creating execution plan…”)</p>
+<p># Info messages - emits StatusEvent with level=”info”
+logger.info(f”Active capabilities: {capabilities}”)</p>
+<p># Debug messages - emits StatusEvent with level=”debug”
+logger.debug(“Detailed state information…”)</p>
+<p># Errors - emits ErrorEvent
+logger.error(“Validation failed”, validation_errors=[…])</p>
+<p># Success with metadata - emits StatusEvent with level=”success”
+logger.success(“Plan created”, steps=5, total_time=2.3)</p>
+<p>return self.store_output_context(result)</p>
+</div></blockquote>
+<p><a href="#id58"><span class="problematic" id="id59">``</span></a><a href="#id60"><span class="problematic" id="id61">`</span></a></p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>All logger methods emit TypedEvents. The transport is handled automatically
+via LangGraph streaming (during graph execution) or fallback handlers
+(outside graph). Downstream clients (CLI, TUI) filter and render events.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><code class="xref py py-class docutils literal notranslate"><span class="pre">ComponentLogger</span></code> : Logger class with streaming methods
+<a class="reference internal" href="#osprey.infrastructure.clarify_node.ClarifyCapability.get_logger" title="osprey.infrastructure.clarify_node.ClarifyCapability.get_logger"><code class="xref py py-func docutils literal notranslate"><span class="pre">get_logger()</span></code></a> : Underlying logger factory function</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.get_parameters">
+<span class="sig-name descname"><span class="pre">get_parameters</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">default</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.get_parameters" title="Link to this definition">#</a></dt>
+<dd><p>Get parameters from the current step.</p>
+<p>The orchestrator can provide optional parameters in the step definition
+that control capability behavior (e.g., precision, timeout, mode).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>default</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – Default value to return if no parameters exist (defaults to empty dict)</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Parameters dictionary from the step</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>RuntimeError</strong> – If called outside execute() (state not injected)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id62"><span class="problematic" id="id63">``</span></a><a href="#id64"><span class="problematic" id="id65">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p>params = self.get_parameters()
+precision_ms = params.get(‘precision_ms’, 1000)
+timeout = params.get(‘timeout’, 30)</p>
+<p># Or with a custom default
+params = self.get_parameters(default={‘precision_ms’: 1000})
+<a href="#id66"><span class="problematic" id="id67">``</span></a><a href="#id68"><span class="problematic" id="id69">`</span></a></p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.get_required_contexts">
+<span class="sig-name descname"><span class="pre">get_required_contexts</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">constraint_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'hard'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.get_required_contexts" title="Link to this definition">#</a></dt>
+<dd><p>Automatically extract contexts based on ‘requires’ field.</p>
+<p>The constraint_mode applies uniformly to ALL requirements.
+Use “hard” when all are required, “soft” when at least one is required.</p>
+<p>Tuple format is ONLY for cardinality constraints:
+- “single”: Must be exactly one instance (not a list)
+- “multiple”: Must be a list (not single instance)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>constraint_mode</strong> (<em>Literal</em><em>[</em><em>'hard'</em><em>, </em><em>'soft'</em><em>]</em>) – “hard” (all required) or “soft” (at least one required)</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>RequiredContexts object supporting both dict and tuple unpacking access</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>RuntimeError</strong> – If called outside execute() (state not injected)</p></li>
+<li><p><strong>ValueError</strong> – If required contexts missing or cardinality violated</p></li>
+<li><p><strong>AttributeError</strong> – If context type not found in registry</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><em>RequiredContexts</em></p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id70"><span class="problematic" id="id71">``</span></a><a href="#id72"><span class="problematic" id="id73">`</span></a>python
+# Define requirements
+requires = [“CHANNEL_ADDRESSES”, (“TIME_RANGE”, “single”)]</p>
+<p># Elegant tuple unpacking (matches order in requires)
+channels, time_range = self.get_required_contexts()</p>
+<p># Traditional dict access (backward compatible)
+contexts = self.get_required_contexts()
+channels = contexts[“CHANNEL_ADDRESSES”]
+time_range = contexts[“TIME_RANGE”]
+<a href="#id74"><span class="problematic" id="id75">``</span></a><a href="#id76"><span class="problematic" id="id77">`</span></a></p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Tuple unpacking only works reliably with constraint_mode=”hard” (default).
+When using “soft” mode, use dict access instead since the number of
+returned contexts may vary:</p>
+<blockquote>
+<div><p>contexts = self.get_required_contexts(constraint_mode=”soft”)
+a = contexts.get(“CONTEXT_A”)
+b = contexts.get(“CONTEXT_B”)</p>
+</div></blockquote>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.get_retry_policy">
+<span class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">get_retry_policy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.get_retry_policy" title="Link to this definition">#</a></dt>
+<dd><p>Get retry policy configuration for failure recovery strategies.</p>
+<p>This method provides retry configuration that the framework uses for
+manual retry handling when capabilities fail with RETRIABLE errors.
+The default policy provides reasonable defaults for most capabilities,
+but should be overridden for capabilities with specific timing or
+retry requirements.</p>
+<p>The retry policy controls:
+- Maximum number of retry attempts before giving up
+- Initial delay between retry attempts
+- Backoff factor for exponential delay increase</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Dictionary containing retry configuration parameters</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dict[str, Any]</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The framework uses manual retry handling rather than LangGraph’s
+native retry policies to ensure consistent behavior across all
+components and to enable sophisticated error classification.</p>
+</div>
+<p class="rubric">Examples</p>
+<p>Aggressive retry for network-dependent capability:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="nd">@staticmethod</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_retry_policy</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;max_attempts&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span>      <span class="c1"># More attempts for network issues</span>
+        <span class="s2">&quot;delay_seconds&quot;</span><span class="p">:</span> <span class="mf">2.0</span><span class="p">,</span>   <span class="c1"># Longer delay for external services</span>
+        <span class="s2">&quot;backoff_factor&quot;</span><span class="p">:</span> <span class="mf">2.0</span>   <span class="c1"># Exponential backoff</span>
+    <span class="p">}</span>
+</pre></div>
+</div>
+<p>Conservative retry for expensive operations:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="nd">@staticmethod</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_retry_policy</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;max_attempts&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>      <span class="c1"># Minimal retries for expensive ops</span>
+        <span class="s2">&quot;delay_seconds&quot;</span><span class="p">:</span> <span class="mf">0.1</span><span class="p">,</span>   <span class="c1"># Quick retry for transient issues</span>
+        <span class="s2">&quot;backoff_factor&quot;</span><span class="p">:</span> <span class="mf">1.0</span>   <span class="c1"># No backoff for fast operations</span>
+    <span class="p">}</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><a class="reference internal" href="#osprey.infrastructure.clarify_node.ClarifyCapability.classify_error" title="osprey.infrastructure.clarify_node.ClarifyCapability.classify_error"><code class="xref py py-func docutils literal notranslate"><span class="pre">classify_error()</span></code></a> : Error classification that determines when to retry
+<code class="xref py py-class docutils literal notranslate"><span class="pre">ErrorSeverity</span></code> : RETRIABLE severity triggers retry policy usage</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.get_step_inputs">
+<span class="sig-name descname"><span class="pre">get_step_inputs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">default</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.get_step_inputs" title="Link to this definition">#</a></dt>
+<dd><p>Get the inputs list from the current step.</p>
+<p>The orchestrator provides inputs in each step as a list of {context_type: context_key}
+mappings that specify which contexts are available for this step. This is commonly
+used for building context descriptions, validation, and informing the LLM about
+available data.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>default</strong> (<em>list</em><em>[</em><em>dict</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em><em>] </em><em>| </em><em>None</em>) – Default value to return if no inputs exist (defaults to empty list)</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of input mappings from the step</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>RuntimeError</strong> – If called outside execute() (state not injected)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>list[dict[str, str]]</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id78"><span class="problematic" id="id79">``</span></a><a href="#id80"><span class="problematic" id="id81">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p># Get step inputs
+step_inputs = self.get_step_inputs()</p>
+<p># Use with ContextManager to build description
+from osprey.context import ContextManager
+context_manager = ContextManager(self._state)
+context_description = context_manager.get_context_access_description(step_inputs)</p>
+<p># Or with a custom default
+step_inputs = self.get_step_inputs(default=[])
+<a href="#id82"><span class="problematic" id="id83">``</span></a><a href="#id84"><span class="problematic" id="id85">`</span></a></p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.get_task_objective">
+<span class="sig-name descname"><span class="pre">get_task_objective</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">default</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.get_task_objective" title="Link to this definition">#</a></dt>
+<dd><p>Get the task objective for the current step.</p>
+<p>The orchestrator provides task_objective in each step to describe what
+the capability should accomplish. This is commonly used for logging,
+search queries, and LLM prompts.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>default</strong> (<em>str</em><em> | </em><em>None</em>) – Default value if task_objective not in step.
+If None, falls back to current task from state.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Task objective string</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>RuntimeError</strong> – If called outside execute() (state not injected)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id86"><span class="problematic" id="id87">``</span></a><a href="#id88"><span class="problematic" id="id89">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p># Get task objective with automatic fallback
+task = self.get_task_objective()
+logger = self.get_logger()
+logger.status(f”Starting: {task}”)  # Emits StatusEvent</p>
+<p># Or with custom default
+task = self.get_task_objective(default=”unknown task”)</p>
+<p># Common pattern: use as search query
+search_query = self.get_task_objective().lower()
+<a href="#id90"><span class="problematic" id="id91">``</span></a><a href="#id92"><span class="problematic" id="id93">`</span></a></p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.langgraph_node">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">langgraph_node</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.langgraph_node" title="Link to this definition">#</a></dt>
+<dd><p>LangGraph-native node function with manual retry handling via router.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.orchestrator_guide">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">orchestrator_guide</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Any</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.orchestrator_guide" title="Link to this definition">#</a></dt>
+<dd><p>Get the orchestrator guide for this capability (lazy-loaded).</p>
+<p>Standardized interface used by the framework. Automatically calls
+_create_orchestrator_guide() on first access and caches the result.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Orchestrator guide for execution planning integration, or None if not needed</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Optional[<a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.OrchestratorGuide" title="osprey.base.OrchestratorGuide">OrchestratorGuide</a>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.process_extracted_contexts">
+<span class="sig-name descname"><span class="pre">process_extracted_contexts</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">contexts</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.process_extracted_contexts" title="Link to this definition">#</a></dt>
+<dd><p>Override to customize extracted contexts (e.g., flatten lists).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>contexts</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.context.CapabilityContext" title="osprey.context.CapabilityContext"><em>CapabilityContext</em></a><em> | </em><em>list</em><em>[</em><a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.context.CapabilityContext" title="osprey.context.CapabilityContext"><em>CapabilityContext</em></a><em>]</em><em>]</em>) – Dict mapping context type names to extracted objects</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Processed contexts dict</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict[str, <a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.context.CapabilityContext" title="osprey.context.CapabilityContext">CapabilityContext</a> | list[<a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.context.CapabilityContext" title="osprey.context.CapabilityContext">CapabilityContext</a>]]</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id94"><span class="problematic" id="id95">``</span></a><a href="#id96"><span class="problematic" id="id97">`</span></a>python
+def process_extracted_contexts(self, contexts):</p>
+<blockquote>
+<div><p>‘’’Flatten list of CHANNEL_ADDRESSES.’’’
+channels_raw = contexts[“CHANNEL_ADDRESSES”]</p>
+<dl>
+<dt>if isinstance(channels_raw, list):</dt><dd><p>flat = []
+for ctx in channels_raw:</p>
+<blockquote>
+<div><p>flat.extend(ctx.channels)</p>
+</div></blockquote>
+<p>contexts[“CHANNEL_ADDRESSES”] = flat</p>
+</dd>
+<dt>else:</dt><dd><p>contexts[“CHANNEL_ADDRESSES”] = channels_raw.channels</p>
+</dd>
+</dl>
+<p>return contexts</p>
+</div></blockquote>
+<p><a href="#id98"><span class="problematic" id="id99">``</span></a><a href="#id100"><span class="problematic" id="id101">`</span></a></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.slash_command">
+<span class="sig-name descname"><span class="pre">slash_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.slash_command" title="Link to this definition">#</a></dt>
+<dd><p>Read a capability-specific slash command from state.</p>
+<p>Convenience method that uses self._state automatically. This allows
+capabilities to read custom slash commands that were not registered
+in the command registry.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>name</strong> (<em>str</em>) – Command name (without leading slash)</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>If command was provided with a value (/beam:diagnostic -&gt; “diagnostic”)
+- True: If command was provided without value (/verbose -&gt; True)
+- None: If command was not provided</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><ul class="simple">
+<li><p>str</p></li>
+</ul>
+</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>RuntimeError</strong> – If called outside execute() (state not injected)</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Using in a capability’s execute method:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="c1"># Check for /beam:mode command</span>
+    <span class="k">if</span> <span class="n">mode</span> <span class="o">:=</span> <span class="bp">self</span><span class="o">.</span><span class="n">slash_command</span><span class="p">(</span><span class="s2">&quot;beam&quot;</span><span class="p">):</span>
+        <span class="c1"># mode is &quot;diagnostic&quot; if user typed /beam:diagnostic</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">[</span><span class="s2">&quot;beam_mode&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">mode</span>
+
+    <span class="c1"># Check for /verbose flag</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">slash_command</span><span class="p">(</span><span class="s2">&quot;verbose&quot;</span><span class="p">):</span>
+        <span class="c1"># User typed /verbose</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">[</span><span class="s2">&quot;beamline_verbose&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.store_output_context">
+<span class="sig-name descname"><span class="pre">store_output_context</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">context_data</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.store_output_context" title="Link to this definition">#</a></dt>
+<dd><p>Store single output context - uses context’s CONTEXT_TYPE attribute.</p>
+<p>No need for provides field or state/step parameters!</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>context_data</strong> (<a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.context.CapabilityContext" title="osprey.context.CapabilityContext"><em>CapabilityContext</em></a>) – Context object with CONTEXT_TYPE class variable</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>State updates dict for LangGraph to merge</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>AttributeError</strong> – If context_data lacks CONTEXT_TYPE class variable</p></li>
+<li><p><strong>RuntimeError</strong> – If called outside execute() (state not injected)</p></li>
+<li><p><strong>ValueError</strong> – If context_key missing from step</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, Any]</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><code class="docutils literal notranslate"><span class="pre">`python</span>
+<span class="pre">return</span> <span class="pre">self.store_output_context(ArchiverDataContext(...))</span>
+<span class="pre">`</span></code></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.clarify_node.ClarifyCapability.store_output_contexts">
+<span class="sig-name descname"><span class="pre">store_output_contexts</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">context_objects</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.clarify_node.ClarifyCapability.store_output_contexts" title="Link to this definition">#</a></dt>
+<dd><p>Store multiple output contexts - all self-describing.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>*context_objects</strong> (<a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.context.CapabilityContext" title="osprey.context.CapabilityContext"><em>CapabilityContext</em></a>) – Context objects with CONTEXT_TYPE attributes</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Merged state updates dict for LangGraph</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>AttributeError</strong> – If any context lacks CONTEXT_TYPE</p></li>
+<li><p><strong>RuntimeError</strong> – If called outside execute()</p></li>
+<li><p><strong>ValueError</strong> – If context types don’t match provides field</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, Any]</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id102"><span class="problematic" id="id103">``</span></a><a href="#id104"><span class="problematic" id="id105">`</span></a>python
+return self.store_output_contexts(</p>
+<blockquote>
+<div><p>ArchiverDataContext(…),
+MetadataContext(…),
+StatisticsContext(…)</p>
+</div></blockquote>
+<section id="id106">
+<h3>)<a class="headerlink" href="#id106" title="Link to this heading">#</a></h3>
+</section>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="core-models">
+<h2>Core Models<a class="headerlink" href="#core-models" title="Link to this heading">#</a></h2>
+<p>Message generation uses models defined in the core framework:</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.BaseCapability" title="osprey.base.BaseCapability"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseCapability</span></code></a></dt><dd><p>Base class for all capabilities</p>
+</dd>
+<dt><a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.context.ContextManager" title="osprey.context.ContextManager"><code class="xref py py-class docutils literal notranslate"><span class="pre">ContextManager</span></code></a></dt><dd><p>Context management for response generation</p>
+</dd>
+</dl>
+</div>
+</section>
+<section id="registration">
+<h2>Registration<a class="headerlink" href="#registration" title="Link to this heading">#</a></h2>
+<p><strong>Respond Capability</strong> is automatically registered as:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">CapabilityRegistration</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;respond&quot;</span><span class="p">,</span>
+    <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;osprey.infrastructure.respond_node&quot;</span><span class="p">,</span>
+    <span class="n">class_name</span><span class="o">=</span><span class="s2">&quot;RespondCapability&quot;</span><span class="p">,</span>
+    <span class="n">provides</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;FINAL_RESPONSE&quot;</span><span class="p">]</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Clarify Capability</strong> is automatically registered as:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">CapabilityRegistration</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;clarify&quot;</span><span class="p">,</span>
+    <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;osprey.infrastructure.clarify_node&quot;</span><span class="p">,</span>
+    <span class="n">class_name</span><span class="o">=</span><span class="s2">&quot;ClarifyCapability&quot;</span><span class="p">,</span>
+    <span class="n">provides</span><span class="o">=</span><span class="p">[]</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../01_core_framework/05_prompt_management.html"><span class="doc">Prompt System</span></a></dt><dd><p>Prompt customization system</p>
+</dd>
+<dt><a class="reference internal" href="../01_core_framework/03_registry_system.html"><span class="doc">Registry System</span></a></dt><dd><p>Component registration system</p>
+</dd>
+<dt><a class="reference internal" href="../../developer-guides/04_infrastructure-components/05_message-generation.html"><span class="doc">Message Generation</span></a></dt><dd><p>Implementation details and usage patterns</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="05_execution-control.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Execution Control</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../03_production_systems/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Production Systems</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#respond-capability">Respond Capability</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability"><code class="docutils literal notranslate"><span class="pre">RespondCapability</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.name"><code class="docutils literal notranslate"><span class="pre">RespondCapability.name</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.description"><code class="docutils literal notranslate"><span class="pre">RespondCapability.description</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.provides"><code class="docutils literal notranslate"><span class="pre">RespondCapability.provides</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.requires"><code class="docutils literal notranslate"><span class="pre">RespondCapability.requires</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.execute"><code class="docutils literal notranslate"><span class="pre">RespondCapability.execute()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.classify_error"><code class="docutils literal notranslate"><span class="pre">RespondCapability.classify_error()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.__init__"><code class="docutils literal notranslate"><span class="pre">RespondCapability.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.__repr__"><code class="docutils literal notranslate"><span class="pre">RespondCapability.__repr__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.classifier_guide"><code class="docutils literal notranslate"><span class="pre">RespondCapability.classifier_guide</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.get_logger"><code class="docutils literal notranslate"><span class="pre">RespondCapability.get_logger()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.get_parameters"><code class="docutils literal notranslate"><span class="pre">RespondCapability.get_parameters()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.get_required_contexts"><code class="docutils literal notranslate"><span class="pre">RespondCapability.get_required_contexts()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.get_retry_policy"><code class="docutils literal notranslate"><span class="pre">RespondCapability.get_retry_policy()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.get_step_inputs"><code class="docutils literal notranslate"><span class="pre">RespondCapability.get_step_inputs()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.get_task_objective"><code class="docutils literal notranslate"><span class="pre">RespondCapability.get_task_objective()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.langgraph_node"><code class="docutils literal notranslate"><span class="pre">RespondCapability.langgraph_node()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.orchestrator_guide"><code class="docutils literal notranslate"><span class="pre">RespondCapability.orchestrator_guide</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.process_extracted_contexts"><code class="docutils literal notranslate"><span class="pre">RespondCapability.process_extracted_contexts()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.slash_command"><code class="docutils literal notranslate"><span class="pre">RespondCapability.slash_command()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.store_output_context"><code class="docutils literal notranslate"><span class="pre">RespondCapability.store_output_context()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.RespondCapability.store_output_contexts"><code class="docutils literal notranslate"><span class="pre">RespondCapability.store_output_contexts()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.ResponseContext"><code class="docutils literal notranslate"><span class="pre">ResponseContext</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.ResponseContext.current_task"><code class="docutils literal notranslate"><span class="pre">ResponseContext.current_task</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.ResponseContext.execution_history"><code class="docutils literal notranslate"><span class="pre">ResponseContext.execution_history</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.ResponseContext.relevant_context"><code class="docutils literal notranslate"><span class="pre">ResponseContext.relevant_context</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.ResponseContext.is_killed"><code class="docutils literal notranslate"><span class="pre">ResponseContext.is_killed</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.ResponseContext.kill_reason"><code class="docutils literal notranslate"><span class="pre">ResponseContext.kill_reason</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.ResponseContext.capabilities_overview"><code class="docutils literal notranslate"><span class="pre">ResponseContext.capabilities_overview</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.ResponseContext.total_steps_executed"><code class="docutils literal notranslate"><span class="pre">ResponseContext.total_steps_executed</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.ResponseContext.execution_start_time"><code class="docutils literal notranslate"><span class="pre">ResponseContext.execution_start_time</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.ResponseContext.reclassification_count"><code class="docutils literal notranslate"><span class="pre">ResponseContext.reclassification_count</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.ResponseContext.current_date"><code class="docutils literal notranslate"><span class="pre">ResponseContext.current_date</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.ResponseContext.figures_available"><code class="docutils literal notranslate"><span class="pre">ResponseContext.figures_available</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.ResponseContext.commands_available"><code class="docutils literal notranslate"><span class="pre">ResponseContext.commands_available</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.ResponseContext.notebooks_available"><code class="docutils literal notranslate"><span class="pre">ResponseContext.notebooks_available</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.ResponseContext.interface_context"><code class="docutils literal notranslate"><span class="pre">ResponseContext.interface_context</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.ResponseContext.chat_history"><code class="docutils literal notranslate"><span class="pre">ResponseContext.chat_history</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.respond_node.ResponseContext.__init__"><code class="docutils literal notranslate"><span class="pre">ResponseContext.__init__()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#clarify-capability">Clarify Capability</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.name"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.name</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.description"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.description</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.provides"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.provides</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.requires"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.requires</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.execute"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.execute()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.classify_error"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.classify_error()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.__init__"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.__repr__"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.__repr__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.classifier_guide"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.classifier_guide</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.get_logger"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.get_logger()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.get_parameters"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.get_parameters()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.get_required_contexts"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.get_required_contexts()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.get_retry_policy"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.get_retry_policy()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.get_step_inputs"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.get_step_inputs()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.get_task_objective"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.get_task_objective()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.langgraph_node"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.langgraph_node()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.orchestrator_guide"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.orchestrator_guide</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.process_extracted_contexts"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.process_extracted_contexts()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.slash_command"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.slash_command()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.store_output_context"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.store_output_context()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.clarify_node.ClarifyCapability.store_output_contexts"><code class="docutils literal notranslate"><span class="pre">ClarifyCapability.store_output_contexts()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#core-models">Core Models</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#registration">Registration</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/api_reference/02_infrastructure/06_message-generation.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

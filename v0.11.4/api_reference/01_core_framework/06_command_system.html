@@ -1,0 +1,1514 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Command System &#8212; Osprey Framework 0.11.4 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=b59d6632"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'api_reference/01_core_framework/06_command_system';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.4';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Infrastructure" href="../02_infrastructure/index.html" />
+    <link rel="prev" title="Prompt System" href="05_prompt_management.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Core Framework</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="01_base_components.html">Base Components</a></li>
+<li class="toctree-l2"><a class="reference internal" href="02_state_and_context.html">State and Context Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="03_registry_system.html">Registry System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="04_configuration_system.html">Configuration System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="05_prompt_management.html">Prompt System</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Command System</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../02_infrastructure/index.html">Infrastructure</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/01_gateway.html">Gateway</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/02_task-extraction.html">Task Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/03_classification.html">Classification</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/04_orchestration.html">Orchestration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/05_execution-control.html">Execution Control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../02_infrastructure/06_message-generation.html">Message Generation</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../03_production_systems/index.html">Production Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/01_human-approval.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/02_data-management.html">Data Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/03_python-execution.html">Python Execution</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/04_memory-storage.html">Memory Storage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/05_container-management.html">Container Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/06_control-system-connectors.html">Control System Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/07_ariel-search.html">ARIEL Search Service</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../04_error_handling/index.html">Error Handling</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/01_classification_system.html">Classification System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/02_exception_reference.html">Exception Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/03_recovery_coordination.html">Recovery Coordination</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../05_framework_utilities/index.html">Framework Utilities</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">API Reference</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Core Framework</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Command System</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="command-system">
+<h1>Command System<a class="headerlink" href="#command-system" title="Link to this heading">#</a></h1>
+<p>The centralized command system provides unified slash command processing across all interfaces (CLI, OpenWebUI, etc.) with extensible command categories and rich autocompletion.</p>
+<p>This system enables consistent command handling, context-aware execution, and seamless integration across different framework interfaces through a unified registry and execution model.</p>
+<section id="core-components">
+<h2>Core Components<a class="headerlink" href="#core-components" title="Link to this heading">#</a></h2>
+<section id="command-registry">
+<h3>Command Registry<a class="headerlink" href="#command-registry" title="Link to this heading">#</a></h3>
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey.commands.CommandRegistry">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.commands.</span></span><span class="sig-name descname"><span class="pre">CommandRegistry</span></span><a class="reference internal" href="../../_modules/osprey/commands/registry.html#CommandRegistry"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.CommandRegistry" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Centralized registry for all slash commands across framework interfaces.</p>
+<p>The CommandRegistry provides unified command management with support for command
+registration, discovery, validation, and execution. The registry maintains command
+metadata, handles aliases, and coordinates execution with rich context information
+for interface-specific behavior.</p>
+<dl class="simple">
+<dt>Key Features:</dt><dd><ul class="simple">
+<li><p>Unified command storage with category organization</p></li>
+<li><p>Alias support for command shortcuts and compatibility</p></li>
+<li><p>Context-aware execution with interface-specific behavior</p></li>
+<li><p>Automatic help generation and command discovery</p></li>
+<li><p>Extensible registration patterns for custom commands</p></li>
+<li><p>Error handling with user-friendly feedback</p></li>
+</ul>
+</dd>
+<dt>Registry Lifecycle:</dt><dd><ol class="arabic simple">
+<li><p><strong>Initialization</strong>: Auto-registration of core framework commands</p></li>
+<li><p><strong>Registration</strong>: Application and custom command registration</p></li>
+<li><p><strong>Discovery</strong>: Command lookup by name, alias, or category</p></li>
+<li><p><strong>Execution</strong>: Context-aware command execution with validation</p></li>
+<li><p><strong>Completion</strong>: Autocompletion support for interactive interfaces</p></li>
+</ol>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>commands</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><a class="reference internal" href="#osprey.commands.Command" title="osprey.commands.Command"><em>Command</em></a><em>]</em>) – Internal command storage by name</p></li>
+<li><p><strong>aliases</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em>) – Alias to command name mapping for shortcuts</p></li>
+<li><p><strong>console</strong> (<em>Console</em>) – Rich console for formatted output and error display</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The registry is designed as a singleton pattern accessed through
+get_command_registry() for consistent command state across interfaces.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Command names and aliases must be unique across the registry.
+Registration will raise ValueError for conflicts.</p>
+</div>
+<p class="rubric">Examples</p>
+<p>Basic registry usage:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">registry</span> <span class="o">=</span> <span class="n">CommandRegistry</span><span class="p">()</span>
+
+<span class="c1"># Register a custom command</span>
+<span class="n">registry</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">Command</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;status&quot;</span><span class="p">,</span>
+    <span class="n">category</span><span class="o">=</span><span class="n">CommandCategory</span><span class="o">.</span><span class="n">SERVICE</span><span class="p">,</span>
+    <span class="n">handler</span><span class="o">=</span><span class="n">status_handler</span><span class="p">,</span>
+    <span class="n">help_text</span><span class="o">=</span><span class="s2">&quot;Show service status&quot;</span>
+<span class="p">))</span>
+
+<span class="c1"># Execute a command</span>
+<span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">registry</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;/status&quot;</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Command discovery:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Get all CLI commands</span>
+<span class="n">cli_commands</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_commands_by_category</span><span class="p">(</span><span class="n">CommandCategory</span><span class="o">.</span><span class="n">CLI</span><span class="p">)</span>
+
+<span class="c1"># Check if command exists</span>
+<span class="k">if</span> <span class="n">registry</span><span class="o">.</span><span class="n">has_command</span><span class="p">(</span><span class="s2">&quot;help&quot;</span><span class="p">):</span>
+    <span class="n">cmd</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get_command</span><span class="p">(</span><span class="s2">&quot;help&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.commands.CommandRegistry.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/registry.html#CommandRegistry.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.CommandRegistry.__init__" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.commands.CommandRegistry.register">
+<span class="sig-name descname"><span class="pre">register</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">command</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/registry.html#CommandRegistry.register"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.CommandRegistry.register" title="Link to this definition">#</a></dt>
+<dd><p>Register a command in the registry with validation and alias handling.</p>
+<p>Registers a new command in the central registry, performing validation
+to ensure command names and aliases are unique. The registration process
+includes conflict detection, alias mapping, and command metadata storage
+for subsequent discovery and execution.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>command</strong> (<a class="reference internal" href="#osprey.commands.Command" title="osprey.commands.Command"><em>Command</em></a>) – Command instance with complete metadata and handler</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>ValueError</strong> – If command name is empty or conflicts with existing commands</p></li>
+<li><p><strong>ValueError</strong> – If command aliases conflict with existing commands or aliases</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Commands are validated for completeness and uniqueness before registration.
+All aliases are automatically mapped to the primary command name.</p>
+</div>
+<p class="rubric">Examples</p>
+<p>Register a simple command:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">registry</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">Command</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;status&quot;</span><span class="p">,</span>
+    <span class="n">category</span><span class="o">=</span><span class="n">CommandCategory</span><span class="o">.</span><span class="n">SERVICE</span><span class="p">,</span>
+    <span class="n">handler</span><span class="o">=</span><span class="n">status_handler</span><span class="p">,</span>
+    <span class="n">help_text</span><span class="o">=</span><span class="s2">&quot;Show service status&quot;</span>
+<span class="p">))</span>
+</pre></div>
+</div>
+<p>Register command with aliases:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">registry</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">Command</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;help&quot;</span><span class="p">,</span>
+    <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;h&quot;</span><span class="p">,</span> <span class="s2">&quot;?&quot;</span><span class="p">],</span>
+    <span class="n">category</span><span class="o">=</span><span class="n">CommandCategory</span><span class="o">.</span><span class="n">CLI</span><span class="p">,</span>
+    <span class="n">handler</span><span class="o">=</span><span class="n">help_handler</span><span class="p">,</span>
+    <span class="n">help_text</span><span class="o">=</span><span class="s2">&quot;Show command help&quot;</span>
+<span class="p">))</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.commands.CommandRegistry.get_command">
+<span class="sig-name descname"><span class="pre">get_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/registry.html#CommandRegistry.get_command"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.CommandRegistry.get_command" title="Link to this definition">#</a></dt>
+<dd><p>Get a command by name or alias.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#osprey.commands.Command" title="osprey.commands.types.Command"><em>Command</em></a> | None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.commands.CommandRegistry.get_commands_by_category">
+<span class="sig-name descname"><span class="pre">get_commands_by_category</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">category</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/registry.html#CommandRegistry.get_commands_by_category"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.CommandRegistry.get_commands_by_category" title="Link to this definition">#</a></dt>
+<dd><p>Get all commands in a specific category.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list[<a class="reference internal" href="#osprey.commands.Command" title="osprey.commands.types.Command"><em>Command</em></a>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.commands.CommandRegistry.get_all_commands">
+<span class="sig-name descname"><span class="pre">get_all_commands</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">include_hidden</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/registry.html#CommandRegistry.get_all_commands"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.CommandRegistry.get_all_commands" title="Link to this definition">#</a></dt>
+<dd><p>Get all registered commands.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list[<a class="reference internal" href="#osprey.commands.Command" title="osprey.commands.types.Command"><em>Command</em></a>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.commands.CommandRegistry.get_completions">
+<span class="sig-name descname"><span class="pre">get_completions</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">prefix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/registry.html#CommandRegistry.get_completions"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.CommandRegistry.get_completions" title="Link to this definition">#</a></dt>
+<dd><p>Get command completions for a given prefix.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list[str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.commands.CommandRegistry.execute">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">execute</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">command_line</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/registry.html#CommandRegistry.execute"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.CommandRegistry.execute" title="Link to this definition">#</a></dt>
+<dd><p>Execute a command from a command line.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#osprey.commands.CommandResult" title="osprey.commands.types.CommandResult"><em>CommandResult</em></a> | dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="command-types">
+<h3>Command Types<a class="headerlink" href="#command-types" title="Link to this heading">#</a></h3>
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey.commands.Command">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.commands.</span></span><span class="sig-name descname"><span class="pre">Command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">category</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">description</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">handler</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">aliases</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">help_text</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">syntax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">requires_args</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">valid_options</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interface_restrictions</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gateway_handled</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hidden</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deprecated</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/types.html#Command"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.Command" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Complete specification for a slash command with metadata and execution constraints.</p>
+<p>The Command class provides a comprehensive definition for slash commands in the
+Osprey Framework. It includes execution handlers, validation constraints,
+interface restrictions, and rich metadata for help generation and autocompletion.</p>
+<p>Command Lifecycle:</p>
+<ol class="arabic simple">
+<li><p><strong>Definition</strong>: Command created with required fields and optional metadata</p></li>
+<li><p><strong>Registration</strong>: Command registered in CommandRegistry with validation</p></li>
+<li><p><strong>Discovery</strong>: Command discovered through registry lookup and filtering</p></li>
+<li><p><strong>Execution</strong>: Command executed with context and argument validation</p></li>
+<li><p><strong>Completion</strong>: Command provides autocompletion suggestions</p></li>
+</ol>
+<p><strong>Core Components:</strong></p>
+<ul class="simple">
+<li><p><strong>Required Fields</strong>: name, category, description, handler for basic functionality</p></li>
+<li><p><strong>Metadata</strong>: aliases, help_text, syntax for user experience and documentation</p></li>
+<li><p><strong>Constraints</strong>: requires_args, valid_options, interface_restrictions for validation</p></li>
+<li><p><strong>Display</strong>: hidden, deprecated flags for command visibility and lifecycle</p></li>
+</ul>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>name</strong> (<em>str</em>) – Unique command identifier used for registration and execution</p></li>
+<li><p><strong>category</strong> (<a class="reference internal" href="#osprey.commands.CommandCategory" title="osprey.commands.CommandCategory"><em>CommandCategory</em></a>) – Command category for organization and filtering</p></li>
+<li><p><strong>description</strong> (<em>str</em>) – Brief description for help text and documentation</p></li>
+<li><p><strong>handler</strong> (<em>CommandHandler</em>) – Function or callable that executes the command logic</p></li>
+<li><p><strong>aliases</strong> (<em>List</em><em>[</em><em>str</em><em>]</em>) – Alternative names for the command (shortcuts, compatibility)</p></li>
+<li><p><strong>help_text</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – Detailed help text with usage examples and options</p></li>
+<li><p><strong>syntax</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – Command syntax pattern for help display and validation</p></li>
+<li><p><strong>requires_args</strong> (<em>bool</em>) – Whether the command requires arguments to execute</p></li>
+<li><p><strong>valid_options</strong> (<em>Optional</em><em>[</em><em>List</em><em>[</em><em>str</em><em>]</em><em>]</em>) – List of valid argument values for validation</p></li>
+<li><p><strong>interface_restrictions</strong> (<em>Optional</em><em>[</em><em>List</em><em>[</em><em>str</em><em>]</em><em>]</em>) – List of interfaces where command is available</p></li>
+<li><p><strong>hidden</strong> (<em>bool</em>) – Whether command is hidden from help and autocompletion</p></li>
+<li><p><strong>deprecated</strong> (<em>bool</em>) – Whether command is deprecated (shown with warning)</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Simple command definition:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">command</span> <span class="o">=</span> <span class="n">Command</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;status&quot;</span><span class="p">,</span>
+    <span class="n">category</span><span class="o">=</span><span class="n">CommandCategory</span><span class="o">.</span><span class="n">SERVICE</span><span class="p">,</span>
+    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Show service status&quot;</span><span class="p">,</span>
+    <span class="n">handler</span><span class="o">=</span><span class="n">status_handler</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Command with validation and help:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">command</span> <span class="o">=</span> <span class="n">Command</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;planning&quot;</span><span class="p">,</span>
+    <span class="n">category</span><span class="o">=</span><span class="n">CommandCategory</span><span class="o">.</span><span class="n">AGENT_CONTROL</span><span class="p">,</span>
+    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Control planning mode&quot;</span><span class="p">,</span>
+    <span class="n">handler</span><span class="o">=</span><span class="n">planning_handler</span><span class="p">,</span>
+    <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;plan&quot;</span><span class="p">],</span>
+    <span class="n">valid_options</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;on&quot;</span><span class="p">,</span> <span class="s2">&quot;off&quot;</span><span class="p">,</span> <span class="s2">&quot;enabled&quot;</span><span class="p">,</span> <span class="s2">&quot;disabled&quot;</span><span class="p">],</span>
+    <span class="n">help_text</span><span class="o">=</span><span class="s2">&quot;Enable or disable planning mode.</span><span class="se">\n\n</span><span class="s2">Options:</span><span class="se">\n</span><span class="s2">  on/enabled - Enable planning</span><span class="se">\n</span><span class="s2">  off/disabled - Disable planning&quot;</span><span class="p">,</span>
+    <span class="n">interface_restrictions</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;cli&quot;</span><span class="p">,</span> <span class="s2">&quot;openwebui&quot;</span><span class="p">]</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Hidden administrative command:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">command</span> <span class="o">=</span> <span class="n">Command</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;internal_debug&quot;</span><span class="p">,</span>
+    <span class="n">category</span><span class="o">=</span><span class="n">CommandCategory</span><span class="o">.</span><span class="n">CUSTOM</span><span class="p">,</span>
+    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Internal debugging command&quot;</span><span class="p">,</span>
+    <span class="n">handler</span><span class="o">=</span><span class="n">debug_handler</span><span class="p">,</span>
+    <span class="n">hidden</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">requires_args</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.Command.name">
+<span class="sig-name descname"><span class="pre">name</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#osprey.commands.Command.name" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.Command.category">
+<span class="sig-name descname"><span class="pre">category</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#osprey.commands.CommandCategory" title="osprey.commands.types.CommandCategory"><span class="pre">CommandCategory</span></a></span><a class="headerlink" href="#osprey.commands.Command.category" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.Command.description">
+<span class="sig-name descname"><span class="pre">description</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#osprey.commands.Command.description" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.Command.handler">
+<span class="sig-name descname"><span class="pre">handler</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">CommandHandler</span></span><a class="headerlink" href="#osprey.commands.Command.handler" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.Command.aliases">
+<span class="sig-name descname"><span class="pre">aliases</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey.commands.Command.aliases" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.Command.help_text">
+<span class="sig-name descname"><span class="pre">help_text</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.commands.Command.help_text" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.Command.syntax">
+<span class="sig-name descname"><span class="pre">syntax</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.commands.Command.syntax" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.Command.requires_args">
+<span class="sig-name descname"><span class="pre">requires_args</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span><a class="headerlink" href="#osprey.commands.Command.requires_args" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.Command.valid_options">
+<span class="sig-name descname"><span class="pre">valid_options</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.commands.Command.valid_options" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.Command.interface_restrictions">
+<span class="sig-name descname"><span class="pre">interface_restrictions</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.commands.Command.interface_restrictions" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.Command.gateway_handled">
+<span class="sig-name descname"><span class="pre">gateway_handled</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span><a class="headerlink" href="#osprey.commands.Command.gateway_handled" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.Command.hidden">
+<span class="sig-name descname"><span class="pre">hidden</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span><a class="headerlink" href="#osprey.commands.Command.hidden" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.Command.deprecated">
+<span class="sig-name descname"><span class="pre">deprecated</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span><a class="headerlink" href="#osprey.commands.Command.deprecated" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.commands.Command.__post_init__">
+<span class="sig-name descname"><span class="pre">__post_init__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/types.html#Command.__post_init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.Command.__post_init__" title="Link to this definition">#</a></dt>
+<dd><p>Initialize computed fields and auto-generate missing metadata.</p>
+<p>Automatically generates help_text from description if not provided,
+and creates syntax patterns based on valid_options and requires_args
+settings for consistent command documentation and validation.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.commands.Command.is_valid_for_interface">
+<span class="sig-name descname"><span class="pre">is_valid_for_interface</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">interface_type</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/types.html#Command.is_valid_for_interface"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.Command.is_valid_for_interface" title="Link to this definition">#</a></dt>
+<dd><p>Check if command is valid for the given interface type.</p>
+<p>Validates whether the command can be executed in the specified interface
+based on interface_restrictions. Commands without restrictions are
+available in all interfaces.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>interface_type</strong> (<em>str</em>) – Interface identifier (“cli”, “openwebui”, “api”, etc.)</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if command is available in the interface, False otherwise</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Check CLI availability:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">if</span> <span class="n">command</span><span class="o">.</span><span class="n">is_valid_for_interface</span><span class="p">(</span><span class="s2">&quot;cli&quot;</span><span class="p">):</span>
+    <span class="c1"># Command can be used in CLI</span>
+    <span class="k">pass</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.commands.Command.validate_option">
+<span class="sig-name descname"><span class="pre">validate_option</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">option</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/types.html#Command.validate_option"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.Command.validate_option" title="Link to this definition">#</a></dt>
+<dd><p>Validate command arguments against defined constraints.</p>
+<p>Performs validation of command arguments based on requires_args and
+valid_options settings. Used by the command registry to ensure
+proper command usage before execution.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>option</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – Command argument to validate (None if no argument provided)</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if argument is valid, False if validation fails</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+<dl class="simple">
+<dt>Validation Rules:</dt><dd><ul class="simple">
+<li><p>If requires_args=True, option cannot be None</p></li>
+<li><p>If valid_options is set, option must be in the list</p></li>
+<li><p>If no constraints, any option (including None) is valid</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Validate planning command:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Command with valid_options=[&quot;on&quot;, &quot;off&quot;]</span>
+<span class="n">command</span><span class="o">.</span><span class="n">validate_option</span><span class="p">(</span><span class="s2">&quot;on&quot;</span><span class="p">)</span>    <span class="c1"># True</span>
+<span class="n">command</span><span class="o">.</span><span class="n">validate_option</span><span class="p">(</span><span class="s2">&quot;invalid&quot;</span><span class="p">)</span>  <span class="c1"># False</span>
+<span class="n">command</span><span class="o">.</span><span class="n">validate_option</span><span class="p">(</span><span class="kc">None</span><span class="p">)</span>    <span class="c1"># True (optional)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.commands.Command.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">category</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">description</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">handler</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">aliases</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">help_text</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">syntax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">requires_args</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">valid_options</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interface_restrictions</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gateway_handled</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hidden</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deprecated</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.commands.Command.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey.commands.CommandContext">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.commands.</span></span><span class="sig-name descname"><span class="pre">CommandContext</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">interface_type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'unknown'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">session_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cli_instance</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">console</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">agent_state</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gateway</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">service_instance</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">extra</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/types.html#CommandContext"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.CommandContext" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Execution context information available to command handlers.</p>
+<p>CommandContext provides rich contextual information to command handlers,
+enabling context-aware command execution with access to interface state,
+agent configuration, and service instances. The context supports multiple
+interface types while maintaining type safety and extensibility.</p>
+<dl class="simple">
+<dt>Context Categories:</dt><dd><p>Interface Context: Interface type, user identification, session management
+CLI Context: CLI instance access, console output, terminal control
+Agent Context: Current agent state, gateway access, configuration
+Service Context: Service instance access, deployment information
+Extension Context: Custom context data for application-specific commands</p>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>interface_type</strong> (<em>str</em>) – Interface identifier (“cli”, “openwebui”, “api”, etc.)</p></li>
+<li><p><strong>user_id</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – User identifier for multi-user interfaces</p></li>
+<li><p><strong>session_id</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – Session identifier for state management</p></li>
+<li><p><strong>cli_instance</strong> (<em>Optional</em><em>[</em><em>Any</em><em>]</em>) – CLI interface instance for direct access</p></li>
+<li><p><strong>console</strong> (<em>Optional</em><em>[</em><em>Any</em><em>]</em>) – Rich console instance for formatted output</p></li>
+<li><p><strong>agent_state</strong> (<em>Optional</em><em>[</em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>]</em>) – Current agent state for state-aware commands</p></li>
+<li><p><strong>gateway</strong> (<em>Optional</em><em>[</em><em>Any</em><em>]</em>) – Gateway instance for message processing</p></li>
+<li><p><strong>config</strong> (<em>Optional</em><em>[</em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>]</em>) – Framework configuration for service access</p></li>
+<li><p><strong>service_instance</strong> (<em>Optional</em><em>[</em><em>Any</em><em>]</em>) – Service instance for service-specific commands</p></li>
+<li><p><strong>extra</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – Additional context data for custom extensions</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Context fields are populated based on the executing interface and
+command category. Not all fields are available in all contexts.</p>
+</div>
+<p class="rubric">Examples</p>
+<p>CLI command context:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">context</span> <span class="o">=</span> <span class="n">CommandContext</span><span class="p">(</span>
+    <span class="n">interface_type</span><span class="o">=</span><span class="s2">&quot;cli&quot;</span><span class="p">,</span>
+    <span class="n">cli_instance</span><span class="o">=</span><span class="n">cli</span><span class="p">,</span>
+    <span class="n">console</span><span class="o">=</span><span class="n">rich_console</span><span class="p">,</span>
+    <span class="n">agent_state</span><span class="o">=</span><span class="n">current_state</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Service command context:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">context</span> <span class="o">=</span> <span class="n">CommandContext</span><span class="p">(</span>
+    <span class="n">interface_type</span><span class="o">=</span><span class="s2">&quot;api&quot;</span><span class="p">,</span>
+    <span class="n">service_instance</span><span class="o">=</span><span class="n">jupyter_service</span><span class="p">,</span>
+    <span class="n">config</span><span class="o">=</span><span class="n">framework_config</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.CommandContext.interface_type">
+<span class="sig-name descname"><span class="pre">interface_type</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'unknown'</span></span><a class="headerlink" href="#osprey.commands.CommandContext.interface_type" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.CommandContext.user_id">
+<span class="sig-name descname"><span class="pre">user_id</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.commands.CommandContext.user_id" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.CommandContext.session_id">
+<span class="sig-name descname"><span class="pre">session_id</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.commands.CommandContext.session_id" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.CommandContext.cli_instance">
+<span class="sig-name descname"><span class="pre">cli_instance</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Any</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.commands.CommandContext.cli_instance" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.CommandContext.console">
+<span class="sig-name descname"><span class="pre">console</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Any</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.commands.CommandContext.console" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.CommandContext.agent_state">
+<span class="sig-name descname"><span class="pre">agent_state</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.commands.CommandContext.agent_state" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.CommandContext.gateway">
+<span class="sig-name descname"><span class="pre">gateway</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Any</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.commands.CommandContext.gateway" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.CommandContext.config">
+<span class="sig-name descname"><span class="pre">config</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.commands.CommandContext.config" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.CommandContext.service_instance">
+<span class="sig-name descname"><span class="pre">service_instance</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Any</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey.commands.CommandContext.service_instance" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.CommandContext.extra">
+<span class="sig-name descname"><span class="pre">extra</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey.commands.CommandContext.extra" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.commands.CommandContext.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">interface_type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'unknown'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">session_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cli_instance</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">console</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">agent_state</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gateway</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">service_instance</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">extra</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.commands.CommandContext.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey.commands.CommandResult">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.commands.</span></span><span class="sig-name descname"><span class="pre">CommandResult</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/types.html#CommandResult"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.CommandResult" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Enum</span></code></p>
+<p>Standardized result types for command execution flow control.</p>
+<p>Command results enable interfaces to coordinate execution flow and handle
+different command outcomes appropriately. Results provide clear semantics
+for command processing continuation, state changes, and interface control.</p>
+<dl class="simple">
+<dt>Results:</dt><dd><p>CONTINUE: Command processed, continue with normal message flow
+HANDLED: Command fully processed, stop further message processing
+EXIT: Request interface termination (CLI exit, session end)
+AGENT_STATE_CHANGED: Agent control state modified, may affect execution</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Interfaces should handle each result type appropriately based on their
+execution model and user experience requirements.</p>
+</div>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.CommandResult.CONTINUE">
+<span class="sig-name descname"><span class="pre">CONTINUE</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'continue'</span></span><a class="headerlink" href="#osprey.commands.CommandResult.CONTINUE" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.CommandResult.HANDLED">
+<span class="sig-name descname"><span class="pre">HANDLED</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'handled'</span></span><a class="headerlink" href="#osprey.commands.CommandResult.HANDLED" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.CommandResult.EXIT">
+<span class="sig-name descname"><span class="pre">EXIT</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'exit'</span></span><a class="headerlink" href="#osprey.commands.CommandResult.EXIT" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.CommandResult.AGENT_STATE_CHANGED">
+<span class="sig-name descname"><span class="pre">AGENT_STATE_CHANGED</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'agent_state_changed'</span></span><a class="headerlink" href="#osprey.commands.CommandResult.AGENT_STATE_CHANGED" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey.commands.CommandCategory">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.commands.</span></span><span class="sig-name descname"><span class="pre">CommandCategory</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/types.html#CommandCategory"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.CommandCategory" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Enum</span></code></p>
+<p>Categories of slash commands for organization and interface validation.</p>
+<p>Command categories provide hierarchical organization and enable interface-specific
+command filtering. Each category represents a distinct functional domain with
+specific execution contexts and validation requirements.</p>
+<dl class="simple">
+<dt>Categories:</dt><dd><p>CLI: Interface and user experience commands (help, clear, exit, history)
+AGENT_CONTROL: Agent behavior and execution control (planning, approval, debug)
+SERVICE: Framework service management (status, logs, metrics, restart)
+CUSTOM: Application-specific and user-defined extensions</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Categories are used for command discovery, autocompletion filtering,
+and interface-specific command availability validation.</p>
+</div>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.CommandCategory.CLI">
+<span class="sig-name descname"><span class="pre">CLI</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'cli'</span></span><a class="headerlink" href="#osprey.commands.CommandCategory.CLI" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.CommandCategory.AGENT_CONTROL">
+<span class="sig-name descname"><span class="pre">AGENT_CONTROL</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'agent'</span></span><a class="headerlink" href="#osprey.commands.CommandCategory.AGENT_CONTROL" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.CommandCategory.SERVICE">
+<span class="sig-name descname"><span class="pre">SERVICE</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'service'</span></span><a class="headerlink" href="#osprey.commands.CommandCategory.SERVICE" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.commands.CommandCategory.CUSTOM">
+<span class="sig-name descname"><span class="pre">CUSTOM</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'custom'</span></span><a class="headerlink" href="#osprey.commands.CommandCategory.CUSTOM" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+</section>
+<section id="registry-functions">
+<h2>Registry Functions<a class="headerlink" href="#registry-functions" title="Link to this heading">#</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.commands.get_command_registry">
+<span class="sig-prename descclassname"><span class="pre">osprey.commands.</span></span><span class="sig-name descname"><span class="pre">get_command_registry</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/registry.html#get_command_registry"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.get_command_registry" title="Link to this definition">#</a></dt>
+<dd><p>Get the global command registry.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#osprey.commands.CommandRegistry" title="osprey.commands.registry.CommandRegistry"><em>CommandRegistry</em></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.commands.register_command">
+<span class="sig-prename descclassname"><span class="pre">osprey.commands.</span></span><span class="sig-name descname"><span class="pre">register_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">command</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/registry.html#register_command"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.register_command" title="Link to this definition">#</a></dt>
+<dd><p>Register a command globally.</p>
+<dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.commands.execute_command">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.commands.</span></span><span class="sig-name descname"><span class="pre">execute_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">command_line</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/registry.html#execute_command"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.execute_command" title="Link to this definition">#</a></dt>
+<dd><p>Execute a command globally.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#osprey.commands.CommandResult" title="osprey.commands.types.CommandResult"><em>CommandResult</em></a> | dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.commands.parse_command_line">
+<span class="sig-prename descclassname"><span class="pre">osprey.commands.</span></span><span class="sig-name descname"><span class="pre">parse_command_line</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">command_line</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/registry.html#parse_command_line"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.parse_command_line" title="Link to this definition">#</a></dt>
+<dd><p>Parse a command line into components.</p>
+<p>Supports formats:
+- /command
+- /command:option</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><em>ParsedCommand</em></p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="command-categories">
+<h2>Command Categories<a class="headerlink" href="#command-categories" title="Link to this heading">#</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.commands.register_cli_commands">
+<span class="sig-prename descclassname"><span class="pre">osprey.commands.</span></span><span class="sig-name descname"><span class="pre">register_cli_commands</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">registry</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/categories.html#register_cli_commands"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.register_cli_commands" title="Link to this definition">#</a></dt>
+<dd><p>Register CLI interface commands for user experience and interface control.</p>
+<p>Registers essential CLI commands that provide user interface control, help systems,
+and session management. These commands are designed for interactive terminal
+interfaces and provide rich formatted output using the Rich library.</p>
+<dl class="simple">
+<dt>Registered Commands:</dt><dd><p>/help [command]: Display available commands or detailed help for specific command
+/exit, /quit: Exit the current CLI session
+/clear: Clear the terminal screen</p>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>registry</strong> (<a class="reference internal" href="#osprey.commands.CommandRegistry" title="osprey.commands.CommandRegistry"><em>CommandRegistry</em></a>) – Command registry instance for command registration</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>CLI commands are interface-specific and may not be available in
+non-interactive contexts like OpenWebUI or API interfaces.</p>
+</div>
+<p class="rubric">Examples</p>
+<p>Command usage in CLI:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">/</span><span class="n">help</span>              <span class="c1"># Show all available commands</span>
+<span class="o">/</span><span class="n">help</span> <span class="n">planning</span>     <span class="c1"># Show detailed help for planning command</span>
+<span class="o">/</span><span class="n">clear</span>             <span class="c1"># Clear terminal screen</span>
+<span class="o">/</span><span class="n">exit</span>              <span class="c1"># Exit CLI session</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.commands.register_agent_control_commands">
+<span class="sig-prename descclassname"><span class="pre">osprey.commands.</span></span><span class="sig-name descname"><span class="pre">register_agent_control_commands</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">registry</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/categories.html#register_agent_control_commands"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.register_agent_control_commands" title="Link to this definition">#</a></dt>
+<dd><p>Register agent control commands for behavior and execution management.</p>
+<p>Registers commands that control agent execution behavior, planning modes,
+approval workflows, and performance optimizations. These commands modify
+the agent control state and affect how the framework processes requests
+and executes capabilities.</p>
+<dl class="simple">
+<dt>Registered Commands:</dt><dd><p>/planning:on|off: Enable or disable planning mode for execution coordination
+/approval:enabled|disabled|selective: Control human approval workflows
+/task:on|off: Control task extraction bypass for performance
+/caps:on|off: Control capability selection bypass for performance
+/chat:&lt;capability&gt;: Enter direct chat mode with a capability’s ReAct agent</p>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>registry</strong> (<a class="reference internal" href="#osprey.commands.CommandRegistry" title="osprey.commands.CommandRegistry"><em>CommandRegistry</em></a>) – Command registry instance for command registration</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Agent control commands return state change dictionaries instead of
+CommandResult values. These changes are applied to the agent control state.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Agent control changes affect framework behavior and should be used
+carefully in production environments.</p>
+</div>
+<p class="rubric">Examples</p>
+<p>Agent control usage:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">/</span><span class="n">planning</span><span class="p">:</span><span class="n">on</span>           <span class="c1"># Enable planning mode</span>
+<span class="o">/</span><span class="n">approval</span><span class="p">:</span><span class="n">selective</span>    <span class="c1"># Enable selective approval</span>
+<span class="o">/</span><span class="n">task</span><span class="p">:</span><span class="n">off</span>             <span class="c1"># Bypass task extraction for performance</span>
+<span class="o">/</span><span class="n">caps</span><span class="p">:</span><span class="n">off</span>             <span class="c1"># Bypass capability selection for performance</span>
+<span class="o">/</span><span class="n">chat</span><span class="p">:</span><span class="n">weather_mcp</span>     <span class="c1"># Enter direct chat with weather_mcp capability</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.commands.register_service_commands">
+<span class="sig-prename descclassname"><span class="pre">osprey.commands.</span></span><span class="sig-name descname"><span class="pre">register_service_commands</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">registry</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/commands/categories.html#register_service_commands"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.commands.register_service_commands" title="Link to this definition">#</a></dt>
+<dd><p>Register service-specific commands.</p>
+<dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</section>
+<section id="usage-examples">
+<h2>Usage Examples<a class="headerlink" href="#usage-examples" title="Link to this heading">#</a></h2>
+<section id="basic-command-execution">
+<h3>Basic Command Execution<a class="headerlink" href="#basic-command-execution" title="Link to this heading">#</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.commands</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_command_registry</span><span class="p">,</span> <span class="n">CommandContext</span>
+
+<span class="c1"># Get the global registry</span>
+<span class="n">registry</span> <span class="o">=</span> <span class="n">get_command_registry</span><span class="p">()</span>
+
+<span class="c1"># Create execution context</span>
+<span class="n">context</span> <span class="o">=</span> <span class="n">CommandContext</span><span class="p">(</span>
+    <span class="n">interface_type</span><span class="o">=</span><span class="s2">&quot;cli&quot;</span><span class="p">,</span>
+    <span class="n">console</span><span class="o">=</span><span class="n">console</span>
+<span class="p">)</span>
+
+<span class="c1"># Execute a command</span>
+<span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">registry</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;/help&quot;</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="custom-command-registration">
+<h3>Custom Command Registration<a class="headerlink" href="#custom-command-registration" title="Link to this heading">#</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.commands</span><span class="w"> </span><span class="kn">import</span> <span class="n">Command</span><span class="p">,</span> <span class="n">CommandCategory</span><span class="p">,</span> <span class="n">CommandResult</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">my_handler</span><span class="p">(</span><span class="n">args</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CommandResult</span><span class="p">:</span>
+    <span class="n">context</span><span class="o">.</span><span class="n">console</span><span class="o">.</span><span class="n">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Custom command executed with args: </span><span class="si">{</span><span class="n">args</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">CommandResult</span><span class="o">.</span><span class="n">HANDLED</span>
+
+<span class="c1"># Register custom command</span>
+<span class="n">registry</span> <span class="o">=</span> <span class="n">get_command_registry</span><span class="p">()</span>
+<span class="n">registry</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">Command</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;custom&quot;</span><span class="p">,</span>
+    <span class="n">category</span><span class="o">=</span><span class="n">CommandCategory</span><span class="o">.</span><span class="n">CUSTOM</span><span class="p">,</span>
+    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;My custom command&quot;</span><span class="p">,</span>
+    <span class="n">handler</span><span class="o">=</span><span class="n">my_handler</span><span class="p">,</span>
+    <span class="n">help_text</span><span class="o">=</span><span class="s2">&quot;Execute custom functionality&quot;</span>
+<span class="p">))</span>
+</pre></div>
+</div>
+</section>
+<section id="interface-integration">
+<h3>Interface Integration<a class="headerlink" href="#interface-integration" title="Link to this heading">#</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># CLI interface integration</span>
+<span class="n">context</span> <span class="o">=</span> <span class="n">CommandContext</span><span class="p">(</span>
+    <span class="n">interface_type</span><span class="o">=</span><span class="s2">&quot;cli&quot;</span><span class="p">,</span>
+    <span class="n">cli_instance</span><span class="o">=</span><span class="n">cli</span><span class="p">,</span>
+    <span class="n">console</span><span class="o">=</span><span class="n">rich_console</span>
+<span class="p">)</span>
+
+<span class="c1"># OpenWebUI interface integration</span>
+<span class="n">context</span> <span class="o">=</span> <span class="n">CommandContext</span><span class="p">(</span>
+    <span class="n">interface_type</span><span class="o">=</span><span class="s2">&quot;openwebui&quot;</span><span class="p">,</span>
+    <span class="n">user_id</span><span class="o">=</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span>
+    <span class="n">session_id</span><span class="o">=</span><span class="s2">&quot;session456&quot;</span>
+<span class="p">)</span>
+
+<span class="c1"># Execute commands with appropriate context</span>
+<span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">registry</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">user_input</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../../developer-guides/02_quick-start-patterns/00_cli-reference.html"><span class="doc">CLI Reference</span></a></dt><dd><p>CLI usage and available slash commands</p>
+</dd>
+<dt><a class="reference internal" href="../../developer-guides/04_infrastructure-components/01_gateway-architecture.html"><span class="doc">Gateway Architecture</span></a></dt><dd><p>Gateway integration with command system</p>
+</dd>
+<dt><a class="reference internal" href="../../developer-guides/03_core-framework-systems/01_state-management-architecture.html"><span class="doc">State Management Architecture</span></a></dt><dd><p>Agent state management for command execution</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="05_prompt_management.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Prompt System</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../02_infrastructure/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Infrastructure</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#core-components">Core Components</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#command-registry">Command Registry</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandRegistry"><code class="docutils literal notranslate"><span class="pre">CommandRegistry</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandRegistry.__init__"><code class="docutils literal notranslate"><span class="pre">CommandRegistry.__init__()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandRegistry.register"><code class="docutils literal notranslate"><span class="pre">CommandRegistry.register()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandRegistry.get_command"><code class="docutils literal notranslate"><span class="pre">CommandRegistry.get_command()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandRegistry.get_commands_by_category"><code class="docutils literal notranslate"><span class="pre">CommandRegistry.get_commands_by_category()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandRegistry.get_all_commands"><code class="docutils literal notranslate"><span class="pre">CommandRegistry.get_all_commands()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandRegistry.get_completions"><code class="docutils literal notranslate"><span class="pre">CommandRegistry.get_completions()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandRegistry.execute"><code class="docutils literal notranslate"><span class="pre">CommandRegistry.execute()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#command-types">Command Types</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.Command"><code class="docutils literal notranslate"><span class="pre">Command</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.Command.name"><code class="docutils literal notranslate"><span class="pre">Command.name</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.Command.category"><code class="docutils literal notranslate"><span class="pre">Command.category</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.Command.description"><code class="docutils literal notranslate"><span class="pre">Command.description</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.Command.handler"><code class="docutils literal notranslate"><span class="pre">Command.handler</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.Command.aliases"><code class="docutils literal notranslate"><span class="pre">Command.aliases</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.Command.help_text"><code class="docutils literal notranslate"><span class="pre">Command.help_text</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.Command.syntax"><code class="docutils literal notranslate"><span class="pre">Command.syntax</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.Command.requires_args"><code class="docutils literal notranslate"><span class="pre">Command.requires_args</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.Command.valid_options"><code class="docutils literal notranslate"><span class="pre">Command.valid_options</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.Command.interface_restrictions"><code class="docutils literal notranslate"><span class="pre">Command.interface_restrictions</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.Command.gateway_handled"><code class="docutils literal notranslate"><span class="pre">Command.gateway_handled</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.Command.hidden"><code class="docutils literal notranslate"><span class="pre">Command.hidden</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.Command.deprecated"><code class="docutils literal notranslate"><span class="pre">Command.deprecated</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.Command.__post_init__"><code class="docutils literal notranslate"><span class="pre">Command.__post_init__()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.Command.is_valid_for_interface"><code class="docutils literal notranslate"><span class="pre">Command.is_valid_for_interface()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.Command.validate_option"><code class="docutils literal notranslate"><span class="pre">Command.validate_option()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.Command.__init__"><code class="docutils literal notranslate"><span class="pre">Command.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandContext"><code class="docutils literal notranslate"><span class="pre">CommandContext</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandContext.interface_type"><code class="docutils literal notranslate"><span class="pre">CommandContext.interface_type</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandContext.user_id"><code class="docutils literal notranslate"><span class="pre">CommandContext.user_id</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandContext.session_id"><code class="docutils literal notranslate"><span class="pre">CommandContext.session_id</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandContext.cli_instance"><code class="docutils literal notranslate"><span class="pre">CommandContext.cli_instance</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandContext.console"><code class="docutils literal notranslate"><span class="pre">CommandContext.console</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandContext.agent_state"><code class="docutils literal notranslate"><span class="pre">CommandContext.agent_state</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandContext.gateway"><code class="docutils literal notranslate"><span class="pre">CommandContext.gateway</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandContext.config"><code class="docutils literal notranslate"><span class="pre">CommandContext.config</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandContext.service_instance"><code class="docutils literal notranslate"><span class="pre">CommandContext.service_instance</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandContext.extra"><code class="docutils literal notranslate"><span class="pre">CommandContext.extra</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandContext.__init__"><code class="docutils literal notranslate"><span class="pre">CommandContext.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandResult"><code class="docutils literal notranslate"><span class="pre">CommandResult</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandResult.CONTINUE"><code class="docutils literal notranslate"><span class="pre">CommandResult.CONTINUE</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandResult.HANDLED"><code class="docutils literal notranslate"><span class="pre">CommandResult.HANDLED</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandResult.EXIT"><code class="docutils literal notranslate"><span class="pre">CommandResult.EXIT</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandResult.AGENT_STATE_CHANGED"><code class="docutils literal notranslate"><span class="pre">CommandResult.AGENT_STATE_CHANGED</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandCategory"><code class="docutils literal notranslate"><span class="pre">CommandCategory</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandCategory.CLI"><code class="docutils literal notranslate"><span class="pre">CommandCategory.CLI</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandCategory.AGENT_CONTROL"><code class="docutils literal notranslate"><span class="pre">CommandCategory.AGENT_CONTROL</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandCategory.SERVICE"><code class="docutils literal notranslate"><span class="pre">CommandCategory.SERVICE</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.CommandCategory.CUSTOM"><code class="docutils literal notranslate"><span class="pre">CommandCategory.CUSTOM</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#registry-functions">Registry Functions</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.get_command_registry"><code class="docutils literal notranslate"><span class="pre">get_command_registry()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.register_command"><code class="docutils literal notranslate"><span class="pre">register_command()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.execute_command"><code class="docutils literal notranslate"><span class="pre">execute_command()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.parse_command_line"><code class="docutils literal notranslate"><span class="pre">parse_command_line()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#command-categories">Command Categories</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.register_cli_commands"><code class="docutils literal notranslate"><span class="pre">register_cli_commands()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.register_agent_control_commands"><code class="docutils literal notranslate"><span class="pre">register_agent_control_commands()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.commands.register_service_commands"><code class="docutils literal notranslate"><span class="pre">register_service_commands()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage-examples">Usage Examples</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#basic-command-execution">Basic Command Execution</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-command-registration">Custom Command Registration</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#interface-integration">Interface Integration</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/api_reference/01_core_framework/06_command_system.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
