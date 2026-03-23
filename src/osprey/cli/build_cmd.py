@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shlex
 import shutil
 import subprocess
@@ -41,11 +42,13 @@ logger = logging.getLogger(__name__)
     help="Output directory for project (default: current directory)",
 )
 @click.option("--force", "-f", is_flag=True, help="Force overwrite if project directory exists")
+@click.option("--stream", "-s", is_flag=True, help="Stream lifecycle step output in real-time")
 def build(
     project_name: str,
     profile: str,
     output_dir: str,
     force: bool,
+    stream: bool,
 ) -> None:
     """Build a facility-specific assistant from a profile.
 
@@ -127,7 +130,8 @@ def build(
         # 4. Run pre_build lifecycle commands
         if build_profile.lifecycle.pre_build:
             _run_lifecycle_phase(
-                "pre_build", build_profile.lifecycle.pre_build, profile_dir, project_path
+                "pre_build", build_profile.lifecycle.pre_build, profile_dir, project_path,
+                stream=stream,
             )
 
         # 5. Clear Claude Code project state
@@ -228,7 +232,8 @@ def build(
         # 18. Run post_build lifecycle commands
         if build_profile.lifecycle.post_build:
             _run_lifecycle_phase(
-                "post_build", build_profile.lifecycle.post_build, project_path, project_path
+                "post_build", build_profile.lifecycle.post_build, project_path, project_path,
+                stream=stream,
             )
 
         # 19. Run validate lifecycle commands
@@ -239,6 +244,7 @@ def build(
                 project_path,
                 project_path,
                 abort_on_failure=False,
+                stream=stream,
             )
 
         console.print(f"\n✅ Project built successfully at: [bold]{project_path}[/bold]")
@@ -262,6 +268,35 @@ def build(
 _SHELL_METACHARACTERS = ("|", "&&", "||", "$(", "`")
 
 
+def _load_dotenv(path: Path) -> dict[str, str]:
+    """Parse a .env file into a dict of environment variables.
+
+    Handles KEY=VALUE lines, #comments, blank lines, and quoted values
+    (single or double quotes stripped from value boundaries).
+    """
+    env: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Skip lines without =
+        if "=" not in line:
+            continue
+        # Skip `export` prefix (common in .env files)
+        if line.startswith("export "):
+            line = line[7:]
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip()
+        # Strip matching surrounding quotes
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+            value = value[1:-1]
+        env[key] = value
+    return env
+
+
 def _run_lifecycle_phase(
     phase_name: str,
     steps: list[Any],
@@ -269,6 +304,7 @@ def _run_lifecycle_phase(
     project_path: Path,
     *,
     abort_on_failure: bool = True,
+    stream: bool = False,
 ) -> None:
     """Run lifecycle commands for a build phase.
 
@@ -279,7 +315,17 @@ def _run_lifecycle_phase(
         project_path: Project root path for {project_root} substitution.
         abort_on_failure: If True, raise BuildProfileError on failure.
             If False, warn and continue (used for validate phase).
+        stream: If True, stream stdout/stderr in real-time instead of capturing.
     """
+    # Auto-inject .env vars into subprocess environment
+    env_file = project_path / ".env"
+    if env_file.is_file():
+        dotenv_vars = _load_dotenv(env_file)
+        sub_env = {**os.environ, **dotenv_vars}
+        logger.info("Loaded %d vars from %s into lifecycle environment", len(dotenv_vars), env_file)
+    else:
+        sub_env = None  # inherit parent env as-is
+
     console.print(f"  ⚙️  Running {phase_name} commands...", style=Styles.DIM)
     for step in steps:
         cmd_str = step.run.replace("{project_root}", str(project_path))
@@ -296,46 +342,65 @@ def _run_lifecycle_phase(
 
         t0 = time.monotonic()
         try:
-            if use_shell:
-                result = subprocess.run(
-                    cmd_str,
-                    shell=True,
-                    cwd=cwd,
-                    capture_output=True,
-                    text=True,
-                    timeout=step.timeout,
-                )
-            else:
-                result = subprocess.run(
-                    shlex.split(cmd_str),
-                    cwd=cwd,
-                    capture_output=True,
-                    text=True,
-                    timeout=step.timeout,
-                )
-            elapsed = time.monotonic() - t0
+            cmd = cmd_str if use_shell else shlex.split(cmd_str)
 
-            if result.returncode != 0:
-                output = (result.stdout + result.stderr).strip()
-                msg = f"Lifecycle {phase_name} step '{step.name}' failed (exit {result.returncode}, {elapsed:.1f}s)"
-                if output:
-                    msg += f":\n{output}"
-                if abort_on_failure:
-                    console.print(f"  ❌ {msg}", style=Styles.ERROR)
-                    raise BuildProfileError(msg)
+            if stream:
+                # Stream mode: show output in real-time, prefix with step name
+                console.print(f"  ▶ {step.name}", style=Styles.DIM)
+                proc = subprocess.Popen(
+                    cmd,
+                    shell=use_shell,
+                    cwd=cwd,
+                    env=sub_env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+                assert proc.stdout is not None  # noqa: S101
+                for line in proc.stdout:
+                    console.print(f"    {line}", end="", highlight=False)
+                proc.wait(timeout=step.timeout)
+                elapsed = time.monotonic() - t0
+                if proc.returncode != 0:
+                    msg = f"Lifecycle {phase_name} step '{step.name}' failed (exit {proc.returncode}, {elapsed:.1f}s)"
+                    if abort_on_failure:
+                        console.print(f"  ❌ {msg}", style=Styles.ERROR)
+                        raise BuildProfileError(msg)
+                    else:
+                        console.print(f"  ⚠️  {msg}", style=Styles.WARNING)
                 else:
-                    console.print(f"  ⚠️  {msg}", style=Styles.WARNING)
+                    console.print(f"  ✓ {step.name} ({elapsed:.1f}s)", style=Styles.SUCCESS)
             else:
-                # Build success message with timing
-                success_msg = f"  ✓ {step.name} ({elapsed:.1f}s)"
-                # Extract a one-line summary from the last non-empty line of
-                # combined output (scripts can print a summary as their last line)
-                output = (result.stdout + result.stderr).strip()
-                if output:
-                    summary = output.rstrip().rsplit("\n", 1)[-1].strip()
-                    if summary:
-                        success_msg += f" — {summary}"
-                console.print(success_msg, style=Styles.SUCCESS)
+                # Quiet mode: capture output, show one-line summary
+                result = subprocess.run(
+                    cmd,
+                    shell=use_shell,
+                    cwd=cwd,
+                    env=sub_env,
+                    capture_output=True,
+                    text=True,
+                    timeout=step.timeout,
+                )
+                elapsed = time.monotonic() - t0
+
+                if result.returncode != 0:
+                    output = (result.stdout + result.stderr).strip()
+                    msg = f"Lifecycle {phase_name} step '{step.name}' failed (exit {result.returncode}, {elapsed:.1f}s)"
+                    if output:
+                        msg += f":\n{output}"
+                    if abort_on_failure:
+                        console.print(f"  ❌ {msg}", style=Styles.ERROR)
+                        raise BuildProfileError(msg)
+                    else:
+                        console.print(f"  ⚠️  {msg}", style=Styles.WARNING)
+                else:
+                    success_msg = f"  ✓ {step.name} ({elapsed:.1f}s)"
+                    output = (result.stdout + result.stderr).strip()
+                    if output:
+                        summary = output.rstrip().rsplit("\n", 1)[-1].strip()
+                        if summary:
+                            success_msg += f" — {summary}"
+                    console.print(success_msg, style=Styles.SUCCESS)
 
         except subprocess.TimeoutExpired:
             elapsed = time.monotonic() - t0
