@@ -1,0 +1,1485 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey.state.state &#8212; Osprey Framework 0.11.5 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
+
+
+
+
+
+const initStyles = () => {
+    const defaultStyle = document.createElement('style');
+    defaultStyle.textContent = `pre.mermaid {
+    /* Same as .mermaid-container > pre */
+    display: block;
+    width: 100%;
+}
+
+pre.mermaid > svg {
+    /* Same as .mermaid-container > pre > svg */
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}`;
+    document.head.appendChild(defaultStyle);
+
+    const fullscreenStyle = document.createElement('style');
+    fullscreenStyle.textContent = `.mermaid-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.mermaid-container > pre {
+    display: block;
+    width: 100%;
+}
+
+.mermaid-container > pre > svg {
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}
+
+.mermaid-fullscreen-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    color: #333;
+}
+
+.mermaid-fullscreen-btn:hover {
+    opacity: 100% !important;
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-btn.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-btn.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 95vw;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.98);
+    z-index: 9999;
+    padding: 20px;
+    overflow: auto;
+}
+
+.mermaid-fullscreen-modal.dark-theme {
+    background: rgba(0, 0, 0, 0.98);
+}
+
+.mermaid-fullscreen-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen {
+    position: relative;
+    width: 95vw;
+    height: 90vh;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen.dark-theme {
+    background: #1a1a1a;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-container-fullscreen pre.mermaid {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen .mermaid svg {
+    height: 100% !important;
+    width: 100% !important;
+    cursor: grab;
+}
+
+.mermaid-fullscreen-close {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    font-size: 24px;
+    line-height: 1;
+    color: #333;
+}
+
+.mermaid-fullscreen-close:hover {
+    background: white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-close.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-close.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
+    display: none !important;
+}`;
+    document.head.appendChild(fullscreenStyle);
+}
+
+// Detect if page has dark background
+const isDarkTheme = () => {
+    // We use a set of heuristics:
+    // 1. Check for common dark mode classes or attributes
+    // 2. Check computed background color brightness
+    if (document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        document.body.getAttribute('data-theme') === 'dark') {
+        // console.log("Dark theme detected via class/attribute");
+        return true;
+    }
+    if (document.documentElement.classList.contains('light') ||
+        document.documentElement.getAttribute('data-theme') === 'light' ||
+        document.body.classList.contains('light') ||
+        document.body.getAttribute('data-theme') === 'light') {
+        // console.log("Light theme detected via class/attribute");
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // console.log("Dark theme detected via prefers-color-scheme");
+        return true;
+    }
+    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        // console.log("Background color brightness:", brightness);
+        return brightness < 128;
+    }
+    // console.log("No dark or light theme detected, defaulting to light theme");
+    return false;
+};
+
+let darkTheme = isDarkTheme();
+let modal = null;
+let modalContent = null;
+let previousScrollOffset = [window.scrollX, window.scrollY];
+
+const runMermaid = async (rerun) => {
+    console.log("Running mermaid diagrams, rerun =", rerun);
+    // clear all existing mermaid charts
+    let all_mermaids = document.querySelectorAll(".mermaid");
+
+    if (rerun) {
+        all_mermaids.forEach((el) => {
+            if(!el.hasAttribute("data-original-code")) {
+                // store original code
+                // console.log(`Storing original code for first run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+            if(el.getAttribute("data-processed") === "true") {
+                // remove and restore original
+                el.removeAttribute("data-processed");
+                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
+                el.innerHTML = el.getAttribute('data-original-code');
+            } else {
+                // store original code
+                // console.log(`Storing original code for re-run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+        });
+        await mermaid.run();
+    }
+
+    all_mermaids = document.querySelectorAll(".mermaid");
+    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
+
+    if ("False" === "True") {
+        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
+        if(mermaids_to_add_zoom > 0) {
+            var svgs = d3.selectAll("");
+            if(all_mermaids.length !== mermaids_processed.length) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else if(svgs.size() !== mermaids_to_add_zoom) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else {
+                svgs.each(function() {
+                    var svg = d3.select(this);
+                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
+                    var inner = svg.select("g");
+                    var zoom = d3.zoom().on("zoom", function(event) {
+                        inner.attr("transform", event.transform);
+                    });
+                    svg.call(zoom);
+                });
+            }
+        }
+    } else if(all_mermaids.length !== mermaids_processed.length) {
+        // Wait for mermaid to process all diagrams
+        setTimeout(() => runMermaid(false), 200);
+        return;
+    }
+
+    // Stop here if not adding fullscreen capability
+    if ("True" !== "True") return;
+
+    if (modal !== null ) {
+        // Destroy existing modal
+        modal.remove();
+        modal = null;
+        modalContent = null;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
+    modal.innerHTML = `
+        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
+        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
+    `;
+    document.body.appendChild(modal);
+
+    modalContent = modal.querySelector('.mermaid-container-fullscreen');
+    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
+
+    const closeModal = () => {
+        modal.classList.remove('active');
+        modalContent.innerHTML = '';
+        document.body.style.overflow = ''
+        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+        }
+    });
+
+    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
+        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
+            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
+            // Already processed, adjust button class if needed
+            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
+            if (existingBtn) {
+                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+            }
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.className = 'mermaid-container';
+        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
+        container.appendChild(mermaidDiv);
+
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
+        fullscreenBtn.textContent = '⛶';
+        fullscreenBtn.style.opacity = '50%';
+
+        // Calculate dynamic position based on diagram's margin and padding
+        const diagramStyle = window.getComputedStyle(mermaidDiv);
+        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
+        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
+        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
+        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
+        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
+        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
+
+        fullscreenBtn.addEventListener('click', () => {
+            previousScrollOffset = [window.scroll, window.scrollY];
+            const clone = mermaidDiv.cloneNode(true);
+            modalContent.innerHTML = '';
+            modalContent.appendChild(clone);
+
+            const svg = clone.querySelector('svg');
+            if (svg) {
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxWidth = '100%';
+                svg.style.sdisplay = 'block';
+
+                if ("False" === "True") {
+                    setTimeout(() => {
+                        const g = svg.querySelector('g');
+                        if (g) {
+                            var svgD3 = d3.select(svg);
+                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
+                            var inner = svgD3.select("g");
+                            var zoom = d3.zoom().on("zoom", function(event) {
+                                inner.attr("transform", event.transform);
+                            });
+                            svgD3.call(zoom);
+                        }
+                    }, 100);
+                }
+            }
+
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+        container.appendChild(fullscreenBtn);
+    });
+};
+
+const load = async () => {
+    initStyles();
+
+    await runMermaid(true);
+
+    const reRunIfThemeChanges = async () => {
+        const newDarkTheme = isDarkTheme();
+        if (newDarkTheme !== darkTheme) {
+            darkTheme = newDarkTheme;
+            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
+            await mermaid.initialize(
+                {...JSON.parse(
+                    `{"startOnLoad": false}`
+                ),
+                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+                }
+            );
+            await runMermaid(true);
+        }
+    };
+
+    // Update theme classes when theme changes
+    const themeObserver = new MutationObserver(reRunIfThemeChanges);
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+    themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+};
+
+
+
+
+
+console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
+mermaid.initialize(
+    {...JSON.parse(
+        `{"startOnLoad": false}`
+    ),
+    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+    }
+);
+
+window.addEventListener("load", load);</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey/state/state';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey.state.state</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey.state.state</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;LangGraph-Native Conversational Agent State.</span>
+
+<span class="sd">This module implements the core state structure for the Osprey Agent Framework</span>
+<span class="sd">using LangGraph&#39;s native patterns for optimal performance and compatibility. The state</span>
+<span class="sd">system provides a clean separation between persistent context data and execution-scoped</span>
+<span class="sd">fields that reset automatically between conversation turns.</span>
+
+<span class="sd">**Architecture Overview:**</span>
+
+<span class="sd">The state system is built on LangGraph&#39;s MessagesState foundation with a flat structure</span>
+<span class="sd">that eliminates the need for complex custom reducers. Only capability context data</span>
+<span class="sd">persists across conversation turns, while all execution-related fields reset automatically</span>
+<span class="sd">between graph invocations.</span>
+
+<span class="sd">**Key Components:**</span>
+
+<span class="sd">- :class:`AgentState`: Main conversational state extending MessagesState</span>
+<span class="sd">- :func:`merge_capability_context_data`: Custom reducer for context persistence</span>
+<span class="sd">- :func:`create_status_update`: Utility for creating status update events</span>
+<span class="sd">- :func:`create_progress_event`: Utility for creating progress tracking events</span>
+<span class="sd">- :type:`StateUpdate`: Type alias for LangGraph state update dictionaries</span>
+
+<span class="sd">**State Field Organization:**</span>
+
+<span class="sd">The state fields are organized with logical prefixes for clarity:</span>
+
+<span class="sd">- **task_*** : Task extraction and input processing</span>
+<span class="sd">- **planning_*** : Classification and orchestration</span>
+<span class="sd">- **execution_*** : Step execution and results</span>
+<span class="sd">- **control_*** : Control flow runtime state</span>
+<span class="sd">- **ui_*** : UI-specific results and commands</span>
+
+<span class="sd">**Persistence Strategy:**</span>
+
+<span class="sd">- **Persistent Fields**: `capability_context_data` and `session_state` accumulate across conversations</span>
+<span class="sd">- **Execution-Scoped**: All other fields reset automatically each invocation</span>
+<span class="sd">- **Custom Reducers**: For persistent fields that need merge behavior</span>
+
+<span class="sd">**Context Data Structure:**</span>
+
+<span class="sd">The capability_context_data field uses a three-level dictionary structure optimized</span>
+<span class="sd">for LangGraph serialization::</span>
+
+<span class="sd">    {</span>
+<span class="sd">        context_type: {</span>
+<span class="sd">            context_key: {</span>
+<span class="sd">                field: value,</span>
+<span class="sd">                ...</span>
+<span class="sd">            }</span>
+<span class="sd">        }</span>
+<span class="sd">    }</span>
+
+<span class="sd">This structure enables efficient context storage, retrieval, and merging while</span>
+<span class="sd">maintaining compatibility with LangGraph&#39;s checkpointing system.</span>
+
+<span class="sd">.. note::</span>
+<span class="sd">   TypedDict classes cannot have default values in their class definition.</span>
+<span class="sd">   Use StateManager.create_fresh_state() to create state instances with</span>
+<span class="sd">   proper defaults. Only capability_context_data will be preserved from</span>
+<span class="sd">   previous state if available.</span>
+
+<span class="sd">.. warning::</span>
+<span class="sd">   The state structure is optimized for LangGraph&#39;s native patterns. Direct</span>
+<span class="sd">   manipulation of state fields may interfere with automatic checkpointing</span>
+<span class="sd">   and serialization. Use StateManager utilities for state operations.</span>
+
+<span class="sd">.. seealso::</span>
+<span class="sd">   :class:`osprey.state.StateManager` : State creation and management utilities</span>
+<span class="sd">   :class:`osprey.context.ContextManager` : Context data management</span>
+<span class="sd">   :mod:`osprey.base.planning` : Execution planning and step structures</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Annotated</span><span class="p">,</span> <span class="n">Any</span>
+
+<span class="c1"># LangGraph native imports</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">langgraph.graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">MessagesState</span>
+
+<span class="c1"># Import context manager for type hints and helper functions</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.planning</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExecutionPlan</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.results</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExecutionResult</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.execution</span><span class="w"> </span><span class="kn">import</span> <span class="n">ApprovalRequest</span>
+
+<span class="c1"># ===== CUSTOM REDUCER FOR PURE DICTIONARY CONTEXT DATA =====</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">merge_session_state</span><span class="p">(</span><span class="n">existing</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">new</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Merge session state dictionaries for persistence across conversation turns.</span>
+
+<span class="sd">    This custom reducer enables session state (like direct chat mode) to persist</span>
+<span class="sd">    across conversation turns while allowing updates. Similar to capability context</span>
+<span class="sd">    data, this ensures session preferences survive state refreshes.</span>
+
+<span class="sd">    :param existing: Existing session state from previous state</span>
+<span class="sd">    :type existing: Optional[Dict[str, Any]]</span>
+<span class="sd">    :param new: New session state to merge into existing structure</span>
+<span class="sd">    :type new: Dict[str, Any]</span>
+<span class="sd">    :return: Merged dictionary maintaining existing data with new updates applied</span>
+<span class="sd">    :rtype: Dict[str, Any]</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       The function performs shallow merging where new values override existing</span>
+<span class="sd">       values for the same key. This is appropriate for session state which</span>
+<span class="sd">       typically contains scalar values and flags.</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Basic session state merging::</span>
+
+<span class="sd">            &gt;&gt;&gt; existing = {&quot;direct_chat_capability&quot;: &quot;weather_mcp&quot;}</span>
+<span class="sd">            &gt;&gt;&gt; new = {&quot;last_direct_chat_result&quot;: {&quot;content&quot;: &quot;...&quot;}}</span>
+<span class="sd">            &gt;&gt;&gt; result = merge_session_state(existing, new)</span>
+<span class="sd">            &gt;&gt;&gt; result[&quot;direct_chat_capability&quot;]</span>
+<span class="sd">            &#39;weather_mcp&#39;</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`AgentState` : Main state class using this reducer</span>
+<span class="sd">       :func:`merge_capability_context_data` : Similar reducer for context data</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">existing</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">new</span> <span class="k">if</span> <span class="n">new</span> <span class="k">else</span> <span class="p">{}</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">new</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">existing</span>
+
+    <span class="c1"># Merge new session state into existing</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">existing</span><span class="p">,</span> <span class="o">**</span><span class="n">new</span><span class="p">}</span>
+    <span class="k">return</span> <span class="n">result</span>
+
+
+<div class="viewcode-block" id="merge_capability_context_data">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.merge_capability_context_data">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">merge_capability_context_data</span><span class="p">(</span>
+    <span class="n">existing</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">new</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Merge capability context data dictionaries for LangGraph-native checkpointing.</span>
+
+<span class="sd">    This custom reducer function enables capability context data to accumulate across</span>
+<span class="sd">    conversation turns while maintaining pure dictionary structure for optimal LangGraph</span>
+<span class="sd">    serialization and checkpointing performance. The function implements deep merging</span>
+<span class="sd">    logic that preserves existing context while integrating new context data.</span>
+
+<span class="sd">    The merge operation follows a three-level dictionary structure that organizes</span>
+<span class="sd">    context data hierarchically by type, key, and field values. This structure</span>
+<span class="sd">    provides efficient access patterns for context retrieval while maintaining</span>
+<span class="sd">    serialization compatibility.</span>
+
+<span class="sd">    :param existing: Existing capability context data dictionary from previous state</span>
+<span class="sd">    :type existing: Optional[Dict[str, Dict[str, Dict[str, Any]]]]</span>
+<span class="sd">    :param new: New capability context data to merge into existing structure</span>
+<span class="sd">    :type new: Dict[str, Dict[str, Dict[str, Any]]]</span>
+<span class="sd">    :return: Merged dictionary maintaining all existing data with new updates applied</span>
+<span class="sd">    :rtype: Dict[str, Dict[str, Dict[str, Any]]]</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       The function performs deep copying to prevent mutation of input dictionaries,</span>
+<span class="sd">       ensuring state immutability and preventing side effects in LangGraph operations.</span>
+
+<span class="sd">    .. warning::</span>
+<span class="sd">       New context data will override existing context data for the same context_type</span>
+<span class="sd">       and context_key combination. This is intentional for capability result updates</span>
+<span class="sd">       but should be considered when designing context key strategies.</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Basic context merging::</span>
+
+<span class="sd">            &gt;&gt;&gt; existing = {&quot;PV_ADDRESSES&quot;: {&quot;step1&quot;: {&quot;pvs&quot;: [&quot;SR:C01:MAG:1&quot;]}}}</span>
+<span class="sd">            &gt;&gt;&gt; new = {&quot;PV_ADDRESSES&quot;: {&quot;step2&quot;: {&quot;pvs&quot;: [&quot;SR:C02:MAG:1&quot;]}}}</span>
+<span class="sd">            &gt;&gt;&gt; result = merge_capability_context_data(existing, new)</span>
+<span class="sd">            &gt;&gt;&gt; len(result[&quot;PV_ADDRESSES&quot;])</span>
+<span class="sd">            2</span>
+
+<span class="sd">        Context override behavior::</span>
+
+<span class="sd">            &gt;&gt;&gt; existing = {&quot;DATA&quot;: {&quot;key1&quot;: {&quot;value&quot;: &quot;old&quot;}}}</span>
+<span class="sd">            &gt;&gt;&gt; new = {&quot;DATA&quot;: {&quot;key1&quot;: {&quot;value&quot;: &quot;new&quot;, &quot;extra&quot;: &quot;data&quot;}}}</span>
+<span class="sd">            &gt;&gt;&gt; result = merge_capability_context_data(existing, new)</span>
+<span class="sd">            &gt;&gt;&gt; result[&quot;DATA&quot;][&quot;key1&quot;][&quot;value&quot;]</span>
+<span class="sd">            &#39;new&#39;</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`AgentState` : Main state class using this reducer</span>
+<span class="sd">       :class:`osprey.context.ContextManager` : Context data management utilities</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">existing</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="c1"># Deep copy to avoid mutation of input</span>
+        <span class="k">return</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">new</span><span class="p">)</span>
+
+    <span class="c1"># Deep copy existing data to avoid mutation</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">existing</span><span class="p">)</span>
+
+    <span class="c1"># Merge in new data, which may override existing keys</span>
+    <span class="k">for</span> <span class="n">context_type</span><span class="p">,</span> <span class="n">contexts</span> <span class="ow">in</span> <span class="n">new</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="k">if</span> <span class="n">context_type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">result</span><span class="p">:</span>
+            <span class="n">result</span><span class="p">[</span><span class="n">context_type</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">for</span> <span class="n">context_key</span><span class="p">,</span> <span class="n">context_data</span> <span class="ow">in</span> <span class="n">contexts</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="c1"># Update the entire context data for this key</span>
+            <span class="n">result</span><span class="p">[</span><span class="n">context_type</span><span class="p">][</span><span class="n">context_key</span><span class="p">]</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">context_data</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">result</span></div>
+
+
+
+<span class="c1"># ===== MAIN CONVERSATIONAL STATE =====</span>
+
+
+<div class="viewcode-block" id="AgentState">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.AgentState">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">AgentState</span><span class="p">(</span><span class="n">MessagesState</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;LangGraph-native conversational agent state with comprehensive execution tracking.</span>
+
+<span class="sd">    This TypedDict class extends LangGraph&#39;s MessagesState to provide a complete state</span>
+<span class="sd">    structure for conversational AI agents. The state design implements selective</span>
+<span class="sd">    persistence where only capability context data accumulates across conversation</span>
+<span class="sd">    turns, while all execution-related fields reset automatically between graph</span>
+<span class="sd">    invocations for optimal performance and state clarity.</span>
+
+<span class="sd">    **State Architecture:**</span>
+
+<span class="sd">    The state follows a flat structure with logical field prefixes for organization:</span>
+
+<span class="sd">    - **Persistent Fields**: Only capability_context_data persists across conversations</span>
+<span class="sd">    - **Execution-Scoped Fields**: All other fields reset automatically each invocation</span>
+<span class="sd">    - **No Custom Reducers**: Leverages LangGraph&#39;s native message handling patterns</span>
+<span class="sd">    - **Type Safety**: Comprehensive TypedDict definitions with proper type annotations</span>
+
+<span class="sd">    **Field Organization by Prefix:**</span>
+
+<span class="sd">    - **task_*** : Task extraction and input processing state</span>
+<span class="sd">    - **planning_*** : Classification and orchestration management</span>
+<span class="sd">    - **execution_*** : Step execution results and tracking</span>
+<span class="sd">    - **control_*** : Control flow and retry logic state</span>
+<span class="sd">    - **ui_*** : UI-specific results and command generation</span>
+<span class="sd">    - **runtime_*** : Runtime metadata and checkpoint information</span>
+
+<span class="sd">    **Context Data Structure:**</span>
+
+<span class="sd">    The capability_context_data field uses a three-level dictionary optimized for</span>
+<span class="sd">    LangGraph serialization and efficient context retrieval::</span>
+
+<span class="sd">        {</span>
+<span class="sd">            context_type: {</span>
+<span class="sd">                context_key: {</span>
+<span class="sd">                    field: value,</span>
+<span class="sd">                    ...</span>
+<span class="sd">                }</span>
+<span class="sd">            }</span>
+<span class="sd">        }</span>
+
+<span class="sd">    **State Lifecycle:**</span>
+
+<span class="sd">    1. **Fresh State Creation**: StateManager.create_fresh_state() initializes defaults</span>
+<span class="sd">    2. **Context Preservation**: Only capability_context_data carries forward</span>
+<span class="sd">    3. **Execution Reset**: All execution fields reset to defaults each turn</span>
+<span class="sd">    4. **Message Handling**: LangGraph manages message history automatically</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       TypedDict classes cannot define default values in the class definition.</span>
+<span class="sd">       Always use StateManager.create_fresh_state() to create properly initialized</span>
+<span class="sd">       state instances. Only capability_context_data will be preserved from</span>
+<span class="sd">       previous state if available.</span>
+
+<span class="sd">    .. warning::</span>
+<span class="sd">       Direct manipulation of state fields may interfere with LangGraph&#39;s automatic</span>
+<span class="sd">       checkpointing and serialization. Use StateManager utilities for all state</span>
+<span class="sd">       operations to ensure compatibility and proper behavior.</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Creating fresh state through StateManager::</span>
+
+<span class="sd">            &gt;&gt;&gt; from osprey.state import StateManager</span>
+<span class="sd">            &gt;&gt;&gt; state = StateManager.create_fresh_state(</span>
+<span class="sd">            ...     user_input=&quot;Find beam current PV addresses&quot;,</span>
+<span class="sd">            ...     current_state=previous_state</span>
+<span class="sd">            ... )</span>
+<span class="sd">            &gt;&gt;&gt; state[&#39;task_current_task&#39;]</span>
+<span class="sd">            None</span>
+
+<span class="sd">        Accessing persistent context data::</span>
+
+<span class="sd">            &gt;&gt;&gt; context_data = state[&#39;capability_context_data&#39;]</span>
+<span class="sd">            &gt;&gt;&gt; pv_addresses = context_data.get(&#39;PV_ADDRESSES&#39;, {})</span>
+<span class="sd">            &gt;&gt;&gt; len(pv_addresses)</span>
+<span class="sd">            3</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`osprey.state.StateManager` : State creation and management utilities</span>
+<span class="sd">       :class:`osprey.context.ContextManager` : Context data access and storage</span>
+<span class="sd">       :func:`merge_capability_context_data` : Custom reducer for context persistence</span>
+<span class="sd">       :class:`osprey.base.planning.ExecutionPlan` : Execution planning structures</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># ===== PERSISTENT FIELDS (Accumulate across conversation) =====</span>
+
+    <span class="c1"># Core persistent context - LangGraph-native dictionary storage</span>
+    <span class="c1"># Data structure: {context_type: {context_key: {field: value}}}</span>
+    <span class="n">capability_context_data</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
+        <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]],</span> <span class="n">merge_capability_context_data</span>
+    <span class="p">]</span>
+
+    <span class="c1"># Session state - persists user preferences and mode across turns</span>
+    <span class="c1"># Structure: {</span>
+    <span class="c1">#     &quot;direct_chat_capability&quot;: Optional[str],     # Active capability name for direct chat</span>
+    <span class="c1">#     &quot;last_direct_chat_result&quot;: Optional[dict],   # {content, full_response, timestamp, capability, context_type}</span>
+    <span class="c1">#     &quot;session_id&quot;: Optional[str],                 # Session identifier</span>
+    <span class="c1">#     &quot;session_start_time&quot;: Optional[float],       # Session start timestamp</span>
+    <span class="c1"># }</span>
+    <span class="n">session_state</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">merge_session_state</span><span class="p">]</span>
+
+    <span class="c1"># ===== EXECUTION-SCOPED FIELDS (Reset each invocation) =====</span>
+
+    <span class="c1"># Agent control state - resets to defaults each conversation turn</span>
+    <span class="n">agent_control</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+
+    <span class="c1"># Event accumulation - reset each execution</span>
+    <span class="n">status_updates</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span>
+    <span class="n">progress_events</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span>
+
+    <span class="c1"># Task processing fields</span>
+    <span class="n">task_current_task</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">task_depends_on_chat_history</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">task_depends_on_user_memory</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">task_custom_message</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+
+    <span class="c1"># Planning fields</span>
+    <span class="n">planning_active_capabilities</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+    <span class="n">planning_execution_plan</span><span class="p">:</span> <span class="n">ExecutionPlan</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">planning_current_step_index</span><span class="p">:</span> <span class="nb">int</span>
+
+    <span class="c1"># Execution fields</span>
+    <span class="n">execution_step_results</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+    <span class="n">execution_last_result</span><span class="p">:</span> <span class="n">ExecutionResult</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">execution_pending_approvals</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ApprovalRequest</span><span class="p">]</span>
+    <span class="n">execution_start_time</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">execution_total_time</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span>
+
+    <span class="c1"># Approval handling fields (for interrupt flows)</span>
+    <span class="n">approval_approved</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span>  <span class="c1"># True/False/None for approved/rejected/no-approval</span>
+    <span class="n">approved_payload</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>  <span class="c1"># Direct payload access</span>
+
+    <span class="c1"># Control flow fields</span>
+    <span class="n">control_reclassification_reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">control_reclassification_count</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">control_plans_created_count</span><span class="p">:</span> <span class="nb">int</span>  <span class="c1"># Number of plans created by orchestrator for current task</span>
+    <span class="n">control_current_step_retry_count</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">control_retry_count</span><span class="p">:</span> <span class="nb">int</span>  <span class="c1"># Total retry count for current capability</span>
+    <span class="n">control_has_error</span><span class="p">:</span> <span class="nb">bool</span>  <span class="c1"># Error state for manual retry handling</span>
+    <span class="n">control_error_info</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>  <span class="c1"># Error details for retry logic</span>
+    <span class="n">control_last_error</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>  <span class="c1"># Last error information for retry logic</span>
+    <span class="n">control_max_retries</span><span class="p">:</span> <span class="nb">int</span>  <span class="c1"># Maximum retries (typically 3)</span>
+
+    <span class="n">control_is_killed</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">control_kill_reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">control_is_awaiting_validation</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">control_validation_context</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">control_validation_timestamp</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span>
+
+    <span class="c1"># UI result fields</span>
+    <span class="n">ui_artifacts</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span>  <span class="c1"># Unified artifact registry for all UI-displayable content</span>
+
+    <span class="c1"># Legacy UI fields (deprecated - use ui_artifacts instead)</span>
+    <span class="c1"># These are maintained for backward compatibility with existing interfaces</span>
+    <span class="n">ui_captured_notebooks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span>
+        <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+    <span class="p">]</span>  <span class="c1"># Centralized notebook registry for displaying notebooks in the UI</span>
+    <span class="n">ui_captured_figures</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span>
+        <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+    <span class="p">]</span>  <span class="c1"># Centralized figure registry for displaying figures in the UI</span>
+    <span class="n">ui_launchable_commands</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span>
+        <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+    <span class="p">]</span>  <span class="c1"># Centralized command registry for displaying launchable commands in the UI</span>
+    <span class="n">ui_agent_context</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
+
+    <span class="c1"># Runtime metadata fields</span>
+    <span class="n">runtime_checkpoint_metadata</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">runtime_info</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
+
+    <span class="c1"># Reactive orchestration fields (execution-scoped)</span>
+    <span class="n">react_messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span>  <span class="c1"># Accumulated LLM reasoning messages for ReAct loop</span>
+    <span class="n">react_step_count</span><span class="p">:</span> <span class="nb">int</span>  <span class="c1"># Safety counter for max iterations</span>
+    <span class="n">react_rejection_count</span><span class="p">:</span> <span class="nb">int</span>  <span class="c1"># Consecutive rejection counter for approval loop limit</span>
+    <span class="n">react_response_generated</span><span class="p">:</span> <span class="nb">bool</span>  <span class="c1"># Whether reactive orchestrator generated response directly</span>
+
+    <span class="c1"># Capability slash commands (execution-scoped)</span>
+    <span class="c1"># Stores unregistered slash commands for capability-specific handling</span>
+    <span class="c1"># command_name -&gt; value (str) or True (flag)</span>
+    <span class="n">_capability_slash_commands</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">bool</span><span class="p">]</span></div>
+
+
+
+<span class="c1"># ===== UTILITY FUNCTIONS FOR EVENT UPDATES =====</span>
+
+
+<div class="viewcode-block" id="create_status_update">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.create_status_update">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_status_update</span><span class="p">(</span>
+    <span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">progress</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">complete</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">metadata</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create a status update event for LangGraph state integration.</span>
+
+<span class="sd">    This utility function creates properly formatted status update events that can be</span>
+<span class="sd">    merged into agent state using LangGraph&#39;s native state update mechanisms. The</span>
+<span class="sd">    function generates timestamped status events with progress tracking and metadata</span>
+<span class="sd">    support for comprehensive execution monitoring.</span>
+
+<span class="sd">    Status updates are used throughout the framework to provide real-time feedback</span>
+<span class="sd">    on execution progress, capability status, and system operations. The events are</span>
+<span class="sd">    automatically formatted for consumption by UI components and logging systems.</span>
+
+<span class="sd">    :param message: Descriptive message about the current status or operation</span>
+<span class="sd">    :type message: str</span>
+<span class="sd">    :param progress: Progress value between 0.0 and 1.0 indicating completion percentage</span>
+<span class="sd">    :type progress: float</span>
+<span class="sd">    :param complete: Whether this status update indicates completion of the operation</span>
+<span class="sd">    :type complete: bool</span>
+<span class="sd">    :param metadata: Additional metadata fields to include in the status event</span>
+<span class="sd">    :type metadata: Any</span>
+<span class="sd">    :return: Dictionary containing status_updates list for LangGraph state merging</span>
+<span class="sd">    :rtype: Dict[str, Any]</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       The returned dictionary contains a &#39;status_updates&#39; key with a list containing</span>
+<span class="sd">       the new status event. This format is compatible with LangGraph&#39;s automatic</span>
+<span class="sd">       list merging for state updates.</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Basic status update::</span>
+
+<span class="sd">            &gt;&gt;&gt; update = create_status_update(&quot;Processing data&quot;, 0.5)</span>
+<span class="sd">            &gt;&gt;&gt; update[&#39;status_updates&#39;][0][&#39;message&#39;]</span>
+<span class="sd">            &#39;Processing data&#39;</span>
+<span class="sd">            &gt;&gt;&gt; update[&#39;status_updates&#39;][0][&#39;progress&#39;]</span>
+<span class="sd">            0.5</span>
+
+<span class="sd">        Completion status with metadata::</span>
+
+<span class="sd">            &gt;&gt;&gt; update = create_status_update(</span>
+<span class="sd">            ...     &quot;Analysis complete&quot;, 1.0, complete=True,</span>
+<span class="sd">            ...     node=&quot;data_analysis&quot;, items_processed=150</span>
+<span class="sd">            ... )</span>
+<span class="sd">            &gt;&gt;&gt; update[&#39;status_updates&#39;][0][&#39;complete&#39;]</span>
+<span class="sd">            True</span>
+<span class="sd">            &gt;&gt;&gt; update[&#39;status_updates&#39;][0][&#39;items_processed&#39;]</span>
+<span class="sd">            150</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :func:`create_progress_event` : Create progress tracking events</span>
+<span class="sd">       :class:`AgentState` : Main state class containing status_updates field</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;status_updates&quot;</span><span class="p">:</span> <span class="p">[</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">message</span><span class="p">,</span>
+                <span class="s2">&quot;progress&quot;</span><span class="p">:</span> <span class="n">progress</span><span class="p">,</span>
+                <span class="s2">&quot;complete&quot;</span><span class="p">:</span> <span class="n">complete</span><span class="p">,</span>
+                <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="nb">__import__</span><span class="p">(</span><span class="s2">&quot;time&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">time</span><span class="p">(),</span>
+                <span class="o">**</span><span class="n">metadata</span><span class="p">,</span>
+            <span class="p">}</span>
+        <span class="p">]</span>
+    <span class="p">}</span></div>
+
+
+
+<div class="viewcode-block" id="create_progress_event">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.create_progress_event">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_progress_event</span><span class="p">(</span><span class="n">current</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">total</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">operation</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">**</span><span class="n">metadata</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create a progress tracking event for LangGraph state integration.</span>
+
+<span class="sd">    This utility function creates properly formatted progress events that track</span>
+<span class="sd">    incremental progress through multi-step operations. The function automatically</span>
+<span class="sd">    calculates progress percentages and provides timestamped events for detailed</span>
+<span class="sd">    execution monitoring and user feedback.</span>
+
+<span class="sd">    Progress events are particularly useful for long-running operations, batch</span>
+<span class="sd">    processing, and multi-step workflows where users need visibility into</span>
+<span class="sd">    execution progress and current operation status.</span>
+
+<span class="sd">    :param current: Current step or item number being processed (1-based)</span>
+<span class="sd">    :type current: int</span>
+<span class="sd">    :param total: Total number of steps or items to be processed</span>
+<span class="sd">    :type total: int</span>
+<span class="sd">    :param operation: Descriptive name of the operation being performed</span>
+<span class="sd">    :type operation: str</span>
+<span class="sd">    :param metadata: Additional metadata fields to include in the progress event</span>
+<span class="sd">    :type metadata: Any</span>
+<span class="sd">    :return: Dictionary containing progress_events list for LangGraph state merging</span>
+<span class="sd">    :rtype: Dict[str, Any]</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       Progress is automatically calculated as current/total, with safe handling</span>
+<span class="sd">       for division by zero. The returned dictionary format is compatible with</span>
+<span class="sd">       LangGraph&#39;s automatic list merging for state updates.</span>
+
+<span class="sd">    .. warning::</span>
+<span class="sd">       The current parameter should be 1-based (first item is 1, not 0) for</span>
+<span class="sd">       intuitive progress reporting. The progress calculation handles this</span>
+<span class="sd">       appropriately.</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Basic progress tracking::</span>
+
+<span class="sd">            &gt;&gt;&gt; event = create_progress_event(3, 10, &quot;Processing files&quot;)</span>
+<span class="sd">            &gt;&gt;&gt; event[&#39;progress_events&#39;][0][&#39;current&#39;]</span>
+<span class="sd">            3</span>
+<span class="sd">            &gt;&gt;&gt; event[&#39;progress_events&#39;][0][&#39;progress&#39;]</span>
+<span class="sd">            0.3</span>
+
+<span class="sd">        Progress with metadata::</span>
+
+<span class="sd">            &gt;&gt;&gt; event = create_progress_event(</span>
+<span class="sd">            ...     5, 20, &quot;Analyzing data points&quot;,</span>
+<span class="sd">            ...     file_name=&quot;data.csv&quot;, bytes_processed=1024</span>
+<span class="sd">            ... )</span>
+<span class="sd">            &gt;&gt;&gt; event[&#39;progress_events&#39;][0][&#39;operation&#39;]</span>
+<span class="sd">            &#39;Analyzing data points&#39;</span>
+<span class="sd">            &gt;&gt;&gt; event[&#39;progress_events&#39;][0][&#39;file_name&#39;]</span>
+<span class="sd">            &#39;data.csv&#39;</span>
+
+<span class="sd">        Handling edge cases::</span>
+
+<span class="sd">            &gt;&gt;&gt; event = create_progress_event(0, 0, &quot;Empty operation&quot;)</span>
+<span class="sd">            &gt;&gt;&gt; event[&#39;progress_events&#39;][0][&#39;progress&#39;]</span>
+<span class="sd">            0.0</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :func:`create_status_update` : Create status update events</span>
+<span class="sd">       :class:`AgentState` : Main state class containing progress_events field</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;progress_events&quot;</span><span class="p">:</span> <span class="p">[</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;current&quot;</span><span class="p">:</span> <span class="n">current</span><span class="p">,</span>
+                <span class="s2">&quot;total&quot;</span><span class="p">:</span> <span class="n">total</span><span class="p">,</span>
+                <span class="s2">&quot;operation&quot;</span><span class="p">:</span> <span class="n">operation</span><span class="p">,</span>
+                <span class="s2">&quot;progress&quot;</span><span class="p">:</span> <span class="n">current</span> <span class="o">/</span> <span class="n">total</span> <span class="k">if</span> <span class="n">total</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span><span class="p">,</span>
+                <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="nb">__import__</span><span class="p">(</span><span class="s2">&quot;time&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">time</span><span class="p">(),</span>
+                <span class="o">**</span><span class="n">metadata</span><span class="p">,</span>
+            <span class="p">}</span>
+        <span class="p">]</span>
+    <span class="p">}</span></div>
+
+
+
+<span class="c1"># Type aliases for convenience</span>
+<span class="n">StateUpdate</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

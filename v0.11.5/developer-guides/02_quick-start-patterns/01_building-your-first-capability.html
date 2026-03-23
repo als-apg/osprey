@@ -1,0 +1,1046 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Building Your First Capability &#8212; Osprey Framework 0.11.5 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'developer-guides/02_quick-start-patterns/01_building-your-first-capability';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="State and Context Essentials" href="02_state-and-context-essentials.html" />
+    <link rel="prev" title="CLI Reference" href="00_cli-reference.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../01_understanding-the-framework/index.html">Understanding Osprey</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/01_infrastructure-architecture.html">Infrastructure Architecture: Classification-Orchestration Pipeline</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/02_convention-over-configuration.html">Convention over Configuration: Configuration-Driven Registry Patterns</a></li>
+
+
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/03_langgraph-integration.html">LangGraph Integration: Native StateGraph and Workflow Execution</a></li>
+
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../01_understanding-the-framework/04_orchestration-architecture.html">Orchestration Architecture</a></li>
+
+
+
+
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Quick Start Patterns</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="00_cli-reference.html">CLI Reference</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Building Your First Capability</a></li>
+<li class="toctree-l2"><a class="reference internal" href="02_state-and-context-essentials.html">State and Context Essentials</a></li>
+<li class="toctree-l2"><a class="reference internal" href="03_running-and-testing.html">Running and Testing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="04_mcp-capability-generation.html">MCP Capability Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="05_soft-ioc-backends.html">Soft IOC Custom Backends</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../03_core-framework-systems/index.html">Core Framework Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/01_state-management-architecture.html">State Management Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/02_context-management-system.html">Context Management System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/03_registry-and-discovery.html">Registry and Discovery</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/04_prompt-customization.html">Prompt Customization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/05_message-and-execution-flow.html">Message and Execution Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/06_configuration-architecture.html">Configuration Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_core-framework-systems/07_built-in-capabilities.html">Built-in Capabilities</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../04_infrastructure-components/index.html">Infrastructure Components</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/01_gateway-architecture.html">Gateway Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/02_task-extraction-system.html">Task Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/03_classification-and-routing.html">Classification and Routing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/04_orchestrator-planning.html">Orchestrator Planning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/05_message-generation.html">Message Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_infrastructure-components/06_error-handling-infrastructure.html">Error Handling</a></li>
+</ul>
+</details></li>
+
+
+
+<li class="toctree-l1 has-children"><a class="reference internal" href="../05_production-systems/index.html">Production Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/01_human-approval-workflows.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/02_data-source-integration.html">Data Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../05_production-systems/03_python-execution-service/index.html">Python Execution</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/service-overview.html">Python Service Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-basic.html">Basic LLM Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-claude.html">Claude Code Generator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/03_python-execution-service/generator-mock.html">Mock Generator</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/04_memory-storage-service.html">Memory Storage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/05_container-and-deployment.html">Container Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../05_production-systems/06_control-system-integration.html">Control System Integration</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/search-modes.html">Search Modes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../05_production-systems/07_logbook-search-service/web-interface.html">Web Interface</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Developer Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Quick Start Patterns</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Building Your First Capability</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="building-your-first-capability">
+<h1>Building Your First Capability<a class="headerlink" href="#building-your-first-capability" title="Link to this heading">#</a></h1>
+<p>Create a production-ready capability using the Osprey Framework’s core patterns.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">📚 What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>Key Concepts:</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text">Implement BaseCapability with &#64;capability_node decorator</p></li>
+<li><p class="sd-card-text">Work with AgentState and context storage using StateManager utilities</p></li>
+<li><p class="sd-card-text">Register capabilities for framework discovery</p></li>
+<li><p class="sd-card-text">Handle errors and streaming properly</p></li>
+<li><p class="sd-card-text">Create CapabilityContext classes for data exchange</p></li>
+</ul>
+<p class="sd-card-text"><strong>Prerequisites:</strong> Python environment with Osprey Framework installed</p>
+<p class="sd-card-text"><strong>Time Investment:</strong> 30-45 minutes for complete implementation</p>
+</div>
+</details><section id="core-concepts">
+<h2>Core Concepts<a class="headerlink" href="#core-concepts" title="Link to this heading">#</a></h2>
+<p>Capabilities are business logic components that:</p>
+<ul class="simple">
+<li><p>Extend BaseCapability and use &#64;capability_node decorator</p></li>
+<li><p>Store results in Pydantic context objects</p></li>
+<li><p>Return state updates for LangGraph integration</p></li>
+</ul>
+</section>
+<section id="implementation-steps">
+<h2>Implementation Steps<a class="headerlink" href="#implementation-steps" title="Link to this heading">#</a></h2>
+<section id="step-1-create-context-class">
+<h3>Step 1: Create Context Class<a class="headerlink" href="#step-1-create-context-class" title="Link to this heading">#</a></h3>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">applications/my_app/context_classes.py</span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">ClassVar</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">Field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.context.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">CapabilityContext</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ProcessedDataContext</span><span class="p">(</span><span class="n">CapabilityContext</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Context for processed user query data.&quot;&quot;&quot;</span>
+
+    <span class="n">CONTEXT_TYPE</span><span class="p">:</span> <span class="n">ClassVar</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;PROCESSED_DATA&quot;</span>
+    <span class="n">CONTEXT_CATEGORY</span><span class="p">:</span> <span class="n">ClassVar</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;ANALYSIS_RESULTS&quot;</span>
+
+    <span class="n">query</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Original user query&quot;</span><span class="p">)</span>
+    <span class="n">word_count</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Number of words&quot;</span><span class="p">)</span>
+    <span class="n">contains_numbers</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Whether query contains numbers&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_access_details</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;summary&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Processed data for query: &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">query</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;word_count&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">word_count</span><span class="p">,</span>
+            <span class="s2">&quot;key&quot;</span><span class="p">:</span> <span class="n">key</span>
+        <span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_summary</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;title&quot;</span><span class="p">:</span> <span class="s2">&quot;Query Analysis Results&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Analyzed &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">query</span><span class="si">}</span><span class="s2">&#39; - </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">word_count</span><span class="si">}</span><span class="s2"> words&quot;</span>
+        <span class="p">}</span>
+</pre></div>
+</div>
+</div>
+</section>
+<section id="step-2-implement-capability">
+<h3>Step 2: Implement Capability<a class="headerlink" href="#step-2-implement-capability" title="Link to this heading">#</a></h3>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">applications/my_app/capabilities/data_processor.py</span><a class="headerlink" href="#id2" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Any</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseCapability</span><span class="p">,</span> <span class="n">capability_node</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">applications.my_app.context_classes</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProcessedDataContext</span>
+
+<span class="nd">@capability_node</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">DataProcessorCapability</span><span class="p">(</span><span class="n">BaseCapability</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Process and analyze user data requests.&quot;&quot;&quot;</span>
+
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;data_processor&quot;</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="s2">&quot;Process and analyze user data requests&quot;</span>
+    <span class="n">provides</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;PROCESSED_DATA&quot;</span><span class="p">]</span>
+    <span class="n">requires</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="c1"># Optional: Enable direct chat mode for multi-turn conversations</span>
+    <span class="c1"># direct_chat_enabled = True</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Execute the capability&#39;s core business logic.&quot;&quot;&quot;</span>
+        <span class="c1"># Get unified logger with automatic streaming</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span>
+
+        <span class="n">current_task</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_task_objective</span><span class="p">()</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="s2">&quot;Processing your request...&quot;</span><span class="p">)</span>
+
+            <span class="c1"># Process the user query</span>
+            <span class="n">user_query</span> <span class="o">=</span> <span class="n">current_task</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">if</span> <span class="n">current_task</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
+            <span class="n">processed_data</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">&quot;word_count&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">user_query</span><span class="o">.</span><span class="n">split</span><span class="p">())</span> <span class="k">if</span> <span class="n">user_query</span> <span class="k">else</span> <span class="mi">0</span><span class="p">,</span>
+                <span class="s2">&quot;contains_numbers&quot;</span><span class="p">:</span> <span class="nb">any</span><span class="p">(</span><span class="n">char</span><span class="o">.</span><span class="n">isdigit</span><span class="p">()</span> <span class="k">for</span> <span class="n">char</span> <span class="ow">in</span> <span class="n">user_query</span><span class="p">),</span>
+            <span class="p">}</span>
+
+            <span class="c1"># Detailed logging (CLI only)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Processed query: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">user_query</span><span class="p">)</span><span class="si">}</span><span class="s2"> characters&quot;</span><span class="p">)</span>
+
+            <span class="c1"># Create structured context</span>
+            <span class="n">context</span> <span class="o">=</span> <span class="n">ProcessedDataContext</span><span class="p">(</span>
+                <span class="n">query</span><span class="o">=</span><span class="n">current_task</span><span class="p">,</span>
+                <span class="n">word_count</span><span class="o">=</span><span class="n">processed_data</span><span class="p">[</span><span class="s2">&quot;word_count&quot;</span><span class="p">],</span>
+                <span class="n">contains_numbers</span><span class="o">=</span><span class="n">processed_data</span><span class="p">[</span><span class="s2">&quot;contains_numbers&quot;</span><span class="p">]</span>
+            <span class="p">)</span>
+
+            <span class="c1"># Store context and return state updates</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">success</span><span class="p">(</span><span class="s2">&quot;Processing completed!&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Processing error: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span>
+</pre></div>
+</div>
+</div>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p><strong>Enabling Direct Chat Mode</strong></p>
+<p>Add <code class="docutils literal notranslate"><span class="pre">direct_chat_enabled</span> <span class="pre">=</span> <span class="pre">True</span></code> to allow users to interact directly with your capability via <code class="docutils literal notranslate"><span class="pre">/chat:capability_name</span></code>. This bypasses the normal orchestration pipeline and enables:</p>
+<ul class="simple">
+<li><p><strong>Multi-turn conversations</strong> with message history preserved</p></li>
+<li><p><strong>Interactive exploration</strong> without task extraction overhead</p></li>
+<li><p><strong>Context accumulation</strong> for follow-up queries</p></li>
+</ul>
+<p>Direct chat mode is ideal for ReAct-style capabilities with tools, or any capability where iterative conversation is valuable.</p>
+<p>See <a class="reference internal" href="00_cli-reference.html#direct-chat-mode"><span class="std std-ref">Direct Chat Mode</span></a> for user workflow details.</p>
+</div>
+</section>
+<section id="helper-methods-reference">
+<h3>Helper Methods Reference<a class="headerlink" href="#helper-methods-reference" title="Link to this heading">#</a></h3>
+<p>Instance-based capabilities provide access to helper methods that eliminate boilerplate code:</p>
+<p><strong>get_logger()</strong> - Get unified logger with automatic streaming</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="n">logger</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span>  <span class="c1"># Uses capability name and state automatically</span>
+
+    <span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="s2">&quot;Processing data...&quot;</span><span class="p">)</span>  <span class="c1"># Logs to CLI + streams to web UI</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Detailed information&quot;</span><span class="p">)</span>  <span class="c1"># Logs to CLI only</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">success</span><span class="p">(</span><span class="s2">&quot;Completed!&quot;</span><span class="p">)</span>          <span class="c1"># Logs to CLI + streams to web UI</span>
+</pre></div>
+</div>
+<p><strong>get_task_objective()</strong> - Get the current task</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="n">task</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_task_objective</span><span class="p">()</span>
+    <span class="c1"># With custom default</span>
+    <span class="n">task</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_task_objective</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="s2">&quot;unknown task&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>get_parameters()</strong> - Access step parameters</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="n">params</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_parameters</span><span class="p">()</span>
+    <span class="n">timeout</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;timeout&#39;</span><span class="p">,</span> <span class="mi">30</span><span class="p">)</span>
+    <span class="n">precision</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;precision_ms&#39;</span><span class="p">,</span> <span class="mi">1000</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>get_required_contexts()</strong> - Auto-extract contexts based on requires field</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">requires</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;INPUT_DATA&quot;</span><span class="p">,</span> <span class="p">(</span><span class="s2">&quot;TIME_RANGE&quot;</span><span class="p">,</span> <span class="s2">&quot;single&quot;</span><span class="p">)]</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="c1"># Dict access</span>
+    <span class="n">contexts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">()</span>
+    <span class="n">input_data</span> <span class="o">=</span> <span class="n">contexts</span><span class="p">[</span><span class="s2">&quot;INPUT_DATA&quot;</span><span class="p">]</span>
+
+    <span class="c1"># Tuple unpacking (matches requires order)</span>
+    <span class="n">input_data</span><span class="p">,</span> <span class="n">time_range</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_required_contexts</span><span class="p">()</span>
+</pre></div>
+</div>
+<p><strong>store_output_context()</strong> - Store single output context</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">process_data</span><span class="p">()</span>
+    <span class="n">context</span> <span class="o">=</span> <span class="n">ResultContext</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">result</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>  <span class="c1"># Type and key inferred automatically</span>
+</pre></div>
+</div>
+<p><strong>store_output_contexts()</strong> - Store multiple contexts</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="n">primary</span> <span class="o">=</span> <span class="n">PrimaryContext</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">results</span><span class="p">)</span>
+    <span class="n">metadata</span> <span class="o">=</span> <span class="n">MetadataContext</span><span class="p">(</span><span class="n">info</span><span class="o">=</span><span class="n">info</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_contexts</span><span class="p">(</span><span class="n">primary</span><span class="p">,</span> <span class="n">metadata</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>slash_command()</strong> - Read capability-specific slash commands</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="c1"># Check for /beam:mode command</span>
+    <span class="k">if</span> <span class="n">mode</span> <span class="o">:=</span> <span class="bp">self</span><span class="o">.</span><span class="n">slash_command</span><span class="p">(</span><span class="s2">&quot;beam&quot;</span><span class="p">):</span>
+        <span class="c1"># mode is &quot;diagnostic&quot; if user typed /beam:diagnostic</span>
+        <span class="k">pass</span>
+
+    <span class="c1"># Check for /verbose flag</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">slash_command</span><span class="p">(</span><span class="s2">&quot;verbose&quot;</span><span class="p">):</span>
+        <span class="c1"># User typed /verbose (returns True)</span>
+        <span class="k">pass</span>
+</pre></div>
+</div>
+<p>See <span class="xref std std-ref">capability-slash-commands</span> for user-facing documentation.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Advanced State Access:</strong> If you need direct state access, use <code class="docutils literal notranslate"><span class="pre">self._state</span></code> and <code class="docutils literal notranslate"><span class="pre">self._step</span></code> (automatically injected by the <code class="docutils literal notranslate"><span class="pre">&#64;capability_node</span></code> decorator).</p>
+</div>
+</section>
+<section id="step-3-register-your-capability">
+<h3>Step 3: Register Your Capability<a class="headerlink" href="#step-3-register-your-capability" title="Link to this heading">#</a></h3>
+<div class="literal-block-wrapper docutils container" id="id3">
+<div class="code-block-caption"><span class="caption-text">applications/my_app/registry.py</span><a class="headerlink" href="#id3" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">RegistryConfigProvider</span><span class="p">,</span> <span class="n">RegistryConfig</span><span class="p">,</span>
+    <span class="n">CapabilityRegistration</span><span class="p">,</span> <span class="n">ContextClassRegistration</span>
+<span class="p">)</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyAppRegistryProvider</span><span class="p">(</span><span class="n">RegistryConfigProvider</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_registry_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RegistryConfig</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">RegistryConfig</span><span class="p">(</span>
+            <span class="n">capabilities</span><span class="o">=</span><span class="p">[</span>
+                <span class="n">CapabilityRegistration</span><span class="p">(</span>
+                    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;data_processor&quot;</span><span class="p">,</span>
+                    <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;applications.my_app.capabilities.data_processor&quot;</span><span class="p">,</span>
+                    <span class="n">class_name</span><span class="o">=</span><span class="s2">&quot;DataProcessorCapability&quot;</span><span class="p">,</span>
+                    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Process and analyze user data requests&quot;</span><span class="p">,</span>
+                    <span class="n">provides</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;PROCESSED_DATA&quot;</span><span class="p">],</span>
+                    <span class="n">requires</span><span class="o">=</span><span class="p">[]</span>
+                <span class="p">)</span>
+            <span class="p">],</span>
+            <span class="n">context_classes</span><span class="o">=</span><span class="p">[</span>
+                <span class="n">ContextClassRegistration</span><span class="p">(</span>
+                    <span class="n">context_type</span><span class="o">=</span><span class="s2">&quot;PROCESSED_DATA&quot;</span><span class="p">,</span>
+                    <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;applications.my_app.context_classes&quot;</span><span class="p">,</span>
+                    <span class="n">class_name</span><span class="o">=</span><span class="s2">&quot;ProcessedDataContext&quot;</span><span class="p">,</span>
+                    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Structured results from user query analysis&quot;</span>
+                <span class="p">)</span>
+            <span class="p">]</span>
+        <span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</section>
+<section id="step-4-test-your-capability">
+<h3>Step 4: Test Your Capability<a class="headerlink" href="#step-4-test-your-capability" title="Link to this heading">#</a></h3>
+<div class="literal-block-wrapper docutils container" id="id4">
+<div class="code-block-caption"><span class="caption-text">test_my_capability.py</span><a class="headerlink" href="#id4" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">StateManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">applications.my_app.capabilities.data_processor</span><span class="w"> </span><span class="kn">import</span> <span class="n">DataProcessorCapability</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_capability</span><span class="p">():</span>
+    <span class="c1"># Create test state</span>
+    <span class="n">state</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">create_fresh_state</span><span class="p">(</span><span class="s2">&quot;Hello world, this has 123 numbers!&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Execute capability (manually inject state for testing)</span>
+    <span class="n">capability</span> <span class="o">=</span> <span class="n">DataProcessorCapability</span><span class="p">()</span>
+    <span class="n">capability</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">state</span>
+    <span class="n">capability</span><span class="o">.</span><span class="n">_step</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s1">&#39;context_key&#39;</span><span class="p">:</span> <span class="s1">&#39;test_key&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;task_objective&#39;</span><span class="p">:</span> <span class="s1">&#39;Hello world, this has 123 numbers!&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;parameters&#39;</span><span class="p">:</span> <span class="p">{}</span>
+    <span class="p">}</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">capability</span><span class="o">.</span><span class="n">execute</span><span class="p">()</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Capability result:&quot;</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Context data keys:&quot;</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;capability_context_data&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+     <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">test_capability</span><span class="p">())</span>
+</pre></div>
+</div>
+</div>
+</section>
+</section>
+<section id="essential-patterns">
+<h2>Essential Patterns<a class="headerlink" href="#essential-patterns" title="Link to this heading">#</a></h2>
+<section id="error-handling">
+<h3>Error Handling<a class="headerlink" href="#error-handling" title="Link to this heading">#</a></h3>
+<p>Add custom error classification for domain-specific retry logic:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@staticmethod</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">classify_error</span><span class="p">(</span><span class="n">exc</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ErrorClassification</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ErrorClassification</span><span class="p">,</span> <span class="n">ErrorSeverity</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="p">(</span><span class="ne">ConnectionError</span><span class="p">,</span> <span class="ne">TimeoutError</span><span class="p">)):</span>
+        <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+            <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RETRIABLE</span><span class="p">,</span>
+            <span class="n">user_message</span><span class="o">=</span><span class="s2">&quot;Temporary service issue, retrying...&quot;</span><span class="p">,</span>
+            <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)}</span>
+        <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
+        <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">,</span>
+        <span class="n">user_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Processing error: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)}</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="streaming-updates">
+<h3>Streaming Updates<a class="headerlink" href="#streaming-updates" title="Link to this heading">#</a></h3>
+<p>Provide progress feedback during operations using the unified logger (see <a class="reference internal" href="../01_understanding-the-framework/02_convention-over-configuration.html#framework-logging-streaming"><span class="std std-ref">Framework Logging and Streaming</span></a> for complete details on logging and streaming behavior):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="c1"># Get unified logger with automatic streaming support</span>
+    <span class="n">logger</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span>
+
+    <span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="s2">&quot;Phase 1: Extracting data...&quot;</span><span class="p">)</span>
+    <span class="n">raw_data</span> <span class="o">=</span> <span class="k">await</span> <span class="n">extract_data</span><span class="p">()</span>
+
+    <span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="s2">&quot;Phase 2: Processing data...&quot;</span><span class="p">)</span>
+    <span class="n">processed_data</span> <span class="o">=</span> <span class="k">await</span> <span class="n">process_data</span><span class="p">(</span><span class="n">raw_data</span><span class="p">)</span>
+
+    <span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="s2">&quot;Phase 3: Storing results...&quot;</span><span class="p">)</span>
+    <span class="n">context</span> <span class="o">=</span> <span class="n">create_context</span><span class="p">(</span><span class="n">processed_data</span><span class="p">)</span>
+
+    <span class="n">logger</span><span class="o">.</span><span class="n">success</span><span class="p">(</span><span class="s2">&quot;All phases complete!&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">status()</span></code> method automatically logs to CLI and streams to web UI.
+Use <code class="docutils literal notranslate"><span class="pre">info()</span></code> for detailed logging that only appears in CLI:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Processing </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">raw_data</span><span class="p">)</span><span class="si">}</span><span class="s2"> items&quot;</span><span class="p">)</span>  <span class="c1"># CLI only</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="s2">&quot;Processing data...&quot;</span><span class="p">)</span>  <span class="c1"># CLI + web UI</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="common-issues">
+<h2>Common Issues<a class="headerlink" href="#common-issues" title="Link to this heading">#</a></h2>
+<p><strong>“Capability not found in registry”</strong></p>
+<p>Ensure exact name matching in registration:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># In capability class:</span>
+<span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;data_processor&quot;</span>
+
+<span class="c1"># In registry:</span>
+<span class="n">CapabilityRegistration</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;data_processor&quot;</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span>  <span class="c1"># Must match exactly</span>
+</pre></div>
+</div>
+<p><strong>“execute method not found”</strong></p>
+<p>Ensure execute is an async method (instance method recommended):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>  <span class="c1"># Instance method (recommended)</span>
+    <span class="k">pass</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Legacy Pattern:</strong> Static methods with <code class="docutils literal notranslate"><span class="pre">&#64;staticmethod</span></code> decorator are still supported for backward compatibility, but instance methods are now the recommended approach as they provide access to helpful methods like <code class="docutils literal notranslate"><span class="pre">self.get_task_objective()</span></code> and <code class="docutils literal notranslate"><span class="pre">self.store_output_context()</span></code>.</p>
+</div>
+<p><strong>“Context serialization error”</strong></p>
+<p>Use only JSON-compatible types:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># ✅ Correct</span>
+<span class="n">timestamp</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># Use ISO string</span>
+<span class="n">data</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+
+<span class="c1"># ❌ Wrong</span>
+<span class="n">timestamp</span><span class="p">:</span> <span class="n">datetime</span>  <span class="c1"># Not JSON serializable</span>
+</pre></div>
+</div>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">#</a></h2>
+<p><strong>Essential:</strong>
+- <a class="reference internal" href="03_running-and-testing.html"><span class="doc">Running and Testing</span></a> - Learn debugging and deployment
+- <a class="reference internal" href="02_state-and-context-essentials.html"><span class="doc">State and Context Essentials</span></a> - Master state management</p>
+<p><strong>Advanced:</strong>
+- <a class="reference internal" href="../03_core-framework-systems/02_context-management-system.html"><span class="doc">Context Management System</span></a> - Advanced context patterns
+- <a class="reference internal" href="../04_infrastructure-components/06_error-handling-infrastructure.html"><span class="doc">Error Handling</span></a> - Comprehensive error handling</p>
+<p><strong>API Reference:</strong>
+- <a class="reference internal" href="../../api_reference/01_core_framework/01_base_components.html"><span class="doc">Base Components</span></a> - BaseCapability documentation
+- <a class="reference internal" href="../../api_reference/01_core_framework/02_state_and_context.html"><span class="doc">State and Context Management</span></a> - StateManager utilities</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="00_cli-reference.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">CLI Reference</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="02_state-and-context-essentials.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">State and Context Essentials</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#core-concepts">Core Concepts</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation-steps">Implementation Steps</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-create-context-class">Step 1: Create Context Class</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-implement-capability">Step 2: Implement Capability</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#helper-methods-reference">Helper Methods Reference</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-register-your-capability">Step 3: Register Your Capability</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-test-your-capability">Step 4: Test Your Capability</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#essential-patterns">Essential Patterns</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#error-handling">Error Handling</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#streaming-updates">Streaming Updates</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#common-issues">Common Issues</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/developer-guides/02_quick-start-patterns/01_building-your-first-capability.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

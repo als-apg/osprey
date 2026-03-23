@@ -1,0 +1,1943 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey.state.state_manager &#8212; Osprey Framework 0.11.5 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
+
+
+
+
+
+const initStyles = () => {
+    const defaultStyle = document.createElement('style');
+    defaultStyle.textContent = `pre.mermaid {
+    /* Same as .mermaid-container > pre */
+    display: block;
+    width: 100%;
+}
+
+pre.mermaid > svg {
+    /* Same as .mermaid-container > pre > svg */
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}`;
+    document.head.appendChild(defaultStyle);
+
+    const fullscreenStyle = document.createElement('style');
+    fullscreenStyle.textContent = `.mermaid-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.mermaid-container > pre {
+    display: block;
+    width: 100%;
+}
+
+.mermaid-container > pre > svg {
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}
+
+.mermaid-fullscreen-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    color: #333;
+}
+
+.mermaid-fullscreen-btn:hover {
+    opacity: 100% !important;
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-btn.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-btn.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 95vw;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.98);
+    z-index: 9999;
+    padding: 20px;
+    overflow: auto;
+}
+
+.mermaid-fullscreen-modal.dark-theme {
+    background: rgba(0, 0, 0, 0.98);
+}
+
+.mermaid-fullscreen-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen {
+    position: relative;
+    width: 95vw;
+    height: 90vh;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen.dark-theme {
+    background: #1a1a1a;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-container-fullscreen pre.mermaid {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen .mermaid svg {
+    height: 100% !important;
+    width: 100% !important;
+    cursor: grab;
+}
+
+.mermaid-fullscreen-close {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    font-size: 24px;
+    line-height: 1;
+    color: #333;
+}
+
+.mermaid-fullscreen-close:hover {
+    background: white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-close.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-close.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
+    display: none !important;
+}`;
+    document.head.appendChild(fullscreenStyle);
+}
+
+// Detect if page has dark background
+const isDarkTheme = () => {
+    // We use a set of heuristics:
+    // 1. Check for common dark mode classes or attributes
+    // 2. Check computed background color brightness
+    if (document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        document.body.getAttribute('data-theme') === 'dark') {
+        // console.log("Dark theme detected via class/attribute");
+        return true;
+    }
+    if (document.documentElement.classList.contains('light') ||
+        document.documentElement.getAttribute('data-theme') === 'light' ||
+        document.body.classList.contains('light') ||
+        document.body.getAttribute('data-theme') === 'light') {
+        // console.log("Light theme detected via class/attribute");
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // console.log("Dark theme detected via prefers-color-scheme");
+        return true;
+    }
+    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        // console.log("Background color brightness:", brightness);
+        return brightness < 128;
+    }
+    // console.log("No dark or light theme detected, defaulting to light theme");
+    return false;
+};
+
+let darkTheme = isDarkTheme();
+let modal = null;
+let modalContent = null;
+let previousScrollOffset = [window.scrollX, window.scrollY];
+
+const runMermaid = async (rerun) => {
+    console.log("Running mermaid diagrams, rerun =", rerun);
+    // clear all existing mermaid charts
+    let all_mermaids = document.querySelectorAll(".mermaid");
+
+    if (rerun) {
+        all_mermaids.forEach((el) => {
+            if(!el.hasAttribute("data-original-code")) {
+                // store original code
+                // console.log(`Storing original code for first run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+            if(el.getAttribute("data-processed") === "true") {
+                // remove and restore original
+                el.removeAttribute("data-processed");
+                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
+                el.innerHTML = el.getAttribute('data-original-code');
+            } else {
+                // store original code
+                // console.log(`Storing original code for re-run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+        });
+        await mermaid.run();
+    }
+
+    all_mermaids = document.querySelectorAll(".mermaid");
+    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
+
+    if ("False" === "True") {
+        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
+        if(mermaids_to_add_zoom > 0) {
+            var svgs = d3.selectAll("");
+            if(all_mermaids.length !== mermaids_processed.length) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else if(svgs.size() !== mermaids_to_add_zoom) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else {
+                svgs.each(function() {
+                    var svg = d3.select(this);
+                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
+                    var inner = svg.select("g");
+                    var zoom = d3.zoom().on("zoom", function(event) {
+                        inner.attr("transform", event.transform);
+                    });
+                    svg.call(zoom);
+                });
+            }
+        }
+    } else if(all_mermaids.length !== mermaids_processed.length) {
+        // Wait for mermaid to process all diagrams
+        setTimeout(() => runMermaid(false), 200);
+        return;
+    }
+
+    // Stop here if not adding fullscreen capability
+    if ("True" !== "True") return;
+
+    if (modal !== null ) {
+        // Destroy existing modal
+        modal.remove();
+        modal = null;
+        modalContent = null;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
+    modal.innerHTML = `
+        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
+        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
+    `;
+    document.body.appendChild(modal);
+
+    modalContent = modal.querySelector('.mermaid-container-fullscreen');
+    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
+
+    const closeModal = () => {
+        modal.classList.remove('active');
+        modalContent.innerHTML = '';
+        document.body.style.overflow = ''
+        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+        }
+    });
+
+    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
+        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
+            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
+            // Already processed, adjust button class if needed
+            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
+            if (existingBtn) {
+                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+            }
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.className = 'mermaid-container';
+        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
+        container.appendChild(mermaidDiv);
+
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
+        fullscreenBtn.textContent = '⛶';
+        fullscreenBtn.style.opacity = '50%';
+
+        // Calculate dynamic position based on diagram's margin and padding
+        const diagramStyle = window.getComputedStyle(mermaidDiv);
+        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
+        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
+        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
+        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
+        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
+        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
+
+        fullscreenBtn.addEventListener('click', () => {
+            previousScrollOffset = [window.scroll, window.scrollY];
+            const clone = mermaidDiv.cloneNode(true);
+            modalContent.innerHTML = '';
+            modalContent.appendChild(clone);
+
+            const svg = clone.querySelector('svg');
+            if (svg) {
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxWidth = '100%';
+                svg.style.sdisplay = 'block';
+
+                if ("False" === "True") {
+                    setTimeout(() => {
+                        const g = svg.querySelector('g');
+                        if (g) {
+                            var svgD3 = d3.select(svg);
+                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
+                            var inner = svgD3.select("g");
+                            var zoom = d3.zoom().on("zoom", function(event) {
+                                inner.attr("transform", event.transform);
+                            });
+                            svgD3.call(zoom);
+                        }
+                    }, 100);
+                }
+            }
+
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+        container.appendChild(fullscreenBtn);
+    });
+};
+
+const load = async () => {
+    initStyles();
+
+    await runMermaid(true);
+
+    const reRunIfThemeChanges = async () => {
+        const newDarkTheme = isDarkTheme();
+        if (newDarkTheme !== darkTheme) {
+            darkTheme = newDarkTheme;
+            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
+            await mermaid.initialize(
+                {...JSON.parse(
+                    `{"startOnLoad": false}`
+                ),
+                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+                }
+            );
+            await runMermaid(true);
+        }
+    };
+
+    // Update theme classes when theme changes
+    const themeObserver = new MutationObserver(reRunIfThemeChanges);
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+    themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+};
+
+
+
+
+
+console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
+mermaid.initialize(
+    {...JSON.parse(
+        `{"startOnLoad": false}`
+    ),
+    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+    }
+);
+
+window.addEventListener("load", load);</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey/state/state_manager';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey.state.state_manager</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey.state.state_manager</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;State Manager - LangGraph Native State Management.</span>
+
+<span class="sd">This module provides comprehensive state management utilities for the Osprey</span>
+<span class="sd">Agent Framework, implementing LangGraph-native patterns for optimal performance and</span>
+<span class="sd">compatibility. The StateManager class serves as the primary interface for state</span>
+<span class="sd">creation, manipulation, and context storage operations.</span>
+
+<span class="sd">**Architecture Overview:**</span>
+
+<span class="sd">The state management system is built around LangGraph&#39;s native patterns with a focus</span>
+<span class="sd">on simplicity and performance. The design eliminates complex custom reducers by</span>
+<span class="sd">leveraging LangGraph&#39;s automatic message handling and selective persistence strategy.</span>
+
+<span class="sd">**Key Components:**</span>
+
+<span class="sd">- :class:`StateManager`: Primary state management utilities and operations</span>
+<span class="sd">- :func:`get_agent_control_defaults`: Configuration defaults with error handling</span>
+<span class="sd">- :func:`get_execution_steps_summary`: Execution history formatting utilities</span>
+
+<span class="sd">**Design Principles:**</span>
+
+<span class="sd">1. **LangGraph Native**: Full compatibility with LangGraph&#39;s state management</span>
+<span class="sd">2. **Selective Persistence**: Only capability context data persists across turns</span>
+<span class="sd">3. **Flat Structure**: Simplified state structure without complex nesting</span>
+<span class="sd">4. **Type Safety**: Comprehensive type annotations and validation</span>
+<span class="sd">5. **Error Resilience**: Robust error handling with safe fallbacks</span>
+
+<span class="sd">**State Lifecycle Management:**</span>
+
+<span class="sd">The StateManager handles the complete state lifecycle:</span>
+
+<span class="sd">1. **Fresh State Creation**: Initialize new conversation states with defaults</span>
+<span class="sd">2. **Context Preservation**: Maintain capability context across conversation turns</span>
+<span class="sd">3. **State Updates**: Provide utilities for LangGraph-compatible state updates</span>
+<span class="sd">4. **Context Storage**: One-liner context storage for capability results</span>
+
+<span class="sd">**Usage Patterns:**</span>
+
+<span class="sd">The StateManager is designed for use throughout the framework infrastructure</span>
+<span class="sd">and capabilities, providing consistent patterns for state operations.</span>
+
+<span class="sd">.. note::</span>
+<span class="sd">   The StateManager is optimized for LangGraph&#39;s native patterns and should be</span>
+<span class="sd">   the primary interface for all state operations. Direct state manipulation</span>
+<span class="sd">   may interfere with LangGraph&#39;s checkpointing and serialization.</span>
+
+<span class="sd">.. seealso::</span>
+<span class="sd">   :class:`osprey.state.AgentState` : Main state structure definition</span>
+<span class="sd">   :class:`osprey.context.ContextManager` : Context data management</span>
+<span class="sd">   :mod:`osprey.infrastructure.gateway` : Main entry point using StateManager</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span>
+
+<span class="c1"># LangGraph native imports</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">langchain_core.messages</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseMessage</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.planning</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExecutionPlan</span><span class="p">,</span> <span class="n">PlannedStep</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.context.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">CapabilityContext</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.context.context_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContextManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_agent_control_defaults</span> <span class="k">as</span> <span class="n">_get_agent_control_defaults</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.artifacts</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArtifactType</span><span class="p">,</span> <span class="n">create_artifact</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.messages</span><span class="w"> </span><span class="kn">import</span> <span class="n">MessageUtils</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">AgentState</span><span class="p">,</span> <span class="n">StateUpdate</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.context.context_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContextManager</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;StateManager&quot;</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s2">&quot;white&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_agent_control_defaults</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get agent control configuration defaults with robust error handling.</span>
+
+<span class="sd">    This function retrieves the default agent control configuration from the</span>
+<span class="sd">    configuration system with comprehensive error handling and safe fallbacks. The</span>
+<span class="sd">    configuration includes planning mode settings, EPICS execution controls, approval</span>
+<span class="sd">    workflows, and execution limits.</span>
+
+<span class="sd">    The function provides resilient configuration loading that ensures the framework</span>
+<span class="sd">    can operate even if the configuration system encounters errors, using safe</span>
+<span class="sd">    defaults that prioritize security and controlled execution.</span>
+
+<span class="sd">    :return: Dictionary containing agent control defaults with all required fields</span>
+<span class="sd">    :rtype: Dict[str, Any]</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       The function includes comprehensive error handling that logs configuration</span>
+<span class="sd">       loading failures and provides safe defaults to ensure framework stability.</span>
+
+<span class="sd">    .. warning::</span>
+<span class="sd">       Safe defaults prioritize security by disabling potentially dangerous operations</span>
+<span class="sd">       like EPICS writes and enabling approval requirements for sensitive operations.</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Normal configuration loading::</span>
+
+<span class="sd">            &gt;&gt;&gt; defaults = get_agent_control_defaults()</span>
+<span class="sd">            &gt;&gt;&gt; defaults[&#39;planning_mode_enabled&#39;]</span>
+<span class="sd">            False</span>
+<span class="sd">            &gt;&gt;&gt; defaults[&#39;epics_writes_enabled&#39;]</span>
+<span class="sd">            False</span>
+
+<span class="sd">        Configuration with approval settings::</span>
+
+<span class="sd">            &gt;&gt;&gt; defaults = get_agent_control_defaults()</span>
+<span class="sd">            &gt;&gt;&gt; defaults[&#39;approval_global_mode&#39;]</span>
+<span class="sd">            &#39;selective&#39;</span>
+<span class="sd">            &gt;&gt;&gt; defaults[&#39;python_execution_approval_enabled&#39;]</span>
+<span class="sd">            True</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`osprey.state.AgentControlState` : Agent control state structure</span>
+<span class="sd">       :mod:`configs.config` : Configuration system</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_get_agent_control_defaults</span><span class="p">()</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Could not load agent control defaults: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="c1"># Return safe defaults if config fails</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;planning_mode_enabled&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+            <span class="s2">&quot;epics_writes_enabled&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+            <span class="s2">&quot;approval_global_mode&quot;</span><span class="p">:</span> <span class="s2">&quot;selective&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;python_execution_approval_enabled&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+            <span class="s2">&quot;python_execution_approval_mode&quot;</span><span class="p">:</span> <span class="s2">&quot;all_code&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;memory_approval_enabled&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+            <span class="s2">&quot;max_reclassifications&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+            <span class="s2">&quot;max_planning_attempts&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>
+            <span class="s2">&quot;max_step_retries&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+            <span class="s2">&quot;max_execution_time_seconds&quot;</span><span class="p">:</span> <span class="mi">300</span><span class="p">,</span>
+            <span class="s2">&quot;max_concurrent_classifications&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
+            <span class="c1"># Bypass configuration defaults</span>
+            <span class="s2">&quot;task_extraction_bypass_enabled&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+            <span class="s2">&quot;capability_selection_bypass_enabled&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="p">}</span>
+
+
+<div class="viewcode-block" id="StateManager">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.StateManager">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">StateManager</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;LangGraph-native state management utilities for conversational AI agents.</span>
+
+<span class="sd">    This class provides a comprehensive suite of static utilities for managing</span>
+<span class="sd">    conversational agent state using LangGraph&#39;s native patterns. The StateManager</span>
+<span class="sd">    serves as the primary interface for state creation, manipulation, and context</span>
+<span class="sd">    storage operations throughout the Osprey Agent Framework.</span>
+
+<span class="sd">    **Core Functionality:**</span>
+
+<span class="sd">    The StateManager implements a simplified state management approach that leverages</span>
+<span class="sd">    LangGraph&#39;s native patterns for optimal performance and compatibility:</span>
+
+<span class="sd">    - **Fresh State Creation**: Initialize new conversation states with proper defaults</span>
+<span class="sd">    - **Context Persistence**: Maintain capability context data across conversation turns</span>
+<span class="sd">    - **State Updates**: Generate LangGraph-compatible state update dictionaries</span>
+<span class="sd">    - **Context Storage**: One-liner context storage for capability results</span>
+<span class="sd">    - **Execution Tracking**: Utilities for accessing execution plans and current steps</span>
+
+<span class="sd">    **Design Philosophy:**</span>
+
+<span class="sd">    The StateManager follows a &quot;batteries included&quot; approach where common state</span>
+<span class="sd">    operations are provided as simple, one-liner utilities. This eliminates the need</span>
+<span class="sd">    for capabilities and infrastructure components to implement complex state logic.</span>
+
+<span class="sd">    **State Lifecycle Management:**</span>
+
+<span class="sd">    1. **Initialization**: create_fresh_state() creates new conversation states</span>
+<span class="sd">    2. **Execution**: Utilities provide access to current execution context</span>
+<span class="sd">    3. **Context Storage**: store_context() handles capability result persistence</span>
+<span class="sd">    4. **State Updates**: Methods generate proper LangGraph state update dictionaries</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       All StateManager methods are static utilities that do not require instantiation.</span>
+<span class="sd">       The class serves as a namespace for state management operations.</span>
+
+<span class="sd">    .. warning::</span>
+<span class="sd">       StateManager utilities are optimized for LangGraph&#39;s native patterns. Using</span>
+<span class="sd">       these utilities ensures compatibility with checkpointing and serialization.</span>
+<span class="sd">       Direct state manipulation may cause issues.</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Creating fresh state for new conversation::</span>
+
+<span class="sd">            &gt;&gt;&gt; state = StateManager.create_fresh_state(</span>
+<span class="sd">            ...     user_input=&quot;Find beam current data&quot;,</span>
+<span class="sd">            ...     current_state=previous_state</span>
+<span class="sd">            ... )</span>
+
+<span class="sd">        Storing capability context results::</span>
+
+<span class="sd">            &gt;&gt;&gt; updates = StateManager.store_context(</span>
+<span class="sd">            ...     state, &quot;PV_ADDRESSES&quot;, &quot;step1&quot;, pv_data</span>
+<span class="sd">            ... )</span>
+<span class="sd">            &gt;&gt;&gt; return updates  # Compatible with LangGraph</span>
+
+<span class="sd">        Accessing current execution step::</span>
+
+<span class="sd">            &gt;&gt;&gt; step = StateManager.get_current_step(state)</span>
+<span class="sd">            &gt;&gt;&gt; task_objective = step.get(&#39;task_objective&#39;)</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`osprey.state.AgentState` : Main state structure managed by this class</span>
+<span class="sd">       :class:`osprey.context.ContextManager` : Context data management utilities</span>
+<span class="sd">       :func:`get_agent_control_defaults` : Configuration defaults for state creation</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="StateManager.create_fresh_state">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.StateManager.create_fresh_state">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">create_fresh_state</span><span class="p">(</span><span class="n">user_input</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">current_state</span><span class="p">:</span> <span class="n">AgentState</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AgentState</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create fresh agent state for a new conversation turn with selective persistence.</span>
+
+<span class="sd">        This method creates a complete fresh state for LangGraph execution while</span>
+<span class="sd">        preserving only the capability context data from the previous state. All</span>
+<span class="sd">        execution-scoped fields are reset to their default values, ensuring clean</span>
+<span class="sd">        state for each conversation turn while maintaining accumulated context.</span>
+
+<span class="sd">        The state creation process handles the complete lifecycle initialization:</span>
+
+<span class="sd">        1. **Message Initialization**: Creates properly formatted user message</span>
+<span class="sd">        2. **Context Preservation**: Extracts and preserves capability context data</span>
+<span class="sd">        3. **Default Population**: Initializes all execution fields with safe defaults</span>
+<span class="sd">        4. **Configuration Loading**: Applies agent control defaults from configuration</span>
+
+<span class="sd">        This approach ensures optimal performance by avoiding state bloat while</span>
+<span class="sd">        maintaining the persistent context needed for multi-turn conversations.</span>
+
+<span class="sd">        :param user_input: The user&#39;s message content for this conversation turn</span>
+<span class="sd">        :type user_input: str</span>
+<span class="sd">        :param current_state: Previous agent state to preserve context from (optional)</span>
+<span class="sd">        :type current_state: Optional[AgentState]</span>
+<span class="sd">        :return: Complete fresh state ready for LangGraph graph invocation</span>
+<span class="sd">        :rtype: AgentState</span>
+
+<span class="sd">        .. note::</span>
+<span class="sd">           Only capability_context_data and session_state persist across conversation</span>
+<span class="sd">           turns. All other fields including execution results, control state, and UI</span>
+<span class="sd">           data are reset to defaults for optimal performance and state clarity.</span>
+
+<span class="sd">        .. warning::</span>
+<span class="sd">           The current_state parameter should be the complete previous AgentState.</span>
+<span class="sd">           Partial state dictionaries may cause context preservation to fail silently.</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Creating state for new conversation::</span>
+
+<span class="sd">                &gt;&gt;&gt; state = StateManager.create_fresh_state(&quot;Find beam current PVs&quot;)</span>
+<span class="sd">                &gt;&gt;&gt; state[&#39;task_current_task&#39;] is None</span>
+<span class="sd">                True</span>
+<span class="sd">                &gt;&gt;&gt; len(state[&#39;messages&#39;])</span>
+<span class="sd">                1</span>
+
+<span class="sd">            Preserving context from previous conversation::</span>
+
+<span class="sd">                &gt;&gt;&gt; new_state = StateManager.create_fresh_state(</span>
+<span class="sd">                ...     &quot;Show me the latest data&quot;,</span>
+<span class="sd">                ...     current_state=previous_state</span>
+<span class="sd">                ... )</span>
+<span class="sd">                &gt;&gt;&gt; # Context preserved but execution state reset</span>
+<span class="sd">                &gt;&gt;&gt; len(new_state[&#39;capability_context_data&#39;])</span>
+<span class="sd">                3  # Preserved from previous</span>
+<span class="sd">                &gt;&gt;&gt; new_state[&#39;execution_step_results&#39;]</span>
+<span class="sd">                {}  # Reset to empty</span>
+
+<span class="sd">        .. seealso::</span>
+<span class="sd">           :class:`AgentState` : State structure created by this method</span>
+<span class="sd">           :func:`get_agent_control_defaults` : Configuration defaults applied</span>
+<span class="sd">           :class:`osprey.state.MessageUtils` : Message creation utilities</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Create initial message</span>
+        <span class="n">initial_message</span> <span class="o">=</span> <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="n">user_input</span><span class="p">)</span>
+
+        <span class="c1"># Preserve persistent fields from previous state if available</span>
+        <span class="n">preserved_context_data</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">preserved_session_state</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">current_state</span><span class="p">:</span>
+            <span class="k">if</span> <span class="s2">&quot;capability_context_data&quot;</span> <span class="ow">in</span> <span class="n">current_state</span><span class="p">:</span>
+                <span class="n">preserved_context_data</span> <span class="o">=</span> <span class="n">current_state</span><span class="p">[</span><span class="s2">&quot;capability_context_data&quot;</span><span class="p">]</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Preserved capability_context_data from previous state&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="s2">&quot;session_state&quot;</span> <span class="ow">in</span> <span class="n">current_state</span><span class="p">:</span>
+                <span class="n">preserved_session_state</span> <span class="o">=</span> <span class="n">current_state</span><span class="p">[</span><span class="s2">&quot;session_state&quot;</span><span class="p">]</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Preserved session_state from previous state&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Create complete fresh state with persistent fields preserved</span>
+        <span class="n">state</span> <span class="o">=</span> <span class="n">AgentState</span><span class="p">(</span>
+            <span class="c1"># Messages (from MessagesState)</span>
+            <span class="n">messages</span><span class="o">=</span><span class="p">[</span><span class="n">initial_message</span><span class="p">],</span>
+            <span class="c1"># Persistent fields - preserved from previous state</span>
+            <span class="n">capability_context_data</span><span class="o">=</span><span class="n">preserved_context_data</span><span class="p">,</span>
+            <span class="n">session_state</span><span class="o">=</span><span class="n">preserved_session_state</span><span class="p">,</span>
+            <span class="c1"># Agent control state - reset to defaults each conversation turn</span>
+            <span class="n">agent_control</span><span class="o">=</span><span class="n">get_agent_control_defaults</span><span class="p">(),</span>
+            <span class="c1"># Event accumulation - reset each execution</span>
+            <span class="n">status_updates</span><span class="o">=</span><span class="p">[],</span>
+            <span class="n">progress_events</span><span class="o">=</span><span class="p">[],</span>
+            <span class="c1"># Task processing fields - reset to defaults</span>
+            <span class="n">task_current_task</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="n">task_depends_on_chat_history</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">task_depends_on_user_memory</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">task_custom_message</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="c1"># Planning fields - reset to defaults</span>
+            <span class="n">planning_active_capabilities</span><span class="o">=</span><span class="p">[],</span>
+            <span class="n">planning_execution_plan</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="n">planning_current_step_index</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="c1"># Execution fields - reset to defaults</span>
+            <span class="n">execution_step_results</span><span class="o">=</span><span class="p">{},</span>
+            <span class="n">execution_last_result</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="n">execution_pending_approvals</span><span class="o">=</span><span class="p">{},</span>
+            <span class="n">execution_start_time</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="n">execution_total_time</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="c1"># Approval handling fields - reset to defaults</span>
+            <span class="n">approval_approved</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="n">approved_payload</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="c1"># Control flow fields - reset to defaults</span>
+            <span class="n">control_reclassification_reason</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="n">control_reclassification_count</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">control_plans_created_count</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">control_current_step_retry_count</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">control_retry_count</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">control_has_error</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">control_error_info</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="n">control_last_error</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="n">control_max_retries</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+            <span class="n">control_is_killed</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">control_kill_reason</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="n">control_is_awaiting_validation</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">control_validation_context</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="n">control_validation_timestamp</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="c1"># UI result fields - reset to defaults</span>
+            <span class="n">ui_artifacts</span><span class="o">=</span><span class="p">[],</span>  <span class="c1"># Unified artifact registry</span>
+            <span class="c1"># Legacy fields (maintained for backward compatibility)</span>
+            <span class="n">ui_captured_notebooks</span><span class="o">=</span><span class="p">[],</span>
+            <span class="n">ui_captured_figures</span><span class="o">=</span><span class="p">[],</span>
+            <span class="n">ui_launchable_commands</span><span class="o">=</span><span class="p">[],</span>
+            <span class="n">ui_agent_context</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="c1"># Runtime metadata fields - reset to defaults</span>
+            <span class="n">runtime_checkpoint_metadata</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="n">runtime_info</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="c1"># Reactive orchestration fields - reset to defaults each turn</span>
+            <span class="n">react_messages</span><span class="o">=</span><span class="p">[],</span>
+            <span class="n">react_step_count</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">react_rejection_count</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">react_response_generated</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="c1"># Capability slash commands - reset to empty each turn</span>
+            <span class="n">_capability_slash_commands</span><span class="o">=</span><span class="p">{},</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">state</span></div>
+
+
+    <span class="c1"># ===== UTILITY METHODS =====</span>
+
+<div class="viewcode-block" id="StateManager.get_current_task">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.StateManager.get_current_task">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_current_task</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get current task from state.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;task_current_task&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="StateManager.get_user_query">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.StateManager.get_user_query">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_user_query</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the user&#39;s query from the current conversation.</span>
+
+<span class="sd">        Extracts the most recent user message from the conversation history,</span>
+<span class="sd">        which represents the original user query that started the current</span>
+<span class="sd">        conversation turn.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            state: Current conversation state</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The user&#39;s query string, or None if no user messages exist</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">.messages</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChatHistoryFormatter</span>
+
+        <span class="k">return</span> <span class="n">ChatHistoryFormatter</span><span class="o">.</span><span class="n">get_latest_user_message</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;messages&quot;</span><span class="p">,</span> <span class="p">[]))</span></div>
+
+
+<div class="viewcode-block" id="StateManager.store_context">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.StateManager.store_context">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">store_context</span><span class="p">(</span>
+        <span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">,</span>
+        <span class="n">context_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">context_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">context_object</span><span class="p">:</span> <span class="n">CapabilityContext</span><span class="p">,</span>
+        <span class="n">task_objective</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StateUpdate</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Store capability context data and return LangGraph-compatible state updates.</span>
+
+<span class="sd">        This is the primary utility function that capabilities should use for storing</span>
+<span class="sd">        context data in the agent state. The method provides a one-liner interface that</span>
+<span class="sd">        handles all the complexity of context management, serialization, and state</span>
+<span class="sd">        update generation for seamless integration with LangGraph&#39;s state system.</span>
+
+<span class="sd">        The function performs the complete context storage workflow:</span>
+
+<span class="sd">        1. **Context Manager Creation**: Initializes ContextManager from current state</span>
+<span class="sd">        2. **Context Serialization**: Converts CapabilityContext to dictionary format</span>
+<span class="sd">        3. **State Integration**: Merges context data into existing state structure</span>
+<span class="sd">        4. **Update Generation**: Returns LangGraph-compatible state update dictionary</span>
+
+<span class="sd">        This approach ensures that capability results are properly persisted across</span>
+<span class="sd">        conversation turns while maintaining optimal serialization performance.</span>
+
+<span class="sd">        :param state: Current agent state containing existing context data</span>
+<span class="sd">        :type state: AgentState</span>
+<span class="sd">        :param context_type: Context type identifier (e.g., &quot;PV_ADDRESSES&quot;, &quot;ANALYSIS_RESULTS&quot;)</span>
+<span class="sd">        :type context_type: str</span>
+<span class="sd">        :param context_key: Unique key for this context instance within the type</span>
+<span class="sd">        :type context_key: str</span>
+<span class="sd">        :param context_object: CapabilityContext object containing data to store</span>
+<span class="sd">        :type context_object: CapabilityContext</span>
+<span class="sd">        :param task_objective: Optional task description from execution plan step.</span>
+<span class="sd">                              Stored as metadata to help orchestrator understand what</span>
+<span class="sd">                              this context was created for (enables context reuse optimization).</span>
+<span class="sd">        :type task_objective: Optional[str]</span>
+<span class="sd">        :return: State update dictionary for LangGraph automatic merging</span>
+<span class="sd">        :rtype: StateUpdate</span>
+
+<span class="sd">        .. note::</span>
+<span class="sd">           This is the recommended pattern for all capability context storage. The</span>
+<span class="sd">           returned dictionary can be directly returned from capability execute methods</span>
+<span class="sd">           and will be automatically merged by LangGraph.</span>
+
+<span class="sd">        .. warning::</span>
+<span class="sd">           The context_key should be unique within the context_type to avoid</span>
+<span class="sd">           overwriting existing context data. Consider using step context keys</span>
+<span class="sd">           or timestamp-based keys for uniqueness.</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Basic capability context storage::</span>
+
+<span class="sd">                &gt;&gt;&gt; @staticmethod</span>
+<span class="sd">                &gt;&gt;&gt; async def execute(state: AgentState, **kwargs):</span>
+<span class="sd">                ...     # Capability logic here</span>
+<span class="sd">                ...     result = PVAddresses(pvs=found_pvs, description=&quot;Found PVs&quot;)</span>
+<span class="sd">                ...</span>
+<span class="sd">                ...     # Store and return state updates (one-liner)</span>
+<span class="sd">                ...     step = StateManager.get_current_step(state)</span>
+<span class="sd">                ...     return StateManager.store_context(</span>
+<span class="sd">                ...         state, &quot;PV_ADDRESSES&quot;, step.get(&#39;context_key&#39;), result</span>
+<span class="sd">                ...     )</span>
+
+<span class="sd">            Context storage with custom key::</span>
+
+<span class="sd">                &gt;&gt;&gt; analysis_result = DataAnalysis(</span>
+<span class="sd">                ...     results=processed_data,</span>
+<span class="sd">                ...     timestamp=datetime.now()</span>
+<span class="sd">                ... )</span>
+<span class="sd">                &gt;&gt;&gt; updates = StateManager.store_context(</span>
+<span class="sd">                ...     state, &quot;ANALYSIS&quot;, f&quot;beam_analysis_{timestamp}&quot;, analysis_result</span>
+<span class="sd">                ... )</span>
+<span class="sd">                &gt;&gt;&gt; return updates</span>
+
+<span class="sd">        .. seealso::</span>
+<span class="sd">           :class:`osprey.context.ContextManager` : Underlying context management</span>
+<span class="sd">           :class:`osprey.context.CapabilityContext` : Base class for context objects</span>
+<span class="sd">           :func:`get_current_step` : Utility for getting current execution step</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="c1"># Create context manager from state</span>
+        <span class="n">context_manager</span> <span class="o">=</span> <span class="n">ContextManager</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+
+        <span class="c1"># Store the context object with optional task_objective metadata</span>
+        <span class="n">context_manager</span><span class="o">.</span><span class="n">set_context</span><span class="p">(</span>
+            <span class="n">context_type</span><span class="p">,</span> <span class="n">context_key</span><span class="p">,</span> <span class="n">context_object</span><span class="p">,</span> <span class="n">task_objective</span><span class="o">=</span><span class="n">task_objective</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Return state updates with the updated dictionary data</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;capability_context_data&quot;</span><span class="p">:</span> <span class="n">context_manager</span><span class="o">.</span><span class="n">get_raw_data</span><span class="p">()}</span></div>
+
+
+<div class="viewcode-block" id="StateManager.get_messages">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.StateManager.get_messages">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_messages</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">BaseMessage</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get messages from state.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;messages&quot;</span><span class="p">,</span> <span class="p">[])</span></div>
+
+
+<div class="viewcode-block" id="StateManager.create_response_update">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.StateManager.create_response_update">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">create_response_update</span><span class="p">(</span><span class="n">response</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StateUpdate</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create a state update that adds an assistant response using native LangGraph pattern.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            response: The assistant&#39;s response</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            StateUpdate: Update that adds the response message to the conversation</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;messages&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_assistant_message</span><span class="p">(</span><span class="n">response</span><span class="p">)]}</span></div>
+
+
+    <span class="c1"># ===== PLANNING AND EXECUTION UTILITIES =====</span>
+
+<div class="viewcode-block" id="StateManager.get_execution_plan">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.StateManager.get_execution_plan">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_execution_plan</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ExecutionPlan</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get current execution plan from state with type validation.</span>
+
+<span class="sd">        Performs type validation to ensure the returned ExecutionPlan is properly</span>
+<span class="sd">        formed (TypedDict with &#39;get&#39; method). This eliminates the need for</span>
+<span class="sd">        downstream callers to perform hasattr checks.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            state: Current conversation state</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            ExecutionPlan if available and valid, None otherwise</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">execution_plan</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;planning_execution_plan&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Type validation - ensure it&#39;s a valid ExecutionPlan (TypedDict)</span>
+        <span class="k">if</span> <span class="n">execution_plan</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">execution_plan</span><span class="p">,</span> <span class="s2">&quot;get&quot;</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">execution_plan</span>
+
+        <span class="k">return</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="StateManager.get_current_step_index">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.StateManager.get_current_step_index">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_current_step_index</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get current step index from state.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            state: Current conversation state</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Current step index (defaults to 0 if not set)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;planning_current_step_index&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="StateManager.get_current_step">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.StateManager.get_current_step">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_current_step</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PlannedStep</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get current execution step from state.</span>
+
+<span class="sd">        This is the unified utility for accessing the current step being executed.</span>
+<span class="sd">        Replaces the old pattern of importing _extract_current_step from decorators.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            state: Current conversation state</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            PlannedStep: Current step dictionary with capability, task_objective, etc.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            RuntimeError: If execution plan is missing or step index is invalid</span>
+
+<span class="sd">        Example:</span>
+<span class="sd">            .. code-block:: python</span>
+
+<span class="sd">                # In any capability or infrastructure component:</span>
+<span class="sd">                from osprey.state import StateManager</span>
+
+<span class="sd">                step = StateManager.get_current_step(state)</span>
+<span class="sd">                task_objective = step.get(&#39;task_objective&#39;)</span>
+<span class="sd">                capability = step.get(&#39;capability&#39;)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">execution_plan</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">get_execution_plan</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+        <span class="n">current_step_index</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">get_current_step_index</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">execution_plan</span><span class="p">:</span>
+            <span class="c1"># Type validation already done by get_execution_plan()</span>
+            <span class="n">plan_steps</span> <span class="o">=</span> <span class="n">execution_plan</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;steps&quot;</span><span class="p">,</span> <span class="p">[])</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;current_step_index=</span><span class="si">{</span><span class="n">current_step_index</span><span class="si">}</span><span class="s2">, plan_steps_length=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">plan_steps</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">current_step_index</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">plan_steps</span><span class="p">):</span>
+                <span class="n">step</span> <span class="o">=</span> <span class="n">plan_steps</span><span class="p">[</span><span class="n">current_step_index</span><span class="p">]</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Successfully extracted step at index </span><span class="si">{</span><span class="n">current_step_index</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;capability&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;unknown&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+                <span class="k">return</span> <span class="n">step</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># This should NEVER happen - router should have caught this first</span>
+                <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;CRITICAL BUG: Step index </span><span class="si">{</span><span class="n">current_step_index</span><span class="si">}</span><span class="s2"> beyond plan length </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">plan_steps</span><span class="p">)</span><span class="si">}</span><span class="s2">. &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;Router should have caught this and raised an exception first. &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;This indicates multiple bugs in orchestrator validation AND router logic.&quot;</span>
+                <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># No execution plan available - this could happen in edge cases during initialization</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+                <span class="s2">&quot;CRITICAL BUG: No execution plan available for step extraction. &quot;</span>
+                <span class="s2">&quot;Router should ensure execution plan exists &quot;</span>
+                <span class="s2">&quot;before routing to capabilities that need step extraction.&quot;</span>
+            <span class="p">)</span></div>
+
+
+    <span class="c1"># ===== UNIFIED ARTIFACT REGISTRATION =====</span>
+
+<div class="viewcode-block" id="StateManager.register_artifact">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.StateManager.register_artifact">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">register_artifact</span><span class="p">(</span>
+        <span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">,</span>
+        <span class="n">artifact_type</span><span class="p">:</span> <span class="n">ArtifactType</span><span class="p">,</span>
+        <span class="n">capability</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+        <span class="n">display_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">metadata</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">current_artifacts</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Register an artifact in the unified UI artifact registry.</span>
+
+<span class="sd">        This is the single entry point for all capabilities to register artifacts</span>
+<span class="sd">        for UI display. It replaces the separate figure/command/notebook registration</span>
+<span class="sd">        methods with a unified interface that supports any artifact type.</span>
+
+<span class="sd">        The method creates a properly structured artifact with a unique ID and timestamp,</span>
+<span class="sd">        then appends it to the artifact list. It supports accumulation for registering</span>
+<span class="sd">        multiple artifacts within a single node execution.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            state: Current agent state</span>
+<span class="sd">            artifact_type: Type of artifact (IMAGE, NOTEBOOK, COMMAND, HTML, FILE)</span>
+<span class="sd">            capability: Name of the capability generating this artifact</span>
+<span class="sd">            data: Type-specific data payload (path, url, uri, etc.)</span>
+<span class="sd">            display_name: Optional human-readable name for the artifact</span>
+<span class="sd">            metadata: Optional additional metadata dictionary</span>
+<span class="sd">            current_artifacts: Optional list to accumulate artifacts (for multiple</span>
+<span class="sd">                registrations within same node). If None, reads from state.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            State update dictionary with ui_artifacts update</span>
+
+<span class="sd">        Examples:</span>
+<span class="sd">            Register an image artifact::</span>
+
+<span class="sd">                &gt;&gt;&gt; update = StateManager.register_artifact(</span>
+<span class="sd">                ...     state,</span>
+<span class="sd">                ...     ArtifactType.IMAGE,</span>
+<span class="sd">                ...     &quot;python_executor&quot;,</span>
+<span class="sd">                ...     {&quot;path&quot;: &quot;/path/to/plot.png&quot;, &quot;format&quot;: &quot;png&quot;},</span>
+<span class="sd">                ...     display_name=&quot;Analysis Plot&quot;</span>
+<span class="sd">                ... )</span>
+<span class="sd">                &gt;&gt;&gt; return {**other_updates, **update}</span>
+
+<span class="sd">            Register multiple artifacts in one node::</span>
+
+<span class="sd">                &gt;&gt;&gt; accumulating = None</span>
+<span class="sd">                &gt;&gt;&gt; for path in figure_paths:</span>
+<span class="sd">                ...     update = StateManager.register_artifact(</span>
+<span class="sd">                ...         state,</span>
+<span class="sd">                ...         ArtifactType.IMAGE,</span>
+<span class="sd">                ...         &quot;python_executor&quot;,</span>
+<span class="sd">                ...         {&quot;path&quot;: str(path), &quot;format&quot;: path.suffix[1:]},</span>
+<span class="sd">                ...         current_artifacts=accumulating</span>
+<span class="sd">                ...     )</span>
+<span class="sd">                ...     accumulating = update[&quot;ui_artifacts&quot;]</span>
+<span class="sd">                &gt;&gt;&gt; return update  # Contains all artifacts</span>
+
+<span class="sd">        .. seealso::</span>
+<span class="sd">           :class:`osprey.state.artifacts.ArtifactType` : Available artifact types</span>
+<span class="sd">           :func:`osprey.state.artifacts.create_artifact` : Artifact creation factory</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Create the artifact using the factory function</span>
+        <span class="n">artifact</span> <span class="o">=</span> <span class="n">create_artifact</span><span class="p">(</span>
+            <span class="n">artifact_type</span><span class="o">=</span><span class="n">artifact_type</span><span class="p">,</span>
+            <span class="n">capability</span><span class="o">=</span><span class="n">capability</span><span class="p">,</span>
+            <span class="n">data</span><span class="o">=</span><span class="n">data</span><span class="p">,</span>
+            <span class="n">display_name</span><span class="o">=</span><span class="n">display_name</span><span class="p">,</span>
+            <span class="n">metadata</span><span class="o">=</span><span class="n">metadata</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Use provided current_artifacts or get from state</span>
+        <span class="k">if</span> <span class="n">current_artifacts</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">artifacts_list</span> <span class="o">=</span> <span class="n">current_artifacts</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">artifacts_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ui_artifacts&quot;</span><span class="p">,</span> <span class="p">[]))</span>
+
+        <span class="n">artifacts_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">artifact</span><span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;StateManager: registered </span><span class="si">{</span><span class="n">artifact_type</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2"> artifact for </span><span class="si">{</span><span class="n">capability</span><span class="si">}</span><span class="s2">: &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">display_name</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;path&#39;</span><span class="p">)</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;uri&#39;</span><span class="p">)</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;url&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;unknown&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;ui_artifacts&quot;</span><span class="p">:</span> <span class="n">artifacts_list</span><span class="p">}</span></div>
+
+
+    <span class="c1"># ===== LEGACY REGISTRATION METHODS (delegate to register_artifact) =====</span>
+
+<div class="viewcode-block" id="StateManager.register_figure">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.StateManager.register_figure">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">register_figure</span><span class="p">(</span>
+        <span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">,</span>
+        <span class="n">capability</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">figure_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">display_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">metadata</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">current_figures</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">current_artifacts</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Register a figure in the UI registry.</span>
+
+<span class="sd">        .. deprecated::</span>
+<span class="sd">            Use :meth:`register_artifact` with ``ArtifactType.IMAGE`` instead.</span>
+<span class="sd">            This method is maintained for backward compatibility.</span>
+
+<span class="sd">        This method now delegates to register_artifact() for the unified artifact</span>
+<span class="sd">        system while maintaining the legacy ui_captured_figures field for backward</span>
+<span class="sd">        compatibility with existing interfaces (e.g., OpenWebUI pipeline).</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            state: Current agent state</span>
+<span class="sd">            capability: Capability identifier (e.g., &quot;python_executor&quot;, &quot;r_executor&quot;)</span>
+<span class="sd">            figure_path: Path to the figure file (absolute or relative)</span>
+<span class="sd">            display_name: Optional human-readable figure name</span>
+<span class="sd">            metadata: Optional capability-specific metadata dictionary</span>
+<span class="sd">            current_figures: Optional list of current figures to accumulate</span>
+<span class="sd">            current_artifacts: Optional list of current artifacts to accumulate (for</span>
+<span class="sd">                multiple registrations in same node). If not provided but current_figures</span>
+<span class="sd">                is, artifacts from previous update are retrieved from state.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            State update dictionary with both ui_artifacts and ui_captured_figures updates</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+        <span class="c1"># Determine format from file extension</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">figure_path</span><span class="p">)</span>
+        <span class="n">format_ext</span> <span class="o">=</span> <span class="n">path</span><span class="o">.</span><span class="n">suffix</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">suffix</span> <span class="k">else</span> <span class="s2">&quot;unknown&quot;</span>
+
+        <span class="c1"># Determine current_artifacts for accumulation</span>
+        <span class="c1"># If current_figures is provided (accumulation mode), we need matching artifacts</span>
+        <span class="k">if</span> <span class="n">current_artifacts</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">current_artifacts</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ui_artifacts&quot;</span><span class="p">,</span> <span class="p">[]))</span>
+
+        <span class="c1"># Register in unified artifact system</span>
+        <span class="n">artifact_update</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">register_artifact</span><span class="p">(</span>
+            <span class="n">state</span><span class="o">=</span><span class="n">state</span><span class="p">,</span>
+            <span class="n">artifact_type</span><span class="o">=</span><span class="n">ArtifactType</span><span class="o">.</span><span class="n">IMAGE</span><span class="p">,</span>
+            <span class="n">capability</span><span class="o">=</span><span class="n">capability</span><span class="p">,</span>
+            <span class="n">data</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;path&quot;</span><span class="p">:</span> <span class="n">figure_path</span><span class="p">,</span> <span class="s2">&quot;format&quot;</span><span class="p">:</span> <span class="n">format_ext</span><span class="p">},</span>
+            <span class="n">display_name</span><span class="o">=</span><span class="n">display_name</span><span class="p">,</span>
+            <span class="n">metadata</span><span class="o">=</span><span class="n">metadata</span><span class="p">,</span>
+            <span class="n">current_artifacts</span><span class="o">=</span><span class="n">current_artifacts</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Also maintain legacy field for backward compatibility</span>
+        <span class="n">figure_entry</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;capability&quot;</span><span class="p">:</span> <span class="n">capability</span><span class="p">,</span>
+            <span class="s2">&quot;figure_path&quot;</span><span class="p">:</span> <span class="n">figure_path</span><span class="p">,</span>
+            <span class="s2">&quot;created_at&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="n">display_name</span><span class="p">:</span>
+            <span class="n">figure_entry</span><span class="p">[</span><span class="s2">&quot;display_name&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">display_name</span>
+        <span class="k">if</span> <span class="n">metadata</span><span class="p">:</span>
+            <span class="n">figure_entry</span><span class="p">[</span><span class="s2">&quot;metadata&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metadata</span>
+
+        <span class="k">if</span> <span class="n">current_figures</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">figures_list</span> <span class="o">=</span> <span class="n">current_figures</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">figures_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ui_captured_figures&quot;</span><span class="p">,</span> <span class="p">[]))</span>
+        <span class="n">figures_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">figure_entry</span><span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;StateManager: prepared figure registration for </span><span class="si">{</span><span class="n">capability</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">figure_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Return both unified and legacy updates</span>
+        <span class="k">return</span> <span class="p">{</span><span class="o">**</span><span class="n">artifact_update</span><span class="p">,</span> <span class="s2">&quot;ui_captured_figures&quot;</span><span class="p">:</span> <span class="n">figures_list</span><span class="p">}</span></div>
+
+
+<div class="viewcode-block" id="StateManager.register_command">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.StateManager.register_command">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">register_command</span><span class="p">(</span>
+        <span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">,</span>
+        <span class="n">capability</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">launch_uri</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">display_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">command_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">metadata</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">current_commands</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Register a launchable command in the UI registry.</span>
+
+<span class="sd">        .. deprecated::</span>
+<span class="sd">            Use :meth:`register_artifact` with ``ArtifactType.COMMAND`` instead.</span>
+<span class="sd">            This method is maintained for backward compatibility.</span>
+
+<span class="sd">        This method now delegates to register_artifact() for the unified artifact</span>
+<span class="sd">        system while maintaining the legacy ui_launchable_commands field for backward</span>
+<span class="sd">        compatibility with existing interfaces.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            state: Current agent state</span>
+<span class="sd">            capability: Name of the capability that generated this command</span>
+<span class="sd">            launch_uri: URI that can be used to launch the command</span>
+<span class="sd">            display_name: Optional human-readable name for the command</span>
+<span class="sd">            command_type: Optional type of command (e.g., &#39;web_app&#39;, &#39;desktop_app&#39;)</span>
+<span class="sd">            metadata: Optional capability-specific metadata dictionary</span>
+<span class="sd">            current_commands: Optional list of current commands to accumulate</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            State update dictionary with both ui_artifacts and ui_launchable_commands updates</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
+
+        <span class="c1"># Build data payload for artifact</span>
+        <span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;uri&quot;</span><span class="p">:</span> <span class="n">launch_uri</span><span class="p">}</span>
+        <span class="k">if</span> <span class="n">command_type</span><span class="p">:</span>
+            <span class="n">data</span><span class="p">[</span><span class="s2">&quot;command_type&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">command_type</span>
+
+        <span class="c1"># Register in unified artifact system</span>
+        <span class="n">artifact_update</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">register_artifact</span><span class="p">(</span>
+            <span class="n">state</span><span class="o">=</span><span class="n">state</span><span class="p">,</span>
+            <span class="n">artifact_type</span><span class="o">=</span><span class="n">ArtifactType</span><span class="o">.</span><span class="n">COMMAND</span><span class="p">,</span>
+            <span class="n">capability</span><span class="o">=</span><span class="n">capability</span><span class="p">,</span>
+            <span class="n">data</span><span class="o">=</span><span class="n">data</span><span class="p">,</span>
+            <span class="n">display_name</span><span class="o">=</span><span class="n">display_name</span><span class="p">,</span>
+            <span class="n">metadata</span><span class="o">=</span><span class="n">metadata</span><span class="p">,</span>
+            <span class="n">current_artifacts</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ui_artifacts&quot;</span><span class="p">,</span> <span class="p">[])),</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Also maintain legacy field for backward compatibility</span>
+        <span class="n">command_entry</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;capability&quot;</span><span class="p">:</span> <span class="n">capability</span><span class="p">,</span>
+            <span class="s2">&quot;launch_uri&quot;</span><span class="p">:</span> <span class="n">launch_uri</span><span class="p">,</span>
+            <span class="s2">&quot;created_at&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="n">display_name</span><span class="p">:</span>
+            <span class="n">command_entry</span><span class="p">[</span><span class="s2">&quot;display_name&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">display_name</span>
+        <span class="k">if</span> <span class="n">command_type</span><span class="p">:</span>
+            <span class="n">command_entry</span><span class="p">[</span><span class="s2">&quot;command_type&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">command_type</span>
+        <span class="k">if</span> <span class="n">metadata</span><span class="p">:</span>
+            <span class="n">command_entry</span><span class="p">[</span><span class="s2">&quot;metadata&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metadata</span>
+
+        <span class="k">if</span> <span class="n">current_commands</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">commands_list</span> <span class="o">=</span> <span class="n">current_commands</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">commands_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ui_launchable_commands&quot;</span><span class="p">,</span> <span class="p">[]))</span>
+        <span class="n">commands_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">command_entry</span><span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;StateManager: prepared command registration for </span><span class="si">{</span><span class="n">capability</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">display_name</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="n">launch_uri</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Return both unified and legacy updates</span>
+        <span class="k">return</span> <span class="p">{</span><span class="o">**</span><span class="n">artifact_update</span><span class="p">,</span> <span class="s2">&quot;ui_launchable_commands&quot;</span><span class="p">:</span> <span class="n">commands_list</span><span class="p">}</span></div>
+
+
+<div class="viewcode-block" id="StateManager.register_notebook">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.StateManager.register_notebook">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">register_notebook</span><span class="p">(</span>
+        <span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">,</span>
+        <span class="n">capability</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">notebook_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">notebook_link</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">display_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">metadata</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Register a notebook in the UI registry.</span>
+
+<span class="sd">        .. deprecated::</span>
+<span class="sd">            Use :meth:`register_artifact` with ``ArtifactType.NOTEBOOK`` instead.</span>
+<span class="sd">            This method is maintained for backward compatibility.</span>
+
+<span class="sd">        This method now delegates to register_artifact() for the unified artifact</span>
+<span class="sd">        system while maintaining the legacy ui_captured_notebooks field for backward</span>
+<span class="sd">        compatibility with existing interfaces.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            state: Current agent state</span>
+<span class="sd">            capability: Capability identifier (e.g., &quot;python_executor&quot;)</span>
+<span class="sd">            notebook_path: Path to the notebook file</span>
+<span class="sd">            notebook_link: Link to access the notebook</span>
+<span class="sd">            display_name: Optional human-readable notebook name</span>
+<span class="sd">            metadata: Optional capability-specific metadata dictionary</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            State update dictionary with both ui_artifacts and ui_captured_notebooks updates</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Register in unified artifact system</span>
+        <span class="n">artifact_update</span> <span class="o">=</span> <span class="n">StateManager</span><span class="o">.</span><span class="n">register_artifact</span><span class="p">(</span>
+            <span class="n">state</span><span class="o">=</span><span class="n">state</span><span class="p">,</span>
+            <span class="n">artifact_type</span><span class="o">=</span><span class="n">ArtifactType</span><span class="o">.</span><span class="n">NOTEBOOK</span><span class="p">,</span>
+            <span class="n">capability</span><span class="o">=</span><span class="n">capability</span><span class="p">,</span>
+            <span class="n">data</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;path&quot;</span><span class="p">:</span> <span class="n">notebook_path</span><span class="p">,</span> <span class="s2">&quot;url&quot;</span><span class="p">:</span> <span class="n">notebook_link</span><span class="p">},</span>
+            <span class="n">display_name</span><span class="o">=</span><span class="n">display_name</span><span class="p">,</span>
+            <span class="n">metadata</span><span class="o">=</span><span class="n">metadata</span><span class="p">,</span>
+            <span class="n">current_artifacts</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ui_artifacts&quot;</span><span class="p">,</span> <span class="p">[])),</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Also maintain legacy field for backward compatibility</span>
+        <span class="n">notebook_links</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ui_captured_notebooks&quot;</span><span class="p">,</span> <span class="p">[]))</span>
+        <span class="n">notebook_links</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">notebook_link</span><span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;StateManager: prepared notebook registration for </span><span class="si">{</span><span class="n">capability</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">display_name</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="n">notebook_path</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Return both unified and legacy updates</span>
+        <span class="k">return</span> <span class="p">{</span><span class="o">**</span><span class="n">artifact_update</span><span class="p">,</span> <span class="s2">&quot;ui_captured_notebooks&quot;</span><span class="p">:</span> <span class="n">notebook_links</span><span class="p">}</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="get_execution_steps_summary">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/02_state_and_context.html#osprey.state.get_execution_steps_summary">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_execution_steps_summary</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">AgentState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Generate ordered execution steps summary for prompts and UI display.</span>
+
+<span class="sd">    This utility function extracts and formats execution step information from the</span>
+<span class="sd">    agent state to provide a clean summary of completed execution</span>
+<span class="sd">    steps. The function is designed for use in capability prompts, error summaries,</span>
+<span class="sd">    UI displays, and debugging contexts where execution history is needed.</span>
+
+<span class="sd">    The function processes the execution_step_results dictionary to create an</span>
+<span class="sd">    ordered list of step descriptions based on execution order. Each step is</span>
+<span class="sd">    formatted with a step number and task objective for clear presentation.</span>
+
+<span class="sd">    **Processing Logic:**</span>
+
+<span class="sd">    1. **Results Extraction**: Retrieves execution_step_results from state</span>
+<span class="sd">    2. **Ordering**: Sorts results by step_index to maintain execution order</span>
+<span class="sd">    3. **Formatting**: Creates numbered step descriptions with task objectives</span>
+<span class="sd">    4. **Fallback Handling**: Uses capability names when task objectives unavailable</span>
+
+<span class="sd">    :param state: Current agent state containing execution_step_results</span>
+<span class="sd">    :type state: AgentState</span>
+<span class="sd">    :return: Ordered list of formatted step descriptions for display</span>
+<span class="sd">    :rtype: List[str]</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       The function handles missing or incomplete execution results gracefully,</span>
+<span class="sd">       returning an empty list when no execution data is available. Step numbering</span>
+<span class="sd">       starts from 1 for intuitive display.</span>
+
+<span class="sd">    .. warning::</span>
+<span class="sd">       The function relies on step_index values in execution results for ordering.</span>
+<span class="sd">       If step_index is missing or incorrect, the order may not reflect actual</span>
+<span class="sd">       execution sequence.</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Basic execution summary::</span>
+
+<span class="sd">            &gt;&gt;&gt; state = {</span>
+<span class="sd">            ...     &quot;execution_step_results&quot;: {</span>
+<span class="sd">            ...         &quot;step1&quot;: {&quot;step_index&quot;: 0, &quot;task_objective&quot;: &quot;Find PV addresses&quot;},</span>
+<span class="sd">            ...         &quot;step2&quot;: {&quot;step_index&quot;: 1, &quot;task_objective&quot;: &quot;Retrieve values&quot;}</span>
+<span class="sd">            ...     }</span>
+<span class="sd">            ... }</span>
+<span class="sd">            &gt;&gt;&gt; steps = get_execution_steps_summary(state)</span>
+<span class="sd">            &gt;&gt;&gt; steps[0]</span>
+<span class="sd">            &#39;Step 1: Find PV addresses&#39;</span>
+<span class="sd">            &gt;&gt;&gt; steps[1]</span>
+<span class="sd">            &#39;Step 2: Retrieve values&#39;</span>
+
+<span class="sd">        Empty state handling::</span>
+
+<span class="sd">            &gt;&gt;&gt; empty_state = {&quot;execution_step_results&quot;: {}}</span>
+<span class="sd">            &gt;&gt;&gt; get_execution_steps_summary(empty_state)</span>
+<span class="sd">            []</span>
+
+<span class="sd">        Fallback to capability names::</span>
+
+<span class="sd">            &gt;&gt;&gt; state_without_objectives = {</span>
+<span class="sd">            ...     &quot;execution_step_results&quot;: {</span>
+<span class="sd">            ...         &quot;step1&quot;: {&quot;step_index&quot;: 0, &quot;capability&quot;: &quot;pv_finder&quot;}</span>
+<span class="sd">            ...     }</span>
+<span class="sd">            ... }</span>
+<span class="sd">            &gt;&gt;&gt; steps = get_execution_steps_summary(state_without_objectives)</span>
+<span class="sd">            &gt;&gt;&gt; steps[0]</span>
+<span class="sd">            &#39;Step 1: pv_finder&#39;</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :class:`AgentState` : State structure containing execution_step_results</span>
+<span class="sd">       :mod:`osprey.base.decorators` : Capability execution tracking</span>
+<span class="sd">       :mod:`osprey.infrastructure` : Infrastructure components using summaries</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">step_results</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_step_results&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">step_results</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[]</span>
+
+    <span class="c1"># Sort by step_index to ensure correct execution order</span>
+    <span class="n">ordered_results</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">step_results</span><span class="o">.</span><span class="n">items</span><span class="p">(),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;step_index&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+
+    <span class="n">execution_steps</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">_step_key</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">ordered_results</span><span class="p">:</span>
+        <span class="n">step_num</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;step_index&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+        <span class="n">task_objective</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;task_objective&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;capability&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">))</span>
+        <span class="n">execution_steps</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Step </span><span class="si">{</span><span class="n">step_num</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">task_objective</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">execution_steps</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

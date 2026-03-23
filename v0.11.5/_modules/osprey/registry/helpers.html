@@ -1,0 +1,1609 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey.registry.helpers &#8212; Osprey Framework 0.11.5 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
+
+
+
+
+
+const initStyles = () => {
+    const defaultStyle = document.createElement('style');
+    defaultStyle.textContent = `pre.mermaid {
+    /* Same as .mermaid-container > pre */
+    display: block;
+    width: 100%;
+}
+
+pre.mermaid > svg {
+    /* Same as .mermaid-container > pre > svg */
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}`;
+    document.head.appendChild(defaultStyle);
+
+    const fullscreenStyle = document.createElement('style');
+    fullscreenStyle.textContent = `.mermaid-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.mermaid-container > pre {
+    display: block;
+    width: 100%;
+}
+
+.mermaid-container > pre > svg {
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}
+
+.mermaid-fullscreen-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    color: #333;
+}
+
+.mermaid-fullscreen-btn:hover {
+    opacity: 100% !important;
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-btn.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-btn.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 95vw;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.98);
+    z-index: 9999;
+    padding: 20px;
+    overflow: auto;
+}
+
+.mermaid-fullscreen-modal.dark-theme {
+    background: rgba(0, 0, 0, 0.98);
+}
+
+.mermaid-fullscreen-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen {
+    position: relative;
+    width: 95vw;
+    height: 90vh;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen.dark-theme {
+    background: #1a1a1a;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-container-fullscreen pre.mermaid {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen .mermaid svg {
+    height: 100% !important;
+    width: 100% !important;
+    cursor: grab;
+}
+
+.mermaid-fullscreen-close {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    font-size: 24px;
+    line-height: 1;
+    color: #333;
+}
+
+.mermaid-fullscreen-close:hover {
+    background: white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-close.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-close.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
+    display: none !important;
+}`;
+    document.head.appendChild(fullscreenStyle);
+}
+
+// Detect if page has dark background
+const isDarkTheme = () => {
+    // We use a set of heuristics:
+    // 1. Check for common dark mode classes or attributes
+    // 2. Check computed background color brightness
+    if (document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        document.body.getAttribute('data-theme') === 'dark') {
+        // console.log("Dark theme detected via class/attribute");
+        return true;
+    }
+    if (document.documentElement.classList.contains('light') ||
+        document.documentElement.getAttribute('data-theme') === 'light' ||
+        document.body.classList.contains('light') ||
+        document.body.getAttribute('data-theme') === 'light') {
+        // console.log("Light theme detected via class/attribute");
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // console.log("Dark theme detected via prefers-color-scheme");
+        return true;
+    }
+    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        // console.log("Background color brightness:", brightness);
+        return brightness < 128;
+    }
+    // console.log("No dark or light theme detected, defaulting to light theme");
+    return false;
+};
+
+let darkTheme = isDarkTheme();
+let modal = null;
+let modalContent = null;
+let previousScrollOffset = [window.scrollX, window.scrollY];
+
+const runMermaid = async (rerun) => {
+    console.log("Running mermaid diagrams, rerun =", rerun);
+    // clear all existing mermaid charts
+    let all_mermaids = document.querySelectorAll(".mermaid");
+
+    if (rerun) {
+        all_mermaids.forEach((el) => {
+            if(!el.hasAttribute("data-original-code")) {
+                // store original code
+                // console.log(`Storing original code for first run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+            if(el.getAttribute("data-processed") === "true") {
+                // remove and restore original
+                el.removeAttribute("data-processed");
+                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
+                el.innerHTML = el.getAttribute('data-original-code');
+            } else {
+                // store original code
+                // console.log(`Storing original code for re-run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+        });
+        await mermaid.run();
+    }
+
+    all_mermaids = document.querySelectorAll(".mermaid");
+    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
+
+    if ("False" === "True") {
+        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
+        if(mermaids_to_add_zoom > 0) {
+            var svgs = d3.selectAll("");
+            if(all_mermaids.length !== mermaids_processed.length) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else if(svgs.size() !== mermaids_to_add_zoom) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else {
+                svgs.each(function() {
+                    var svg = d3.select(this);
+                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
+                    var inner = svg.select("g");
+                    var zoom = d3.zoom().on("zoom", function(event) {
+                        inner.attr("transform", event.transform);
+                    });
+                    svg.call(zoom);
+                });
+            }
+        }
+    } else if(all_mermaids.length !== mermaids_processed.length) {
+        // Wait for mermaid to process all diagrams
+        setTimeout(() => runMermaid(false), 200);
+        return;
+    }
+
+    // Stop here if not adding fullscreen capability
+    if ("True" !== "True") return;
+
+    if (modal !== null ) {
+        // Destroy existing modal
+        modal.remove();
+        modal = null;
+        modalContent = null;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
+    modal.innerHTML = `
+        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
+        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
+    `;
+    document.body.appendChild(modal);
+
+    modalContent = modal.querySelector('.mermaid-container-fullscreen');
+    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
+
+    const closeModal = () => {
+        modal.classList.remove('active');
+        modalContent.innerHTML = '';
+        document.body.style.overflow = ''
+        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+        }
+    });
+
+    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
+        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
+            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
+            // Already processed, adjust button class if needed
+            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
+            if (existingBtn) {
+                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+            }
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.className = 'mermaid-container';
+        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
+        container.appendChild(mermaidDiv);
+
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
+        fullscreenBtn.textContent = '⛶';
+        fullscreenBtn.style.opacity = '50%';
+
+        // Calculate dynamic position based on diagram's margin and padding
+        const diagramStyle = window.getComputedStyle(mermaidDiv);
+        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
+        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
+        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
+        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
+        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
+        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
+
+        fullscreenBtn.addEventListener('click', () => {
+            previousScrollOffset = [window.scroll, window.scrollY];
+            const clone = mermaidDiv.cloneNode(true);
+            modalContent.innerHTML = '';
+            modalContent.appendChild(clone);
+
+            const svg = clone.querySelector('svg');
+            if (svg) {
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxWidth = '100%';
+                svg.style.sdisplay = 'block';
+
+                if ("False" === "True") {
+                    setTimeout(() => {
+                        const g = svg.querySelector('g');
+                        if (g) {
+                            var svgD3 = d3.select(svg);
+                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
+                            var inner = svgD3.select("g");
+                            var zoom = d3.zoom().on("zoom", function(event) {
+                                inner.attr("transform", event.transform);
+                            });
+                            svgD3.call(zoom);
+                        }
+                    }, 100);
+                }
+            }
+
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+        container.appendChild(fullscreenBtn);
+    });
+};
+
+const load = async () => {
+    initStyles();
+
+    await runMermaid(true);
+
+    const reRunIfThemeChanges = async () => {
+        const newDarkTheme = isDarkTheme();
+        if (newDarkTheme !== darkTheme) {
+            darkTheme = newDarkTheme;
+            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
+            await mermaid.initialize(
+                {...JSON.parse(
+                    `{"startOnLoad": false}`
+                ),
+                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+                }
+            );
+            await runMermaid(true);
+        }
+    };
+
+    // Update theme classes when theme changes
+    const themeObserver = new MutationObserver(reRunIfThemeChanges);
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+    themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+};
+
+
+
+
+
+console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
+mermaid.initialize(
+    {...JSON.parse(
+        `{"startOnLoad": false}`
+    ),
+    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+    }
+);
+
+window.addEventListener("load", load);</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey/registry/helpers';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey.registry.helpers</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey.registry.helpers</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Registry helper functions for application development.</span>
+
+<span class="sd">This module provides utilities that simplify application registry creation</span>
+<span class="sd">by handling the common pattern of extending the framework registry with</span>
+<span class="sd">application-specific components.</span>
+
+<span class="sd">The helper functions eliminate boilerplate code and provide a clean,</span>
+<span class="sd">intuitive API for application developers to define their registries.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.base</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ArielEnhancementModuleRegistration</span><span class="p">,</span>
+    <span class="n">ArielIngestionAdapterRegistration</span><span class="p">,</span>
+    <span class="n">ArielPipelineRegistration</span><span class="p">,</span>
+    <span class="n">ArielSearchModuleRegistration</span><span class="p">,</span>
+    <span class="n">CapabilityRegistration</span><span class="p">,</span>
+    <span class="n">ConnectorRegistration</span><span class="p">,</span>
+    <span class="n">ContextClassRegistration</span><span class="p">,</span>
+    <span class="n">DataSourceRegistration</span><span class="p">,</span>
+    <span class="n">ExtendedRegistryConfig</span><span class="p">,</span>
+    <span class="n">FrameworkPromptProviderRegistration</span><span class="p">,</span>
+    <span class="n">NodeRegistration</span><span class="p">,</span>
+    <span class="n">ProviderRegistration</span><span class="p">,</span>
+    <span class="n">RegistryConfig</span><span class="p">,</span>
+    <span class="n">ServiceRegistration</span><span class="p">,</span>
+<span class="p">)</span>
+
+
+<div class="viewcode-block" id="extend_framework_registry">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.extend_framework_registry">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">extend_framework_registry</span><span class="p">(</span>
+    <span class="n">capabilities</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">CapabilityRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">context_classes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ContextClassRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">data_sources</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">DataSourceRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">services</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ServiceRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">framework_prompt_providers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FrameworkPromptProviderRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">providers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ProviderRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">connectors</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ConnectorRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">core_nodes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">NodeRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">include_capabilities</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">include_context_classes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">exclude_capabilities</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">exclude_nodes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">exclude_context_classes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">exclude_data_sources</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">exclude_providers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">exclude_connectors</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">ariel_search_modules</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ArielSearchModuleRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">ariel_enhancement_modules</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ArielEnhancementModuleRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">ariel_pipelines</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ArielPipelineRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">ariel_ingestion_adapters</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ArielIngestionAdapterRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">exclude_ariel_search_modules</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">exclude_ariel_enhancement_modules</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">exclude_ariel_pipelines</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">exclude_ariel_ingestion_adapters</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">override_capabilities</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">CapabilityRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">override_nodes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">NodeRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">override_providers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ProviderRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">override_connectors</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ConnectorRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ExtendedRegistryConfig</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create application registry configuration that extends the framework.</span>
+
+<span class="sd">    This is the recommended way to create application registries. It simplifies</span>
+<span class="sd">    registry creation by automatically handling framework component exclusions</span>
+<span class="sd">    and overrides through clean, declarative parameters.</span>
+
+<span class="sd">    The function returns an application registry configuration that will be</span>
+<span class="sd">    merged with the framework registry by the RegistryManager. You only need</span>
+<span class="sd">    to specify your application-specific components and any framework components</span>
+<span class="sd">    you want to exclude or replace.</span>
+
+<span class="sd">    Most applications will only need to specify capabilities and context_classes.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        capabilities: Application capabilities to add to framework defaults</span>
+<span class="sd">        context_classes: Application context classes to add to framework defaults</span>
+<span class="sd">        data_sources: Application data sources to add to framework defaults</span>
+<span class="sd">        services: Application services to add to framework defaults</span>
+<span class="sd">        framework_prompt_providers: Application prompt providers to add</span>
+<span class="sd">        providers: Application AI model providers to add to framework defaults</span>
+<span class="sd">        connectors: Application control system/archiver connectors to add</span>
+<span class="sd">        include_capabilities: Whitelist of framework capability names to include.</span>
+<span class="sd">            Only these framework capabilities will be active. Cannot be used</span>
+<span class="sd">            together with exclude_capabilities.</span>
+<span class="sd">        include_context_classes: Whitelist of framework context class types to</span>
+<span class="sd">            include. Only these framework context classes will be active. Cannot</span>
+<span class="sd">            be used together with exclude_context_classes.</span>
+<span class="sd">        exclude_capabilities: Names of framework capabilities to exclude</span>
+<span class="sd">        exclude_nodes: Names of framework nodes to exclude</span>
+<span class="sd">        exclude_context_classes: Context types to exclude from framework</span>
+<span class="sd">        exclude_data_sources: Names of framework data sources to exclude</span>
+<span class="sd">        exclude_providers: Names of framework providers to exclude</span>
+<span class="sd">        exclude_connectors: Names of framework connectors to exclude</span>
+<span class="sd">        override_capabilities: Capabilities that replace framework versions (by name)</span>
+<span class="sd">        override_nodes: Nodes that replace framework versions (by name)</span>
+<span class="sd">        override_providers: Providers that replace framework versions (by name)</span>
+<span class="sd">        override_connectors: Connectors that replace framework versions (by name)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ExtendedRegistryConfig that signals extend mode to registry manager</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Simple application (most common)::</span>
+
+<span class="sd">            def get_registry_config(self) -&gt; ExtendedRegistryConfig:</span>
+<span class="sd">                return extend_framework_registry(</span>
+<span class="sd">                    capabilities=[</span>
+<span class="sd">                        CapabilityRegistration(</span>
+<span class="sd">                            name=&quot;weather&quot;,</span>
+<span class="sd">                            module_path=&quot;my_app.capabilities.weather&quot;,</span>
+<span class="sd">                            class_name=&quot;WeatherCapability&quot;,</span>
+<span class="sd">                            description=&quot;Get weather information&quot;,</span>
+<span class="sd">                            provides=[&quot;WEATHER_DATA&quot;],</span>
+<span class="sd">                            requires=[]</span>
+<span class="sd">                        ),</span>
+<span class="sd">                    ],</span>
+<span class="sd">                    context_classes=[</span>
+<span class="sd">                        ContextClassRegistration(</span>
+<span class="sd">                            context_type=&quot;WEATHER_DATA&quot;,</span>
+<span class="sd">                            module_path=&quot;my_app.context_classes&quot;,</span>
+<span class="sd">                            class_name=&quot;WeatherContext&quot;</span>
+<span class="sd">                        ),</span>
+<span class="sd">                    ]</span>
+<span class="sd">                )</span>
+
+<span class="sd">        Include only specific framework capabilities (whitelist)::</span>
+
+<span class="sd">            def get_registry_config(self) -&gt; ExtendedRegistryConfig:</span>
+<span class="sd">                return extend_framework_registry(</span>
+<span class="sd">                    include_capabilities=[&quot;respond&quot;, &quot;clarify&quot;, &quot;memory&quot;,</span>
+<span class="sd">                                          &quot;time_range_parsing&quot;, &quot;python&quot;,</span>
+<span class="sd">                                          &quot;state_manager&quot;],</span>
+<span class="sd">                    capabilities=[...],  # Your app-specific capabilities</span>
+<span class="sd">                )</span>
+
+<span class="sd">        Exclude framework component::</span>
+
+<span class="sd">            def get_registry_config(self) -&gt; ExtendedRegistryConfig:</span>
+<span class="sd">                return extend_framework_registry(</span>
+<span class="sd">                    capabilities=[...],</span>
+<span class="sd">                    exclude_capabilities=[&quot;python&quot;],  # Don&#39;t need framework Python</span>
+<span class="sd">                )</span>
+
+<span class="sd">        Override framework component::</span>
+
+<span class="sd">            def get_registry_config(self) -&gt; ExtendedRegistryConfig:</span>
+<span class="sd">                return extend_framework_registry(</span>
+<span class="sd">                    capabilities=[...],</span>
+<span class="sd">                    override_capabilities=[</span>
+<span class="sd">                        CapabilityRegistration(</span>
+<span class="sd">                            name=&quot;memory&quot;,  # Replace framework memory</span>
+<span class="sd">                            module_path=&quot;my_app.capabilities.custom_memory&quot;,</span>
+<span class="sd">                            class_name=&quot;CustomMemoryCapability&quot;,</span>
+<span class="sd">                            description=&quot;Custom memory implementation&quot;,</span>
+<span class="sd">                            provides=[&quot;MEMORY_CONTEXT&quot;],</span>
+<span class="sd">                            requires=[]</span>
+<span class="sd">                        ),</span>
+<span class="sd">                    ]</span>
+<span class="sd">                )</span>
+
+<span class="sd">        Add custom AI model providers::</span>
+
+<span class="sd">            def get_registry_config(self) -&gt; RegistryConfig:</span>
+<span class="sd">                return extend_framework_registry(</span>
+<span class="sd">                    capabilities=[...],</span>
+<span class="sd">                    context_classes=[...],</span>
+<span class="sd">                    providers=[</span>
+<span class="sd">                        ProviderRegistration(</span>
+<span class="sd">                            module_path=&quot;my_app.providers.custom_ai&quot;,</span>
+<span class="sd">                            class_name=&quot;CustomAIProviderAdapter&quot;</span>
+<span class="sd">                        ),</span>
+<span class="sd">                        ProviderRegistration(</span>
+<span class="sd">                            module_path=&quot;my_app.providers.institutional_ai&quot;,</span>
+<span class="sd">                            class_name=&quot;InstitutionalAIProviderAdapter&quot;</span>
+<span class="sd">                        ),</span>
+<span class="sd">                    ]</span>
+<span class="sd">                )</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       The returned configuration contains only application components. The</span>
+<span class="sd">       framework registry system automatically merges this with framework defaults</span>
+<span class="sd">       during initialization. Exclusions are handled internally via the</span>
+<span class="sd">       framework_exclusions field.</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :func:`get_framework_defaults` : Inspect framework components</span>
+<span class="sd">       :class:`RegistryConfig` : The returned configuration structure</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Convert include lists to exclude lists by diffing against framework defaults</span>
+    <span class="k">if</span> <span class="n">include_capabilities</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">exclude_capabilities</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Cannot use both include_capabilities and exclude_capabilities&quot;</span><span class="p">)</span>
+        <span class="n">framework</span> <span class="o">=</span> <span class="n">get_framework_defaults</span><span class="p">()</span>
+        <span class="n">all_fw_cap_names</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">framework</span><span class="o">.</span><span class="n">capabilities</span><span class="p">]</span>
+        <span class="n">exclude_capabilities</span> <span class="o">=</span> <span class="p">[</span><span class="n">n</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">all_fw_cap_names</span> <span class="k">if</span> <span class="n">n</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">include_capabilities</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="n">include_context_classes</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">exclude_context_classes</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Cannot use both include_context_classes and exclude_context_classes&quot;</span><span class="p">)</span>
+        <span class="n">framework</span> <span class="o">=</span> <span class="n">get_framework_defaults</span><span class="p">()</span>
+        <span class="n">all_fw_ctx_types</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span><span class="o">.</span><span class="n">context_type</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">framework</span><span class="o">.</span><span class="n">context_classes</span><span class="p">]</span>
+        <span class="n">exclude_context_classes</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">all_fw_ctx_types</span> <span class="k">if</span> <span class="n">t</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">include_context_classes</span><span class="p">]</span>
+
+    <span class="c1"># Build framework exclusions dict for the merge process</span>
+    <span class="n">framework_exclusions</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="k">if</span> <span class="n">exclude_capabilities</span><span class="p">:</span>
+        <span class="n">framework_exclusions</span><span class="p">[</span><span class="s2">&quot;capabilities&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">exclude_capabilities</span>
+
+    <span class="k">if</span> <span class="n">exclude_nodes</span><span class="p">:</span>
+        <span class="n">framework_exclusions</span><span class="p">[</span><span class="s2">&quot;nodes&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">exclude_nodes</span>
+
+    <span class="k">if</span> <span class="n">exclude_context_classes</span><span class="p">:</span>
+        <span class="n">framework_exclusions</span><span class="p">[</span><span class="s2">&quot;context_classes&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">exclude_context_classes</span>
+
+    <span class="k">if</span> <span class="n">exclude_data_sources</span><span class="p">:</span>
+        <span class="n">framework_exclusions</span><span class="p">[</span><span class="s2">&quot;data_sources&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">exclude_data_sources</span>
+
+    <span class="k">if</span> <span class="n">exclude_providers</span><span class="p">:</span>
+        <span class="n">framework_exclusions</span><span class="p">[</span><span class="s2">&quot;providers&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">exclude_providers</span>
+
+    <span class="k">if</span> <span class="n">exclude_connectors</span><span class="p">:</span>
+        <span class="n">framework_exclusions</span><span class="p">[</span><span class="s2">&quot;connectors&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">exclude_connectors</span>
+
+    <span class="k">if</span> <span class="n">exclude_ariel_search_modules</span><span class="p">:</span>
+        <span class="n">framework_exclusions</span><span class="p">[</span><span class="s2">&quot;ariel_search_modules&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">exclude_ariel_search_modules</span>
+
+    <span class="k">if</span> <span class="n">exclude_ariel_enhancement_modules</span><span class="p">:</span>
+        <span class="n">framework_exclusions</span><span class="p">[</span><span class="s2">&quot;ariel_enhancement_modules&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">exclude_ariel_enhancement_modules</span>
+
+    <span class="k">if</span> <span class="n">exclude_ariel_pipelines</span><span class="p">:</span>
+        <span class="n">framework_exclusions</span><span class="p">[</span><span class="s2">&quot;ariel_pipelines&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">exclude_ariel_pipelines</span>
+
+    <span class="k">if</span> <span class="n">exclude_ariel_ingestion_adapters</span><span class="p">:</span>
+        <span class="n">framework_exclusions</span><span class="p">[</span><span class="s2">&quot;ariel_ingestion_adapters&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">exclude_ariel_ingestion_adapters</span>
+
+    <span class="c1"># Combine override and regular components</span>
+    <span class="n">all_capabilities</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">capabilities</span> <span class="ow">or</span> <span class="p">[])</span>
+    <span class="k">if</span> <span class="n">override_capabilities</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">cap</span> <span class="ow">in</span> <span class="n">override_capabilities</span><span class="p">:</span>
+            <span class="n">cap</span><span class="o">.</span><span class="n">_is_explicit_override</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="n">all_capabilities</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">override_capabilities</span><span class="p">)</span>
+
+    <span class="n">all_nodes</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">core_nodes</span> <span class="ow">or</span> <span class="p">[])</span>
+    <span class="k">if</span> <span class="n">override_nodes</span><span class="p">:</span>
+        <span class="n">all_nodes</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">override_nodes</span><span class="p">)</span>
+
+    <span class="n">all_providers</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">providers</span> <span class="ow">or</span> <span class="p">[])</span>
+    <span class="k">if</span> <span class="n">override_providers</span><span class="p">:</span>
+        <span class="n">all_providers</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">override_providers</span><span class="p">)</span>
+
+    <span class="n">all_connectors</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">connectors</span> <span class="ow">or</span> <span class="p">[])</span>
+    <span class="k">if</span> <span class="n">override_connectors</span><span class="p">:</span>
+        <span class="n">all_connectors</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">override_connectors</span><span class="p">)</span>
+
+    <span class="c1"># Return ExtendedRegistryConfig to signal extend mode (framework will be merged by RegistryManager)</span>
+    <span class="k">return</span> <span class="n">ExtendedRegistryConfig</span><span class="p">(</span>
+        <span class="n">core_nodes</span><span class="o">=</span><span class="n">all_nodes</span><span class="p">,</span>
+        <span class="n">capabilities</span><span class="o">=</span><span class="n">all_capabilities</span><span class="p">,</span>
+        <span class="n">context_classes</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">context_classes</span> <span class="ow">or</span> <span class="p">[]),</span>
+        <span class="n">data_sources</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">data_sources</span> <span class="ow">or</span> <span class="p">[]),</span>
+        <span class="n">services</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">services</span> <span class="ow">or</span> <span class="p">[]),</span>
+        <span class="n">framework_prompt_providers</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">framework_prompt_providers</span> <span class="ow">or</span> <span class="p">[]),</span>
+        <span class="n">providers</span><span class="o">=</span><span class="n">all_providers</span><span class="p">,</span>
+        <span class="n">connectors</span><span class="o">=</span><span class="n">all_connectors</span><span class="p">,</span>
+        <span class="n">ariel_search_modules</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">ariel_search_modules</span> <span class="ow">or</span> <span class="p">[]),</span>
+        <span class="n">ariel_enhancement_modules</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">ariel_enhancement_modules</span> <span class="ow">or</span> <span class="p">[]),</span>
+        <span class="n">ariel_pipelines</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">ariel_pipelines</span> <span class="ow">or</span> <span class="p">[]),</span>
+        <span class="n">ariel_ingestion_adapters</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">ariel_ingestion_adapters</span> <span class="ow">or</span> <span class="p">[]),</span>
+        <span class="n">framework_exclusions</span><span class="o">=</span><span class="n">framework_exclusions</span> <span class="k">if</span> <span class="n">framework_exclusions</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="get_framework_defaults">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.get_framework_defaults">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_framework_defaults</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">RegistryConfig</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the default framework registry configuration.</span>
+
+<span class="sd">    This function returns the complete framework registry without any</span>
+<span class="sd">    application modifications. Useful for inspecting what components</span>
+<span class="sd">    the framework provides or for manual registry merging.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Complete framework RegistryConfig with all core components</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Inspect framework components::</span>
+
+<span class="sd">            &gt;&gt;&gt; framework = get_framework_defaults()</span>
+<span class="sd">            &gt;&gt;&gt; print(f&quot;Framework provides {len(framework.capabilities)} capabilities&quot;)</span>
+<span class="sd">            &gt;&gt;&gt; for cap in framework.capabilities:</span>
+<span class="sd">            ...     print(f&quot;  - {cap.name}: {cap.description}&quot;)</span>
+
+<span class="sd">        Manual merging (advanced)::</span>
+
+<span class="sd">            &gt;&gt;&gt; framework = get_framework_defaults()</span>
+<span class="sd">            &gt;&gt;&gt; my_config = RegistryConfig(</span>
+<span class="sd">            ...     core_nodes=framework.core_nodes,</span>
+<span class="sd">            ...     capabilities=framework.capabilities + my_capabilities,</span>
+<span class="sd">            ...     context_classes=framework.context_classes + my_context_classes,</span>
+<span class="sd">            ...     data_sources=framework.data_sources,</span>
+<span class="sd">            ...     services=framework.services,</span>
+<span class="sd">            ...     framework_prompt_providers=framework.framework_prompt_providers,</span>
+<span class="sd">            ...     initialization_order=framework.initialization_order</span>
+<span class="sd">            ... )</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">       Most applications should use :func:`extend_framework_registry` instead</span>
+<span class="sd">       of manually merging. This function is provided for inspection and</span>
+<span class="sd">       advanced use cases.</span>
+
+<span class="sd">    .. seealso::</span>
+<span class="sd">       :func:`extend_framework_registry` : Recommended way to extend framework</span>
+<span class="sd">       :class:`FrameworkRegistryProvider` : The provider that generates this config</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">FrameworkRegistryProvider</span>
+
+    <span class="n">provider</span> <span class="o">=</span> <span class="n">FrameworkRegistryProvider</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">provider</span><span class="o">.</span><span class="n">get_registry_config</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="generate_explicit_registry_code">
+<a class="viewcode-back" href="../../../api_reference/01_core_framework/03_registry_system.html#osprey.registry.generate_explicit_registry_code">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">generate_explicit_registry_code</span><span class="p">(</span>
+    <span class="n">app_class_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">app_display_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">package_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">capabilities</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">CapabilityRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">context_classes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ContextClassRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">data_sources</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">DataSourceRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">services</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ServiceRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">framework_prompt_providers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FrameworkPromptProviderRegistration</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Generate explicit registry Python code with all framework + app components.</span>
+
+<span class="sd">    This function creates a complete explicit registry as Python source code,</span>
+<span class="sd">    combining framework defaults with application-specific components. This is</span>
+<span class="sd">    useful for template generation where you want the full registry visible.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        app_class_name: Python class name for the registry provider (e.g., &quot;WeatherAgentRegistryProvider&quot;)</span>
+<span class="sd">        app_display_name: Human-readable application name (e.g., &quot;Weather Agent&quot;)</span>
+<span class="sd">        package_name: Python package name (e.g., &quot;weather_agent&quot;)</span>
+<span class="sd">        capabilities: Application-specific capabilities to add</span>
+<span class="sd">        context_classes: Application-specific context classes to add</span>
+<span class="sd">        data_sources: Application-specific data sources to add (optional)</span>
+<span class="sd">        services: Application-specific services to add (optional)</span>
+<span class="sd">        framework_prompt_providers: Application-specific prompt providers (optional)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Complete Python source code for the explicit registry</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        Generate registry for a simple app::</span>
+
+<span class="sd">            &gt;&gt;&gt; code = generate_explicit_registry_code(</span>
+<span class="sd">            ...     app_class_name=&quot;WeatherAgentRegistryProvider&quot;,</span>
+<span class="sd">            ...     app_display_name=&quot;Weather Agent&quot;,</span>
+<span class="sd">            ...     package_name=&quot;weather_agent&quot;,</span>
+<span class="sd">            ...     capabilities=[</span>
+<span class="sd">            ...         CapabilityRegistration(</span>
+<span class="sd">            ...             name=&quot;current_weather&quot;,</span>
+<span class="sd">            ...             module_path=&quot;weather_agent.capabilities.current_weather&quot;,</span>
+<span class="sd">            ...             class_name=&quot;CurrentWeatherCapability&quot;,</span>
+<span class="sd">            ...             description=&quot;Get current weather&quot;,</span>
+<span class="sd">            ...             provides=[&quot;CURRENT_WEATHER&quot;],</span>
+<span class="sd">            ...             requires=[]</span>
+<span class="sd">            ...         )</span>
+<span class="sd">            ...     ],</span>
+<span class="sd">            ...     context_classes=[</span>
+<span class="sd">            ...         ContextClassRegistration(</span>
+<span class="sd">            ...             context_type=&quot;CURRENT_WEATHER&quot;,</span>
+<span class="sd">            ...             module_path=&quot;weather_agent.context_classes&quot;,</span>
+<span class="sd">            ...             class_name=&quot;CurrentWeatherContext&quot;</span>
+<span class="sd">            ...         )</span>
+<span class="sd">            ...     ]</span>
+<span class="sd">            ... )</span>
+<span class="sd">            &gt;&gt;&gt; print(code[:100])</span>
+<span class="sd">            &#39;&#39;&#39;</span>
+<span class="sd">            Component registry for Weather Agent.</span>
+<span class="sd">            ...</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Get framework defaults</span>
+    <span class="n">framework</span> <span class="o">=</span> <span class="n">get_framework_defaults</span><span class="p">()</span>
+
+    <span class="c1"># Helper function to format a registration as code</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">format_node_registration</span><span class="p">(</span><span class="n">reg</span><span class="p">:</span> <span class="n">NodeRegistration</span><span class="p">,</span> <span class="n">indent</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;                &quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;</span><span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">NodeRegistration(</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    name=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;,</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    module_path=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">module_path</span><span class="si">}</span><span class="s2">&quot;,</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    function_name=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">function_name</span><span class="si">}</span><span class="s2">&quot;,</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    description=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">description</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">)&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">format_capability_registration</span><span class="p">(</span>
+        <span class="n">reg</span><span class="p">:</span> <span class="n">CapabilityRegistration</span><span class="p">,</span> <span class="n">indent</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;                &quot;</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="n">lines</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">CapabilityRegistration(&quot;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s1">    name=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s1">&quot;,&#39;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s1">    module_path=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">module_path</span><span class="si">}</span><span class="s1">&quot;,&#39;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s1">    class_name=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">class_name</span><span class="si">}</span><span class="s1">&quot;,&#39;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s1">    description=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">description</span><span class="si">}</span><span class="s1">&quot;,&#39;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    provides=</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">provides</span><span class="si">}</span><span class="s2">,&quot;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    requires=</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">requires</span><span class="si">}</span><span class="s2">,&quot;</span><span class="p">,</span>
+        <span class="p">]</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">reg</span><span class="p">,</span> <span class="s2">&quot;always_active&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">reg</span><span class="o">.</span><span class="n">always_active</span><span class="p">:</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    always_active=True,&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">reg</span><span class="p">,</span> <span class="s2">&quot;functional_node&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">reg</span><span class="o">.</span><span class="n">functional_node</span><span class="p">:</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s1">    functional_node=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">functional_node</span><span class="si">}</span><span class="s1">&quot;,&#39;</span><span class="p">)</span>
+        <span class="c1"># Remove trailing comma from last line before closing paren</span>
+        <span class="k">if</span> <span class="n">lines</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">):</span>
+            <span class="n">lines</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">lines</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">format_context_class_registration</span><span class="p">(</span>
+        <span class="n">reg</span><span class="p">:</span> <span class="n">ContextClassRegistration</span><span class="p">,</span> <span class="n">indent</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;                &quot;</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;</span><span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">ContextClassRegistration(</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    context_type=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">context_type</span><span class="si">}</span><span class="s2">&quot;,</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    module_path=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">module_path</span><span class="si">}</span><span class="s2">&quot;,</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    class_name=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">class_name</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">)&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">format_data_source_registration</span><span class="p">(</span>
+        <span class="n">reg</span><span class="p">:</span> <span class="n">DataSourceRegistration</span><span class="p">,</span> <span class="n">indent</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;                &quot;</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;</span><span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">DataSourceRegistration(</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    name=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;,</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    module_path=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">module_path</span><span class="si">}</span><span class="s2">&quot;,</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    class_name=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">class_name</span><span class="si">}</span><span class="s2">&quot;,</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    description=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">description</span><span class="si">}</span><span class="s2">&quot;,</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    health_check_required=</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">health_check_required</span><span class="si">}</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">)&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">format_service_registration</span><span class="p">(</span>
+        <span class="n">reg</span><span class="p">:</span> <span class="n">ServiceRegistration</span><span class="p">,</span> <span class="n">indent</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;                &quot;</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;</span><span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">ServiceRegistration(</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    name=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;,</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    module_path=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">module_path</span><span class="si">}</span><span class="s2">&quot;,</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    class_name=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">class_name</span><span class="si">}</span><span class="s2">&quot;,</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    description=&quot;</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">description</span><span class="si">}</span><span class="s2">&quot;,</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    provides=</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">provides</span><span class="si">}</span><span class="s2">,</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    requires=</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">requires</span><span class="si">}</span><span class="s2">,</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">    internal_nodes=</span><span class="si">{</span><span class="n">reg</span><span class="o">.</span><span class="n">internal_nodes</span><span class="si">}</span>
+<span class="si">{</span><span class="n">indent</span><span class="si">}</span><span class="s2">)&quot;&quot;&quot;</span>
+
+    <span class="c1"># Build the code sections</span>
+    <span class="n">code_lines</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="s1">&#39;&quot;&quot;&quot;&#39;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;Component registry for </span><span class="si">{</span><span class="n">app_display_name</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;This registry uses the EXPLICIT style, listing all framework components&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;alongside application-specific components for full visibility and control.&quot;</span><span class="p">,</span>
+        <span class="s1">&#39;&quot;&quot;&quot;&#39;</span><span class="p">,</span>
+        <span class="s2">&quot;&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;from osprey.registry import (&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;    RegistryConfigProvider,&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;    RegistryConfig,&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;    NodeRegistration,&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;    CapabilityRegistration,&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;    ContextClassRegistration,&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;    DataSourceRegistration,&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;    ServiceRegistration,&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;    FrameworkPromptProviderRegistration,&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;    ProviderRegistration&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;)&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;class </span><span class="si">{</span><span class="n">app_class_name</span><span class="si">}</span><span class="s2">(RegistryConfigProvider):&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s1">&#39;    &quot;&quot;&quot;Registry provider for </span><span class="si">{</span><span class="n">app_display_name</span><span class="si">}</span><span class="s1">.&quot;&quot;&quot;&#39;</span><span class="p">,</span>
+        <span class="s2">&quot;    &quot;</span><span class="p">,</span>
+        <span class="s2">&quot;    def get_registry_config(self):&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s1">&#39;        &quot;&quot;&quot;Return registry configuration for </span><span class="si">{</span><span class="n">app_display_name</span><span class="si">}</span><span class="s1">.&quot;&quot;&quot;&#39;</span><span class="p">,</span>
+        <span class="s2">&quot;        # EXPLICIT REGISTRY: All framework + application components listed&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;        return RegistryConfig(&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;            # ================================================================&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;            # FRAMEWORK CORE NODES&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;            # ================================================================&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;            core_nodes=[&quot;</span><span class="p">,</span>
+    <span class="p">]</span>
+
+    <span class="c1"># Add framework nodes</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">node</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">framework</span><span class="o">.</span><span class="n">core_nodes</span><span class="p">):</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format_node_registration</span><span class="p">(</span><span class="n">node</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">framework</span><span class="o">.</span><span class="n">core_nodes</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">code_lines</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="s2">&quot;,&quot;</span>
+
+    <span class="n">code_lines</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span>
+        <span class="p">[</span>
+            <span class="s2">&quot;            ],&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            # ================================================================&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            # ALL CAPABILITIES (Framework + Application)&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            # ================================================================&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            capabilities=[&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;                # ---- Framework Capabilities ----&quot;</span><span class="p">,</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Add framework capabilities</span>
+    <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">cap</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">framework</span><span class="o">.</span><span class="n">capabilities</span><span class="p">):</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format_capability_registration</span><span class="p">(</span><span class="n">cap</span><span class="p">))</span>
+        <span class="n">code_lines</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="s2">&quot;,&quot;</span>
+
+    <span class="c1"># Add application capabilities</span>
+    <span class="k">if</span> <span class="n">capabilities</span><span class="p">:</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span>
+            <span class="p">[</span>
+                <span class="s2">&quot;&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;                # ---- Application Capabilities ----&quot;</span><span class="p">,</span>
+            <span class="p">]</span>
+        <span class="p">)</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">cap</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">capabilities</span><span class="p">):</span>
+            <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format_capability_registration</span><span class="p">(</span><span class="n">cap</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">capabilities</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">code_lines</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="s2">&quot;,&quot;</span>
+
+    <span class="n">code_lines</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span>
+        <span class="p">[</span>
+            <span class="s2">&quot;            ],&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            # ================================================================&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            # ALL CONTEXT CLASSES (Framework + Application)&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            # ================================================================&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            context_classes=[&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;                # ---- Framework Context Classes ----&quot;</span><span class="p">,</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Add framework context classes</span>
+    <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">ctx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">framework</span><span class="o">.</span><span class="n">context_classes</span><span class="p">):</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format_context_class_registration</span><span class="p">(</span><span class="n">ctx</span><span class="p">))</span>
+        <span class="n">code_lines</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="s2">&quot;,&quot;</span>
+
+    <span class="c1"># Add application context classes</span>
+    <span class="k">if</span> <span class="n">context_classes</span><span class="p">:</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span>
+            <span class="p">[</span>
+                <span class="s2">&quot;&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;                # ---- Application Context Classes ----&quot;</span><span class="p">,</span>
+            <span class="p">]</span>
+        <span class="p">)</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">ctx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">context_classes</span><span class="p">):</span>
+            <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format_context_class_registration</span><span class="p">(</span><span class="n">ctx</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">context_classes</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">code_lines</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="s2">&quot;,&quot;</span>
+
+    <span class="n">code_lines</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span>
+        <span class="p">[</span>
+            <span class="s2">&quot;            ],&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            # ================================================================&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            # DATA SOURCES (Framework + Application)&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            # ================================================================&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            data_sources=[&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;                # ---- Framework Data Sources ----&quot;</span><span class="p">,</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Add framework data sources</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">ds</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">framework</span><span class="o">.</span><span class="n">data_sources</span><span class="p">):</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format_data_source_registration</span><span class="p">(</span><span class="n">ds</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">data_sources</span> <span class="ow">or</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">framework</span><span class="o">.</span><span class="n">data_sources</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">code_lines</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="s2">&quot;,&quot;</span>
+
+    <span class="c1"># Add application data sources</span>
+    <span class="k">if</span> <span class="n">data_sources</span><span class="p">:</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span>
+            <span class="p">[</span>
+                <span class="s2">&quot;&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;                # ---- Application Data Sources ----&quot;</span><span class="p">,</span>
+            <span class="p">]</span>
+        <span class="p">)</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">ds</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">data_sources</span><span class="p">):</span>
+            <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format_data_source_registration</span><span class="p">(</span><span class="n">ds</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">data_sources</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">code_lines</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="s2">&quot;,&quot;</span>
+
+    <span class="n">code_lines</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span>
+        <span class="p">[</span>
+            <span class="s2">&quot;            ],&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            # ================================================================&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            # SERVICES (Framework + Application)&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            # ================================================================&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            services=[&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;                # ---- Framework Services ----&quot;</span><span class="p">,</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Add framework services</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">svc</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">framework</span><span class="o">.</span><span class="n">services</span><span class="p">):</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format_service_registration</span><span class="p">(</span><span class="n">svc</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">services</span> <span class="ow">or</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">framework</span><span class="o">.</span><span class="n">services</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">code_lines</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="s2">&quot;,&quot;</span>
+
+    <span class="c1"># Add application services</span>
+    <span class="k">if</span> <span class="n">services</span><span class="p">:</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span>
+            <span class="p">[</span>
+                <span class="s2">&quot;&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;                # ---- Application Services ----&quot;</span><span class="p">,</span>
+            <span class="p">]</span>
+        <span class="p">)</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">svc</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">services</span><span class="p">):</span>
+            <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format_service_registration</span><span class="p">(</span><span class="n">svc</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">services</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">code_lines</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="s2">&quot;,&quot;</span>
+
+    <span class="n">code_lines</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span>
+        <span class="p">[</span>
+            <span class="s2">&quot;            ],&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            # ================================================================&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            # AI MODEL PROVIDERS&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            # ================================================================&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            providers=[&quot;</span><span class="p">,</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Add framework AI model providers</span>
+    <span class="k">for</span> <span class="n">prov</span> <span class="ow">in</span> <span class="n">framework</span><span class="o">.</span><span class="n">providers</span><span class="p">:</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;                ProviderRegistration(&quot;</span><span class="p">)</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;                    module_path=&quot;</span><span class="si">{</span><span class="n">prov</span><span class="o">.</span><span class="n">module_path</span><span class="si">}</span><span class="s1">&quot;,&#39;</span><span class="p">)</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;                    class_name=&quot;</span><span class="si">{</span><span class="n">prov</span><span class="o">.</span><span class="n">class_name</span><span class="si">}</span><span class="s1">&quot;&#39;</span><span class="p">)</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;                ),&quot;</span><span class="p">)</span>
+
+    <span class="n">code_lines</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span>
+        <span class="p">[</span>
+            <span class="s2">&quot;            ],&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            # ================================================================&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            # FRAMEWORK PROMPT PROVIDERS&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            # ================================================================&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;            framework_prompt_providers=[&quot;</span><span class="p">,</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Add framework prompt providers</span>
+    <span class="k">for</span> <span class="n">prov</span> <span class="ow">in</span> <span class="n">framework</span><span class="o">.</span><span class="n">framework_prompt_providers</span><span class="p">:</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;                FrameworkPromptProviderRegistration(&quot;</span><span class="p">)</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;                    module_path=&quot;</span><span class="si">{</span><span class="n">prov</span><span class="o">.</span><span class="n">module_path</span><span class="si">}</span><span class="s1">&quot;,&#39;</span><span class="p">)</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;                    prompt_builders={&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">prov</span><span class="o">.</span><span class="n">prompt_builders</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;                        &quot;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s1">&quot;: &quot;</span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s1">&quot;,&#39;</span><span class="p">)</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;                    }&quot;</span><span class="p">)</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;                ),&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Add application prompt providers if any</span>
+    <span class="k">if</span> <span class="n">framework_prompt_providers</span><span class="p">:</span>
+        <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">prov</span> <span class="ow">in</span> <span class="n">framework_prompt_providers</span><span class="p">:</span>
+            <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;                FrameworkPromptProviderRegistration(&quot;</span><span class="p">)</span>
+            <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;                    module_path=&quot;</span><span class="si">{</span><span class="n">prov</span><span class="o">.</span><span class="n">module_path</span><span class="si">}</span><span class="s1">&quot;,&#39;</span><span class="p">)</span>
+            <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;                    prompt_builders={&quot;</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">prov</span><span class="o">.</span><span class="n">prompt_builders</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;                        &quot;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s1">&quot;: &quot;</span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s1">&quot;,&#39;</span><span class="p">)</span>
+            <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;                    }&quot;</span><span class="p">)</span>
+            <span class="n">code_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;                ),&quot;</span><span class="p">)</span>
+
+    <span class="n">code_lines</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;            ],&quot;</span><span class="p">,</span> <span class="s2">&quot;        )&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">])</span>
+
+    <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">code_lines</span><span class="p">)</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

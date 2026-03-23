@@ -1,0 +1,1029 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Classification &#8212; Osprey Framework 0.11.5 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'api_reference/02_infrastructure/03_classification';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script src="../../_static/js/execution_plan_viewer.js?v=09b61639"></script>
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Orchestration" href="04_orchestration.html" />
+    <link rel="prev" title="Task Extraction" href="02_task-extraction.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../developer-guides/index.html">
+    Developer Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../example-applications/index.html">
+    Example Applications
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../01_core_framework/index.html">Core Framework</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/01_base_components.html">Base Components</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/02_state_and_context.html">State and Context Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/03_registry_system.html">Registry System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/04_configuration_system.html">Configuration System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/05_prompt_management.html">Prompt System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../01_core_framework/06_command_system.html">Command System</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Infrastructure</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="01_gateway.html">Gateway</a></li>
+<li class="toctree-l2"><a class="reference internal" href="02_task-extraction.html">Task Extraction</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Classification</a></li>
+<li class="toctree-l2"><a class="reference internal" href="04_orchestration.html">Orchestration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="05_execution-control.html">Execution Control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="06_message-generation.html">Message Generation</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../03_production_systems/index.html">Production Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/01_human-approval.html">Human Approval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/02_data-management.html">Data Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/03_python-execution.html">Python Execution</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/04_memory-storage.html">Memory Storage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/05_container-management.html">Container Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/06_control-system-connectors.html">Control System Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../03_production_systems/07_ariel-search.html">ARIEL Search Service</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../04_error_handling/index.html">Error Handling</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/01_classification_system.html">Classification System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/02_exception_reference.html">Exception Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../04_error_handling/03_recovery_coordination.html">Recovery Coordination</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../05_framework_utilities/index.html">Framework Utilities</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">API Reference</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Infrastructure</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Classification</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="classification">
+<h1>Classification<a class="headerlink" href="#classification" title="Link to this heading">#</a></h1>
+<p>Infrastructure node that handles task classification and capability selection by analyzing user tasks against available capabilities using parallel processing with semaphore-controlled concurrency.</p>
+<section id="classificationnode">
+<h2>ClassificationNode<a class="headerlink" href="#classificationnode" title="Link to this heading">#</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node.ClassificationNode">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.infrastructure.classification_node.</span></span><span class="sig-name descname"><span class="pre">ClassificationNode</span></span><a class="reference internal" href="../../_modules/osprey/infrastructure/classification_node.html#ClassificationNode"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.classification_node.ClassificationNode" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.BaseInfrastructureNode" title="osprey.base.nodes.BaseInfrastructureNode"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseInfrastructureNode</span></code></a></p>
+<p>Convention-based classification node with sophisticated capability selection logic.</p>
+<p>Analyzes user tasks and selects appropriate capabilities using parallel
+LLM-based classification with few-shot examples. Handles both initial
+classification and reclassification scenarios.</p>
+<p>Uses LangGraph’s sophisticated state merging with built-in error handling
+and retry policies optimized for LLM-based classification operations.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node.ClassificationNode.name">
+<span class="sig-name descname"><span class="pre">name</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'classifier'</span></span><a class="headerlink" href="#osprey.infrastructure.classification_node.ClassificationNode.name" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node.ClassificationNode.description">
+<span class="sig-name descname"><span class="pre">description</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'Task</span> <span class="pre">Classification</span> <span class="pre">and</span> <span class="pre">Capability</span> <span class="pre">Selection'</span></span><a class="headerlink" href="#osprey.infrastructure.classification_node.ClassificationNode.description" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node.ClassificationNode.classify_error">
+<span class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">classify_error</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">exc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/classification_node.html#ClassificationNode.classify_error"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.classification_node.ClassificationNode.classify_error" title="Link to this definition">#</a></dt>
+<dd><p>Built-in error classification for classifier operations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>exc</strong> (<em>Exception</em>) – Exception that occurred</p></li>
+<li><p><strong>context</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – Error context information</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Classification with severity and retry guidance</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="../04_error_handling/01_classification_system.html#osprey.base.errors.ErrorClassification" title="osprey.base.errors.ErrorClassification"><em>ErrorClassification</em></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node.ClassificationNode.get_retry_policy">
+<span class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">get_retry_policy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/classification_node.html#ClassificationNode.get_retry_policy"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.classification_node.ClassificationNode.get_retry_policy" title="Link to this definition">#</a></dt>
+<dd><p>Custom retry policy for LLM-based classification operations.</p>
+<p>Classification uses parallel LLM calls for capability selection and can be flaky due to:
+- Multiple concurrent LLM requests
+- Network timeouts to LLM services
+- LLM provider rate limiting
+- Classification model variability</p>
+<p>Use more attempts with moderate delays for better reliability.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node.ClassificationNode.execute">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">execute</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/classification_node.html#ClassificationNode.execute"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.classification_node.ClassificationNode.execute" title="Link to this definition">#</a></dt>
+<dd><p>Main classification logic with bypass support and sophisticated capability selection.</p>
+<p>Analyzes user tasks and selects appropriate capabilities using parallel
+LLM-based classification. Handles both initial classification and
+reclassification scenarios with state preservation.</p>
+<p>Supports bypass mode where all available capabilities are activated,
+skipping LLM-based classification for performance optimization.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Dictionary of state updates for LangGraph</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dict[str, Any]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node.ClassificationNode.__repr__">
+<span class="sig-name descname"><span class="pre">__repr__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.classification_node.ClassificationNode.__repr__" title="Link to this definition">#</a></dt>
+<dd><p>Return a string representation of the infrastructure node for debugging.</p>
+<p>Provides a concise string representation that includes both the Python
+class name and the infrastructure node’s registered name. This is useful
+for debugging, logging, and development workflows where infrastructure
+nodes need to be identified clearly.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>String representation including class name and node name</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">node</span> <span class="o">=</span> <span class="n">TaskExtractionNode</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">repr</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+<span class="go">&#39;&lt;TaskExtractionNode: task_extraction&gt;&#39;</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The format follows the pattern ‘&lt;ClassName: node_name&gt;’ for
+consistency across all framework components.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node.ClassificationNode.get_current_step">
+<span class="sig-name descname"><span class="pre">get_current_step</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.classification_node.ClassificationNode.get_current_step" title="Link to this definition">#</a></dt>
+<dd><p>Get current execution step from state.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Current step dictionary with capability, task_objective, etc.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.PlannedStep" title="osprey.base.PlannedStep">PlannedStep</a></p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>RuntimeError</strong> – If execution plan is missing or step index is invalid</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id1"><span class="problematic" id="id2">``</span></a><a href="#id3"><span class="problematic" id="id4">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p>step = self.get_current_step()
+task_objective = step.get(‘task_objective’)</p>
+</div></blockquote>
+<p><a href="#id5"><span class="problematic" id="id6">``</span></a><a href="#id7"><span class="problematic" id="id8">`</span></a></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node.ClassificationNode.get_current_step_index">
+<span class="sig-name descname"><span class="pre">get_current_step_index</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.classification_node.ClassificationNode.get_current_step_index" title="Link to this definition">#</a></dt>
+<dd><p>Get current step index from state.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Current step index (defaults to 0 if not set)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>int</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id9"><span class="problematic" id="id10">``</span></a><a href="#id11"><span class="problematic" id="id12">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p>current_index = self.get_current_step_index()</p>
+</div></blockquote>
+<p><a href="#id13"><span class="problematic" id="id14">``</span></a><a href="#id15"><span class="problematic" id="id16">`</span></a></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node.ClassificationNode.get_current_task">
+<span class="sig-name descname"><span class="pre">get_current_task</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.classification_node.ClassificationNode.get_current_task" title="Link to this definition">#</a></dt>
+<dd><p>Get current task from state.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Current task string, or None if not set</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str | None</p>
+</dd>
+</dl>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="n">current_task</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_current_task</span><span class="p">()</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">current_task</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;No current task available&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node.ClassificationNode.get_execution_plan">
+<span class="sig-name descname"><span class="pre">get_execution_plan</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.classification_node.ClassificationNode.get_execution_plan" title="Link to this definition">#</a></dt>
+<dd><p>Get current execution plan from state with type validation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>ExecutionPlan if available and valid, None otherwise</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id17"><span class="problematic" id="id18">``</span></a><a href="#id19"><span class="problematic" id="id20">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p>execution_plan = self.get_execution_plan()
+if not execution_plan:</p>
+<blockquote>
+<div><p># Route to orchestrator</p>
+</div></blockquote>
+</div></blockquote>
+<p><a href="#id21"><span class="problematic" id="id22">``</span></a><a href="#id23"><span class="problematic" id="id24">`</span></a></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node.ClassificationNode.get_logger">
+<span class="sig-name descname"><span class="pre">get_logger</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.classification_node.ClassificationNode.get_logger" title="Link to this definition">#</a></dt>
+<dd><p>Get unified logger with automatic streaming support.</p>
+<p>Creates a logger that:
+- Uses this infrastructure node’s name automatically
+- Has access to state for streaming via self._state
+- Streams high-level messages automatically when in LangGraph context
+- Logs to CLI with Rich formatting</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>ComponentLogger instance with streaming capability</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node.ClassificationNode.get_user_query">
+<span class="sig-name descname"><span class="pre">get_user_query</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.classification_node.ClassificationNode.get_user_query" title="Link to this definition">#</a></dt>
+<dd><p>Get the user’s query from the current conversation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The user’s query string, or None if no user messages exist</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str | None</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p><a href="#id25"><span class="problematic" id="id26">``</span></a><a href="#id27"><span class="problematic" id="id28">`</span></a>python
+async def execute(self) -&gt; dict[str, Any]:</p>
+<blockquote>
+<div><p>original_query = self.get_user_query()</p>
+</div></blockquote>
+<p><a href="#id29"><span class="problematic" id="id30">``</span></a><a href="#id31"><span class="problematic" id="id32">`</span></a></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node.ClassificationNode.langgraph_node">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">langgraph_node</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey.infrastructure.classification_node.ClassificationNode.langgraph_node" title="Link to this definition">#</a></dt>
+<dd><p>LangGraph-native node function with manual error handling.</p>
+<p>This function is called by LangGraph during execution. Infrastructure nodes
+now use get_stream_writer() and get_config() directly for pure LangGraph integration.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>state</strong> (<a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.state.AgentState" title="osprey.state.AgentState"><em>AgentState</em></a>) – Current agent state</p></li>
+<li><p><strong>kwargs</strong> – Additional parameters from LangGraph</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>State updates dictionary</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Dict[str, Any]</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="supporting-functions">
+<h2>Supporting Functions<a class="headerlink" href="#supporting-functions" title="Link to this heading">#</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node.select_capabilities">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.infrastructure.classification_node.</span></span><span class="sig-name descname"><span class="pre">select_capabilities</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">available_capabilities</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">state</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">previous_failure</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/classification_node.html#select_capabilities"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.classification_node.select_capabilities" title="Link to this definition">#</a></dt>
+<dd><p>Select capabilities needed for the task by using classification.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>task</strong> (<em>str</em>) – Task description for analysis</p></li>
+<li><p><strong>available_capabilities</strong> (<em>List</em><em>[</em><a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.BaseCapability" title="osprey.base.BaseCapability"><em>BaseCapability</em></a><em>]</em>) – Available capabilities to choose from</p></li>
+<li><p><strong>state</strong> (<a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.state.AgentState" title="osprey.state.AgentState"><em>AgentState</em></a>) – Current agent state</p></li>
+<li><p><strong>logger</strong> – Logger instance</p></li>
+<li><p><strong>previous_failure</strong> (<em>str</em><em> | </em><em>None</em>) – Previous failure reason for reclassification context</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of capability names needed for the task</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>List[str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node._detect_reclassification_scenario">
+<span class="sig-prename descclassname"><span class="pre">osprey.infrastructure.classification_node.</span></span><span class="sig-name descname"><span class="pre">_detect_reclassification_scenario</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">state</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/classification_node.html#_detect_reclassification_scenario"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.classification_node._detect_reclassification_scenario" title="Link to this definition">#</a></dt>
+<dd><p>Detect if this classification is a reclassification due to a previous error.</p>
+<p>Analyzes the current agent state to determine if this classification run
+is happening because a previous capability (like orchestrator) failed and
+requested reclassification.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>state</strong> (<a class="reference internal" href="../01_core_framework/02_state_and_context.html#osprey.state.AgentState" title="osprey.state.AgentState"><em>AgentState</em></a>) – Current agent state containing error information</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Reclassification reason string if this is a reclassification, None otherwise</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Optional[str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="capabilityclassifier">
+<h2>CapabilityClassifier<a class="headerlink" href="#capabilityclassifier" title="Link to this heading">#</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node.CapabilityClassifier">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey.infrastructure.classification_node.</span></span><span class="sig-name descname"><span class="pre">CapabilityClassifier</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">state</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">previous_failure</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/classification_node.html#CapabilityClassifier"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.classification_node.CapabilityClassifier" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Handles individual capability classification with proper resource management.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node.CapabilityClassifier.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">state</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">previous_failure</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/classification_node.html#CapabilityClassifier.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.classification_node.CapabilityClassifier.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey.infrastructure.classification_node.CapabilityClassifier.classify">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">classify</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">capability</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">semaphore</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey/infrastructure/classification_node.html#CapabilityClassifier.classify"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey.infrastructure.classification_node.CapabilityClassifier.classify" title="Link to this definition">#</a></dt>
+<dd><p>Classify a single capability with semaphore-controlled concurrency.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>capability</strong> (<a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.BaseCapability" title="osprey.base.capability.BaseCapability"><em>BaseCapability</em></a>) – The capability to analyze</p></li>
+<li><p><strong>semaphore</strong> (<em>Semaphore</em>) – Semaphore for concurrency control</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if capability is required, False otherwise</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="core-models">
+<h2>Core Models<a class="headerlink" href="#core-models" title="Link to this heading">#</a></h2>
+<p>Classification uses models defined in the core framework:</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.CapabilityMatch" title="osprey.base.CapabilityMatch"><code class="xref py py-class docutils literal notranslate"><span class="pre">CapabilityMatch</span></code></a></dt><dd><p>Classification results for capability selection</p>
+</dd>
+<dt><a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.TaskClassifierGuide" title="osprey.base.TaskClassifierGuide"><code class="xref py py-class docutils literal notranslate"><span class="pre">TaskClassifierGuide</span></code></a></dt><dd><p>Classification guidance structure</p>
+</dd>
+<dt><a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.ClassifierExample" title="osprey.base.ClassifierExample"><code class="xref py py-class docutils literal notranslate"><span class="pre">ClassifierExample</span></code></a></dt><dd><p>Few-shot examples for classification</p>
+</dd>
+<dt><a class="reference internal" href="../01_core_framework/01_base_components.html#osprey.base.BaseInfrastructureNode" title="osprey.base.BaseInfrastructureNode"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseInfrastructureNode</span></code></a></dt><dd><p>Base class for infrastructure components</p>
+</dd>
+</dl>
+</div>
+</section>
+<section id="registration">
+<h2>Registration<a class="headerlink" href="#registration" title="Link to this heading">#</a></h2>
+<p>Automatically registered as:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">NodeRegistration</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;classifier&quot;</span><span class="p">,</span>
+    <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;osprey.infrastructure.classification_node&quot;</span><span class="p">,</span>
+    <span class="n">function_name</span><span class="o">=</span><span class="s2">&quot;ClassificationNode&quot;</span><span class="p">,</span>
+    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Task classification and capability selection&quot;</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../01_core_framework/05_prompt_management.html"><span class="doc">Prompt System</span></a></dt><dd><p>Prompt customization system</p>
+</dd>
+<dt><a class="reference internal" href="../01_core_framework/03_registry_system.html"><span class="doc">Registry System</span></a></dt><dd><p>Component and capability management</p>
+</dd>
+<dt><a class="reference internal" href="../../developer-guides/04_infrastructure-components/03_classification-and-routing.html"><span class="doc">Classification and Routing</span></a></dt><dd><p>Implementation details and usage patterns</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="02_task-extraction.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Task Extraction</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="04_orchestration.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Orchestration</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#classificationnode">ClassificationNode</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node.ClassificationNode"><code class="docutils literal notranslate"><span class="pre">ClassificationNode</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node.ClassificationNode.name"><code class="docutils literal notranslate"><span class="pre">ClassificationNode.name</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node.ClassificationNode.description"><code class="docutils literal notranslate"><span class="pre">ClassificationNode.description</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node.ClassificationNode.classify_error"><code class="docutils literal notranslate"><span class="pre">ClassificationNode.classify_error()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node.ClassificationNode.get_retry_policy"><code class="docutils literal notranslate"><span class="pre">ClassificationNode.get_retry_policy()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node.ClassificationNode.execute"><code class="docutils literal notranslate"><span class="pre">ClassificationNode.execute()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node.ClassificationNode.__repr__"><code class="docutils literal notranslate"><span class="pre">ClassificationNode.__repr__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node.ClassificationNode.get_current_step"><code class="docutils literal notranslate"><span class="pre">ClassificationNode.get_current_step()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node.ClassificationNode.get_current_step_index"><code class="docutils literal notranslate"><span class="pre">ClassificationNode.get_current_step_index()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node.ClassificationNode.get_current_task"><code class="docutils literal notranslate"><span class="pre">ClassificationNode.get_current_task()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node.ClassificationNode.get_execution_plan"><code class="docutils literal notranslate"><span class="pre">ClassificationNode.get_execution_plan()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node.ClassificationNode.get_logger"><code class="docutils literal notranslate"><span class="pre">ClassificationNode.get_logger()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node.ClassificationNode.get_user_query"><code class="docutils literal notranslate"><span class="pre">ClassificationNode.get_user_query()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node.ClassificationNode.langgraph_node"><code class="docutils literal notranslate"><span class="pre">ClassificationNode.langgraph_node()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#supporting-functions">Supporting Functions</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node.select_capabilities"><code class="docutils literal notranslate"><span class="pre">select_capabilities()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node._detect_reclassification_scenario"><code class="docutils literal notranslate"><span class="pre">_detect_reclassification_scenario()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#capabilityclassifier">CapabilityClassifier</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node.CapabilityClassifier"><code class="docutils literal notranslate"><span class="pre">CapabilityClassifier</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node.CapabilityClassifier.__init__"><code class="docutils literal notranslate"><span class="pre">CapabilityClassifier.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey.infrastructure.classification_node.CapabilityClassifier.classify"><code class="docutils literal notranslate"><span class="pre">CapabilityClassifier.classify()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#core-models">Core Models</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#registration">Registration</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/api_reference/02_infrastructure/03_classification.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
