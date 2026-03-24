@@ -17,6 +17,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -190,6 +191,14 @@ def build(
                 f"  ✓ Copied {len(build_profile.overlay)} overlay(s)", style=Styles.SUCCESS
             )
 
+            # 11b. Register overlay artifacts in config.yml
+            reg_count = _register_overlay_artifacts(project_path, build_profile.overlay)
+            if reg_count:
+                console.print(
+                    f"  ✓ Registered {reg_count} overlay artifact(s) in config.yml",
+                    style=Styles.SUCCESS,
+                )
+
         # 12. Inject MCP servers
         if build_profile.mcp_servers:
             _inject_mcp_servers(project_path, build_profile.mcp_servers)
@@ -206,10 +215,8 @@ def build(
         if build_profile.env.required or build_profile.env.defaults:
             _generate_env_template(project_path, build_profile.env)
 
-        # 15. Append to requirements.txt and install into build environment
-        if build_profile.dependencies:
-            _append_requirements(project_path, build_profile.dependencies)
-            _install_dependencies(build_profile.dependencies)
+        # 15. Create project venv and install osprey + profile deps (single atomic install)
+        _create_project_venv(project_path, build_profile)
 
         # 16. Generate manifest
         manifest_context = {
@@ -324,7 +331,23 @@ def _run_lifecycle_phase(
         sub_env = {**os.environ, **dotenv_vars}
         logger.info("Loaded %d vars from %s into lifecycle environment", len(dotenv_vars), env_file)
     else:
-        sub_env = None  # inherit parent env as-is
+        sub_env = os.environ.copy()
+
+    # Prepend project venv to PATH so `python` resolves to the project's
+    # Python (with profile deps) rather than OSPREY's Python.
+    venv_bin = project_path / ".venv" / "bin"
+    if venv_bin.is_dir():
+        sub_env["PATH"] = f"{venv_bin}{os.pathsep}{sub_env.get('PATH', '')}"
+        logger.info("Prepended project venv to lifecycle PATH: %s", venv_bin)
+
+    # Prepend _mcp_servers to PYTHONPATH so lifecycle commands can
+    # ``import integration_tests`` (and other MCP server packages)
+    # without manual PYTHONPATH wrappers in profile YAML.
+    mcp_servers_dir = project_path / "_mcp_servers"
+    if mcp_servers_dir.is_dir():
+        existing = sub_env.get("PYTHONPATH", "")
+        sub_env["PYTHONPATH"] = f"{mcp_servers_dir}{os.pathsep}{existing}" if existing else str(mcp_servers_dir)
+        logger.info("Prepended _mcp_servers to lifecycle PYTHONPATH: %s", mcp_servers_dir)
 
     console.print(f"  ⚙️  Running {phase_name} commands...", style=Styles.DIM)
     for step in steps:
@@ -344,8 +367,10 @@ def _run_lifecycle_phase(
         try:
             cmd = cmd_str if use_shell else shlex.split(cmd_str)
 
-            if stream:
-                # Stream mode: show output in real-time, prefix with step name
+            if stream or step.stream:
+                # Stream mode: show output in real-time, prefix with step name.
+                # Uses a threaded reader so proc.wait(timeout=...) can enforce
+                # the timeout even when the subprocess stalls mid-output.
                 console.print(f"  ▶ {step.name}", style=Styles.DIM)
                 proc = subprocess.Popen(
                     cmd,
@@ -357,9 +382,21 @@ def _run_lifecycle_phase(
                     text=True,
                 )
                 assert proc.stdout is not None  # noqa: S101
-                for line in proc.stdout:
-                    console.print(f"    {line}", end="", highlight=False)
-                proc.wait(timeout=step.timeout)
+
+                def _drain_stdout() -> None:
+                    for line in proc.stdout:  # type: ignore[union-attr]
+                        console.print(f"    {line}", end="", highlight=False)
+
+                reader = threading.Thread(target=_drain_stdout, daemon=True)
+                reader.start()
+                try:
+                    proc.wait(timeout=step.timeout)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                    raise
+                finally:
+                    reader.join(timeout=5)
                 elapsed = time.monotonic() - t0
                 if proc.returncode != 0:
                     msg = f"Lifecycle {phase_name} step '{step.name}' failed (exit {proc.returncode}, {elapsed:.1f}s)"
@@ -402,9 +439,15 @@ def _run_lifecycle_phase(
                             success_msg += f" — {summary}"
                     console.print(success_msg, style=Styles.SUCCESS)
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
             elapsed = time.monotonic() - t0
             msg = f"Lifecycle {phase_name} step '{step.name}' timed out ({elapsed:.0f}s)"
+            # Show partial output captured before timeout (quiet mode only;
+            # stream mode already printed output in real-time).
+            partial = (e.stdout or "") + (e.stderr or "")
+            if partial.strip():
+                tail = "\n".join(partial.strip().splitlines()[-20:])
+                msg += f"\n  Last output:\n{tail}"
             if abort_on_failure:
                 console.print(f"  ❌ {msg}", style=Styles.ERROR)
                 raise BuildProfileError(msg)
@@ -452,85 +495,171 @@ def _generate_env_template(project_path: Path, env_config: Any) -> None:
         )
 
 
-def _append_requirements(project_path: Path, dependencies: list[str]) -> None:
-    """Append profile dependencies to requirements.txt."""
-    req_path = project_path / "requirements.txt"
-    lines = ["\n", "# Profile dependencies\n"]
-    for dep in dependencies:
-        lines.append(f"{dep}\n")
+def _create_project_venv(project_path: Path, profile: Any) -> None:
+    """Create the project venv and install osprey + profile deps.
 
-    with open(req_path, "a", encoding="utf-8") as f:
-        f.writelines(lines)
+    This is the single place where the project's Python environment is set up.
+    One venv, one install command, one resolver pass. The resolver sees all
+    dependencies together (osprey + profile deps) and either succeeds or fails.
 
-    console.print(
-        f"  ✓ Added {len(dependencies)} profile dependency/ies to requirements.txt",
-        style=Styles.SUCCESS,
-    )
-
-
-def _install_dependencies(dependencies: list[str]) -> None:
-    """Install profile dependencies into the build environment.
-
-    Tries ``uv pip install`` first (uv-managed venvs don't include pip),
-    then falls back to ``python -m pip install``.  This is best-effort:
-    if installation fails the build continues and the lifecycle step itself
-    will report the real error.
-
-    Args:
-        dependencies: PEP 508 dependency specifiers (e.g. ``["typesense>=0.21"]``).
+    The ``osprey_install`` profile field controls where osprey comes from:
+      - ``"local"`` (default): install from the source tree running this build
+      - ``"pip"``: install ``osprey-framework`` from PyPI
+      - anything else: treated as a PEP 508 spec (e.g. ``"osprey-framework==0.11.5"``)
     """
-    import os
-    import shutil
     import sys
 
-    console.print("  📦 Installing profile dependencies...", style=Styles.DIM)
-
-    # Prefer uv (uv-managed venvs don't ship pip).
-    # Inside `uv run`, $UV holds the path to the uv binary.
+    venv_path = project_path / ".venv"
     uv_path = os.environ.get("UV") or shutil.which("uv")
-    if uv_path:
-        cmd = [uv_path, "pip", "install", "--quiet", *dependencies]
-    else:
-        cmd = [
-            sys.executable, "-m", "pip", "install",
-            "--quiet", "--disable-pip-version-check", *dependencies,
-        ]
 
-    try:
+    # --- Create venv ---
+    console.print("  📦 Creating project virtual environment...", style=Styles.DIM)
+    if uv_path:
         result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120,
+            [uv_path, "venv", str(venv_path), "--python", sys.executable, "--quiet"],
+            capture_output=True, text=True, timeout=60,
         )
-        if result.returncode == 0:
-            console.print(
-                f"  ✓ Installed {len(dependencies)} build dependency/ies",
-                style=Styles.SUCCESS,
+    else:
+        result = subprocess.run(
+            [sys.executable, "-m", "venv", str(venv_path)],
+            capture_output=True, text=True, timeout=60,
+        )
+    if result.returncode != 0:
+        output = (result.stdout + result.stderr).strip()
+        raise BuildProfileError(f"Failed to create project venv: {output}")
+
+    # --- Resolve osprey install spec ---
+    osprey_install = profile.osprey_install or "local"
+    if osprey_install == "local":
+        # build_cmd.py is at src/osprey/cli/build_cmd.py → repo root is parents[3]
+        osprey_root = Path(__file__).resolve().parents[3]
+        if not (osprey_root / "pyproject.toml").exists():
+            raise BuildProfileError(
+                f"osprey_install: local — but no pyproject.toml at {osprey_root}"
             )
+        osprey_spec = str(osprey_root)
+    elif osprey_install == "pip":
+        osprey_spec = "osprey-framework"
+    else:
+        osprey_spec = osprey_install
+
+    # --- Install osprey + profile deps ---
+    all_deps = [osprey_spec] + list(profile.dependencies or [])
+    venv_python = venv_path / "bin" / "python"
+    dep_count = len(profile.dependencies or [])
+
+    console.print(
+        f"  📦 Installing osprey ({osprey_install}) + {dep_count} profile deps...",
+        style=Styles.DIM,
+    )
+
+    if uv_path:
+        cmd = [uv_path, "pip", "install", "--quiet", "-p", str(venv_python), *all_deps]
+    else:
+        cmd = [str(venv_python), "-m", "pip", "install",
+               "--quiet", "--disable-pip-version-check", *all_deps]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+    if result.returncode == 0:
+        console.print(
+            f"  ✓ Installed osprey + {dep_count} profile deps into project venv",
+            style=Styles.SUCCESS,
+        )
+    elif "litellm" in (result.stdout + result.stderr).lower():
+        # ---------------------------------------------------------------
+        # TEMPORARY WORKAROUND — litellm supply chain attack (2026-03-24)
+        #
+        # litellm versions 1.82.7-1.82.8 were compromised with credential-
+        # stealing malware (TeamPCP attack chain). PyPI has quarantined the
+        # entire package, so uv refuses to resolve it.
+        #
+        # Workaround: install osprey --no-deps + profile deps into the
+        # project venv, then add a .pth file pointing to OSPREY's own
+        # site-packages so the project inherits litellm and other
+        # transitive deps from the known-good build environment.
+        #
+        # REVERT THIS when litellm is restored on PyPI:
+        #   1. Remove this entire elif block
+        #   2. The normal install path above will work again
+        # ---------------------------------------------------------------
+        console.print(
+            "  ⚠️  litellm unavailable on PyPI (quarantined) — "
+            "inheriting from build environment",
+            style=Styles.WARNING,
+        )
+        # Install osprey (no transitive deps) + profile deps
+        if uv_path:
+            cmd_nodeps = [
+                uv_path, "pip", "install", "--quiet",
+                "-p", str(venv_python),
+                "--no-deps", osprey_spec,
+            ]
+            cmd_profile = [
+                uv_path, "pip", "install", "--quiet",
+                "-p", str(venv_python),
+                *list(profile.dependencies or []),
+            ] if profile.dependencies else None
         else:
-            output = (result.stdout + result.stderr).strip()
-            console.print(
-                f"  ⚠️  Failed to install profile dependencies (exit {result.returncode})",
-                style=Styles.WARNING,
+            cmd_nodeps = [
+                str(venv_python), "-m", "pip", "install",
+                "--quiet", "--disable-pip-version-check",
+                "--no-deps", osprey_spec,
+            ]
+            cmd_profile = [
+                str(venv_python), "-m", "pip", "install",
+                "--quiet", "--disable-pip-version-check",
+                *list(profile.dependencies or []),
+            ] if profile.dependencies else None
+
+        r = subprocess.run(cmd_nodeps, capture_output=True, text=True, timeout=120)
+        if r.returncode != 0:
+            raise BuildProfileError(
+                f"Failed to install osprey --no-deps:\n{(r.stdout + r.stderr).strip()}"
             )
-            if output:
-                last_lines = "\n".join(output.split("\n")[-5:])
-                console.print(f"     {last_lines}", style=Styles.DIM)
-            console.print(
-                "     Lifecycle steps may fail if they import these packages.",
-                style=Styles.DIM,
-            )
-    except subprocess.TimeoutExpired:
+
+        if cmd_profile:
+            r = subprocess.run(cmd_profile, capture_output=True, text=True, timeout=120)
+            if r.returncode != 0:
+                raise BuildProfileError(
+                    f"Failed to install profile deps:\n{(r.stdout + r.stderr).strip()}"
+                )
+
+        # Add .pth file so project venv can import osprey's transitive deps
+        # (litellm, pandas, etc.) from the build environment's site-packages
+        build_site_packages = Path(sys.prefix) / "lib"
+        # Find the actual site-packages dir (python version varies)
+        sp_dirs = list(build_site_packages.glob("python*/site-packages"))
+        if sp_dirs:
+            pth_path = venv_path / "lib"
+            proj_sp = list(pth_path.glob("python*/site-packages"))
+            if proj_sp:
+                pth_file = proj_sp[0] / "_osprey_build_env.pth"
+                pth_file.write_text(f"{sp_dirs[0]}\n")
+                console.print(
+                    f"  ✓ Linked build environment site-packages via .pth",
+                    style=Styles.SUCCESS,
+                )
+
         console.print(
-            "  ⚠️  Dependency installation timed out (120s)",
-            style=Styles.WARNING,
+            f"  ✓ Installed osprey (--no-deps) + {dep_count} profile deps",
+            style=Styles.SUCCESS,
         )
-    except FileNotFoundError:
-        console.print(
-            "  ⚠️  Package installer not available — skipping dependency installation",
-            style=Styles.WARNING,
+    else:
+        output = (result.stdout + result.stderr).strip()
+        raise BuildProfileError(
+            f"Failed to install project dependencies (exit {result.returncode}):\n{output}"
         )
+
+    # --- Record deps in requirements.txt for documentation ---
+    req_path = project_path / "requirements.txt"
+    lines = ["\n", f"# osprey ({osprey_install})\n", f"{osprey_spec}\n"]
+    if profile.dependencies:
+        lines.append("\n# Profile dependencies\n")
+        for dep in profile.dependencies:
+            lines.append(f"{dep}\n")
+    with open(req_path, "a", encoding="utf-8") as f:
+        f.writelines(lines)
 
 
 def _apply_config_overrides(project_path: Path, config_dict: dict[str, Any]) -> None:
@@ -715,6 +844,51 @@ def _copy_overlay_files(
         logger.info("Overlay: %s → %s", src_rel, dst_rel)
 
 
+def _register_overlay_artifacts(project_path: Path, overlay_dict: dict[str, str]) -> int:
+    """Register overlay files landing in .claude/ as user_owned in config.yml.
+
+    The Prompts Gallery flags .claude/ files that aren't in the PromptCatalog
+    or config.yml's prompts.user_owned as "untracked."  Profile overlay files
+    (agents, skills, rules) aren't framework artifacts, so they must be
+    registered as user_owned to avoid the untracked warning.
+    """
+    from osprey.services.prompts.ownership import update_config_add_user_owned
+
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        return 0
+
+    # Subdirectories the Prompts Gallery scans for untracked files
+    # (mirrors PromptGalleryService._scan_dirs)
+    scan_prefixes = tuple(
+        f".claude/{d}/" for d in ("agents", "commands", "output-styles", "rules", "skills")
+    )
+
+    registered = 0
+    for _src_rel, dst_rel in overlay_dict.items():
+        dst_path = project_path / dst_rel
+
+        if dst_path.is_dir():
+            # Directory overlay — find all .md files within
+            md_files = [
+                str(f.relative_to(project_path)) for f in dst_path.rglob("*.md") if f.is_file()
+            ]
+        elif dst_path.is_file() and dst_rel.endswith(".md"):
+            md_files = [dst_rel]
+        else:
+            continue
+
+        for rel_path in md_files:
+            if not any(rel_path.startswith(p) for p in scan_prefixes):
+                continue
+            # Derive canonical name: .claude/rules/foo.md → rules/foo
+            canonical = rel_path[len(".claude/") : -len(".md")]
+            if update_config_add_user_owned(project_path, canonical):
+                registered += 1
+
+    return registered
+
+
 def _inject_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> None:
     """Inject MCP server definitions into .mcp.json and .claude/settings.json.
 
@@ -744,8 +918,16 @@ def _inject_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> None
             )
             continue
 
+        # Resolve bare `python` to the project venv Python so MCP servers
+        # use the right interpreter (with profile deps) at runtime.
+        command = server.command
+        if command == "python":
+            venv_python = project_path / ".venv" / "bin" / "python"
+            if venv_python.exists():
+                command = str(venv_python)
+
         entry: dict[str, Any] = {
-            "command": server.command,
+            "command": command,
             "args": [_resolve_placeholders(a, project_path) for a in server.args],
         }
         if server.env:
