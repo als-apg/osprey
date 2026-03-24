@@ -191,7 +191,26 @@ class Gateway:
 
         Gateway detects approval/rejection and uses Command(update=...) to inject
         interrupt payload into agent state while resuming execution.
+
+        Question interrupts (type=="question") bypass approval classification and
+        return the raw user text via Command(resume=user_input).
         """
+
+        # Extract interrupt payload to check for question type
+        success, interrupt_payload = self._extract_resume_payload(compiled_graph, config)
+
+        if success and interrupt_payload.get("type") == "question":
+            emitter.emit(
+                StatusEvent(
+                    component="gateway",
+                    message="Detected question interrupt - passing user input as resume value",
+                    level="info",
+                )
+            )
+            return GatewayResult(
+                resume_command=Command(resume=user_input.strip()),
+                is_interrupt_resume=True,
+            )
 
         # Detect approval or rejection
         approval_data = self._detect_approval_response(user_input)
