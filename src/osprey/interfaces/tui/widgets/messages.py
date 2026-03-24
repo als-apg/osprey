@@ -98,17 +98,21 @@ class CollapsibleCodeMessage(Static):
     the generated code anytime.
     """
 
-    def __init__(self, attempt: int = 1, **kwargs):
+    def __init__(self, attempt: int = 1, start_collapsed: bool = False, **kwargs):
         """Initialize a collapsible code message.
 
         Args:
             attempt: The retry attempt number (1 for first attempt, 2+ for retries).
+            start_collapsed: If True, start with content hidden (hide mode).
+                When False (default/show mode), content is visible during streaming
+                and auto-collapses after finalization.
 
         The message starts with content visible during streaming and
         transitions to collapsed state after finalization.
         """
         super().__init__(**kwargs)
         self._attempt = attempt
+        self._start_collapsed = start_collapsed
         self._content_buffer: list[str] = []
         self._markdown_stream: Any = None
         self._is_collapsed = False
@@ -135,6 +139,14 @@ class CollapsibleCodeMessage(Static):
         # Make toggle clickable
         toggle = self.query_one("#code-toggle", Static)
         toggle.can_focus = True
+
+        # Hide mode: start collapsed immediately
+        if self._start_collapsed:
+            content = self.query_one("#code-content", Markdown)
+            content.display = False
+            self._is_collapsed = True
+            label = f"code #{self._attempt}" if self._attempt > 1 else "code"
+            toggle.update(f"{label} (click to show)")
 
     def get_markdown_widget(self) -> Markdown:
         """Get the Markdown widget for streaming.

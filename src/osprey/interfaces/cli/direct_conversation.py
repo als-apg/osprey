@@ -680,6 +680,12 @@ class CLI:
                 # Create typed event handler for resume execution
                 handler = CLIEventHandler(console=self.console, verbose=self.show_streaming_updates)
 
+                # Streaming display mode configuration
+                from osprey.utils.config import get_streaming_mode
+
+                respond_streaming = get_streaming_mode("cli", "respond")
+                codegen_streaming = get_streaming_mode("cli", "python_code_generator")
+
                 # Track if we've streamed LLM response tokens
                 streamed_response = False
                 # Track code generation streaming
@@ -734,29 +740,37 @@ class CLI:
 
                             # Route tokens by source node
                             if node_name == "python_code_generator":
-                                # Handle code generation streaming
-                                if not code_gen_active:
-                                    # Add role prefix (like respond does)
+                                if codegen_streaming == "disabled":
+                                    pass  # Skip code gen tokens entirely
+                                else:
+                                    # Handle code generation streaming (show mode)
+                                    if not code_gen_active:
+                                        # Add role prefix (like respond does)
+                                        self.console.print(
+                                            "\n[bold yellow]🤖 Assistant (Code Generator):[/bold yellow] ",
+                                            end="",
+                                        )
+                                        code_gen_active = True
+
+                                    # Stream token with dim color (shows it's thinking/intermediate)
                                     self.console.print(
-                                        "\n[bold yellow]🤖 Assistant (Code Generator):[/bold yellow] ",
-                                        end="",
+                                        f"[dim]{message_chunk.content}[/dim]", end=""
                                     )
-                                    code_gen_active = True
 
-                                # Stream token with dim color (shows it's thinking/intermediate)
-                                self.console.print(f"[dim]{message_chunk.content}[/dim]", end="")
-
-                                # Buffer for final panel (keep for potential future use)
-                                code_gen_buffer += message_chunk.content
+                                    # Buffer for final panel (keep for potential future use)
+                                    code_gen_buffer += message_chunk.content
                             else:
-                                # Handle response streaming (respond node)
-                                if not streamed_response:
-                                    self.console.print(
-                                        "\n[bold cyan]🤖 Assistant:[/bold cyan] ", end=""
-                                    )
-                                    handler.start_response_streaming()
-                                    streamed_response = True
-                                print(message_chunk.content, end="", flush=True)
+                                if respond_streaming == "disabled":
+                                    pass  # Skip — full response shown from state after completion
+                                else:
+                                    # Handle response streaming (respond node)
+                                    if not streamed_response:
+                                        self.console.print(
+                                            "\n[bold cyan]🤖 Assistant:[/bold cyan] ", end=""
+                                        )
+                                        handler.start_response_streaming()
+                                        streamed_response = True
+                                    print(message_chunk.content, end="", flush=True)
 
                             # Track current node for next iteration
                             previous_node = node_name
@@ -882,6 +896,12 @@ class CLI:
             original_level = root_logger.level
             root_logger.setLevel(logging.WARNING)
 
+            # Streaming display mode configuration
+            from osprey.utils.config import get_streaming_mode
+
+            respond_streaming = get_streaming_mode("cli", "respond")
+            codegen_streaming = get_streaming_mode("cli", "python_code_generator")
+
             # Track if we've streamed LLM response tokens
             streamed_response = False
             # Track code generation streaming
@@ -942,31 +962,39 @@ class CLI:
 
                             # Route tokens by source node
                             if node_name == "python_code_generator":
-                                # Handle code generation streaming
-                                if not code_gen_active:
-                                    # Add role prefix (like respond does)
+                                if codegen_streaming == "disabled":
+                                    pass  # Skip code gen tokens entirely
+                                else:
+                                    # Handle code generation streaming (show mode)
+                                    if not code_gen_active:
+                                        # Add role prefix (like respond does)
+                                        self.console.print(
+                                            "\n[bold yellow]🤖 Assistant (Code Generator):[/bold yellow] ",
+                                            end="",
+                                        )
+                                        code_gen_active = True
+
+                                    # Stream token with dim color (shows it's thinking/intermediate)
                                     self.console.print(
-                                        "\n[bold yellow]🤖 Assistant (Code Generator):[/bold yellow] ",
-                                        end="",
+                                        f"[dim]{message_chunk.content}[/dim]", end=""
                                     )
-                                    code_gen_active = True
 
-                                # Stream token with dim color (shows it's thinking/intermediate)
-                                self.console.print(f"[dim]{message_chunk.content}[/dim]", end="")
-
-                                # Buffer for final panel (keep for potential future use)
-                                code_gen_buffer += message_chunk.content
+                                    # Buffer for final panel (keep for potential future use)
+                                    code_gen_buffer += message_chunk.content
                             else:
-                                # Handle response streaming (respond node)
-                                if not streamed_response:
-                                    # Print header before first token
-                                    self.console.print(
-                                        "\n[bold cyan]🤖 Assistant:[/bold cyan] ", end=""
-                                    )
-                                    handler.start_response_streaming()
-                                    streamed_response = True
-                                # Print token directly to console (no newline, immediate flush)
-                                print(message_chunk.content, end="", flush=True)
+                                if respond_streaming == "disabled":
+                                    pass  # Skip — full response shown from state after completion
+                                else:
+                                    # Handle response streaming (respond node)
+                                    if not streamed_response:
+                                        # Print header before first token
+                                        self.console.print(
+                                            "\n[bold cyan]🤖 Assistant:[/bold cyan] ", end=""
+                                        )
+                                        handler.start_response_streaming()
+                                        streamed_response = True
+                                    # Print token directly to console (no newline, immediate flush)
+                                    print(message_chunk.content, end="", flush=True)
 
                             # Track current node for next iteration
                             previous_node = node_name
