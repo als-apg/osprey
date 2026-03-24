@@ -160,33 +160,45 @@ class PtySession:
 
     def terminate(self) -> None:
         """Terminate the subprocess and close the PTY."""
-        if self._process is not None:
-            try:
-                os.killpg(os.getpgid(self._process.pid), signal.SIGTERM)
-            except (OSError, ProcessLookupError):
-                pass
-
-            try:
-                self._process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(os.getpgid(self._process.pid), signal.SIGKILL)
-                except (OSError, ProcessLookupError):
-                    pass
-                try:
-                    self._process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    logger.warning(
-                        "PTY process %d did not exit after SIGKILL — orphaned",
-                        self._process.pid,
-                    )
-
+        # Close master fd FIRST — the kernel sends SIGHUP to the entire
+        # session (all process groups under this session leader), which is the
+        # standard Unix mechanism for cleaning up terminal sessions.  Shells
+        # handle SIGHUP by terminating their children.
         if self._master_fd is not None:
             try:
                 os.close(self._master_fd)
             except OSError:
                 pass
             self._master_fd = None
+
+        if self._process is not None:
+            # Give the SIGHUP from PTY close a moment to propagate.
+            try:
+                self._process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass
+
+            if self._process.poll() is None:
+                # Still alive — send SIGTERM to the process group.
+                try:
+                    os.killpg(os.getpgid(self._process.pid), signal.SIGTERM)
+                except (OSError, ProcessLookupError):
+                    pass
+                try:
+                    self._process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    # Last resort — SIGKILL.
+                    try:
+                        os.killpg(os.getpgid(self._process.pid), signal.SIGKILL)
+                    except (OSError, ProcessLookupError):
+                        pass
+                    try:
+                        self._process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        logger.warning(
+                            "PTY process %d did not exit after SIGKILL — orphaned",
+                            self._process.pid,
+                        )
 
     @property
     def is_alive(self) -> bool:
