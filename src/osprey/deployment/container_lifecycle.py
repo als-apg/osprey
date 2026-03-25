@@ -67,7 +67,10 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
         cmd.append("-d")
 
     logger.info(f"Running command:\n    {' '.join(cmd)}")
-    os.execvpe(cmd[0], cmd, env)
+    if detached:
+        subprocess.run(cmd, env=env, check=True)
+    else:
+        os.execvpe(cmd[0], cmd, env)
 
 
 def deploy_down(config_path, dev_mode=False):
