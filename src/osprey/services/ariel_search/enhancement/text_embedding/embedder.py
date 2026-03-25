@@ -152,6 +152,7 @@ class TextEmbeddingModule(BaseEnhancementModule):
             logger.debug(f"Skipping empty entry {entry.get('entry_id')}")
             return
 
+        errors: list[str] = []
         for model_config in self._models:
             try:
                 model_name = model_config["name"]
@@ -180,13 +181,22 @@ class TextEmbeddingModule(BaseEnhancementModule):
                         embedding=embeddings[0],
                         conn=conn,
                     )
+                else:
+                    errors.append(f"{model_name}: empty embedding result")
 
             except Exception as e:
                 logger.warning(
                     f"Failed to generate embedding for entry {entry.get('entry_id')} "
                     f"with model {model_config.get('name')}: {e}"
                 )
+                errors.append(f"{model_config.get('name')}: {e}")
                 continue
+
+        if errors and len(errors) == len(self._models):
+            raise RuntimeError(
+                f"All embedding models failed for entry {entry.get('entry_id')}: "
+                + "; ".join(errors)
+            )
 
     async def _store_embedding(
         self,

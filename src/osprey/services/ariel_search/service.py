@@ -488,6 +488,46 @@ class ARIELSearchService:
             message=f"Entry {facility_entry_id} created in {source_system}",
         )
 
+    async def publish_entry(
+        self,
+        entry_id: str,
+        *,
+        logbook: str | None = None,
+    ) -> FacilityEntryCreateResult:
+        """Publish an existing ARIEL entry to the configured facility logbook.
+
+        Writes through to the upstream source via create_entry(), which handles
+        the adapter call, optimistic upsert, and re-ingestion. The ARIEL DB is
+        a derived view — the upstream source is always the authority.
+
+        Args:
+            entry_id: ID of the existing ARIEL entry to publish
+            logbook: Target logbook name (required by some facility APIs)
+
+        Returns:
+            FacilityEntryCreateResult with the facility-assigned entry ID
+
+        Raises:
+            KeyError: If entry_id not found in ARIEL database
+            NotImplementedError: If the adapter doesn't support writes
+        """
+        entry = await self.repository.get_entry(entry_id)
+        if entry is None:
+            raise KeyError(f"Entry {entry_id} not found")
+
+        subject = entry["raw_text"].split("\n", 1)[0].strip()
+        details = entry["raw_text"]
+
+        request = FacilityEntryCreateRequest(
+            subject=subject,
+            details=details,
+            author=entry["author"],
+            logbook=logbook,
+            tags=entry["metadata"].get("tags", []),
+        )
+
+        return await self.create_entry(request)
+
     async def _run_agent(self, request: ARIELSearchRequest) -> ARIELSearchResult:
         """Run the AgentExecutor for agentic search.
 

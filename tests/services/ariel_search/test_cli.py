@@ -64,6 +64,17 @@ class TestARIELCLIGroup:
         assert result.exit_code == 0
         assert "Search the logbook" in result.output
 
+    def test_sync_command_exists(self, runner):
+        """sync subcommand exists."""
+        result = runner.invoke(ariel_group, ["sync", "--help"])
+        assert result.exit_code == 0
+        assert "Sync ARIEL database" in result.output
+
+    def test_sync_has_limit_option(self, runner):
+        """sync has --limit option."""
+        result = runner.invoke(ariel_group, ["sync", "--help"])
+        assert "--limit" in result.output
+
     def test_ingest_requires_source(self, runner):
         """ingest command requires --source option."""
         result = runner.invoke(ariel_group, ["ingest"])
@@ -513,3 +524,115 @@ class TestQuickstartCommand:
 
         assert result.exit_code == 0
         assert "complete" in result.output.lower()
+
+
+class TestSyncCommand:
+    """Tests for the ariel sync command."""
+
+    @pytest.fixture
+    def runner(self):
+        """Create a CLI runner."""
+        return CliRunner()
+
+    def test_sync_runs_successfully(self, runner, monkeypatch):
+        """sync invokes run_sync and displays results."""
+        from unittest.mock import AsyncMock, patch
+
+        from osprey.services.ariel_search.cli_operations import SyncResult
+
+        mock_config = {
+            "database": {"uri": "postgresql://localhost/test"},
+            "ingestion": {"adapter": "als_logbook", "source_url": "https://example.com/log"},
+        }
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: mock_config if key == "ariel" else default,
+        )
+
+        sync_result = SyncResult(
+            migrations_applied=0,
+            entries_ingested=42,
+            entries_enhanced=5,
+            entries_failed=1,
+            was_initial_ingest=False,
+        )
+
+        with patch(
+            "osprey.services.ariel_search.cli_operations.run_sync",
+            new_callable=AsyncMock,
+            return_value=sync_result,
+        ) as mock_sync:
+            result = runner.invoke(ariel_group, ["sync"])
+
+        assert result.exit_code == 0, result.output
+        mock_sync.assert_called_once()
+        assert "42 ingested" in result.output
+        assert "5 enhanced" in result.output
+        assert "1 failed" in result.output
+
+    def test_sync_with_limit(self, runner, monkeypatch):
+        """sync passes --limit to run_sync."""
+        from unittest.mock import AsyncMock, patch
+
+        from osprey.services.ariel_search.cli_operations import SyncResult
+
+        mock_config = {
+            "database": {"uri": "postgresql://localhost/test"},
+            "ingestion": {"adapter": "als_logbook", "source_url": "https://example.com/log"},
+        }
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: mock_config if key == "ariel" else default,
+        )
+
+        sync_result = SyncResult(
+            migrations_applied=0,
+            entries_ingested=100,
+            entries_enhanced=0,
+            entries_failed=0,
+            was_initial_ingest=True,
+        )
+
+        with patch(
+            "osprey.services.ariel_search.cli_operations.run_sync",
+            new_callable=AsyncMock,
+            return_value=sync_result,
+        ) as mock_sync:
+            result = runner.invoke(ariel_group, ["sync", "--limit", "100"])
+
+        assert result.exit_code == 0, result.output
+        call_kwargs = mock_sync.call_args
+        assert call_kwargs[1]["limit"] == 100 or call_kwargs[0][1] == 100
+
+    def test_sync_no_config_shows_error(self, runner, monkeypatch):
+        """sync shows error when ARIEL not configured."""
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: default,
+        )
+        result = runner.invoke(ariel_group, ["sync"])
+        assert result.exit_code == 1
+        assert "not configured" in result.output.lower()
+
+    def test_sync_connection_failure_shows_guidance(self, runner, monkeypatch):
+        """sync shows 'osprey deploy up' guidance on connection failure."""
+        from unittest.mock import AsyncMock, patch
+
+        mock_config = {
+            "database": {"uri": "postgresql://localhost/test"},
+            "ingestion": {"adapter": "als_logbook", "source_url": "https://example.com/log"},
+        }
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: mock_config if key == "ariel" else default,
+        )
+
+        with patch(
+            "osprey.services.ariel_search.cli_operations.run_sync",
+            new_callable=AsyncMock,
+            side_effect=Exception("connection refused"),
+        ):
+            result = runner.invoke(ariel_group, ["sync"])
+
+        assert result.exit_code == 1
+        assert "osprey deploy up" in result.output
