@@ -155,6 +155,8 @@ class ClaudeCodeModelSpec:
     shell_exports: tuple[str, ...] = ()
     auth_env_var: str = ""
     auth_secret_env: str = ""
+    needs_proxy: bool = False
+    upstream_base_url: str | None = None
 
     def agent_tier(self, name: str) -> str:
         """Resolve the tier alias for a named agent (for Claude Code model: frontmatter).
@@ -305,6 +307,12 @@ class ClaudeCodeModelResolver:
         # ── Agent overrides ──────────────────────────────────────
         agent_overrides = dict(claude_code_config.get("agent_models", {}) or {})
 
+        # ── Proxy detection ───────────────────────────────────────
+        from osprey.infrastructure.proxy.lifecycle import is_proxy_needed
+
+        _needs_proxy = is_proxy_needed(provider_name, api_providers)
+        _upstream_url = env_block.get("ANTHROPIC_BASE_URL") if _needs_proxy else None
+
         return ClaudeCodeModelSpec(
             provider=provider_name,
             env_block=env_block,
@@ -314,6 +322,8 @@ class ClaudeCodeModelResolver:
             shell_exports=tuple(shell_exports),
             auth_env_var=auth_env_var,
             auth_secret_env=auth_secret_env,
+            needs_proxy=_needs_proxy,
+            upstream_base_url=_upstream_url,
         )
 
     @staticmethod

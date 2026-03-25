@@ -274,6 +274,21 @@ def _create_lifespan(
                 _project_dir = Path(app.state.config_path).parent
                 inject_provider_env(os.environ, _spec, project_dir=_project_dir)
 
+                # Start translation proxy for OpenAI-compatible providers
+                if _spec.needs_proxy and _spec.upstream_base_url:
+                    from osprey.infrastructure.proxy.lifecycle import start_proxy
+
+                    proxy_port = start_proxy(
+                        _spec.upstream_base_url,
+                        os.environ.get(_spec.auth_env_var),
+                    )
+                    os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{proxy_port}"
+                    logger.info(
+                        "Translation proxy on :%d → %s",
+                        proxy_port,
+                        _spec.upstream_base_url,
+                    )
+
         workspace_dir = Path(config.get("watch_dir") or "./osprey-workspace").resolve()
         app.state.workspace_dir = workspace_dir  # base path (file watcher watches all sessions)
         app.state.workspace_base = workspace_dir  # alias for clarity
@@ -304,6 +319,11 @@ def _create_lifespan(
         app.state.hooks_env = {}
 
         yield
+
+        # Stop translation proxy if it was started
+        from osprey.infrastructure.proxy.lifecycle import stop_proxy
+
+        stop_proxy()
 
         app.state.watcher.stop()
         app.state.pty_registry.cleanup_all()

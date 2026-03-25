@@ -381,6 +381,19 @@ def chat_claude(project, resume, print_mode, effort):
             if spec.auth_secret_env and os.environ.get(spec.auth_env_var):
                 console.print(f"[dim]Set ${spec.auth_env_var} from ${spec.auth_secret_env}[/dim]")
 
+            # Start translation proxy for OpenAI-compatible providers
+            if spec.needs_proxy and spec.upstream_base_url:
+                from osprey.infrastructure.proxy.lifecycle import start_proxy
+
+                proxy_port = start_proxy(
+                    spec.upstream_base_url,
+                    os.environ.get(spec.auth_env_var),
+                )
+                os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{proxy_port}"
+                console.print(
+                    f"[dim]Translation proxy started on :{proxy_port} → {spec.upstream_base_url}[/dim]"
+                )
+
     # Build claude CLI args
     args = ["claude", "--project-dir", str(project_dir)]
     if resume:
@@ -390,6 +403,16 @@ def chat_claude(project, resume, print_mode, effort):
     if effort:
         args.extend(["--effort", effort])
 
-    # Replace current process with claude CLI
+    # Launch claude CLI.  When the translation proxy is running in a daemon
+    # thread we must keep this process alive, so use subprocess.run instead
+    # of os.execvp (which replaces the process and kills the proxy thread).
     console.print(f"[dim]Launching Claude Code in {project_dir}...[/dim]\n")
-    os.execvp("claude", args)
+    _proxy_active = "ANTHROPIC_BASE_URL" in os.environ and os.environ.get(
+        "ANTHROPIC_BASE_URL", ""
+    ).startswith("http://127.0.0.1")
+    if _proxy_active:
+        import subprocess
+
+        raise SystemExit(subprocess.run(args).returncode)
+    else:
+        os.execvp("claude", args)
