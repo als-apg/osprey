@@ -81,10 +81,10 @@ def show_banner(context: str = "interactive", config_path: str | None = None):
             f"    [{Styles.DIM}]Use arrow keys to navigate • Press Ctrl+C to exit[/{Styles.DIM}]"
         )
     elif context == "chat":
-        msg = Messages.info("💡 Type 'bye' or 'end' to exit")
+        msg = Messages.info("Type 'bye' or 'end' to exit")
         console.print(f"    {msg}")
         console.print(
-            f"    [{Styles.ACCENT}]⚡ Use slash commands (/) for quick actions - try /help[/{Styles.ACCENT}]"
+            f"    [{Styles.ACCENT}]Use slash commands (/) for quick actions - try /help[/{Styles.ACCENT}]"
         )
 
     console.print()
@@ -166,7 +166,7 @@ def show_deploy_help():
     console.print("  • Rebuilds everything from scratch")
     console.print("  • Starts services with fresh state")
     console.print(
-        f"  • [{Styles.WARNING}]⚠️  Warning: All data in volumes will be lost[/{Styles.WARNING}]"
+        f"  • [{Styles.WARNING}]Warning: All data in volumes will be lost[/{Styles.WARNING}]"
     )
     console.print()
 
@@ -175,7 +175,7 @@ def show_deploy_help():
     console.print("  • Permanently deletes all containers")
     console.print("  • Permanently deletes all volumes and data")
     console.print("  • Removes networks and images")
-    console.print(f"  • [{Styles.WARNING}]⚠️  Destructive: Cannot be undone![/{Styles.WARNING}]")
+    console.print(f"  • [{Styles.WARNING}]Destructive: Cannot be undone![/{Styles.WARNING}]")
     console.print()
 
     input("Press ENTER to continue...")

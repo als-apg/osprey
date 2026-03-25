@@ -491,7 +491,7 @@ def run_interactive_init() -> str:
 
         if has_mounts:
             console.print(
-                f"{Messages.error('⚠️  DANGER: This directory has active container mounts!')}"
+                f"{Messages.error('DANGER: This directory has active container mounts!')}"
             )
             console.print(
                 f"{Messages.warning('The following containers are using this directory:')}\n"
@@ -502,7 +502,7 @@ def run_interactive_init() -> str:
             console.print(f"  {Messages.command(f'cd {project_name} && osprey deploy down')}\n")
 
             proceed_anyway = questionary.confirm(
-                "⚠️  Delete anyway? (This may corrupt running containers!)",
+                "Delete anyway? (This may corrupt running containers!)",
                 default=False,
                 style=custom_style,
             ).ask()

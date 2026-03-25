@@ -155,7 +155,7 @@ def handle_deploy_action(project_path: Path | None = None):
         try:
             # Confirm destructive operations
             if action == "clean":
-                console.print("\n[bold red]⚠️  WARNING: Destructive Operation[/bold red]")
+                console.print("\n[bold red]WARNING: Destructive Operation[/bold red]")
                 console.print("\n[warning]This will permanently delete:[/warning]")
                 console.print("  • All containers for this project")
                 console.print("  • All volumes (including databases and stored data)")
@@ -178,7 +178,7 @@ def handle_deploy_action(project_path: Path | None = None):
                     continue  # Return to menu
 
             elif action == "rebuild":
-                console.print("\n[bold yellow]⚠️  Rebuild Operation[/bold yellow]")
+                console.print("\n[bold yellow]Rebuild Operation[/bold yellow]")
                 console.print("\n[warning]This will:[/warning]")
                 console.print("  • Stop and remove all containers")
                 console.print("  • Delete all volumes (data will be lost)")
@@ -221,7 +221,7 @@ def handle_deploy_action(project_path: Path | None = None):
             elif action == "rebuild":
                 console.print("\n[bold]Rebuilding services (clean + build + start)...[/bold]")
             elif action == "clean":
-                console.print("\n[bold red]⚠️  Cleaning deployment...[/bold red]")
+                console.print("\n[bold red]Cleaning deployment...[/bold red]")
             # Note: 'status' action doesn't print a header here because show_status() prints its own
 
             try:
@@ -542,16 +542,16 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
     ).ask():
         # Use UTF-8 encoding explicitly to support Unicode characters on Windows
         config_path.write_text(new_content, encoding="utf-8")
-        console.print(f"\n{Messages.success('✓ Control system configuration updated!')}")
+        console.print(f"\n{Messages.success('Control system configuration updated!')}")
 
         if control_type == types.EPICS:
-            console.print("\n[dim]💡 Next steps:[/dim]")
+            console.print("\n[dim]Next steps:[/dim]")
             console.print("[dim]   1. Configure EPICS gateway: config → set-epics-gateway[/dim]")
             console.print("[dim]   2. Verify EPICS connection settings[/dim]")
         else:
             console.print("\n[dim]You're now in Mock mode - safe for development and testing[/dim]")
     else:
-        console.print(f"\n{Messages.warning('✗ Configuration not changed')}")
+        console.print(f"\n{Messages.warning('Configuration not changed')}")
 
     input("\nPress ENTER to continue...")
 
@@ -676,7 +676,7 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
             port = preset["gateways"]["read_only"]["port"]
 
             if not _check_simulation_ioc_running(host, port):
-                console.print(f"\n{Messages.warning(f'⚠ No IOC detected on {host}:{port}')}")
+                console.print(f"\n{Messages.warning(f'No IOC detected on {host}:{port}')}")
                 console.print(
                     "\n[dim]To start the simulation IOC:[/dim]"
                     "\n[dim]  1. Generate IOC: osprey generate soft-ioc[/dim]"
@@ -692,7 +692,7 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
     ).ask():
         # Use UTF-8 encoding explicitly to support Unicode characters on Windows
         config_path.write_text(new_content, encoding="utf-8")
-        console.print(f"\n{Messages.success('✓ EPICS gateway configuration updated!')}")
+        console.print(f"\n{Messages.success('EPICS gateway configuration updated!')}")
 
         # Check if mode is still 'mock' and offer to switch
         current_type = get_control_system_type(config_path)
@@ -706,7 +706,7 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
             ).ask():
                 type_content, _ = set_control_system_type(config_path, types.EPICS)
                 config_path.write_text(type_content, encoding="utf-8")
-                console.print(f"{Messages.success('✓ Switched to epics mode!')}")
+                console.print(f"{Messages.success('Switched to epics mode!')}")
             else:
                 console.print(
                     "\n[dim]Note: Gateway configured but mode is still 'mock'. "
@@ -721,7 +721,7 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
                 "This gateway config applies when using 'epics' mode.[/dim]"
             )
     else:
-        console.print(f"\n{Messages.warning('✗ Configuration not changed')}")
+        console.print(f"\n{Messages.warning('Configuration not changed')}")
 
     input("\nPress ENTER to continue...")
 
@@ -803,11 +803,11 @@ def handle_set_models(project_path: Path | None = None) -> None:
     ).ask():
         # Use UTF-8 encoding explicitly to support Unicode characters on Windows
         config_path.write_text(new_content, encoding="utf-8")
-        console.print(f"\n{Messages.success('✓ Model configuration updated!')}")
+        console.print(f"\n{Messages.success('Model configuration updated!')}")
         console.print(
             f"\n[dim]All {len(current_models)} model(s) now use: {provider}/{model_id}[/dim]"
         )
     else:
-        console.print(f"\n{Messages.warning('✗ Configuration not changed')}")
+        console.print(f"\n{Messages.warning('Configuration not changed')}")
 
     input("\nPress ENTER to continue...")

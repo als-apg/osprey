@@ -371,12 +371,12 @@ class Messages:
     @staticmethod
     def warning(text: str) -> str:
         """Format a warning message with warning symbol."""
-        return f"[warning]⚠️  {text}[/warning]"
+        return f"[warning]! {text}[/warning]"
 
     @staticmethod
     def info(text: str) -> str:
         """Format an info message with info symbol."""
-        return f"[info]ℹ️  {text}[/info]"
+        return f"[info]{text}[/info]"
 
     @staticmethod
     def header(text: str) -> str:
