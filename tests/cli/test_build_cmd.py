@@ -528,53 +528,54 @@ class TestEnvTemplate:
 # ---------------------------------------------------------------------------
 
 
-class TestAppendRequirements:
-    """Tests for _append_requirements()."""
+class TestRequirementsRecording:
+    """Tests for the requirements.txt recording in _create_project_venv()."""
 
-    def test_appends_to_existing(self, tmp_path: Path):
-        from osprey.cli.build_cmd import _append_requirements
+    def _make_profile(self, deps: list[str], osprey_install: str = "local") -> BuildProfile:
+        return BuildProfile(
+            name="test",
+            dependencies=deps,
+            osprey_install=osprey_install,
+        )
+
+    def test_records_deps_in_requirements_txt(self, monkeypatch, tmp_path: Path):
+        from osprey.cli.build_cmd import _create_project_venv
 
         project_path = tmp_path / "project"
         project_path.mkdir()
-        req_path = project_path / "requirements.txt"
-        req_path.write_text("osprey>=0.1.0\n")
+        # Pre-seed requirements.txt (template may have created it)
+        (project_path / "requirements.txt").write_text("# base\n")
 
-        _append_requirements(project_path, ["numpy>=1.24", "pandas"])
+        def fake_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-        content = req_path.read_text()
-        assert "osprey>=0.1.0" in content
+        monkeypatch.setattr("osprey.cli.build_cmd.subprocess.run", fake_run)
+        monkeypatch.setenv("UV", "/usr/bin/uv")
+
+        _create_project_venv(project_path, self._make_profile(["numpy>=1.24", "pandas"]))
+
+        content = (project_path / "requirements.txt").read_text()
+        assert "# base" in content  # original content preserved
         assert "# Profile dependencies" in content
         assert "numpy>=1.24" in content
         assert "pandas" in content
 
-    def test_creates_file_if_missing(self, tmp_path: Path):
-        from osprey.cli.build_cmd import _append_requirements
+    def test_records_osprey_spec(self, monkeypatch, tmp_path: Path):
+        from osprey.cli.build_cmd import _create_project_venv
 
         project_path = tmp_path / "project"
         project_path.mkdir()
 
-        _append_requirements(project_path, ["scipy~=1.11"])
+        def fake_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("osprey.cli.build_cmd.subprocess.run", fake_run)
+        monkeypatch.setenv("UV", "/usr/bin/uv")
+
+        _create_project_venv(project_path, self._make_profile([], osprey_install="pip"))
 
         content = (project_path / "requirements.txt").read_text()
-        assert "# Profile dependencies" in content
-        assert "scipy~=1.11" in content
-
-    def test_does_not_overwrite(self, tmp_path: Path):
-        """Calling twice should append, not replace."""
-        from osprey.cli.build_cmd import _append_requirements
-
-        project_path = tmp_path / "project"
-        project_path.mkdir()
-        req_path = project_path / "requirements.txt"
-        req_path.write_text("osprey>=0.1.0\n")
-
-        _append_requirements(project_path, ["numpy"])
-        _append_requirements(project_path, ["pandas"])
-
-        content = req_path.read_text()
-        assert "osprey>=0.1.0" in content
-        assert "numpy" in content
-        assert "pandas" in content
+        assert "osprey-framework" in content
 
 
 # ---------------------------------------------------------------------------
@@ -641,12 +642,19 @@ class TestLifecyclePhaseRunner:
 # ---------------------------------------------------------------------------
 
 
-class TestInstallDependencies:
-    """Tests for _install_dependencies()."""
+class TestCreateProjectVenv:
+    """Tests for _create_project_venv() — creates venv and installs deps."""
 
-    def test_installs_packages_with_uv_env_var(self, monkeypatch):
-        """Should use $UV env var to find uv (set by `uv run`)."""
-        from osprey.cli.build_cmd import _install_dependencies
+    def _make_profile(self, deps: list[str], osprey_install: str = "local") -> BuildProfile:
+        return BuildProfile(
+            name="test",
+            dependencies=deps,
+            osprey_install=osprey_install,
+        )
+
+    def test_creates_venv_and_installs_with_uv(self, monkeypatch, tmp_path):
+        """Should create project venv then install deps with uv."""
+        from osprey.cli.build_cmd import _create_project_venv
 
         calls = []
 
@@ -657,20 +665,26 @@ class TestInstallDependencies:
         monkeypatch.setattr("osprey.cli.build_cmd.subprocess.run", fake_run)
         monkeypatch.setenv("UV", "/home/user/.local/bin/uv")
 
-        _install_dependencies(["numpy>=1.24", "pandas"])
+        _create_project_venv(tmp_path, self._make_profile(["numpy>=1.24", "pandas"]))
 
-        assert len(calls) == 1
-        cmd = calls[0]
-        assert cmd[0] == "/home/user/.local/bin/uv"
-        assert cmd[1:4] == ["pip", "install", "--quiet"]
-        assert "numpy>=1.24" in cmd
-        assert "pandas" in cmd
+        assert len(calls) == 2
+        # First call: create venv
+        venv_cmd = calls[0]
+        assert venv_cmd[0] == "/home/user/.local/bin/uv"
+        assert "venv" in venv_cmd
+        assert str(tmp_path / ".venv") in venv_cmd
+        # Second call: install deps
+        install_cmd = calls[1]
+        assert install_cmd[0] == "/home/user/.local/bin/uv"
+        assert install_cmd[1:3] == ["pip", "install"]
+        assert "numpy>=1.24" in install_cmd
+        assert "pandas" in install_cmd
 
-    def test_falls_back_to_pip(self, monkeypatch):
-        """Should fall back to python -m pip when uv is not available."""
+    def test_falls_back_to_stdlib_venv_and_pip(self, monkeypatch, tmp_path):
+        """Should use python -m venv + pip when uv is not available."""
         import sys
 
-        from osprey.cli.build_cmd import _install_dependencies
+        from osprey.cli.build_cmd import _create_project_venv
 
         calls = []
 
@@ -682,50 +696,55 @@ class TestInstallDependencies:
         monkeypatch.delenv("UV", raising=False)
         monkeypatch.setattr("shutil.which", lambda name: None)
 
-        _install_dependencies(["numpy>=1.24"])
+        _create_project_venv(tmp_path, self._make_profile(["numpy>=1.24"]))
 
-        assert len(calls) == 1
-        cmd = calls[0]
-        assert cmd[0] == sys.executable
-        assert cmd[1:4] == ["-m", "pip", "install"]
+        assert len(calls) == 2
+        # First call: python -m venv
+        venv_cmd = calls[0]
+        assert venv_cmd[0] == sys.executable
+        assert "-m" in venv_cmd and "venv" in venv_cmd
+        # Second call: pip install via venv python
+        install_cmd = calls[1]
+        assert str(tmp_path / ".venv" / "bin" / "python") in install_cmd
+        assert "-m" in install_cmd and "pip" in install_cmd
 
-    def test_warns_on_failure(self, monkeypatch):
-        """Should warn but not raise when pip fails."""
-        from osprey.cli.build_cmd import _install_dependencies
+    def test_raises_on_venv_failure(self, monkeypatch, tmp_path):
+        """Should raise BuildProfileError if venv creation fails."""
+        from osprey.cli.build_cmd import _create_project_venv
 
         def fake_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=1, stdout="", stderr="venv error"
+            )
+
+        monkeypatch.setattr("osprey.cli.build_cmd.subprocess.run", fake_run)
+        monkeypatch.setenv("UV", "/usr/bin/uv")
+
+        with pytest.raises(BuildProfileError, match="Failed to create project venv"):
+            _create_project_venv(tmp_path, self._make_profile(["pkg"]))
+
+    def test_raises_on_install_failure(self, monkeypatch, tmp_path):
+        """Should raise BuildProfileError when pip install fails."""
+        from osprey.cli.build_cmd import _create_project_venv
+
+        call_count = 0
+
+        def fake_run(cmd, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # Venv creation succeeds
+                return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+            # Install fails
             return subprocess.CompletedProcess(
                 args=cmd, returncode=1, stdout="", stderr="ERROR: No matching distribution"
             )
 
         monkeypatch.setattr("osprey.cli.build_cmd.subprocess.run", fake_run)
+        monkeypatch.setenv("UV", "/usr/bin/uv")
 
-        # Should not raise
-        _install_dependencies(["nonexistent-package-xyz"])
-
-    def test_warns_on_timeout(self, monkeypatch):
-        """Should warn on timeout, not raise."""
-        from osprey.cli.build_cmd import _install_dependencies
-
-        def fake_run(cmd, **kwargs):
-            raise subprocess.TimeoutExpired(cmd=cmd, timeout=120)
-
-        monkeypatch.setattr("osprey.cli.build_cmd.subprocess.run", fake_run)
-
-        # Should not raise
-        _install_dependencies(["slow-package"])
-
-    def test_warns_when_pip_missing(self, monkeypatch):
-        """Should warn when pip is not available."""
-        from osprey.cli.build_cmd import _install_dependencies
-
-        def fake_run(cmd, **kwargs):
-            raise FileNotFoundError("python not found")
-
-        monkeypatch.setattr("osprey.cli.build_cmd.subprocess.run", fake_run)
-
-        # Should not raise
-        _install_dependencies(["some-package"])
+        with pytest.raises(BuildProfileError, match="Failed to install project dependencies"):
+            _create_project_venv(tmp_path, self._make_profile(["nonexistent-xyz"]))
 
 
 # ---------------------------------------------------------------------------

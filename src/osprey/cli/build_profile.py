@@ -36,6 +36,7 @@ class LifecycleStep:
     run: str
     cwd: str | None = None
     timeout: int = 120  # seconds; override per-step in YAML
+    stream: bool = False  # stream stdout in real-time for this step
 
 
 @dataclass
@@ -84,6 +85,8 @@ class BuildProfile:
     env: EnvConfig = field(default_factory=EnvConfig)
     dependencies: list[str] = field(default_factory=list)
     requires_osprey_version: str | None = None  # PEP 440 specifier, e.g. ">=0.12.0"
+    osprey_install: str = "local"  # "local" | "pip" | PEP 508 spec (e.g. "osprey-framework==0.11.5")
+    python_env: str = "project"  # "project" | "build" | absolute path to Python executable
 
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
@@ -262,4 +265,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         env=env,
         dependencies=dependencies,
         requires_osprey_version=raw.get("requires_osprey_version"),
+        osprey_install=raw.get("osprey_install", "local"),
+        python_env=raw.get("python_env", "project"),
     )

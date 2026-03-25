@@ -12,7 +12,6 @@ Usage:
 from __future__ import annotations
 
 import json
-import logging
 import os
 import shlex
 import shutil
@@ -25,11 +24,11 @@ from typing import Any
 import click
 
 from osprey.errors import BuildProfileError
+from osprey.utils.logger import get_logger
 
-from .styles import Messages, Styles, console
 from .templates.manager import TemplateManager
 
-logger = logging.getLogger(__name__)
+logger = get_logger("build")
 
 
 @click.command()
@@ -72,7 +71,7 @@ def build(
     from .build_profile import load_profile
     from .init_cmd import _clear_claude_code_project_state
 
-    console.print(f"🔨 Building project: [header]{project_name}[/header]")
+    logger.info("Building project: %s", project_name)
 
     try:
         # 1. Load and validate profile
@@ -80,8 +79,8 @@ def build(
         profile_dir = profile_path.parent
         build_profile = load_profile(profile_path)
 
-        console.print(f"  📋 Profile: [accent]{build_profile.name}[/accent]")
-        console.print(f"  📦 Template: [accent]{build_profile.base_template}[/accent]")
+        logger.info("  Profile: %s", build_profile.name)
+        logger.info("  Template: %s", build_profile.base_template)
 
         # 1b. Check OSPREY version requirement
         if build_profile.requires_osprey_version:
@@ -93,20 +92,15 @@ def build(
             spec = SpecifierSet(build_profile.requires_osprey_version)
             current = Version(__version__)
             if current not in spec:
-                console.print(
-                    f"  ❌ OSPREY {__version__} does not satisfy "
-                    f"requires_osprey_version: {build_profile.requires_osprey_version}",
-                    style=Styles.ERROR,
+                logger.error(
+                    "  ✗ OSPREY %s does not satisfy requires_osprey_version: %s",
+                    __version__, build_profile.requires_osprey_version,
                 )
-                console.print(
-                    f"     Upgrade OSPREY or run: osprey --version",
-                    style=Styles.DIM,
-                )
+                logger.info("     Upgrade OSPREY or run: osprey --version")
                 raise click.Abort()
-            console.print(
-                f"  ✓ OSPREY {__version__} satisfies "
-                f"{build_profile.requires_osprey_version}",
-                style=Styles.SUCCESS,
+            logger.info(
+                "  ✓ OSPREY %s satisfies %s",
+                __version__, build_profile.requires_osprey_version,
             )
 
         # 2. Resolve output path
@@ -116,15 +110,13 @@ def build(
         # 3. Handle --force / directory existence
         if project_path.exists():
             if force:
-                msg = Messages.warning(f"Removing existing directory: {project_path}")
-                console.print(f"  ⚠️  {msg}")
+                logger.warning("  Removing existing directory: %s", project_path)
                 shutil.rmtree(project_path)
-                console.print(f"  {Messages.success('Removed existing directory')}")
+                logger.info("  ✓ Removed existing directory")
             else:
-                console.print(
-                    f"❌ Directory '{project_path}' already exists.\n"
-                    f"   Use --force to overwrite, or choose a different name.",
-                    style=Styles.ERROR,
+                logger.error(
+                    "  ✗ Directory '%s' already exists. Use --force to overwrite, or choose a different name.",
+                    project_path,
                 )
                 raise click.Abort()
 
@@ -147,6 +139,24 @@ def build(
         if build_profile.channel_finder_mode:
             context["channel_finder_mode"] = build_profile.channel_finder_mode
 
+        # 6b. Create project directory early (venv creation needs it)
+        project_path.mkdir(parents=True, exist_ok=True)
+
+        # 6c. Create project venv with OSPREY + profile deps
+        # Moved before template rendering so templates get the real project Python path.
+        _create_project_venv(project_path, build_profile)
+
+        # 6d. Resolve python_env for template context
+        python_env = build_profile.python_env or "project"
+        if python_env == "project":
+            resolved_python_env = str(project_path / ".venv" / "bin" / "python")
+        elif python_env == "build":
+            import sys
+            resolved_python_env = sys.executable
+        else:
+            resolved_python_env = python_env
+        context["current_python_env"] = resolved_python_env
+
         # 7. Create project from template
         manager = TemplateManager()
         project_path = manager.create_project(
@@ -156,56 +166,39 @@ def build(
             registry_style="extend",
             context=context,
         )
-        console.print("  ✓ Base template rendered", style=Styles.SUCCESS)
+        logger.info("  ✓ Base template rendered")
 
         # 8. Apply config overrides
         if build_profile.config:
             _apply_config_overrides(project_path, build_profile.config)
-            console.print(
-                f"  ✓ Applied {len(build_profile.config)} config override(s)",
-                style=Styles.SUCCESS,
-            )
+            logger.info("  ✓ Applied %d config override(s)", len(build_profile.config))
 
         # 9. Copy service templates for `osprey deploy up`
         svc_count = _copy_service_templates(project_path)
         if svc_count:
-            console.print(
-                f"  ✓ Copied {svc_count} service template(s) for deploy",
-                style=Styles.SUCCESS,
-            )
+            logger.info("  ✓ Copied %d service template(s) for deploy", svc_count)
 
         # 10. Inject profile-defined services (facility containers)
         if build_profile.services:
             psvc_count = _inject_profile_services(
                 profile_dir, project_path, build_profile.services
             )
-            console.print(
-                f"  ✓ Injected {psvc_count} profile service(s) for deploy",
-                style=Styles.SUCCESS,
-            )
+            logger.info("  ✓ Injected %d profile service(s) for deploy", psvc_count)
 
         # 11. Copy overlay files
         if build_profile.overlay:
             _copy_overlay_files(profile_dir, project_path, build_profile.overlay)
-            console.print(
-                f"  ✓ Copied {len(build_profile.overlay)} overlay(s)", style=Styles.SUCCESS
-            )
+            logger.info("  ✓ Copied %d overlay(s)", len(build_profile.overlay))
 
             # 11b. Register overlay artifacts in config.yml
             reg_count = _register_overlay_artifacts(project_path, build_profile.overlay)
             if reg_count:
-                console.print(
-                    f"  ✓ Registered {reg_count} overlay artifact(s) in config.yml",
-                    style=Styles.SUCCESS,
-                )
+                logger.info("  ✓ Registered %d overlay artifact(s) in config.yml", reg_count)
 
         # 12. Inject MCP servers
         if build_profile.mcp_servers:
             _inject_mcp_servers(project_path, build_profile.mcp_servers)
-            console.print(
-                f"  ✓ Injected {len(build_profile.mcp_servers)} MCP server(s)",
-                style=Styles.SUCCESS,
-            )
+            logger.info("  ✓ Injected %d MCP server(s)", len(build_profile.mcp_servers))
 
         # 13. Copy profile .env file (if provided)
         if build_profile.env.file:
@@ -215,8 +208,7 @@ def build(
         if build_profile.env.required or build_profile.env.defaults:
             _generate_env_template(project_path, build_profile.env)
 
-        # 15. Create project venv and install osprey + profile deps (single atomic install)
-        _create_project_venv(project_path, build_profile)
+        # 15. (moved to step 6c — venv created before template rendering)
 
         # 16. Generate manifest
         manifest_context = {
@@ -254,21 +246,21 @@ def build(
                 stream=stream,
             )
 
-        console.print(f"\n✅ Project built successfully at: [bold]{project_path}[/bold]")
+        logger.info("✓ Project built successfully at: %s", project_path)
 
     except click.Abort:
         raise
     except BuildProfileError as e:
-        console.print(f"❌ Build error: {e}", style=Styles.ERROR)
+        logger.error("✗ Build error: %s", e)
         raise click.Abort() from e
     except ValueError as e:
-        console.print(f"❌ Error: {e}", style=Styles.ERROR)
+        logger.error("✗ Error: %s", e)
         raise click.Abort() from e
     except Exception as e:
-        console.print(f"❌ Unexpected error: {e}", style=Styles.ERROR)
+        logger.error("✗ Unexpected error: %s", e)
         import traceback
 
-        console.print(traceback.format_exc(), style=Styles.DIM)
+        logger.debug(traceback.format_exc())
         raise click.Abort() from e
 
 
@@ -302,6 +294,51 @@ def _load_dotenv(path: Path) -> dict[str, str]:
             value = value[1:-1]
         env[key] = value
     return env
+
+
+def _format_junit_summary(xml_path: Path) -> None:
+    """Parse JUnit XML and print a Rich summary table of test results."""
+    import xml.etree.ElementTree as ET
+
+    from rich.console import Console
+    from rich.table import Table
+
+    if not xml_path.exists():
+        return
+
+    try:
+        tree = ET.parse(xml_path)
+    except ET.ParseError:
+        return
+
+    root = tree.getroot()
+
+    table = Table(title="Integration Test Results", show_header=True, padding=(0, 1))
+    table.add_column("Test", style="bold", no_wrap=True)
+    table.add_column("Status", justify="center", width=6)
+    table.add_column("Time", justify="right", width=8)
+
+    for testsuite in root.iter("testsuite"):
+        for testcase in testsuite.iter("testcase"):
+            name = testcase.get("name", "unknown")
+            time_s = testcase.get("time", "0")
+
+            failure = testcase.find("failure")
+            error = testcase.find("error")
+            skipped = testcase.find("skipped")
+
+            if failure is not None or error is not None:
+                status = "[red]✗[/red]"
+            elif skipped is not None:
+                status = "[dim]skip[/dim]"
+            else:
+                status = "[green]✓[/green]"
+
+            table.add_row(name, status, f"{float(time_s):.2f}s")
+
+    if table.row_count > 0:
+        render_console = Console(force_terminal=True, width=120)
+        render_console.print(table)
 
 
 def _run_lifecycle_phase(
@@ -349,7 +386,7 @@ def _run_lifecycle_phase(
         sub_env["PYTHONPATH"] = f"{mcp_servers_dir}{os.pathsep}{existing}" if existing else str(mcp_servers_dir)
         logger.info("Prepended _mcp_servers to lifecycle PYTHONPATH: %s", mcp_servers_dir)
 
-    console.print(f"  ⚙️  Running {phase_name} commands...", style=Styles.DIM)
+    logger.info("  Running %s commands...", phase_name)
     for step in steps:
         cmd_str = step.run.replace("{project_root}", str(project_path))
 
@@ -371,7 +408,7 @@ def _run_lifecycle_phase(
                 # Stream mode: show output in real-time, prefix with step name.
                 # Uses a threaded reader so proc.wait(timeout=...) can enforce
                 # the timeout even when the subprocess stalls mid-output.
-                console.print(f"  ▶ {step.name}", style=Styles.DIM)
+                logger.info("  > %s", step.name)
                 proc = subprocess.Popen(
                     cmd,
                     shell=use_shell,
@@ -385,28 +422,33 @@ def _run_lifecycle_phase(
 
                 def _drain_stdout() -> None:
                     for line in proc.stdout:  # type: ignore[union-attr]
-                        console.print(f"    {line}", end="", highlight=False)
+                        print(f"    {line}", end="", flush=True)
 
                 reader = threading.Thread(target=_drain_stdout, daemon=True)
                 reader.start()
+                # Wait for stdout to drain (tests finished) with the full
+                # timeout, then give the process a short grace period to
+                # exit.  Some test frameworks (pyepics CA context) keep
+                # background threads alive that prevent clean exit.
+                reader.join(timeout=step.timeout)
                 try:
-                    proc.wait(timeout=step.timeout)
+                    proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     proc.kill()
                     proc.wait()
-                    raise
-                finally:
-                    reader.join(timeout=5)
                 elapsed = time.monotonic() - t0
                 if proc.returncode != 0:
                     msg = f"Lifecycle {phase_name} step '{step.name}' failed (exit {proc.returncode}, {elapsed:.1f}s)"
                     if abort_on_failure:
-                        console.print(f"  ❌ {msg}", style=Styles.ERROR)
+                        logger.error("  ✗ %s", msg)
+                        _format_junit_summary(project_path / "check_results.xml")
                         raise BuildProfileError(msg)
                     else:
-                        console.print(f"  ⚠️  {msg}", style=Styles.WARNING)
+                        logger.warning("  ! %s", msg)
                 else:
-                    console.print(f"  ✓ {step.name} ({elapsed:.1f}s)", style=Styles.SUCCESS)
+                    logger.info("  ✓ %s (%.1fs)", step.name, elapsed)
+                # Show JUnit summary if test results were produced
+                _format_junit_summary(project_path / "check_results.xml")
             else:
                 # Quiet mode: capture output, show one-line summary
                 result = subprocess.run(
@@ -426,18 +468,21 @@ def _run_lifecycle_phase(
                     if output:
                         msg += f":\n{output}"
                     if abort_on_failure:
-                        console.print(f"  ❌ {msg}", style=Styles.ERROR)
+                        logger.error("  ✗ %s", msg)
+                        _format_junit_summary(project_path / "check_results.xml")
                         raise BuildProfileError(msg)
                     else:
-                        console.print(f"  ⚠️  {msg}", style=Styles.WARNING)
+                        logger.warning("  ! %s", msg)
                 else:
-                    success_msg = f"  ✓ {step.name} ({elapsed:.1f}s)"
+                    success_msg = f"{step.name} ({elapsed:.1f}s)"
                     output = (result.stdout + result.stderr).strip()
                     if output:
                         summary = output.rstrip().rsplit("\n", 1)[-1].strip()
                         if summary:
                             success_msg += f" — {summary}"
-                    console.print(success_msg, style=Styles.SUCCESS)
+                    logger.info("  ✓ %s", success_msg)
+                # Show JUnit summary if test results were produced
+                _format_junit_summary(project_path / "check_results.xml")
 
         except subprocess.TimeoutExpired as e:
             elapsed = time.monotonic() - t0
@@ -449,17 +494,19 @@ def _run_lifecycle_phase(
                 tail = "\n".join(partial.strip().splitlines()[-20:])
                 msg += f"\n  Last output:\n{tail}"
             if abort_on_failure:
-                console.print(f"  ❌ {msg}", style=Styles.ERROR)
+                logger.error("  ✗ %s", msg)
+                _format_junit_summary(project_path / "check_results.xml")
                 raise BuildProfileError(msg)
             else:
-                console.print(f"  ⚠️  {msg}", style=Styles.WARNING)
+                logger.warning("  ! %s", msg)
+            _format_junit_summary(project_path / "check_results.xml")
         except OSError as exc:
             msg = f"Lifecycle {phase_name} step '{step.name}' failed to start: {exc}"
             if abort_on_failure:
-                console.print(f"  ❌ {msg}", style=Styles.ERROR)
+                logger.error("  ✗ %s", msg)
                 raise BuildProfileError(msg) from exc
             else:
-                console.print(f"  ⚠️  {msg}", style=Styles.WARNING)
+                logger.warning("  ! %s", msg)
 
 
 def _copy_env_file(profile_dir: Path, project_path: Path, env_file: str) -> None:
@@ -467,7 +514,7 @@ def _copy_env_file(profile_dir: Path, project_path: Path, env_file: str) -> None
     src = (profile_dir / env_file).resolve()
     dst = project_path / ".env"
     shutil.copy2(src, dst)
-    console.print(f"  ✓ Copied {env_file} → .env", style=Styles.SUCCESS)
+    logger.info("  ✓ Copied %s → .env", env_file)
 
 
 def _generate_env_template(project_path: Path, env_config: Any) -> None:
@@ -487,12 +534,9 @@ def _generate_env_template(project_path: Path, env_config: Any) -> None:
 
     env_path = project_path / ".env.template"
     env_path.write_text("\n".join(lines), encoding="utf-8")
-    console.print("  ✓ Generated .env.template", style=Styles.SUCCESS)
+    logger.info("  ✓ Generated .env.template")
     if not (project_path / ".env").exists():
-        console.print(
-            "  💡 Copy .env.template to .env and fill in required values",
-            style=Styles.DIM,
-        )
+        logger.info("  Hint: Copy .env.template to .env and fill in required values")
 
 
 def _create_project_venv(project_path: Path, profile: Any) -> None:
@@ -513,7 +557,7 @@ def _create_project_venv(project_path: Path, profile: Any) -> None:
     uv_path = os.environ.get("UV") or shutil.which("uv")
 
     # --- Create venv ---
-    console.print("  📦 Creating project virtual environment...", style=Styles.DIM)
+    logger.info("  Creating project virtual environment...")
     if uv_path:
         result = subprocess.run(
             [uv_path, "venv", str(venv_path), "--python", sys.executable, "--quiet"],
@@ -548,24 +592,21 @@ def _create_project_venv(project_path: Path, profile: Any) -> None:
     venv_python = venv_path / "bin" / "python"
     dep_count = len(profile.dependencies or [])
 
-    console.print(
-        f"  📦 Installing osprey ({osprey_install}) + {dep_count} profile deps...",
-        style=Styles.DIM,
-    )
-
     if uv_path:
         cmd = [uv_path, "pip", "install", "--quiet", "-p", str(venv_python), *all_deps]
     else:
         cmd = [str(venv_python), "-m", "pip", "install",
                "--quiet", "--disable-pip-version-check", *all_deps]
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    from rich.live import Live
+    from rich.spinner import Spinner
+
+    spinner = Spinner("dots", text=f"  Installing osprey ({osprey_install}) + {dep_count} deps...")
+    with Live(spinner, transient=True):
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
     if result.returncode == 0:
-        console.print(
-            f"  ✓ Installed osprey + {dep_count} profile deps into project venv",
-            style=Styles.SUCCESS,
-        )
+        logger.info("  ✓ Installed osprey + %d profile deps into project venv", dep_count)
     elif "litellm" in (result.stdout + result.stderr).lower():
         # ---------------------------------------------------------------
         # TEMPORARY WORKAROUND — litellm supply chain attack (2026-03-24)
@@ -583,10 +624,8 @@ def _create_project_venv(project_path: Path, profile: Any) -> None:
         #   1. Remove this entire elif block
         #   2. The normal install path above will work again
         # ---------------------------------------------------------------
-        console.print(
-            "  ⚠️  litellm unavailable on PyPI (quarantined) — "
-            "inheriting from build environment",
-            style=Styles.WARNING,
+        logger.warning(
+            "  litellm unavailable on PyPI (quarantined) — inheriting from build environment"
         )
         # Install osprey (no transitive deps) + profile deps
         if uv_path:
@@ -612,14 +651,18 @@ def _create_project_venv(project_path: Path, profile: Any) -> None:
                 *list(profile.dependencies or []),
             ] if profile.dependencies else None
 
-        r = subprocess.run(cmd_nodeps, capture_output=True, text=True, timeout=120)
+        spinner = Spinner("dots", text="  Installing osprey (--no-deps)...")
+        with Live(spinner, transient=True):
+            r = subprocess.run(cmd_nodeps, capture_output=True, text=True, timeout=120)
         if r.returncode != 0:
             raise BuildProfileError(
                 f"Failed to install osprey --no-deps:\n{(r.stdout + r.stderr).strip()}"
             )
 
         if cmd_profile:
-            r = subprocess.run(cmd_profile, capture_output=True, text=True, timeout=120)
+            spinner = Spinner("dots", text=f"  Installing {dep_count} profile deps...")
+            with Live(spinner, transient=True):
+                r = subprocess.run(cmd_profile, capture_output=True, text=True, timeout=120)
             if r.returncode != 0:
                 raise BuildProfileError(
                     f"Failed to install profile deps:\n{(r.stdout + r.stderr).strip()}"
@@ -636,15 +679,9 @@ def _create_project_venv(project_path: Path, profile: Any) -> None:
             if proj_sp:
                 pth_file = proj_sp[0] / "_osprey_build_env.pth"
                 pth_file.write_text(f"{sp_dirs[0]}\n")
-                console.print(
-                    f"  ✓ Linked build environment site-packages via .pth",
-                    style=Styles.SUCCESS,
-                )
+                logger.info("  ✓ Linked build environment site-packages via .pth")
 
-        console.print(
-            f"  ✓ Installed osprey (--no-deps) + {dep_count} profile deps",
-            style=Styles.SUCCESS,
-        )
+        logger.info("  ✓ Installed osprey (--no-deps) + %d profile deps", dep_count)
     else:
         output = (result.stdout + result.stderr).strip()
         raise BuildProfileError(
@@ -824,24 +861,34 @@ def _copy_overlay_files(
         overlay_dict: Mapping of source (relative to profile_dir) → destination
             (relative to project_path).
     """
-    for src_rel, dst_rel in overlay_dict.items():
-        src = (profile_dir / src_rel).resolve()
-        dst = (project_path / dst_rel).resolve()
+    from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 
-        # Path traversal guard
-        if not dst.is_relative_to(project_path.resolve()):
-            raise ValueError(f"Overlay destination escapes project root: {dst_rel}")
+    with Progress(
+        TextColumn("  Copying overlays"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        transient=True,
+    ) as progress:
+        task = progress.add_task("overlays", total=len(overlay_dict))
+        for src_rel, dst_rel in overlay_dict.items():
+            src = (profile_dir / src_rel).resolve()
+            dst = (project_path / dst_rel).resolve()
 
-        dst.parent.mkdir(parents=True, exist_ok=True)
+            # Path traversal guard
+            if not dst.is_relative_to(project_path.resolve()):
+                raise ValueError(f"Overlay destination escapes project root: {dst_rel}")
 
-        if src.is_dir():
-            if dst.exists():
-                shutil.rmtree(dst)
-            shutil.copytree(src, dst)
-        else:
-            shutil.copy2(src, dst)
+            dst.parent.mkdir(parents=True, exist_ok=True)
 
-        logger.info("Overlay: %s → %s", src_rel, dst_rel)
+            if src.is_dir():
+                if dst.exists():
+                    shutil.rmtree(dst)
+                shutil.copytree(src, dst)
+            else:
+                shutil.copy2(src, dst)
+
+            logger.debug("Overlay: %s → %s", src_rel, dst_rel)
+            progress.advance(task)
 
 
 def _register_overlay_artifacts(project_path: Path, overlay_dict: dict[str, str]) -> int:
@@ -912,19 +959,14 @@ def _inject_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> None
         if not isinstance(server, McpServerDef):
             continue
         if name in mcp_servers_section:
-            console.print(
-                f"  ⚠️  MCP server '{name}' already exists in .mcp.json — skipping",
-                style=Styles.WARNING,
-            )
+            logger.warning("  MCP server '%s' already exists in .mcp.json — skipping", name)
             continue
 
         # Resolve bare `python` to the project venv Python so MCP servers
         # use the right interpreter (with profile deps) at runtime.
         command = server.command
         if command == "python":
-            venv_python = project_path / ".venv" / "bin" / "python"
-            if venv_python.exists():
-                command = str(venv_python)
+            command = str(project_path / ".venv" / "bin" / "python")
 
         entry: dict[str, Any] = {
             "command": command,
@@ -1007,25 +1049,23 @@ def _git_init_and_commit(project_path: Path) -> None:
                 "GIT_COMMITTER_EMAIL": "osprey@build",
             },
         )
-        console.print("  ✓ Initialized git repository", style=Styles.SUCCESS)
+        logger.info("  ✓ Initialized git repository")
         if inside_existing_repo:
-            console.print(
-                f"  ⚠️  Note: created a nested git repo inside {parent_root}.\n"
+            logger.warning(
+                "  Note: created a nested git repo inside %s.\n"
                 "     This is required for Claude Code project isolation (it uses\n"
                 "     the git root to discover .claude/ settings). The parent repo\n"
                 "     will treat this directory as opaque.",
-                style=Styles.WARNING,
+                parent_root,
             )
     except FileNotFoundError:
-        console.print(
-            "  ⚠️  git not found — project created but not initialized as a git repo.\n"
+        logger.warning(
+            "  git not found — project created but not initialized as a git repo.\n"
             "     Claude Code requires git. Run 'git init && git add . && git commit'"
-            " manually.",
-            style=Styles.WARNING,
+            " manually."
         )
     except subprocess.CalledProcessError:
-        console.print(
-            "  ⚠️  git init succeeded but initial commit failed.\n"
-            "     Run 'git add . && git commit' manually.",
-            style=Styles.WARNING,
+        logger.warning(
+            "  git init succeeded but initial commit failed.\n"
+            "     Run 'git add . && git commit' manually."
         )
