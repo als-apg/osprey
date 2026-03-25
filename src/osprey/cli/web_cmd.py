@@ -130,7 +130,14 @@ def web(
     wt_config = get_config_value("web_terminal", {})
     host = host or wt_config.get("host", "127.0.0.1")
     port = port or wt_config.get("port", 8087)
-    shell = shell or wt_config.get("shell") or "claude"
+    from osprey.utils.shell_resolver import resolve_shell_command
+
+    shell_raw = shell or wt_config.get("shell") or "claude"
+    try:
+        shell = resolve_shell_command(shell_raw)
+    except FileNotFoundError as e:
+        click.echo(f"ERROR: {e}", err=True)
+        raise SystemExit(1)
 
     if detach:
         _start_detached(host, port, shell, project)

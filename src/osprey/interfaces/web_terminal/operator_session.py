@@ -148,6 +148,14 @@ def build_clean_env(project_cwd: str | None = None) -> dict[str, str]:
     if env.get("ANTHROPIC_AUTH_TOKEN"):
         env.pop("ANTHROPIC_API_KEY", None)
 
+    # Augment PATH with user-local bin dirs (e.g. ~/.local/bin) so operator
+    # child processes can find their dependencies in non-login contexts.
+    from osprey.utils.shell_resolver import user_bin_dirs
+
+    extra_dirs = user_bin_dirs()
+    if extra_dirs:
+        env["PATH"] = os.pathsep.join(extra_dirs) + os.pathsep + env.get("PATH", "")
+
     # Auto-set OSPREY_CONFIG when a config.yml exists in the project directory
     if "OSPREY_CONFIG" not in env and project_cwd:
         config_path = Path(project_cwd) / "config.yml"

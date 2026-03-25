@@ -72,6 +72,15 @@ class PtySession:
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
 
+        # Augment PATH with user-local bin dirs (e.g. ~/.local/bin) so the
+        # shell and its child processes can find their dependencies even when
+        # launched from a non-login context (lifecycle hooks, nohup, etc.).
+        from osprey.utils.shell_resolver import user_bin_dirs
+
+        extra_dirs = user_bin_dirs()
+        if extra_dirs:
+            env["PATH"] = os.pathsep.join(extra_dirs) + os.pathsep + env.get("PATH", "")
+
         if extra_env:
             env.update(extra_env)
 

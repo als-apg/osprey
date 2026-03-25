@@ -251,6 +251,19 @@ class TestBuildCleanEnv:
         env = build_clean_env()
         assert env["ANTHROPIC_API_KEY"] == "sk-123"
 
+    def test_augments_path_with_user_bin_dirs(self, monkeypatch, tmp_path):
+        """PATH includes user-local bin dirs not already on PATH."""
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+
+        monkeypatch.setattr(
+            "osprey.utils.shell_resolver._USER_BIN_CANDIDATES", [bin_dir]
+        )
+        monkeypatch.setenv("PATH", "/usr/bin")
+
+        env = build_clean_env()
+        assert str(bin_dir) in env["PATH"]
+
 
 # ---------------------------------------------------------------------------
 # OperatorSession
