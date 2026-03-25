@@ -394,14 +394,17 @@ def chat_claude(project, resume, print_mode, effort):
                     f"[dim]Translation proxy started on :{proxy_port} → {spec.upstream_base_url}[/dim]"
                 )
 
-    # Build claude CLI args
-    args = ["claude", "--project-dir", str(project_dir)]
+    # Build claude CLI args (claude uses cwd as project root — no --project-dir flag)
+    args = ["claude"]
     if resume:
         args.extend(["--resume", resume])
     if print_mode:
         args.append("--print")
     if effort:
         args.extend(["--effort", effort])
+
+    # Claude Code uses the working directory as the project root.
+    os.chdir(project_dir)
 
     # Launch claude CLI.  When the translation proxy is running in a daemon
     # thread we must keep this process alive, so use subprocess.run instead

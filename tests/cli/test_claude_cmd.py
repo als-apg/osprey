@@ -165,7 +165,8 @@ class TestClaudeChatCommand:
         mock_execvp.assert_called_once()
         call_args = mock_execvp.call_args
         assert call_args[0][0] == "claude"
-        assert "--project-dir" in call_args[0][1]
+        # claude CLI uses cwd as project root (no --project-dir flag)
+        assert "--project-dir" not in call_args[0][1]
 
     @patch("osprey.cli.claude_cmd.os.execvp")
     def test_chat_passes_resume_flag(self, mock_execvp, cli_runner, tmp_path):
