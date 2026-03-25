@@ -69,6 +69,15 @@ class PurgeInfo:
     embedding_tables: list[str]
 
 
+@dataclass
+class SyncResult:
+    migrations_applied: int
+    entries_ingested: int
+    entries_enhanced: int
+    entries_failed: int
+    was_initial_ingest: bool
+
+
 # ---------------------------------------------------------------------------
 # Service functions
 # ---------------------------------------------------------------------------
@@ -163,6 +172,81 @@ async def run_migrate(
             progress("Migrations complete.")
     finally:
         await pool.close()
+
+
+async def run_sync(
+    config_dict: dict,
+    limit: int | None = None,
+    progress: _ProgressCb = None,
+) -> SyncResult:
+    """Sync ARIEL database: migrate, incremental ingest, enhance.
+
+    Composes existing operations into a single idempotent command:
+
+    1. Run database migrations (skips already-applied)
+    2. Incremental ingest via ``IngestionScheduler.poll_once`` — fetches
+       only entries added since the last successful run
+    3. Enhance cleanup — processes entries with incomplete enhancements
+       from prior runs (new entries are enhanced inline during step 2)
+    """
+    import copy
+
+    from osprey.services.ariel_search import ARIELConfig, create_ariel_service
+    from osprey.services.ariel_search.database.connection import create_connection_pool
+    from osprey.services.ariel_search.database.migrations import run_migrations
+    from osprey.services.ariel_search.ingestion.scheduler import IngestionScheduler
+
+    config = ARIELConfig.from_dict(config_dict)
+
+    # Step 1: Migrate
+    if progress:
+        progress("Running migrations...")
+
+    pool = await create_connection_pool(config.database)
+    try:
+        applied = await run_migrations(pool, config)
+        migrations_applied = len(applied) if applied else 0
+        if migrations_applied and progress:
+            progress(f"  {migrations_applied} migrations applied")
+        elif progress:
+            progress("  Already up to date")
+    finally:
+        await pool.close()
+
+    # Step 2: Incremental ingest via scheduler
+    # Override require_initial_ingest so sync does a full ingest on fresh databases
+    # (the scheduler default skips when no prior run exists)
+    sync_dict = copy.deepcopy(config_dict)
+    sync_dict.setdefault("ingestion", {}).setdefault("watch", {})["require_initial_ingest"] = False
+    sync_config = ARIELConfig.from_dict(sync_dict)
+
+    service = await create_ariel_service(sync_config)
+    async with service:
+        scheduler = IngestionScheduler(config=sync_config, repository=service.repository)
+        if progress:
+            source = sync_config.ingestion.source_url if sync_config.ingestion else "unknown"
+            progress(f"Polling for new entries (source: {source})...")
+
+        poll_result = await scheduler.poll_once(limit=limit)
+        was_initial = poll_result.since is None
+
+    if progress:
+        progress(f"  {poll_result.entries_added} entries ingested")
+        if was_initial:
+            progress("  (initial full ingest)")
+
+    # Step 3: Enhance cleanup — catch up previously-failed enhancements
+    enhance_result = await run_enhance(
+        config_dict, module=None, force=False, limit=1000, progress=progress,
+    )
+
+    return SyncResult(
+        migrations_applied=migrations_applied,
+        entries_ingested=poll_result.entries_added,
+        entries_enhanced=enhance_result.entries_processed,
+        entries_failed=poll_result.entries_failed,
+        was_initial_ingest=was_initial,
+    )
 
 
 async def run_ingest(
@@ -373,11 +457,24 @@ async def run_enhance(
     async with service:
         if force:
             entries = await service.repository.search_by_time_range(limit=limit)
-        else:
+        elif module:
             entries = await service.repository.get_incomplete_entries(
                 module_name=module,
                 limit=limit,
             )
+        else:
+            # No specific module — collect entries incomplete for ANY enhancer
+            seen_ids: set[str] = set()
+            entries = []
+            for enhancer in enhancers:
+                incomplete = await service.repository.get_incomplete_entries(
+                    module_name=enhancer.name,
+                    limit=limit,
+                )
+                for entry in incomplete:
+                    if entry["entry_id"] not in seen_ids:
+                        seen_ids.add(entry["entry_id"])
+                        entries.append(entry)
 
         if progress:
             progress(f"Processing {len(entries)} entries...")

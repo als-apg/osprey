@@ -143,7 +143,7 @@ def init(
       # Create with specific AI provider and model
       $ osprey init my-assistant --provider cborg --model anthropic/claude-haiku
     """
-    console.print(f"🚀 Creating project: [header]{project_name}[/header]")
+    console.print(f"Creating project: [header]{project_name}[/header]")
 
     try:
         # Create template manager
@@ -153,20 +153,20 @@ def init(
         available_templates = manager.list_app_templates()
         if template not in available_templates:
             console.print(
-                f"❌ Template '{template}' not found.\n"
+                f"✗ Template '{template}' not found.\n"
                 f"Available templates: {', '.join(available_templates)}",
                 style=Styles.ERROR,
             )
             raise click.Abort()
 
-        console.print(f"  📋 Using template: [accent]{template}[/accent]")
-        console.print("  🤖 Mode: Claude Code")
+        console.print(f"  Using template: [accent]{template}[/accent]")
+        console.print("  Mode: Claude Code")
 
         from .templates.scaffolding import detect_environment_variables
 
         detected_env = detect_environment_variables()
         if detected_env:
-            console.print(f"  🔑 Detected {len(detected_env)} environment variable(s) from system:")
+            console.print(f"  Detected {len(detected_env)} environment variable(s) from system:")
             for env_var in detected_env.keys():
                 console.print(f"     • {env_var}", style=Styles.DIM)
 
@@ -177,14 +177,14 @@ def init(
         if project_path.exists():
             if force:
                 msg = Messages.warning(f"Removing existing directory: {project_path}")
-                console.print(f"  ⚠️  {msg}")
+                console.print(f"  !  {msg}")
                 import shutil
 
                 shutil.rmtree(project_path)
                 console.print(f"  {Messages.success('Removed existing directory')}")
             else:
                 console.print(
-                    f"❌ Directory '{project_path}' already exists.\n"
+                    f"✗ Directory '{project_path}' already exists.\n"
                     f"   Use --force to overwrite, or choose a different name.",
                     style=Styles.ERROR,
                 )
@@ -268,7 +268,7 @@ def init(
             console.print("  ✓ Initialized git repository", style=Styles.SUCCESS)
             if inside_existing_repo:
                 console.print(
-                    f"  ⚠️  Note: created a nested git repo inside {parent_root}.\n"
+                    f"  !  Note: created a nested git repo inside {parent_root}.\n"
                     "     This is required for Claude Code project isolation (it uses\n"
                     "     the git root to discover .claude/ settings). The parent repo\n"
                     "     will treat this directory as opaque.",
@@ -276,14 +276,14 @@ def init(
                 )
         except FileNotFoundError:
             console.print(
-                "  ⚠️  git not found — project created but not initialized as a git repo.\n"
+                "  !  git not found — project created but not initialized as a git repo.\n"
                 "     Claude Code requires git. Run 'git init && git add . && git commit'"
                 " manually.",
                 style=Styles.WARNING,
             )
         except subprocess.CalledProcessError:
             console.print(
-                "  ⚠️  git init succeeded but initial commit failed.\n"
+                "  !  git init succeeded but initial commit failed.\n"
                 "     Run 'git add . && git commit' manually.",
                 style=Styles.WARNING,
             )
@@ -297,7 +297,7 @@ def init(
         if has_api_keys:
             console.print("  ✓ Created .env with detected API keys", style=Styles.SUCCESS)
 
-        console.print(f"\n✅ Project created successfully at: [bold]{project_path}[/bold]")
+        console.print(f"\n✓ Project created successfully at: [bold]{project_path}[/bold]")
 
         # Show provider/model configuration status
         if provider or model:
@@ -312,7 +312,7 @@ def init(
                 )
 
         # Show next steps (Claude Code focused)
-        console.print("\n📋 [bold]Next steps:[/bold]")
+        console.print("\n[bold]Next steps:[/bold]")
         console.print(f"  1. {Messages.command(f'cd {project_name}')}")
 
         if has_api_keys:
@@ -342,10 +342,10 @@ def init(
                 console.print("  → Launch with:           [accent]osprey claude chat[/accent]")
 
     except ValueError as e:
-        console.print(f"❌ Error: {e}", style=Styles.ERROR)
+        console.print(f"✗ Error: {e}", style=Styles.ERROR)
         raise click.Abort() from e
     except Exception as e:
-        console.print(f"❌ Unexpected error: {e}", style=Styles.ERROR)
+        console.print(f"✗ Unexpected error: {e}", style=Styles.ERROR)
         import traceback
 
         console.print(traceback.format_exc(), style=Styles.DIM)

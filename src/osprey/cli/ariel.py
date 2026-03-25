@@ -118,6 +118,41 @@ def migrate_command() -> None:
         raise
 
 
+@ariel_group.command("sync")
+@click.option("--limit", type=int, help="Maximum entries to ingest per run")
+def sync_command(limit: int | None) -> None:
+    """Sync ARIEL database: migrate, incremental ingest, enhance.
+
+    Idempotent — safe to run on every build. Only fetches new entries
+    since the last successful ingest run. On a fresh database, runs
+    a full ingest.
+
+    Example:
+        osprey ariel sync                # Full sync
+        osprey ariel sync --limit 1000   # Limit ingest to 1000 entries
+    """
+    from osprey.services.ariel_search.cli_operations import run_sync
+    from osprey.services.ariel_search.exceptions import DatabaseQueryError
+
+    config_dict = _load_ariel_config()
+    try:
+        result = asyncio.run(run_sync(config_dict, limit=limit, progress=click.echo))
+        click.echo(
+            f"\nSync complete: "
+            f"{result.entries_ingested} ingested, "
+            f"{result.entries_enhanced} enhanced, "
+            f"{result.entries_failed} failed"
+        )
+        if result.migrations_applied:
+            click.echo(f"  Migrations applied: {result.migrations_applied}")
+    except DatabaseQueryError as e:
+        _handle_missing_tables(e)
+        raise
+    except Exception as e:
+        _handle_db_error(e)
+        raise
+
+
 @ariel_group.command("ingest")
 @click.option("--source", "-s", required=True, help="Source file path or URL")
 @click.option(

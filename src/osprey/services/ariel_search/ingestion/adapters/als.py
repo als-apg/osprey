@@ -252,24 +252,25 @@ class ALSLogbookAdapter(FacilityAdapter):
         Returns:
             XML string for the RPC request.
         """
-        root = ET.Element("entry")
-
+        root = ET.Element("root")
         ET.SubElement(root, "author").text = author
         ET.SubElement(root, "password").text = password
-        ET.SubElement(root, "subject").text = subject
-        ET.SubElement(root, "details").text = details
-        ET.SubElement(root, "level").text = level
+
+        entry = ET.SubElement(root, "entry")
+        ET.SubElement(entry, "subject").text = subject
+        ET.SubElement(entry, "details").text = details
+        ET.SubElement(entry, "level").text = level
 
         if logbook:
-            logbooks_elem = ET.SubElement(root, "logbooks")
+            logbooks_elem = ET.SubElement(entry, "logbooks")
             ET.SubElement(logbooks_elem, "logbook").text = logbook
 
         if categories:
-            cats_elem = ET.SubElement(root, "categories")
+            cats_elem = ET.SubElement(entry, "categories")
             for cat in categories:
                 ET.SubElement(cats_elem, "category").text = cat
 
-        return ET.tostring(root, encoding="unicode", xml_declaration=True)
+        return ET.tostring(root, encoding="unicode")
 
     async def _post_entry(self, write_url: str, xml_payload: str) -> str:
         """POST the XML payload to the ALS olog RPC endpoint.
@@ -372,7 +373,12 @@ class ALSLogbookAdapter(FacilityAdapter):
             EnhancedLogbookEntry objects
         """
         start_date = since or ALS_LOGBOOK_START_DATE
+        # Ensure timezone-aware for comparison with end_date
+        if start_date.tzinfo is None:
+            start_date = start_date.replace(tzinfo=UTC)
         end_date = until or datetime.now(UTC)
+        if end_date.tzinfo is None:
+            end_date = end_date.replace(tzinfo=UTC)
 
         windows = self._generate_time_windows(start_date, end_date)
         logger.info(
@@ -541,7 +547,26 @@ class ALSLogbookAdapter(FacilityAdapter):
 
         async with session.get(self.source_url, params=params, ssl=ssl_context) as response:
             response.raise_for_status()
-            data = await response.json()
+
+            # ALS OLOG returns text/html content-type even for valid JSON,
+            # and returns actual HTML for empty date ranges. Parse permissively.
+            body = await response.text()
+            body = body.strip()
+            if not body or body.startswith("<") or body.startswith("<!"):
+                logger.debug(
+                    f"Window {window_start.isoformat()}-{window_end.isoformat()}: "
+                    f"HTML or empty response, treating as empty"
+                )
+                return []
+
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                logger.debug(
+                    f"Window {window_start.isoformat()}-{window_end.isoformat()}: "
+                    f"non-JSON response, treating as empty"
+                )
+                return []
 
             if not isinstance(data, list):
                 logger.warning(f"Unexpected response type: {type(data)}, expected list")

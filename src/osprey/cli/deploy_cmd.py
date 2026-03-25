@@ -129,10 +129,10 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool, ex
         config_file = Path(config_path)
         if not config_file.exists():
             console.print(
-                f"\n❌ Configuration file not found: [accent]{config_path}[/accent]",
+                f"\n✗ Configuration file not found: [accent]{config_path}[/accent]",
                 style=Styles.ERROR,
             )
-            console.print("\n💡 Are you in a project directory?", style=Styles.WARNING)
+            console.print("\nHint: Are you in a project directory?", style=Styles.WARNING)
             console.print(f"   Current directory: [dim]{Path.cwd()}[/dim]\n")
 
             # Look for nearby project directories with config.yml
@@ -197,11 +197,11 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool, ex
 
         elif action == "build":
             # Just prepare compose files without starting services
-            console.print("🔨 Building compose files...")
+            console.print("Building compose files...")
             _, compose_files = prepare_compose_files(
                 config_path, dev_mode=dev, expose_network=expose
             )
-            console.print("\n✅ Compose files built successfully:")
+            console.print("\n✓ Compose files built successfully:")
             for compose_file in compose_files:
                 console.print(f"  • {compose_file}")
 
@@ -216,10 +216,10 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool, ex
             rebuild_deployment(config_path, detached=detached, dev_mode=dev, expose_network=expose)
 
     except KeyboardInterrupt:
-        console.print("\n⚠️  Operation cancelled by user", style=Styles.WARNING)
+        console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
         raise click.Abort() from None
     except Exception as e:
-        console.print(f"❌ Deployment failed: {e}", style=Styles.ERROR)
+        console.print(f"✗ Deployment failed: {e}", style=Styles.ERROR)
         # Show more details in verbose mode
         if os.environ.get("DEBUG"):
             import traceback

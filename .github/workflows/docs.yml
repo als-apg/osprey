@@ -7,18 +7,21 @@ on:
       - 'v*'  # Trigger on version tags (v1.0, v2.1.3, etc.)
   pull_request:
     branches: [ main ]
-  workflow_dispatch:  # Enable manual triggering
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag to build docs for (e.g., v0.11.4). Leave empty for main branch build.'
+        required: false
+        type: string
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write   # Required to push to gh-pages branch
 
 # Allow only one concurrent deployment, canceling older runs to prevent version race conditions.
 # When both main push and tag push trigger simultaneously, the tag build (with correct version) should win.
 concurrency:
   group: "pages"
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -29,16 +32,36 @@ jobs:
       uses: actions/checkout@v6
       with:
         fetch-depth: 0  # Fetch full history including all tags
+        ref: ${{ github.event.inputs.tag || github.ref }}
 
     - name: Determine version and deployment path
       id: version
+      env:
+        INPUT_TAG: ${{ github.event.inputs.tag || '' }}
       run: |
-        if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+        if [[ -n "$INPUT_TAG" ]]; then
+          # Manual trigger with specific tag — build docs for that version
+          VERSION="${INPUT_TAG#v}"
+          DEPLOY_DIR="v${VERSION}"
+          NEWEST_TAG=$(git tag --sort=-version:refname | head -n1 | sed 's/^v//')
+          if [[ "$VERSION" == "$NEWEST_TAG" ]]; then
+            IS_LATEST="true"
+          else
+            IS_LATEST="false"
+          fi
+          echo "Building docs for tag: ${INPUT_TAG} (latest=${IS_LATEST})"
+        elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
           # Building a specific version tag
           VERSION="${GITHUB_REF#refs/tags/v}"
           DEPLOY_DIR="v${VERSION}"
-          IS_LATEST="true"
-          echo "Building version: ${VERSION}"
+          # Only update root if this is the newest version tag
+          NEWEST_TAG=$(git tag --sort=-version:refname | head -n1 | sed 's/^v//')
+          if [[ "$VERSION" == "$NEWEST_TAG" ]]; then
+            IS_LATEST="true"
+          else
+            IS_LATEST="false"
+          fi
+          echo "Building version: ${VERSION} (latest=${IS_LATEST})"
         elif [[ "$GITHUB_REF" == "refs/heads/main" ]] || [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
           # Building from main branch - use latest tag or dev
           LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "dev")
@@ -82,19 +105,15 @@ jobs:
       if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
       continue-on-error: true
       run: |
-        # Try to download existing gh-pages content
         mkdir -p gh-pages-existing
         cd gh-pages-existing
-
-        # Clone only the gh-pages branch
-        git clone --branch gh-pages --depth 1 https://github.com/${{ github.repository }}.git . || true
-
-        # If clone succeeded, we have existing content
+        git clone --branch gh-pages --depth 1 \
+          https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git . || true
         if [ -d ".git" ]; then
-          echo "📥 Found existing GitHub Pages content"
+          echo "Found existing GitHub Pages content"
           rm -rf .git
         else
-          echo "📝 No existing GitHub Pages content (first deployment)"
+          echo "No existing GitHub Pages content (first deployment)"
         fi
 
     - name: Prepare multi-version deployment
@@ -135,18 +154,18 @@ jobs:
         import subprocess
         from pathlib import Path
 
-        # Get all version tags
+        # Get all version tags (sorted newest-first by version)
         result = subprocess.run(
             ['git', 'tag', '--sort=-version:refname'],
             capture_output=True,
             text=True
         )
-
         tags = [tag.strip() for tag in result.stdout.split('\n') if tag.strip().startswith('v')]
 
         versions = []
+        deployment_dir = Path('deployment')
 
-        # Add latest stable version (at root)
+        # 1. Latest stable version -> root URL (preferred)
         if tags:
             latest_version = tags[0].lstrip('v')
             versions.append({
@@ -156,8 +175,20 @@ jobs:
                 "preferred": True
             })
 
-        # Only add development version if on main branch
-        # We don't add individual versioned directories since they don't exist yet
+        # 2. All deployed versioned snapshots (skip latest — already listed as root)
+        for tag in tags:
+            version_dir = deployment_dir / tag  # e.g., deployment/v0.11.5
+            if version_dir.is_dir():
+                if tags and tag == tags[0]:
+                    continue  # Latest is already the root entry
+                version_num = tag.lstrip('v')
+                versions.append({
+                    "name": tag,
+                    "version": version_num,
+                    "url": f"https://als-apg.github.io/osprey/{tag}/"
+                })
+
+        # 3. Development version (only on main branch pushes)
         github_ref = os.environ.get('GITHUB_REF', '')
         if github_ref == 'refs/heads/main':
             versions.append({
@@ -166,33 +197,27 @@ jobs:
                 "url": "https://als-apg.github.io/osprey/latest/"
             })
 
-        # Write versions.json
+        # Write versions.json to root _static/
         output_dir = Path('deployment/_static')
         output_dir.mkdir(parents=True, exist_ok=True)
 
         with open(output_dir / 'versions.json', 'w') as f:
             json.dump(versions, f, indent=2)
 
-        print("✅ Generated versions.json:")
+        print("Generated versions.json:")
         print(json.dumps(versions, indent=2))
         EOFPYTHON
 
         uv run python generate_versions.py
 
-    - name: Upload artifact
+    - name: Prepare deployment metadata
       if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-      uses: actions/upload-pages-artifact@v4
-      with:
-        path: deployment
+      run: |
+        touch deployment/.nojekyll
 
-  deploy:
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+    - name: Deploy to GitHub Pages
+      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+      uses: peaceiris/actions-gh-pages@v4
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./deployment

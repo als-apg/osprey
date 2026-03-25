@@ -67,7 +67,7 @@ class HealthChecker:
 
     def check_all(self) -> bool:
         """Run all health checks and return True if all passed."""
-        console.print(f"\n{Messages.header('🏥 Osprey Framework - Health Check')}\n")
+        console.print(f"\n{Messages.header('Osprey Framework - Health Check')}\n")
 
         # Initialize registry (needed for provider checks)
         try:
@@ -138,7 +138,7 @@ class HealthChecker:
                 f"Looking in: {self.cwd}\n"
                 "Please run this command from a project directory containing config.yml",
             )
-            console.print(f"  {Messages.error('❌ config.yml not found')}")
+            console.print(f"  {Messages.error('✗ config.yml not found')}")
             return
 
         self.add_result("config_file_exists", "ok", f"Found at {config_path}")
@@ -152,12 +152,12 @@ class HealthChecker:
 
             if config is None:
                 self.add_result("yaml_valid", "error", "Config file is empty")
-                console.print(f"  {Messages.error('❌ Config file is empty')}")
+                console.print(f"  {Messages.error('✗ Config file is empty')}")
                 return
 
             if not isinstance(config, dict):
                 self.add_result("yaml_valid", "error", "Config must be a dictionary")
-                console.print(f"  {Messages.error('❌ Invalid YAML structure')}")
+                console.print(f"  {Messages.error('✗ Invalid YAML structure')}")
                 return
 
             self.add_result("yaml_valid", "ok", "Valid YAML syntax")
@@ -533,7 +533,7 @@ class HealthChecker:
                     f"{runtime}_available", "error", f"{runtime.capitalize()} command failed"
                 )
                 console.print(
-                    f"  {Messages.error(f'❌ {runtime.capitalize()} not working properly')}"
+                    f"  {Messages.error(f'✗ {runtime.capitalize()} not working properly')}"
                 )
         except RuntimeError as e:
             # No runtime found
@@ -803,7 +803,7 @@ class HealthChecker:
                     self.add_result(
                         f"model_chat_{provider}_{model_id}", "error", f"{model_label}: {error_msg}"
                     )
-                    console.print(Messages.error("❌ Failed"))
+                    console.print(Messages.error("✗ Failed"))
                     console.print(f"     [dim]{display_msg}[/dim]")
                 return
 
@@ -819,7 +819,7 @@ class HealthChecker:
             self.add_result(
                 f"model_chat_{provider}_{model_id}", "error", f"{model_label}: {error_msg}"
             )
-            console.print(Messages.error("❌ Failed"))
+            console.print(Messages.error("✗ Failed"))
 
             # Always show error details in full mode (not just verbose)
             console.print(f"     [dim]{display_msg}[/dim]")
@@ -852,7 +852,7 @@ class HealthChecker:
             panel_content.append("Details:")
             for result in self.results:
                 if result.status in ["warning", "error"]:
-                    symbol = "⚠️ " if result.status == "warning" else "❌"
+                    symbol = "!" if result.status == "warning" else "✗"
                     panel_content.append(f"  {symbol} {result.name}: {result.message}")
                     if result.details:
                         panel_content.append(f"     {result.details}")
@@ -860,7 +860,7 @@ class HealthChecker:
         # Create and display the framed panel
         panel = Panel(
             "\n".join(panel_content),
-            title="🏥 Osprey Health Check Results",
+            title="Osprey Health Check Results",
             border_style=Styles.BORDER_DIM,
             expand=False,
             padding=(1, 2),
@@ -961,7 +961,7 @@ def health(project: str, verbose: bool, basic: bool):
         warning_count = sum(1 for r in checker.results if r.status == "warning")
 
         if error_count > 0:
-            console.print(f"\n{Messages.error('❌ Health check failed with errors')}")
+            console.print(f"\n{Messages.error('✗ Health check failed with errors')}")
             sys.exit(2)
         elif warning_count > 0:
             console.print(f"\n{Messages.warning('Health check completed with warnings')}")

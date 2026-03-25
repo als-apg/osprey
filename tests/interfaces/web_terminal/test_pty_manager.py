@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import time
+from unittest.mock import patch
 
 import pytest
 
@@ -173,6 +174,41 @@ class TestPtySession:
                 os.unlink(marker)
             except OSError:
                 pass
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
+class TestPtySessionPathAugmentation:
+    def test_env_includes_user_bin_dirs(self, tmp_path):
+        """PtySession env should include user-local bin dirs not on PATH."""
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+
+        with patch("osprey.utils.shell_resolver._USER_BIN_CANDIDATES", [bin_dir]):
+            with patch.dict(os.environ, {"PATH": "/usr/bin"}, clear=False):
+                session = PtySession("/bin/sh")
+                session.start()
+                try:
+                    # Read the child's PATH from the PTY
+                    session.write_input(b"echo PATH=$PATH\n")
+
+                    import select
+
+                    output = b""
+                    deadline = time.monotonic() + 3
+                    while time.monotonic() < deadline:
+                        r, _, _ = select.select([session._master_fd], [], [], 0.1)
+                        if r:
+                            try:
+                                chunk = os.read(session._master_fd, 4096)
+                                output += chunk
+                                if str(bin_dir).encode() in output:
+                                    break
+                            except OSError:
+                                break
+
+                    assert str(bin_dir).encode() in output
+                finally:
+                    session.terminate()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")

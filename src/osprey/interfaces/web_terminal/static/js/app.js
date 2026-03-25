@@ -25,8 +25,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initMemoryGallery();
   initPromptsGallery();
   initHookDebug();
-  initWikiLink();
-
   // Listen for paste requests from embedded iframes (gallery, ARIEL)
   initIframePasteBridge();
 
@@ -167,21 +165,8 @@ function initResizeHandle() {
   });
 }
 
-/* ---- Wiki Link ---- */
-
-async function initWikiLink() {
-  const link = document.getElementById('wiki-link');
-  if (!link) return;
-  try {
-    const data = await fetchJSON('/api/wiki-url');
-    if (data.available && data.url) {
-      link.href = data.url;
-      link.style.display = '';
-    }
-  } catch {
-    // Wiki not configured — button stays hidden
-  }
-}
+/* ---- Docs Link ---- */
+// Documentation link is static — no backend call needed.
 
 /* ---- Iframe Paste Bridge ---- */
 

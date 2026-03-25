@@ -27,6 +27,7 @@ def create_enhancers_from_config(
     from osprey.registry import get_registry
 
     registry = get_registry()
+    registry.initialize(silent=True)
     ordered_names = registry.list_ariel_enhancement_modules()
     enhancers: list[BaseEnhancementModule] = []
     for name in ordered_names:
@@ -54,4 +55,5 @@ def get_enhancer_names() -> list[str]:
     from osprey.registry import get_registry
 
     registry = get_registry()
+    registry.initialize(silent=True)
     return registry.list_ariel_enhancement_modules()

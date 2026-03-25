@@ -163,8 +163,7 @@ class ARIELRepository:
                         author = EXCLUDED.author,
                         raw_text = EXCLUDED.raw_text,
                         attachments = EXCLUDED.attachments,
-                        metadata = EXCLUDED.metadata,
-                        enhancement_status = EXCLUDED.enhancement_status
+                        metadata = EXCLUDED.metadata
                     """,
                     [
                         entry["entry_id"],
