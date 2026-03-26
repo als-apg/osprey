@@ -165,6 +165,7 @@ def build(
             template_name=build_profile.base_template,
             registry_style="extend",
             context=context,
+            force=True,  # Directory already exists from step 6b (venv created there)
         )
         logger.info("  ✓ Base template rendered")
 
