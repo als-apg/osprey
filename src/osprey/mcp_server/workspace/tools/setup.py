@@ -129,7 +129,7 @@ async def setup_inspect() -> str:
         masked_env = _mask_env(osprey_env)
 
         # Workspace
-        ws_dir = project_root / "osprey-workspace"
+        ws_dir = project_root / "_agent_data"
         workspace = {
             "exists": ws_dir.is_dir(),
             "subdirs": _list_dirs_in(ws_dir) if ws_dir.is_dir() else [],

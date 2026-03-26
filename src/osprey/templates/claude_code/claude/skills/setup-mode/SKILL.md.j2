@@ -109,7 +109,7 @@ Then re-enter `/setup-mode` to verify the fix.
 
 ### Workspace Structure
 
-Expected subdirectories in `osprey-workspace/`:
+Expected subdirectories in `_agent_data/`:
 - `data/` — Data context entries
 - `plots/` — Generated static/interactive plots
 - `memory/` — Persistent memory store
@@ -160,7 +160,7 @@ Expected subdirectories in `osprey-workspace/`:
 ### 5. Workspace Not Found
 **Symptoms**: Artifact/memory tools fail.
 **Check**: `setup_inspect` → `workspace.exists`.
-**Fix**: Create workspace directory: `mkdir -p osprey-workspace/{data,plots,memory,artifacts,screenshots,results}`.
+**Fix**: Create workspace directory: `mkdir -p _agent_data/{data,plots,memory,artifacts,screenshots,results}`.
 
 ### 6. Environment Variables Missing
 **Symptoms**: Config not found, wrong project root.

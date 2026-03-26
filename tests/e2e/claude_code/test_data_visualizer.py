@@ -123,9 +123,9 @@ class TestDataVisualizerAgent:
         )
 
         # HTML artifact exists in the workspace
-        html_files = find_html_files(project_dir / "osprey-workspace")
+        html_files = find_html_files(project_dir / "_agent_data")
         assert len(html_files) > 0, (
-            "No HTML artifact found in osprey-workspace — "
+            "No HTML artifact found in _agent_data — "
             "create_interactive_plot may not have produced a Plotly chart."
         )
 
@@ -218,7 +218,7 @@ class TestDataVisualizerAgent:
                 break
 
         # HTML artifact produced
-        html_files = find_html_files(project_dir / "osprey-workspace")
+        html_files = find_html_files(project_dir / "_agent_data")
         assert len(html_files) > 0, "No HTML artifact found — interactive plot not produced."
 
         if result.cost_usd is not None:

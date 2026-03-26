@@ -229,7 +229,7 @@ def test_clear_removes_all(pending_review_client):
 
 def _setup_artifacts(project_cwd, channels, filename="abc123_channel-finder.md"):
     """Create a minimal artifacts.json with one channel-finder artifact."""
-    artifacts_dir = Path(project_cwd) / "osprey-workspace" / "artifacts"
+    artifacts_dir = Path(project_cwd) / "_agent_data" / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     artifact = {
         "id": "abc123",

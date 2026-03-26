@@ -186,7 +186,7 @@ except Exception as e:
                 setup += f"""
 # Execution directory for wrapper outputs (results, figures, artifacts).
 # User code cwd stays at the project root so relative paths like
-# "osprey-workspace/data/002_archiver_read.json" resolve correctly.
+# "_agent_data/data/002_archiver_read.json" resolve correctly.
 _execution_dir = Path(r"{execution_folder}")
 if not _execution_dir.exists():
     print(f"Warning: Execution directory {{_execution_dir}} does not exist")

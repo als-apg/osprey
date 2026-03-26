@@ -68,7 +68,7 @@ async def data_list(
             make_error(
                 "internal_error",
                 f"Failed to list data: {exc}",
-                ["Check that the osprey-workspace directory is accessible."],
+                ["Check that the _agent_data directory is accessible."],
             )
         )
 
@@ -138,7 +138,7 @@ async def data_read(entry_id: str) -> str:
             make_error(
                 "internal_error",
                 f"Failed to read data entry: {exc}",
-                ["Check that the osprey-workspace directory is accessible."],
+                ["Check that the _agent_data directory is accessible."],
             )
         )
 
@@ -184,6 +184,6 @@ async def data_delete(entry_id: str) -> str:
             make_error(
                 "internal_error",
                 f"Failed to delete data entry: {exc}",
-                ["Check that the osprey-workspace directory is accessible."],
+                ["Check that the _agent_data directory is accessible."],
             )
         )

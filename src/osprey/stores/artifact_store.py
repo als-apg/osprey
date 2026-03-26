@@ -2,7 +2,7 @@
 
 Manages interactive artifacts (plots, tables, HTML, markdown) produced by
 Claude during analysis sessions.  Artifacts are stored in
-``osprey-workspace/artifacts/`` and served by the Artifact Server gallery.
+``_agent_data/artifacts/`` and served by the Artifact Server gallery.
 
 Two entry points create artifacts:
   1. ``save_artifact()`` — injected into ``execute`` namespace

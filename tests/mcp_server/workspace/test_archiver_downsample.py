@@ -32,7 +32,7 @@ def _make_timeseries_data(n_points: int, n_channels: int = 2):
 
 @pytest.fixture
 def workspace(tmp_path, monkeypatch):
-    ws = tmp_path / "osprey-workspace"
+    ws = tmp_path / "_agent_data"
     ws.mkdir()
     (ws / "artifacts").mkdir()
     monkeypatch.setattr(

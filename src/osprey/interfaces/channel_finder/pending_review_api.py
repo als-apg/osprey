@@ -59,7 +59,7 @@ def _resolve_artifact(item: dict, project_cwd: str) -> dict | None:
     Returns ``{"id": ..., "title": ..., "filename": ...}`` or ``None``.
     """
     try:
-        artifacts_path = Path(project_cwd) / "osprey-workspace" / "artifacts" / "artifacts.json"
+        artifacts_path = Path(project_cwd) / "_agent_data" / "artifacts" / "artifacts.json"
         if not artifacts_path.is_file():
             return None
 
@@ -308,7 +308,7 @@ async def serve_artifact(filename: str, request: Request):
         raise HTTPException(400, "Invalid filename")
 
     project_cwd = getattr(request.app.state, "project_cwd", "")
-    artifact_path = Path(project_cwd) / "osprey-workspace" / "artifacts" / filename
+    artifact_path = Path(project_cwd) / "_agent_data" / "artifacts" / filename
 
     if not artifact_path.is_file():
         raise HTTPException(404, "Artifact not found")

@@ -45,7 +45,7 @@ ax.legend()
 ax.grid(True, alpha=0.3)
 fig.tight_layout()
 
-output_path = "osprey-workspace/plots/optics.png"
+output_path = "_agent_data/plots/optics.png"
 fig.savefig(output_path, dpi=150)
 plt.close(fig)
 print(f"\nPlot saved to {output_path}")

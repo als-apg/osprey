@@ -138,6 +138,4 @@ my-control-assistant/
 my-lattice-assistant/
 my-agent/_audit/
 
-# OSPREY workspace (runtime data, not tracked)
-osprey-workspace/
-!osprey-workspace/.gitkeep
+# OSPREY workspace (runtime data, not tracked — now covered by _agent_data/* above)

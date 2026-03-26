@@ -69,9 +69,9 @@ def _read_config() -> dict:
 def _resolve_project_root() -> Path:
     """Resolve the project root directory (parent of workspace root).
 
-    This is the directory that contains ``osprey-workspace/``, ``config.yml``,
+    This is the directory that contains ``_agent_data/``, ``config.yml``,
     etc.  Used as the subprocess ``cwd`` so that relative workspace paths
-    (e.g. ``osprey-workspace/data/002_archiver_read.json``) resolve correctly.
+    (e.g. ``_agent_data/data/002_archiver_read.json``) resolve correctly.
     """
     from osprey.utils.workspace import resolve_workspace_root
 
@@ -197,7 +197,7 @@ async def _execute_via_local(
     start_time = time.time()
 
     # cwd = project root so user code can access workspace files via relative
-    # paths (e.g. "osprey-workspace/data/002_archiver_read.json")
+    # paths (e.g. "_agent_data/data/002_archiver_read.json")
     project_root = _resolve_project_root()
 
     try:

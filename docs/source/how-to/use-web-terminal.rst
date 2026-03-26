@@ -208,7 +208,7 @@ All options live under the ``web_terminal`` key in ``config.yml``:
      - ``claude``
      - Shell command spawned in the PTY.
    * - ``watch_dir``
-     - ``./osprey-workspace``
+     - ``./_agent_data``
      - Directory watched for live file events.
    * - ``max_background_sessions``
      - ``5``

@@ -10,7 +10,7 @@ import pytest
 def fake_project(tmp_path, monkeypatch):
     """Set up a fake project directory with workspace and transcript."""
     # Create workspace structure so resolve_workspace_root().parent works
-    workspace = tmp_path / "osprey-workspace"
+    workspace = tmp_path / "_agent_data"
     workspace.mkdir()
 
     # Patch resolve_workspace_root to return our fake workspace

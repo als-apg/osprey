@@ -23,8 +23,10 @@ figures, and saved artifacts---are returned as structured JSON.
 
 All packages installed in the deployment environment are available to
 executed code (numpy, pandas, scipy, matplotlib, plotly, etc.).
-A ``save_artifact(obj, title, description)`` helper is injected into the
-subprocess namespace for saving objects to the artifact gallery.
+A ``save_artifact(obj, title="Untitled", description="", artifact_type=None)``
+helper is injected into the subprocess namespace for saving objects to the
+artifact gallery. The ``artifact_type`` parameter overrides automatic type
+detection (e.g., ``"figure"``, ``"dataframe"``).
 
 .. _executor-mcp-tool:
 
@@ -55,9 +57,16 @@ FastMCP server (``osprey.mcp_server.python_executor``).
      - ``True``
      - Save code and output to a workspace data file and artifact store.
 
-The tool returns a JSON object containing a compact summary (truncated
-stdout/stderr), artifact IDs for any figures or notebooks produced, and a
-data-file path for full results.
+The tool returns a JSON object containing:
+
+- **output** / **error** --- stdout and stderr truncated to 500 characters.
+  Full output is available in the saved data file.
+- **artifact_ids** --- IDs for any figures or saved objects.
+- **notebook_artifact_id** --- ID of an auto-generated notebook capturing the
+  run.
+- **gallery_url** --- link to the artifact gallery (when available).
+- **has_errors**, **status** (``"Success"`` / ``"Failed"``), and
+  **detected_patterns** for control-system operation metadata.
 
 Execution Modes
 ===============
@@ -105,7 +114,7 @@ as a subprocess:
        python_env_path: /path/to/venv   # optional; defaults to sys.executable
 
 The subprocess working directory is set to the project root so that
-relative workspace paths (e.g. ``osprey-workspace/data/002_archiver_read.json``)
+relative workspace paths (e.g. ``_agent_data/data/002_archiver_read.json``)
 resolve correctly.
 
 Security Model
@@ -148,23 +157,16 @@ Five safety layers are applied in sequence:
    automatically from the deployment context, so code works with any
    connector (EPICS, Mock, etc.) and notebooks remain reproducible.
 
-.. _executor-code-generation-placeholder:
+.. note::
 
-.. admonition:: PLACEHOLDER: CONCEPTUAL-MAPPING
-   :class: warning
+   There is no in-framework code-generation pipeline. Claude Code generates
+   Python code itself and invokes the ``execute`` MCP tool directly.
 
-   **Old content (line 14):** "The Python Execution Service orchestrates code generation, security analysis, approval, and execution through a LangGraph-based pipeline."
-   **New equivalent:** Needs human judgment
-   **Why this is fuzzy:** The old architecture had a full code-generation pipeline (generator selection, iterative retry with error_chain, approval interrupts) that was removed. Claude Code now generates code itself and calls the ``execute`` MCP tool directly---there is no in-framework generation layer.
-   **Action needed:** Decide whether to document Claude Code's code-generation flow (prompt engineering, tool use patterns) as the conceptual replacement, or omit generation workflow docs entirely.
+.. note::
 
-.. admonition:: PLACEHOLDER: CONCEPTUAL-MAPPING
-   :class: warning
-
-   **Old content (line 89):** "Approval handling via handle_service_with_interrupts"
-   **New equivalent:** Needs human judgment
-   **Why this is fuzzy:** The old LangGraph-based approval system (``handle_service_with_interrupts``) is dead. Human approval for hardware writes now flows through Claude Code's built-in approval prompts and the ``readwrite`` execution mode gate, but there is no single function call to point users at.
-   **Action needed:** Document the current approval flow for ``readwrite`` operations (Claude Code prompt-based approval) or link to the relevant how-to guide once it exists.
+   Write approval is handled by the ``execution_mode`` parameter. Claude Code
+   requests user confirmation before calling ``execute`` with
+   ``execution_mode="readwrite"``---there is no separate approval API.
 
 Installation
 ============

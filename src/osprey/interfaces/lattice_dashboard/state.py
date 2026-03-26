@@ -1,6 +1,6 @@
 """Lattice state manager — JSON-backed state for the dashboard.
 
-Manages ``osprey-workspace/lattice/state.json`` with thread-safe
+Manages ``_agent_data/lattice/state.json`` with thread-safe
 load/save operations.  Workers and the dashboard server coordinate
 through this file.
 """
@@ -127,7 +127,7 @@ class LatticeState:
 
     Args:
         state_dir: Directory for state.json / baseline.json.
-            Typically ``osprey-workspace/lattice/``.
+            Typically ``_agent_data/lattice/``.
     """
 
     def __init__(self, state_dir: Path) -> None:

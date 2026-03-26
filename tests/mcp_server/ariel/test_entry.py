@@ -679,7 +679,7 @@ async def test_entry_create_draft_with_relative_file_path(tmp_path, monkeypatch)
     monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
 
     # Create a file in a subdirectory
-    sub = tmp_path / "osprey-workspace" / "screenshots"
+    sub = tmp_path / "_agent_data" / "screenshots"
     sub.mkdir(parents=True)
     img = sub / "capture.png"
     img.write_bytes(b"\x89PNG" + b"\x00" * 100)
@@ -691,7 +691,7 @@ async def test_entry_create_draft_with_relative_file_path(tmp_path, monkeypatch)
     result = await fn(
         subject="Relative path test",
         details="Uses relative path",
-        file_paths=["osprey-workspace/screenshots/capture.png"],
+        file_paths=["_agent_data/screenshots/capture.png"],
         draft=True,
     )
 

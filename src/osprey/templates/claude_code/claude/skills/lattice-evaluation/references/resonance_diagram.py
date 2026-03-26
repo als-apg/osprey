@@ -130,5 +130,5 @@ fig.update_layout(
 # --- Save ---
 save_artifact(fig, "ALS Resonance Diagram", "Working point with resonance lines orders 1-5")
 
-# Alternative: fig.write_html("osprey-workspace/artifacts/resonance_diagram.html")
+# Alternative: fig.write_html("_agent_data/artifacts/resonance_diagram.html")
 print("\nResonance diagram saved.")

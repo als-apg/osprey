@@ -190,5 +190,5 @@ save_artifact(
     f"FMA with {n_survived} particles, {2 * n_half} turns, diffusion coloring",
 )
 
-# Alternative: fig.write_html("osprey-workspace/artifacts/frequency_map.html")
+# Alternative: fig.write_html("_agent_data/artifacts/frequency_map.html")
 print("\nFrequency map saved.")

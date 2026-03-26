@@ -37,7 +37,7 @@ def project_dir(tmp_path):
             "writes_enabled": True,
             "limits_checking": {"enabled": False},
         },
-        "workspace": {"base_dir": "./osprey-workspace"},
+        "workspace": {"base_dir": "./_agent_data"},
     }
     (tmp_path / "config.yml").write_text(yaml.dump(config))
 
@@ -76,7 +76,7 @@ def project_dir(tmp_path):
     (claude_dir / "settings.json").write_text(json.dumps(settings, indent=2))
 
     # Workspace
-    ws = tmp_path / "osprey-workspace"
+    ws = tmp_path / "_agent_data"
     for subdir in ["data", "plots", "memory"]:
         (ws / subdir).mkdir(parents=True)
 

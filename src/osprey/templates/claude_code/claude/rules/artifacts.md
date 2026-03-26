@@ -54,7 +54,7 @@ and can be viewed with rendered HTML formatting.
 - **Pre-execution review:** When approval is required, a pre-execution notebook
   is created and linked in the approval prompt for code review
 - **Editable:** Use `NotebookEdit` to modify notebook cells in
-  `osprey-workspace/artifacts/` — the gallery re-renders automatically
+  `_agent_data/artifacts/` — the gallery re-renders automatically
 
 ## Directing User Attention
 

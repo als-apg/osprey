@@ -72,7 +72,7 @@ def regen(project, dry_run):
 
     Re-reads config.yml and re-renders all Claude Code integration files
     (.mcp.json, .claude/settings.json, CLAUDE.md, agents). Existing files
-    are backed up to osprey-workspace/backup/ before overwriting.
+    are backed up to _agent_data/backup/ before overwriting.
 
     Prompt overrides (in ``overrides/``) are used instead of framework templates.
 

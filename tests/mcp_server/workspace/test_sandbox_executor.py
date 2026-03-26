@@ -223,7 +223,7 @@ class TestExecuteSandboxCode:
     @pytest.fixture
     def workspace_root(self, tmp_path):
         """Create a temp workspace root."""
-        ws = tmp_path / "osprey-workspace"
+        ws = tmp_path / "_agent_data"
         ws.mkdir()
         (ws / "data").mkdir()
         return ws
@@ -414,7 +414,7 @@ class TestSandboxedOpen:
 
     @pytest.fixture
     def workspace_root(self, tmp_path):
-        ws = tmp_path / "osprey-workspace"
+        ws = tmp_path / "_agent_data"
         ws.mkdir()
         (ws / "data").mkdir()
         return ws
@@ -512,7 +512,7 @@ class TestCreateExecutionFolder:
     """Tests for create_sandbox_execution_folder."""
 
     def test_create_execution_folder(self, tmp_path):
-        ws = tmp_path / "osprey-workspace"
+        ws = tmp_path / "_agent_data"
         ws.mkdir()
 
         with patch(
@@ -564,7 +564,7 @@ class TestSaveArtifactBokehSupport:
 
     @pytest.fixture
     def workspace_root(self, tmp_path):
-        ws = tmp_path / "osprey-workspace"
+        ws = tmp_path / "_agent_data"
         ws.mkdir()
         (ws / "data").mkdir()
         return ws

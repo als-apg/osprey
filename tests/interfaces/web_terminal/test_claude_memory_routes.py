@@ -17,7 +17,7 @@ from osprey.interfaces.web_terminal.app import create_app
 
 @pytest.fixture()
 def workspace_dir(tmp_path):
-    ws = tmp_path / "osprey-workspace"
+    ws = tmp_path / "_agent_data"
     ws.mkdir()
     return ws
 

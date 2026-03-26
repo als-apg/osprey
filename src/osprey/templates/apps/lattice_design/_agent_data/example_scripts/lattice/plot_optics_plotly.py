@@ -65,6 +65,6 @@ fig.update_layout(
 save_artifact(fig, "ALS Optics", "Beta functions and horizontal dispersion")
 
 # Option B: via execute tool (manual file write)
-# output_path = "osprey-workspace/artifacts/optics.html"
+# output_path = "_agent_data/artifacts/optics.html"
 # fig.write_html(output_path)
 # print(f"Interactive optics plot saved to {output_path}")

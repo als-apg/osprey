@@ -6,7 +6,7 @@ and SSE stream for live figure updates.
 Usage::
 
     from osprey.interfaces.lattice_dashboard.app import create_app
-    app = create_app(workspace_root=Path("./osprey-workspace"))
+    app = create_app(workspace_root=Path("./_agent_data"))
 """
 
 from __future__ import annotations
@@ -206,10 +206,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     """Create the Lattice Dashboard FastAPI application.
 
     Args:
-        workspace_root: Workspace root (e.g. ``./osprey-workspace``).
+        workspace_root: Workspace root (e.g. ``./_agent_data``).
             The lattice state lives under ``<workspace>/lattice/``.
     """
-    ws_root = Path(workspace_root) if workspace_root else Path("./osprey-workspace")
+    ws_root = Path(workspace_root) if workspace_root else Path("./_agent_data")
     state_dir = ws_root / "lattice"
 
     state = LatticeState(state_dir)

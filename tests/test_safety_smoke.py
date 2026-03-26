@@ -73,7 +73,7 @@ def smoke_env(tmp_path):
     Creates:
       - config.yml with mock connector, limits enabled, selective approval
       - channel_limits.json with test channels
-      - osprey-workspace directory structure
+      - _agent_data directory structure
       - config variant with writes_enabled: false
     """
     # Channel limits database
@@ -140,7 +140,7 @@ def smoke_env(tmp_path):
     config_writes_off_path.write_text(yaml.dump(config_writes_off))
 
     # Workspace directories
-    ws = tmp_path / "osprey-workspace"
+    ws = tmp_path / "_agent_data"
     for subdir in ["channel_results", "archiver_data", "python_outputs"]:
         (ws / subdir).mkdir(parents=True)
 

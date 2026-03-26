@@ -349,7 +349,7 @@ async def entry_create(
                 make_error(
                     "internal_error",
                     f"Failed to create draft: {exc}",
-                    ["Check that osprey-workspace/drafts/ is writable."],
+                    ["Check that _agent_data/drafts/ is writable."],
                 )
             )
 

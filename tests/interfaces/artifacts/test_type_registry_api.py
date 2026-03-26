@@ -9,7 +9,7 @@ from osprey.stores.type_registry import ARTIFACT_TYPES, TOOL_TYPES
 
 @pytest.fixture
 def app(tmp_path):
-    workspace = tmp_path / "osprey-workspace"
+    workspace = tmp_path / "_agent_data"
     workspace.mkdir()
     return create_app(workspace_root=workspace)
 

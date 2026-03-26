@@ -2,7 +2,7 @@
 
 Allows Claude Code (via MCP tool) to pre-fill the web form so a human
 can review, edit, and submit manually. Drafts are stored as JSON files
-in osprey-workspace/drafts/ and expire after 1 hour.
+in _agent_data/drafts/ and expire after 1 hour.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-DRAFTS_DIR = Path.cwd() / "osprey-workspace" / "drafts"
+DRAFTS_DIR = Path.cwd() / "_agent_data" / "drafts"
 
 draft_router = APIRouter(prefix="/api")
 
