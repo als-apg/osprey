@@ -67,19 +67,15 @@ Switch to real hardware by changing ``type`` in ``config.yml``:
        epics:
          gateways:
            read_only: { address: cagw.facility.edu, port: 5064 }
-           read_write: { address: cagw-rw.facility.edu, port: 5065 }
+           write_access: { address: cagw-rw.facility.edu, port: 5065 }
          timeout: 5.0
 
 The Python API is identical -- only the config changes.
 
+.. note::
 
-.. admonition:: PLACEHOLDER: Orchestration / Approval
-   :class: warning
-
-   **Old content (line 258-315):** Pattern detection section describing how pattern detection feeds into the approval system for generated Python code.
-   **New equivalent:** Needs human judgment
-   **Why this is fuzzy:** The old approval workflow (pattern detection -> capability_node approval) is deleted. Claude Code has its own tool-approval mechanism, but how pattern detection integrates with it (if at all) is unclear.
-   **Action needed:** Does pattern detection still exist? If so, document how it connects to Claude Code's approval flow. If not, delete this placeholder.
+   Write operations require explicit opt-in. See :ref:`write-safety-config` below for the
+   ``writes_enabled`` and ``enable_writes`` settings that control write permissions.
 
 
 Write Verification
@@ -142,15 +138,71 @@ All ``write_channel()`` calls return :class:`~osprey.connectors.control_system.b
 .. code-block:: json
 
    {
+     "defaults": {
+       "writable": true,
+       "verification": { "level": "callback" }
+     },
      "MOTOR:POSITION": {
        "min_value": -100.0,
        "max_value": 100.0,
+       "max_step": 2.0,
+       "writable": true,
        "verification": {
          "level": "readback",
          "tolerance_absolute": 0.1
        }
      }
    }
+
+``tolerance_absolute`` takes priority over ``tolerance_percent`` (percentage of value).
+Channels inherit from ``defaults`` unless overridden. Set ``"writable": false`` to block
+writes to a channel entirely.
+
+.. _write-safety-config:
+
+Write Safety Configuration
+--------------------------
+
+Write operations are disabled by default and must be explicitly enabled at two levels:
+
+**Global write permission** (in ``config.yml``):
+
+.. code-block:: yaml
+
+   control_system:
+     writes_enabled: true          # Master switch for all write operations
+
+**Per-connector write permission** (mock connector only):
+
+.. code-block:: yaml
+
+   control_system:
+     connector:
+       mock:
+         enable_writes: true       # Allow writes on this connector
+
+The mock connector checks local ``enable_writes`` first, then falls back to the global
+``writes_enabled`` setting. If neither is set, writes are disabled (safe default).
+
+.. _limits-checking-config:
+
+Limits Checking
+---------------
+
+Automatic safety-limit validation for write operations:
+
+.. code-block:: yaml
+
+   control_system:
+     limits_checking:
+       enabled: true                     # Enable limits validation
+       database_path: ./limits_db.json   # Path to the channel limits JSON
+       allow_unlisted_channels: false    # Block writes to channels not in the database
+       on_violation: "error"             # "error" (raise) or "skip" (warn and skip)
+
+When enabled, every ``write_channel()`` call is validated against the limits database
+before the write is sent to hardware. See per-channel configuration above for the
+database format.
 
 .. seealso::
 
@@ -169,15 +221,38 @@ Implementing Custom Connectors
 
 Subclass :class:`~osprey.connectors.control_system.base.ControlSystemConnector` and implement the abstract methods: ``connect``, ``disconnect``, ``read_channel``, ``write_channel``, ``read_multiple_channels``, ``subscribe``, ``unsubscribe``, ``get_metadata``, ``validate_channel``.
 
-The old doc included a full LabVIEW example connector. The API surface it targeted (``ChannelValue``, ``ChannelMetadata``, ``ChannelWriteResult``, ``WriteVerification``) remains unchanged in ``osprey.connectors.control_system.base``.
+Your connector must return the standard data models from ``osprey.connectors.control_system.base``: :class:`~osprey.connectors.control_system.base.ChannelValue`, :class:`~osprey.connectors.control_system.base.ChannelMetadata`, :class:`~osprey.connectors.control_system.base.ChannelWriteResult`, and :class:`~osprey.connectors.control_system.base.WriteVerification`.
 
-.. admonition:: PLACEHOLDER: Connector Registration
-   :class: warning
+Registering Custom Connectors
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   **Old content (line 781-807):** Registration via ``ConnectorRegistration``, ``extend_framework_registry``, and ``ConnectorFactory.register_control_system()``.
-   **New equivalent:** Needs human judgment
-   **Why this is fuzzy:** The old registry-based registration (``extend_framework_registry``, ``ConnectorRegistration``) may have changed during the native-capabilities migration. The current registration path for custom connectors is unclear.
-   **Action needed:** Verify how custom connectors are registered in the current codebase and document the current mechanism.
+**Direct registration** (simplest approach):
+
+.. code-block:: python
+
+   from osprey.connectors.factory import ConnectorFactory
+
+   ConnectorFactory.register_control_system("tango", TangoConnector)
+
+After registration, use ``type: tango`` in ``config.yml`` and the factory will instantiate
+your connector automatically.
+
+**Registry-based registration** (for packaging as a reusable extension):
+
+.. code-block:: python
+
+   from osprey.registry.base import ConnectorRegistration
+   from osprey.registry.helpers import extend_framework_registry
+
+   registration = ConnectorRegistration(
+       name="labview",
+       connector_type="control_system",
+       module_path="my_package.connectors.labview_connector",
+       class_name="LabVIEWConnector",
+       description="LabVIEW Web Services connector for NI systems",
+   )
+
+   config = extend_framework_registry(connectors=[registration])
 
 Testing Custom Connectors
 -------------------------
