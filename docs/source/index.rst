@@ -8,7 +8,7 @@ The **Osprey Framework** is a production-ready architecture for deploying agenti
 
 Developed for scientific facilities managing complex technical infrastructure such as particle accelerators, fusion experiments, beamlines, and large telescopes, Osprey addresses control-specific challenges: :doc:`semantic addressing across large channel namespaces <getting-started/control-assistant-part2-channel-finder>`, flexible orchestration with hardware-write detection, :doc:`protocol-agnostic integration with control stacks <how-to/add-connector>` (EPICS, LabVIEW, Tango), :doc:`intelligent logbook search <how-to/ariel/index>` across facility electronic logbooks, and mandatory human oversight for safety-critical operations.
 
-.. figure:: _static/resources/architecture_overview.pdf
+.. figure:: _static/resources/architecture_overview.svg
    :alt: Osprey Framework Architecture
    :align: center
    :width: 100%

@@ -27,7 +27,7 @@ source code. Out of the box, adapters are included for facilities such as ALS,
 JLab, and ORNL, and search strategies range from keyword lookup to a multi-step
 ReAct agent that chains searches autonomously.
 
-.. figure:: /_static/resources/ariel_overview.pdf
+.. figure:: /_static/resources/ariel_overview.svg
    :alt: ARIEL Logbook Search Architecture
    :align: center
    :width: 100%
