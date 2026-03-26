@@ -55,6 +55,7 @@ class LazyGroup(click.Group):
             "artifacts": "osprey.cli.artifacts_cmd",  # Artifact Gallery
             "web": "osprey.cli.web_cmd",  # Web Terminal
             "prompts": "osprey.cli.prompts_cmd",  # Prompt artifact overrides
+            "audit": "osprey.cli.audit_cmd",  # Safety auditor
         }
 
         if cmd_name not in commands:
@@ -97,6 +98,7 @@ class LazyGroup(click.Group):
             "artifacts",
             "web",
             "prompts",
+            "audit",
         ]
 
 
