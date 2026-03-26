@@ -172,6 +172,36 @@ def _print_regen_summary(result: dict):
             console.print(f"  [dim]- {a}[/dim]")
 
 
+def _launch_companion_servers(project_dir: Path) -> list[str]:
+    """Launch companion web servers enabled in config.
+
+    Sets ``OSPREY_CONFIG``, resets the config cache, then iterates all
+    registered servers.  Each server's ``auto_launch_checker`` decides
+    whether it actually starts.
+
+    Returns:
+        Display names of servers that ended up running.
+    """
+    from osprey.infrastructure.server_launcher import _launchers, ensure_web_server
+    from osprey.registry.web import FRAMEWORK_WEB_SERVERS
+    from osprey.utils.workspace import reset_config_cache
+
+    config_file = project_dir / "config.yml"
+    if config_file.exists():
+        os.environ["OSPREY_CONFIG"] = str(config_file)
+    reset_config_cache()
+
+    started: list[str] = []
+    for key, defn in FRAMEWORK_WEB_SERVERS.items():
+        try:
+            ensure_web_server(key)
+            if _launchers[key]._launched:
+                started.append(defn.name)
+        except Exception:
+            pass
+    return started
+
+
 @claude.command(name="status")
 @click.option(
     "--project",
@@ -406,16 +436,18 @@ def chat_claude(project, resume, print_mode, effort):
     # Claude Code uses the working directory as the project root.
     os.chdir(project_dir)
 
-    # Launch claude CLI.  When the translation proxy is running in a daemon
-    # thread we must keep this process alive, so use subprocess.run instead
-    # of os.execvp (which replaces the process and kills the proxy thread).
-    console.print(f"[dim]Launching Claude Code in {project_dir}...[/dim]\n")
-    _proxy_active = "ANTHROPIC_BASE_URL" in os.environ and os.environ.get(
-        "ANTHROPIC_BASE_URL", ""
-    ).startswith("http://127.0.0.1")
-    if _proxy_active:
-        import subprocess
+    # Launch companion web servers (artifact gallery, analytics, etc.)
+    started_servers = _launch_companion_servers(project_dir)
+    if started_servers:
+        console.print("[dim]Companion servers:[/dim]")
+        for name in started_servers:
+            console.print(f"  [success]*[/success] {name}")
+        console.print()
 
-        raise SystemExit(subprocess.run(args).returncode)
-    else:
-        os.execvp("claude", args)
+    # Launch claude CLI.  Companion servers and the translation proxy run in
+    # daemon threads, so the parent process must stay alive — always use
+    # subprocess.run (never os.execvp, which replaces the process).
+    import subprocess
+
+    console.print(f"[dim]Launching Claude Code in {project_dir}...[/dim]\n")
+    raise SystemExit(subprocess.run(args).returncode)

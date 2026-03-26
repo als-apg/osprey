@@ -5,7 +5,7 @@ work correctly, including regen, status, and chat.
 """
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -147,8 +147,9 @@ class TestClaudeChatCommand:
         assert result.exit_code == 0
         assert "claude code" in result.output.lower()
 
-    @patch("osprey.cli.claude_cmd.os.execvp")
-    def test_chat_calls_regen_then_exec(self, mock_execvp, cli_runner, tmp_path):
+    @patch("osprey.cli.claude_cmd._launch_companion_servers", return_value=[])
+    @patch("subprocess.run", return_value=Mock(returncode=0))
+    def test_chat_calls_regen_then_exec(self, mock_run, mock_servers, cli_runner, tmp_path):
         """Chat command regenerates then launches claude CLI."""
         from osprey.cli.templates.manager import TemplateManager
 
@@ -162,14 +163,15 @@ class TestClaudeChatCommand:
         result = cli_runner.invoke(chat_claude, ["--project", str(project_dir)])
 
         assert result.exit_code == 0
-        mock_execvp.assert_called_once()
-        call_args = mock_execvp.call_args
-        assert call_args[0][0] == "claude"
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args[0][0]
+        assert call_args[0] == "claude"
         # claude CLI uses cwd as project root (no --project-dir flag)
-        assert "--project-dir" not in call_args[0][1]
+        assert "--project-dir" not in call_args
 
-    @patch("osprey.cli.claude_cmd.os.execvp")
-    def test_chat_passes_resume_flag(self, mock_execvp, cli_runner, tmp_path):
+    @patch("osprey.cli.claude_cmd._launch_companion_servers", return_value=[])
+    @patch("subprocess.run", return_value=Mock(returncode=0))
+    def test_chat_passes_resume_flag(self, mock_run, mock_servers, cli_runner, tmp_path):
         """Chat command passes --resume flag to claude CLI."""
         from osprey.cli.templates.manager import TemplateManager
 
@@ -185,12 +187,13 @@ class TestClaudeChatCommand:
             ["--project", str(project_dir), "--resume", "abc123"],
         )
 
-        call_args = mock_execvp.call_args[0][1]
+        call_args = mock_run.call_args[0][0]
         assert "--resume" in call_args
         assert "abc123" in call_args
 
-    @patch("osprey.cli.claude_cmd.os.execvp")
-    def test_chat_passes_print_flag(self, mock_execvp, cli_runner, tmp_path):
+    @patch("osprey.cli.claude_cmd._launch_companion_servers", return_value=[])
+    @patch("subprocess.run", return_value=Mock(returncode=0))
+    def test_chat_passes_print_flag(self, mock_run, mock_servers, cli_runner, tmp_path):
         """Chat command passes --print flag to claude CLI."""
         from osprey.cli.templates.manager import TemplateManager
 
@@ -206,5 +209,45 @@ class TestClaudeChatCommand:
             ["--project", str(project_dir), "--print"],
         )
 
-        call_args = mock_execvp.call_args[0][1]
+        call_args = mock_run.call_args[0][0]
         assert "--print" in call_args
+
+    @patch("osprey.cli.claude_cmd._launch_companion_servers", return_value=["Artifact gallery", "Karma analytics"])
+    @patch("subprocess.run", return_value=Mock(returncode=0))
+    def test_chat_launches_companion_servers(self, mock_run, mock_servers, cli_runner, tmp_path):
+        """Chat command launches companion servers before claude CLI."""
+        from osprey.cli.templates.manager import TemplateManager
+
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="chat-servers-test",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+        )
+
+        result = cli_runner.invoke(chat_claude, ["--project", str(project_dir)])
+
+        assert result.exit_code == 0
+        mock_servers.assert_called_once()
+        assert "Artifact gallery" in result.output
+        assert "Karma analytics" in result.output
+
+    @patch("osprey.cli.claude_cmd._launch_companion_servers", return_value=[])
+    @patch("subprocess.run", return_value=Mock(returncode=0))
+    def test_chat_always_uses_subprocess_run(self, mock_run, mock_servers, cli_runner, tmp_path):
+        """Chat always uses subprocess.run (never os.execvp) for daemon thread safety."""
+        from osprey.cli.templates.manager import TemplateManager
+
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="chat-subprocess-test",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+        )
+
+        with patch("osprey.cli.claude_cmd.os.execvp") as mock_execvp:
+            result = cli_runner.invoke(chat_claude, ["--project", str(project_dir)])
+
+        assert result.exit_code == 0
+        mock_execvp.assert_not_called()
+        mock_run.assert_called_once()
