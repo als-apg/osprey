@@ -212,7 +212,13 @@ class TestClaudeChatCommand:
         call_args = mock_run.call_args[0][0]
         assert "--print" in call_args
 
-    @patch("osprey.cli.claude_cmd._launch_companion_servers", return_value=["Artifact gallery", "Karma analytics"])
+    @patch(
+        "osprey.cli.claude_cmd._launch_companion_servers",
+        return_value=[
+            ("Artifact gallery", "http://127.0.0.1:8086"),
+            ("Karma analytics", "http://127.0.0.1:8741"),
+        ],
+    )
     @patch("subprocess.run", return_value=Mock(returncode=0))
     def test_chat_launches_companion_servers(self, mock_run, mock_servers, cli_runner, tmp_path):
         """Chat command launches companion servers before claude CLI."""
@@ -230,7 +236,9 @@ class TestClaudeChatCommand:
         assert result.exit_code == 0
         mock_servers.assert_called_once()
         assert "Artifact gallery" in result.output
+        assert "http://127.0.0.1:8086" in result.output
         assert "Karma analytics" in result.output
+        assert "http://127.0.0.1:8741" in result.output
 
     @patch("osprey.cli.claude_cmd._launch_companion_servers", return_value=[])
     @patch("subprocess.run", return_value=Mock(returncode=0))

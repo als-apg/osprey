@@ -172,7 +172,7 @@ def _print_regen_summary(result: dict):
             console.print(f"  [dim]- {a}[/dim]")
 
 
-def _launch_companion_servers(project_dir: Path) -> list[str]:
+def _launch_companion_servers(project_dir: Path) -> list[tuple[str, str]]:
     """Launch companion web servers enabled in config.
 
     Sets ``OSPREY_CONFIG``, resets the config cache, then iterates all
@@ -180,8 +180,10 @@ def _launch_companion_servers(project_dir: Path) -> list[str]:
     whether it actually starts.
 
     Returns:
-        Display names of servers that ended up running.
+        List of ``(display_name, url)`` for servers that ended up running.
     """
+    import logging
+
     from osprey.infrastructure.server_launcher import _launchers, ensure_web_server
     from osprey.registry.web import FRAMEWORK_WEB_SERVERS
     from osprey.utils.workspace import reset_config_cache
@@ -191,12 +193,18 @@ def _launch_companion_servers(project_dir: Path) -> list[str]:
         os.environ["OSPREY_CONFIG"] = str(config_file)
     reset_config_cache()
 
-    started: list[str] = []
+    # Silence ALL logging so daemon-thread output cannot interfere with the TUI.
+    # In CLI mode, server logs are not useful — debug via `osprey web` instead.
+    logging.getLogger().setLevel(logging.CRITICAL)
+
+    started: list[tuple[str, str]] = []
     for key, defn in FRAMEWORK_WEB_SERVERS.items():
         try:
             ensure_web_server(key)
-            if _launchers[key]._launched:
-                started.append(defn.name)
+            launcher = _launchers[key]
+            if launcher._launched:
+                host, port = launcher._config_reader()
+                started.append((defn.name, f"http://{host}:{port}"))
         except Exception:
             pass
     return started
@@ -440,14 +448,20 @@ def chat_claude(project, resume, print_mode, effort):
     started_servers = _launch_companion_servers(project_dir)
     if started_servers:
         console.print("[dim]Companion servers:[/dim]")
-        for name in started_servers:
-            console.print(f"  [success]*[/success] {name}")
+        for name, url in started_servers:
+            console.print(f"  [success]*[/success] {name}  [dim]{url}[/dim]")
         console.print()
+
+    # Flush all output before the Claude Code TUI takes over the terminal.
+    import sys
+
+    console.print(f"[dim]Launching Claude Code in {project_dir}...[/dim]\n")
+    sys.stdout.flush()
+    sys.stderr.flush()
 
     # Launch claude CLI.  Companion servers and the translation proxy run in
     # daemon threads, so the parent process must stay alive — always use
     # subprocess.run (never os.execvp, which replaces the process).
     import subprocess
 
-    console.print(f"[dim]Launching Claude Code in {project_dir}...[/dim]\n")
     raise SystemExit(subprocess.run(args).returncode)
