@@ -54,69 +54,6 @@ the MCP server. The chain for ``channel_write`` — the most safety-critical too
    approval every time), ``selective`` (ask Claude to decide), or ``skip``.
 
 
-Build & Deploy
---------------
-
-OSPREY projects are assembled from **build profiles** — YAML files that declare which MCP servers,
-connectors, hooks, agents, rules, and skills to include.
-
-.. code-block:: bash
-
-   # Assemble a project from a build profile
-   osprey build my-project profiles/als.yml
-
-   # Start Docker-compose services (web terminal, supporting services)
-   osprey deploy up
-
-``osprey build`` produces a self-contained project directory with:
-
-- ``.mcp.json`` — MCP server configuration for Claude Code
-- ``config.yml`` — facility-specific settings (connector type, channel limits, approval policies)
-- ``claude/hooks/`` — safety hook chain, wired per the registry
-- ``claude/agents/``, ``rules/``, ``skills/`` — Claude Code customization
-- A Python virtual environment with all dependencies
-
-Build profiles can inject additional MCP servers, override default hooks, and customize approval
-policies per facility.
-
-
-Layers
-------
-
-OSPREY is organized into seven layers:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 18 30 52
-
-   * - Layer
-     - Location
-     - Purpose
-   * - **CLI**
-     - ``src/osprey/cli/``
-     - 14 Click commands (``init``, ``build``, ``deploy``, ``config``, ``health``, etc.). Lazy-loaded.
-   * - **MCP Servers**
-     - ``src/osprey/mcp_server/``
-     - 8 in-tree FastMCP servers. Build profiles can add more.
-   * - **Connectors**
-     - ``src/osprey/connectors/``
-     - EPICS + Mock for both control system and archiver, via ``ConnectorFactory``.
-   * - **Services**
-     - ``src/osprey/services/``
-     - 6 internal packages: ariel_search, channel_finder, machine_state, migration,
-       prompts, python_executor.
-   * - **Interfaces**
-     - ``src/osprey/interfaces/``
-     - Web UIs: Web Terminal (FastAPI + PTY), ARIEL, Artifacts gallery, Channel Finder,
-       Lattice Dashboard.
-   * - **Runtime API**
-     - ``src/osprey/runtime/``
-     - ``write_channel`` / ``read_channel`` for generated Python scripts.
-   * - **Templates**
-     - ``src/osprey/templates/claude_code/``
-     - 8 hooks, 5 agents, 10 rules, 6 skills — assembled by ``osprey build``.
-
-
 Data Flow
 ---------
 
@@ -129,49 +66,39 @@ and the MCP server:
        participant Op as Operator
        participant WT as Web Terminal
        participant CC as Claude Code
+       participant CF as Channel Finder Sub-Agent
        participant H as Safety Hooks
        participant CS as Control System MCP
        participant Conn as EPICS/Mock Connector
 
-       Op->>WT: "Set beam current to 500 mA"
+       Op->>WT: "Bump the horizontal corrector at sector 3 by 0.5 A"
        WT->>CC: Forward message
-       CC->>CS: channel_read("BEAM:CURRENT")
+
+       Note over CC,CF: Channel address lookup via sub-agent
+       activate CF
+       CC->>CF: "horizontal corrector setpoint, sector 3"
+       CF->>CF: Query Channel Finder DB
+       CF-->>CC: SR03C:COR:H1:CURRENT
+       deactivate CF
+
+       Note over CC,CS: Read current value to compute target
+       CC->>CS: channel_read("SR03C:COR:H1:CURRENT")
        CS->>Conn: read_channel()
-       Conn-->>CS: ChannelValue(450.0)
-       CS-->>CC: "Current value: 450.0 mA"
+       Conn-->>CS: ChannelValue(1.2)
+       CS-->>CC: "Current value: 1.2 A"
 
        Note over CC,H: channel_write triggers hook chain
-       CC->>H: PreToolUse: channel_write("BEAM:CURRENT", 500.0)
+       CC->>H: PreToolUse: channel_write("SR03C:COR:H1:CURRENT", 1.7)
        H->>H: 1. writes_check → enabled
-       H->>H: 2. limits → 500.0 within range
-       H->>Op: 3. approval → "Approve write to 500?"
+       H->>H: 2. limits → 1.7 within range
+       H->>Op: 3. approval → "Write 1.7 A to SR03C:COR:H1:CURRENT?"
        Op->>H: Approve
        H->>CS: Proceed
        CS->>Conn: write_channel() [limits validated]
        Conn-->>CS: ChannelWriteResult(success=True)
-       CS-->>CC: "Write confirmed, verified at 500.0 mA"
-       CC->>Op: "Done. Beam current set to 500 mA."
+       CS-->>CC: "Write confirmed, verified at 1.7 A"
+       CC->>Op: "Done. Corrector SR03C:COR:H1 set to 1.7 A (+0.5 A)."
 
-
-Runtime API
------------
-
-For generated Python scripts that need to interact with hardware, OSPREY provides a synchronous
-runtime API that works like EPICS ``caput``/``caget``:
-
-.. code-block:: python
-
-   from osprey.runtime import write_channel, read_channel
-
-   # Read current value (like caget)
-   current = read_channel("BEAM:CURRENT")
-
-   # Write new value (like caput) — limits validated automatically
-   write_channel("BEAM:CURRENT", 500.0)
-
-The runtime auto-configures from ``config.yml``, manages connector lifecycle, and validates writes
-against safety limits. Limits are enforced at two levels: the runtime ``LimitsValidator`` checks
-before dispatching, and the connector may enforce its own constraints.
 
 .. seealso::
 
