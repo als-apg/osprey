@@ -1,87 +1,78 @@
 Configure LLM Providers
 =======================
 
-Osprey uses `LiteLLM <https://docs.litellm.ai/>`_ as a unified adapter layer
-for AI model providers. This guide explains how to select a provider, configure
-API keys, and add custom providers.
+Osprey uses LLM providers in two contexts: **Claude Code** (the main agent)
+communicates over the Anthropic Messages API, while **MCP tool servers** use
+`LiteLLM <https://docs.litellm.ai/>`_ to call any provider. This guide covers
+how to configure providers for both.
 
 Available Providers
 -------------------
 
 .. list-table::
    :header-rows: 1
-   :widths: 15 35 10 10 20
+   :widths: 15 35 15 25
 
    * - Name
      - Description
-     - API Key
-     - Base URL
-     - Default Model
+     - API Key Env Var
+     - Protocol
    * - ``anthropic``
-     - Anthropic (Claude models)
-     - Required
-     - No
-     - ``claude-haiku-4-5-20251001``
-   * - ``openai``
-     - OpenAI (GPT models)
-     - Required
-     - No
-     - ``gpt-5``
-   * - ``google``
-     - Google (Gemini models)
-     - Required
-     - No
-     - ``gemini-2.5-flash``
+     - Anthropic direct API
+     - ``ANTHROPIC_API_KEY``
+     - Anthropic (native)
    * - ``cborg``
      - LBNL CBorg proxy
-     - Required
-     - Required
-     - ``anthropic/claude-haiku``
-   * - ``amsc``
-     - American Science Cloud proxy
-     - Required
-     - Required
-     - ``claude-haiku``
+     - ``CBORG_API_KEY``
+     - Anthropic (native)
    * - ``als-apg``
      - ALS Accelerator Physics Group AWS proxy
-     - Required
-     - Required
-     - ``claude-haiku-4-5-20251001``
-   * - ``argo``
-     - ANL Argo proxy
-     - Required
-     - Required
-     - ``claudesonnet45``
+     - ``ALS_APG_API_KEY``
+     - Anthropic (native)
    * - ``stanford``
      - Stanford AI Playground
-     - Required
-     - Required
-     - ``gpt-4o``
+     - ``STANFORD_API_KEY``
+     - OpenAI (proxied)
+   * - ``amsc``
+     - American Science Cloud proxy
+     - ``AMSC_I2_API_KEY``
+     - OpenAI (proxied)
+   * - ``argo``
+     - ANL Argo proxy
+     - ``ARGO_API_KEY``
+     - OpenAI (proxied)
    * - ``asksage``
      - AskSage proxy
-     - Required
-     - Required
-     - ``google-claude-45-haiku``
+     - ``ASKSAGE_API_KEY``
+     - OpenAI (proxied)
+   * - ``openai``
+     - OpenAI (GPT models)
+     - ``OPENAI_API_KEY``
+     - OpenAI (proxied)
+   * - ``google``
+     - Google (Gemini models)
+     - ``GOOGLE_API_KEY``
+     - OpenAI (proxied)
    * - ``ollama``
      - Ollama (local models)
-     - No
-     - Required
-     - ``mistral:7b``
+     - *(none)*
+     - OpenAI (proxied)
    * - ``vllm``
      - vLLM inference server
-     - No
-     - Required
-     - *(depends on served model)*
+     - *(none)*
+     - OpenAI (proxied)
 
-Providers marked **Required** under *Base URL* are OpenAI-compatible proxies
-that need a custom endpoint. Providers without a required base URL use the
-vendor's default API endpoint.
+**Protocol** indicates how the provider communicates with Claude Code:
+
+- **Anthropic (native)**: Speaks the Anthropic Messages API directly. No
+  translation needed.
+- **OpenAI (proxied)**: Speaks the OpenAI Chat Completions API. Osprey
+  automatically starts a local translation proxy to bridge the protocols.
 
 Setting Up API Keys
 -------------------
 
-Set the API key as an environment variable before running Osprey. The
-conventional variable names are:
+Set the API key as an environment variable before running Osprey:
 
 .. code-block:: bash
 
@@ -92,88 +83,162 @@ conventional variable names are:
 
    # Institutional proxies
    export CBORG_API_KEY="..."
-   export AMSC_API_KEY="..."
+   export AMSC_I2_API_KEY="..."
    export ALS_APG_API_KEY="..."
    export ARGO_API_KEY="..."
    export STANFORD_API_KEY="..."
-   export ASKSAGE_API_KEY="..."
 
 Ollama and vLLM run locally and do not require an API key.
 
-Configuring a Provider in config.yml
--------------------------------------
+Provider Configuration
+----------------------
 
-The ``provider`` section in your project's ``config.yml`` selects the active
-provider and its settings.
+Providers are configured in two sections of ``config.yml``:
 
-**Anthropic (direct API)**
+1. ``api.providers`` — declares available providers with their endpoints and
+   model IDs.
+2. ``claude_code`` — selects which provider Claude Code uses and at which
+   model tier.
 
-.. code-block:: yaml
-
-   provider:
-     name: anthropic
-     model_id: claude-haiku-4-5-20251001
-
-**OpenAI-compatible proxy (CBORG example)**
+**Declare providers** under ``api.providers``:
 
 .. code-block:: yaml
 
-   provider:
-     name: cborg
-     model_id: anthropic/claude-haiku
-     base_url: https://api.cborg.lbl.gov
+   api:
+     providers:
+       anthropic:
+         api_key: ${ANTHROPIC_API_KEY}
+         base_url: https://api.anthropic.com
+         models:
+           haiku: claude-haiku-4-5-20251001
+           sonnet: claude-sonnet-4-5-20250929
+           opus: claude-opus-4-6
 
-**Local Ollama**
+       cborg:
+         api_key: ${CBORG_API_KEY}
+         base_url: https://api.cborg.lbl.gov/v1
+         models:
+           haiku: anthropic/claude-haiku
+           sonnet: anthropic/claude-sonnet
+           opus: anthropic/claude-opus
+
+       stanford:
+         api_key: ${STANFORD_API_KEY}
+         base_url: https://aiapi-prod.stanford.edu/v1
+         models:
+           haiku: claude-3-haiku
+           sonnet: claude-4-sonnet
+           opus: claude-4-sonnet
+
+Each provider entry needs ``api_key``, ``base_url``, and a ``models`` mapping
+that assigns provider-specific model IDs to tiers (``haiku``, ``sonnet``,
+``opus``).
+
+**Select the active provider** under ``claude_code``:
 
 .. code-block:: yaml
 
-   provider:
-     name: ollama
-     model_id: mistral:7b
-     base_url: http://localhost:11434
+   claude_code:
+     provider: cborg
+     default_model: sonnet
 
-**Self-hosted vLLM**
+``provider`` picks one of the entries in ``api.providers``.
+``default_model`` selects the tier for the main conversation (defaults to
+``sonnet`` for most providers).
+
+Model Tier Mapping
+------------------
+
+Claude Code uses three model tiers — ``haiku`` (fast/cheap), ``sonnet``
+(balanced), and ``opus`` (powerful). Each provider maps these to its own model
+IDs via the ``models`` block in ``api.providers``.
+
+The resolver applies model IDs in this priority order:
+
+1. ``claude_code.models`` — explicit per-tier overrides (highest priority).
+2. ``api.providers.<name>.models`` — the provider's own model naming.
+3. Built-in defaults — Anthropic direct model IDs (fallback).
+
+For example, to override the opus tier for a specific project:
 
 .. code-block:: yaml
 
-   provider:
-     name: vllm
-     model_id: meta-llama/Llama-3-8b
-     base_url: http://localhost:8000/v1
+   claude_code:
+     provider: cborg
+     default_model: sonnet
+     models:
+       opus: anthropic/claude-sonnet   # use sonnet even for opus-tier agents
+
+Agents can also be pinned to specific tiers:
+
+.. code-block:: yaml
+
+   claude_code:
+     agent_models:
+       channel-finder: haiku
+       logbook-search: sonnet
+
+Protocol Translation
+--------------------
+
+Claude Code speaks the Anthropic Messages API. Providers that only offer an
+OpenAI-compatible endpoint (marked *OpenAI (proxied)* above) need protocol
+translation.
+
+Osprey handles this automatically: when an OpenAI-only provider is selected,
+a local translation proxy starts on a random port before Claude Code launches.
+No manual configuration is required.
+
+If you run a custom gateway that speaks Anthropic natively (e.g., a LiteLLM
+proxy in Anthropic mode), add ``api_protocol: anthropic`` to skip the
+translation proxy:
+
+.. code-block:: yaml
+
+   api:
+     providers:
+       my-litellm-gateway:
+         api_key: ${MY_GATEWAY_KEY}
+         base_url: https://my-gateway.example.com/v1
+         api_protocol: anthropic
+         models:
+           haiku: claude-haiku-4-5-20251001
+           sonnet: claude-sonnet-4-5-20250929
 
 Verifying Connectivity
 ----------------------
 
-After configuring a provider, check that the API key and endpoint are working:
+After configuring a provider, check that the API key and endpoint work:
 
 .. code-block:: bash
 
    osprey health
 
-The health command makes a minimal API call using the cheapest available model
-for the selected provider.
+Adding a New Provider
+---------------------
 
-Adding a Custom Provider
-------------------------
+To add a new OpenAI-compatible provider, add an entry to ``api.providers``
+in ``config.yml`` — no code changes required:
 
-To add a new provider, create a module under
-``src/osprey/models/providers/`` that subclasses ``BaseProvider``.
+.. code-block:: yaml
 
-1. **Create the adapter file** (e.g., ``my_provider.py``) under
-   ``src/osprey/models/providers/``. Subclass ``BaseProvider`` and implement
-   ``execute_completion`` and ``check_health`` by delegating to the helpers
-   ``execute_litellm_completion`` and ``check_litellm_health`` from
-   ``litellm_adapter``. See any existing provider (e.g., ``cborg.py``) as a
-   template.
+   api:
+     providers:
+       my-provider:
+         api_key: ${MY_PROVIDER_API_KEY}
+         base_url: https://api.my-provider.com/v1
+         models:
+           haiku: claude-3-haiku
+           sonnet: claude-3-sonnet
+           opus: claude-3-opus
 
-2. **Set routing attributes** on the class:
+   claude_code:
+     provider: my-provider
+     default_model: sonnet
 
-   - ``is_openai_compatible = True`` -- for OpenAI-compatible endpoints.
-     LiteLLM routes as ``openai/{model_id}`` with a custom ``api_base``.
-   - ``litellm_prefix`` -- overrides the LiteLLM provider prefix when it
-     differs from the provider ``name`` (e.g., ``"gemini"`` for Google).
+The framework automatically:
 
-3. **Register the provider** in the provider registry (follow the pattern of
-   existing entries).
-
-4. **Test** with ``osprey health`` and a matching ``config.yml`` section.
+- Detects that ``my-provider`` is not a built-in Anthropic-native provider.
+- Starts the translation proxy to bridge Anthropic → OpenAI protocols.
+- Maps ``${MY_PROVIDER_API_KEY}`` to the auth token Claude Code expects.
+- Injects the resolved model IDs into Claude Code's environment.
