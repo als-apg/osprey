@@ -7,7 +7,7 @@ Web Interface
 
    The ARIEL web interface is experimental and under active development. Its API endpoints, frontend architecture, and configuration options may change in future releases.
 
-ARIEL ships with a browser-based search interface that provides the same search capabilities as the CLI in a more approachable form. The interface is a FastAPI application serving a JavaScript single-page application (SPA). It connects to the same ``ARIELSearchService`` as the CLI and the ``logbook_search`` capability, so any search module or pipeline you register is automatically available in the UI.
+ARIEL ships with a browser-based search interface that provides the same search capabilities as the CLI in a more approachable form. The interface is a FastAPI application serving a JavaScript single-page application (SPA). It connects to the same ``ARIELSearchService`` as the CLI and the ARIEL MCP tools, so any search module or pipeline you register is automatically available in the UI.
 
 .. code-block:: text
 

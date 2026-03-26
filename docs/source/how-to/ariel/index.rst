@@ -12,14 +12,6 @@ matching, semantic similarity, and RAG-powered question answering, and a
 connect to the rest of Osprey through the :doc:`integration layer
 <osprey-integration>`.
 
-.. admonition:: PLACEHOLDER: CONCEPTUAL-MAPPING
-   :class: warning
-
-   **Old content (line 5):** "``logbook_search`` :doc:`capability integration <osprey-integration>`"
-   **New equivalent:** Needs human judgment
-   **Why this is fuzzy:** The old ``logbook_search`` capability (BaseCapability subclass) is now an MCP tool; the integration layer reference needs updating to reflect the new MCP-based wiring.
-   **Action needed:** Confirm how ARIEL exposes its search to Claude Code (MCP server tool name, registration mechanism).
-
 Every layer is designed to be **facility-agnostic and extensible**. Ingestion
 adapters, search modules, and enhancement stages are all registerable --- you can
 implement your own and plug them into the full pipeline without modifying ARIEL's
@@ -169,7 +161,7 @@ Learn More
       :class-header: bg-primary text-white
       :shadow: md
 
-      MCP tool registration, context flow, and error classification.
+      MCP tools, service factory, and search result structure.
 
    .. grid-item-card:: Web Interface
       :link: web-interface
@@ -178,6 +170,43 @@ Learn More
       :shadow: md
 
       FastAPI app, frontend architecture, capabilities API, and REST endpoints.
+
+
+CLI Commands
+============
+
+All ARIEL functionality is available through the ``osprey ariel`` command group:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Command
+     - Description
+   * - ``quickstart``
+     - Quick setup: migrate, ingest demo data, and enable search
+   * - ``status``
+     - Show ARIEL service status
+   * - ``search``
+     - Search the logbook (``--mode keyword|semantic|rag|auto``)
+   * - ``ingest``
+     - Ingest logbook entries from a source file or URL
+   * - ``migrate``
+     - Run ARIEL database migrations
+   * - ``sync``
+     - Sync database: migrate, incremental ingest, and enhance
+   * - ``watch``
+     - Watch a source for new logbook entries
+   * - ``enhance``
+     - Run enhancement modules on entries
+   * - ``models``
+     - List embedding models and their tables
+   * - ``reembed``
+     - Re-embed entries with a new or existing model
+   * - ``web``
+     - Launch the ARIEL web interface
+   * - ``purge``
+     - Purge all ARIEL data from the database
 
 
 .. toctree::

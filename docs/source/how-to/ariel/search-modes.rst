@@ -28,6 +28,19 @@ Search Architecture
 
 The service validates that the requested mode is enabled in configuration before routing. Keyword and semantic are direct function calls; RAG and agent instantiate their respective classes with the repository, config, and an embedder loader. All four modes return an ``ARIELSearchResult`` with entries, an optional LLM-generated answer, source entry IDs, and a reasoning string.
 
+**CLI usage:**
+
+.. code-block:: bash
+
+   osprey ariel search "RF cavity fault" --mode auto    # default
+   osprey ariel search "RF cavity fault" --mode keyword
+   osprey ariel search "RF cavity fault" --mode semantic
+   osprey ariel search "RF cavity fault" --mode rag
+
+The ``--mode`` option accepts ``keyword``, ``semantic``, ``rag``, or ``auto``
+(the default). In ``auto`` mode, the service selects the best strategy based
+on the query and available modules.
+
 
 Search Modules
 ==============
@@ -100,7 +113,7 @@ Search modules are leaf-level functions that execute a single search strategy ag
 
          a. Per-query ``similarity_threshold`` parameter (highest)
          b. Config value (``search_modules.semantic.settings.similarity_threshold``)
-         c. Hardcoded default: 0.7 (lowest)
+         c. Hardcoded default: 0.5 (lowest)
 
       2. Determines the embedding model from config (``search_modules.semantic.model``) and resolves provider credentials via Osprey's centralized ``api.providers`` configuration
       3. Generates a query embedding using the configured provider, with a dimension-mismatch warning if the returned embedding size does not match the configured ``embedding_dimension``
@@ -118,7 +131,7 @@ Search modules are leaf-level functions that execute a single search strategy ag
              provider: ollama
              model: nomic-embed-text
              settings:
-               similarity_threshold: 0.7
+               similarity_threshold: 0.5
                embedding_dimension: 768
 
       **Requirements:** Ollama (or another embedding provider) running with the configured model, embedding table populated via the ``text_embedding`` :ref:`enhancement module <Enhancement Pipeline>`, and the pgvector extension installed in PostgreSQL.
@@ -204,23 +217,23 @@ Pipelines compose search modules into higher-level execution strategies. Each pi
 
       **Module:** ``agent/executor.py``
 
-      ReAct agent via LangGraph's ``create_react_agent``. The agent autonomously decides which search tools to call and how to synthesize an answer from multiple invocations. Unlike the RAG pipeline, the agent can refine its searches iteratively --- for example, broadening a query that returned no results, or issuing follow-up searches to corroborate initial findings.
+      Custom async ReAct loop using Osprey's LiteLLM-based completion API. The agent autonomously decides which search tools to call and how to synthesize an answer from multiple invocations. Unlike the RAG pipeline, the agent can refine its searches iteratively --- for example, broadening a query that returned no results, or issuing follow-up searches to corroborate initial findings.
 
       **How it works:**
 
-      1. **Tool discovery** --- loads ``SearchToolDescriptor`` instances from the registry, filtered to the pipeline's configured ``retrieval_modules`` and further filtered to only those that are enabled. Each descriptor is wrapped into a LangChain ``StructuredTool`` with its Pydantic ``args_schema`` for input validation.
+      1. **Tool discovery** --- loads ``SearchToolDescriptor`` instances from the registry, filtered to the pipeline's configured ``retrieval_modules`` and further filtered to only those that are enabled. Each descriptor is converted to an OpenAI-format function definition for tool-calling.
 
       2. **Time range resolution** --- each tool call uses a 3-tier priority for date filtering:
 
          a. Tool call parameter (highest) --- agent explicitly passes ``start_date``/``end_date``
-         b. Request context --- from the capability's ``time_range``
+         b. Request context --- from the search request's ``time_range``
          c. No filter (lowest) --- search all entries
 
-      3. **Agent creation** --- creates a ReAct agent with a system prompt that instructs it to search the logbook, cite entry IDs, and synthesize findings. The LLM is lazy-loaded from Osprey's centralized provider configuration.
+      3. **Agent creation** --- creates a ReAct loop with a system prompt that instructs it to search the logbook, cite entry IDs, and synthesize findings. The LLM is called via Osprey's centralized ``get_chat_completion`` API.
 
-      4. **Execution** --- runs the agent with a configurable recursion limit (``max_iterations * 2 + 1``) and a total timeout enforced via ``asyncio.wait_for``. Timeout produces a graceful ``SearchTimeoutError`` rather than crashing.
+      4. **Execution** --- runs the agent with a configurable iteration limit (``max_iterations``, default 5) via a simple ``for`` loop, with a total timeout enforced via ``asyncio.wait_for``. Timeout produces a graceful ``SearchTimeoutError`` rather than crashing.
 
-      5. **Result parsing** --- extracts the final answer from the last AI message, citation IDs from ``[#id]`` patterns, and which search modes were actually invoked by inspecting the tool call history.
+      5. **Result parsing** --- extracts the final answer from the last AI message, citation IDs via substring matching (``entry_id in answer``), and which search modes were actually invoked by inspecting the tool call history.
 
       **Configuration:**
 
