@@ -62,6 +62,7 @@ Create a minimal profile and build:
    base_template: control_assistant
    provider: anthropic
    model: sonnet
+   requires_osprey_version: ">=0.12.0"
 
    config:
      control_system.type: mock
@@ -118,6 +119,10 @@ Profile YAML Schema
      - mapping
      - ``{}``
      - MCP server definitions to inject.
+   * - ``services``
+     - mapping
+     - ``{}``
+     - Container service definitions for ``osprey deploy`` (see :ref:`profile-services`).
    * - ``lifecycle``
      - mapping
      - ``{}``
@@ -125,11 +130,23 @@ Profile YAML Schema
    * - ``env``
      - mapping
      - ``{}``
-     - Environment variable template (``required`` list + ``defaults`` mapping).
+     - Environment variable template (``required``, ``defaults``, ``file``).
    * - ``dependencies``
      - list
      - ``[]``
      - Python packages to append to ``requirements.txt``.
+   * - ``requires_osprey_version``
+     - string
+     - ``None``
+     - PEP 440 version specifier (e.g. ``>=0.12.0``). Build aborts if not satisfied.
+   * - ``osprey_install``
+     - string
+     - ``local``
+     - How to install OSPREY in the project venv: ``local`` (source tree), ``pip`` (PyPI), or a PEP 508 spec.
+   * - ``python_env``
+     - string
+     - ``project``
+     - Python used by MCP servers: ``project`` (project venv), ``build`` (build-time Python), or an absolute path.
 
 
 Configuration Overrides
@@ -268,6 +285,32 @@ The recommended pattern for facility MCP servers:
          allow: ["phoebus_launch"]
 
 
+.. _profile-services:
+
+Services
+========
+
+The ``services`` section defines facility-specific containers that ``osprey deploy``
+will manage alongside OSPREY's built-in services (e.g. PostgreSQL).
+
+Each service points to a template directory containing a ``docker-compose.yml.j2``
+template. The template directory is copied into the project's ``services/`` tree, and
+the service is registered in ``config.yml`` under ``services`` and
+``deployed_services``.
+
+.. code-block:: yaml
+
+   services:
+     typesense:
+       template: services/typesense     # Relative to profile directory
+       config:
+         port: 8108
+         api_key: "${TYPESENSE_API_KEY}"
+
+The ``template`` directory must contain at least ``docker-compose.yml.j2``. Optional
+``config`` values are written to ``config.yml`` under ``services.<name>``.
+
+
 Lifecycle Commands
 ==================
 
@@ -287,19 +330,29 @@ Lifecycle commands run shell commands at three phases of the build pipeline:
        - name: "Build search index"
          run: "python scripts/build_index.py"
          cwd: "data"
-       - name: "Install project deps"
-         run: "pip install -r {project_root}/requirements.txt"
+       - name: "Run integration tests"
+         run: "pytest tests/ --junitxml={project_root}/check_results.xml"
+         timeout: 300
+         stream: true
      validate:
        - name: "Smoke test"
          run: "python -c 'import osprey; print(osprey.__version__)'"
 
-Each step requires ``name`` and ``run``. The optional ``cwd`` is resolved relative to
-the phase default directory. The ``{project_root}`` placeholder is replaced with the
-built project's absolute path.
+Each step requires ``name`` and ``run``. Optional fields:
+
+- ``cwd`` — resolved relative to the phase default directory.
+- ``timeout`` — seconds before the step is killed (default: 120).
+- ``stream`` — if ``true``, stdout is printed in real time instead of captured. Can also
+  be enabled for all steps via the ``--stream`` CLI flag.
+
+The ``{project_root}`` placeholder is replaced with the built project's absolute path.
 
 Shell metacharacters (``|``, ``&&``, ``||``, ``$(``, backticks) trigger shell execution;
-simple commands use ``shlex.split()`` for safer argument handling. All commands have a
-120-second timeout.
+simple commands use ``shlex.split()`` for safer argument handling.
+
+The project venv's ``bin/`` directory is prepended to ``PATH``, so ``python`` and
+``pytest`` inside lifecycle commands resolve to the project's Python (with profile
+dependencies installed), not the OSPREY build environment.
 
 
 Environment Templates
@@ -331,6 +384,15 @@ This produces a ``.env.template`` with:
    PORT=8080
 
 Required variable names must match ``^[A-Z_][A-Z0-9_]*$``.
+
+To ship a pre-populated ``.env`` file (e.g. for non-secret defaults), use the ``file``
+key. The path is relative to the profile directory:
+
+.. code-block:: yaml
+
+   env:
+     file: envs/dev.env        # Copied to .env in the built project
+     required: [SECRET_KEY]     # .env.template is still generated
 
 
 Dependencies
@@ -403,6 +465,8 @@ CLI Reference
      - Output directory (default: current directory)
    * - ``--force, -f``
      - Overwrite if project directory already exists
+   * - ``--stream, -s``
+     - Stream lifecycle step output in real time
 
 **Examples:**
 
@@ -410,6 +474,9 @@ CLI Reference
 
    # Basic build
    osprey build als-test ~/als-profiles/als-dev.yml -o /tmp --force
+
+   # Build with streaming output for lifecycle steps
+   osprey build als-test ~/als-profiles/als-dev.yml --stream
 
    # Build to current directory
    osprey build my-assistant profile.yml
@@ -421,20 +488,30 @@ Build Pipeline
 When ``osprey build`` runs, it executes these steps in order:
 
 1. **Load and validate** the YAML profile (schema check, path existence)
-2. **Resolve output path** and handle ``--force`` (remove existing directory)
-3. **Run pre_build commands** (cwd: profile directory)
-4. **Clear Claude Code state** for the target directory
-5. **Build context** from profile fields (provider, model, channel finder mode)
-6. **Render base template** via ``TemplateManager.create_project()``
-7. **Apply config overrides** using dot-notation → nested key updates
-8. **Copy overlay files** from the profile directory into the project
-9. **Inject MCP servers** into ``.mcp.json`` and ``.claude/settings.json``
-10. **Generate .env.template** from env config
-11. **Append dependencies** to ``requirements.txt``
-12. **Generate manifest** (``.osprey-manifest.json``) for migration tracking
-13. **Initialize git** and create an initial commit
-14. **Run post_build commands** (cwd: project directory)
-15. **Run validate commands** (advisory, cwd: project directory)
+2. **Check version constraint** — abort if ``requires_osprey_version`` is not satisfied
+3. **Resolve output path** and handle ``--force`` (remove existing directory)
+4. **Run pre_build commands** (cwd: profile directory)
+5. **Clear Claude Code state** for the target directory
+6. **Create project venv** — install OSPREY (per ``osprey_install``) and profile dependencies
+7. **Build context** from profile fields (provider, model, python_env, channel finder mode)
+8. **Render base template** via ``TemplateManager.create_project()``
+9. **Apply config overrides** using dot-notation → nested key updates
+10. **Copy service templates** (built-in containers for ``osprey deploy``)
+11. **Inject profile services** (facility containers from ``services:``)
+12. **Copy overlay files** from the profile directory into the project
+13. **Inject MCP servers** into ``.mcp.json`` and ``.claude/settings.json``
+14. **Copy .env file** (if ``env.file`` is set)
+15. **Generate .env.template** from ``env.required`` and ``env.defaults``
+16. **Generate manifest** (``.osprey-manifest.json``) for migration tracking
+17. **Initialize git** and create an initial commit
+18. **Run post_build commands** (cwd: project directory)
+19. **Run validate commands** (advisory, cwd: project directory)
+
+.. note::
+
+   The project venv (step 6) is created **before** template rendering so that
+   templates can reference the resolved Python path. Lifecycle commands in
+   ``post_build`` and ``validate`` automatically use the project venv's Python.
 
 The generated project contains everything Claude Code needs to run — no dependency on
 the profiles repository at runtime.
@@ -487,6 +564,12 @@ a built-in. Choose a different name.
 
 **"Directory 'X' already exists"** — Use ``--force`` to overwrite, or pick a
 different project name.
+
+**"OSPREY X does not satisfy requires_osprey_version"** — Upgrade OSPREY to a
+version matching the profile's specifier, or remove the constraint.
+
+**"Service 'X' template dir missing docker-compose.yml.j2"** — The service template
+directory must contain a ``docker-compose.yml.j2`` file.
 
 
 .. seealso::
