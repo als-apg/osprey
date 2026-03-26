@@ -45,6 +45,13 @@ Framework & Infrastructure
       Launch and operate the Web Terminal interface for interactive Claude Code
       sessions with your control system.
 
+   .. grid-item-card:: Use the CLI Chat Interface
+      :link: use-cli-chat
+      :link-type: doc
+
+      Run Claude Code in your native terminal with companion services accessible
+      in a browser.
+
    .. grid-item-card:: Use the Python Executor
       :link: use-python-executor
       :link-type: doc
@@ -95,6 +102,7 @@ Services & Connectors
    build-profiles
    add-mcp-server
    use-web-terminal
+   use-cli-chat
    use-python-executor
    add-connector
    use-channel-finder

@@ -26,6 +26,35 @@ automatically opens your default browser. You can override the defaults:
 The server reads ``config.yml`` from the project directory (or the path given by
 ``--config``). Use ``--shell`` to replace the default ``claude`` command.
 
+**Background mode** — run the server as a detached process:
+
+.. code-block:: bash
+
+   osprey web --detach          # start in background
+   osprey web stop              # stop the background server
+
+When detached, the PID is written to ``.osprey-web.pid`` and logs go to
+``.osprey-web.log`` in the project directory.
+
+Companion Servers
+^^^^^^^^^^^^^^^^^
+
+On startup the web terminal auto-launches companion web servers that power the
+side panels:
+
+- **Artifact gallery** (port 8086) — workspace artifact browser
+- **Karma analytics** (port 8741) — session transcript viewer
+
+Domain-specific servers are launched when their config section is present:
+
+- **ARIEL** (port 8085) — logbook search
+- **Tuning panel** (port 8090) — parameter tuning UI
+- **Channel Finder** (port 8092) — channel lookup
+- **Lattice dashboard** (port 8097) — accelerator visualization
+
+Each server's host, port, and ``auto_launch`` flag can be overridden in
+``config.yml`` under its own section (e.g., ``artifact_server.port``).
+
 
 Key Features
 ------------
@@ -62,6 +91,9 @@ artifacts, plots, and data files appear without a manual refresh.
 - ``GET /api/files/tree`` -- directory tree as JSON
 - ``GET /api/files/content/{path}`` -- file preview (up to 1 MB, text only)
 
+The viewer can be scoped to a specific session by appending
+``?session_id=UUID`` to the URL.
+
 Settings Drawer
 ^^^^^^^^^^^^^^^
 
@@ -97,6 +129,8 @@ A dedicated session panel lets you inspect the running conversation:
   registered for the project.
 - **Agent hierarchy** (``GET /api/session-agents``) -- subagent tree with tool
   call breakdowns.
+- **Agent timeline** (``GET /api/session-agent-timeline``) -- full internal
+  timeline of a subagent's execution.
 - **Tool call log** (``GET /api/session-log``) -- filterable by agent, tool
   name, error status, and time range.
 - **Chat history** (``GET /api/session-chat``) -- human-readable conversation
@@ -131,11 +165,9 @@ Manage Claude memory files (Markdown notes persisted across sessions):
 Side Panels
 ^^^^^^^^^^^
 
-The web terminal can embed companion services as iframe panels. Built-in panel
-types include **artifacts**, **ariel** (logbook), **tuning**, **channel-finder**,
-**session**, **session-analytics**, and **lattice**. Universal panels (artifacts,
-session, session-analytics) are always enabled; domain panels are activated in
-``config.yml``:
+The web terminal can embed companion services as iframe panels. **Universal
+panels** (artifacts, karma analytics) are always enabled. **Domain panels** are
+activated in ``config.yml``:
 
 .. code-block:: yaml
 
@@ -183,8 +215,8 @@ All options live under the ``web_terminal`` key in ``config.yml``:
      - Maximum detached PTY sessions kept alive in the pool.
 
 The server itself accepts ``--host`` (default ``127.0.0.1``), ``--port``
-(default ``8087``), ``--config``, and ``--shell`` on the command line. The CLI
-flags take precedence over ``config.yml`` values.
+(default ``8087``), ``--config``, ``--shell``, and ``--detach`` on the command
+line. CLI flags take precedence over ``config.yml`` values.
 
 Hook Debugging
 ^^^^^^^^^^^^^^
