@@ -121,5 +121,5 @@ fig.update_layout(
 # --- Save ---
 save_artifact(fig, "ALS Dynamic Aperture", f"DA boundary, {nturns} turns, area={area_mm2:.1f} mm²")
 
-# Alternative: fig.write_html("osprey-workspace/artifacts/dynamic_aperture.html")
+# Alternative: fig.write_html("_agent_data/artifacts/dynamic_aperture.html")
 print("\nDynamic aperture plot saved.")

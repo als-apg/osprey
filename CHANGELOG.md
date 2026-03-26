@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Workspace**: Unify `osprey-workspace/` and `_agent_data/` into single configurable `_agent_data` directory (config key: `agent_data.base_dir`)
+
 ## [0.11.5] - 2026-03-13
 
 ### Fixed

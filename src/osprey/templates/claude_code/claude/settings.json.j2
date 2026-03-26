@@ -8,9 +8,9 @@
 {#- Build allow list from server registry -#}
 {%- set allow_entries = [] -%}
 {%- set _ = allow_entries.append('"Read(_agent_data/**)"') -%}
-{%- set _ = allow_entries.append('"Read(osprey-workspace/data/**)"') -%}
-{%- set _ = allow_entries.append('"Read(osprey-workspace/plots/**)"') -%}
-{%- set _ = allow_entries.append('"Read(osprey-workspace/results/**)"') -%}
+{%- set _ = allow_entries.append('"Read(_agent_data/data/**)"') -%}
+{%- set _ = allow_entries.append('"Read(_agent_data/plots/**)"') -%}
+{%- set _ = allow_entries.append('"Read(_agent_data/results/**)"') -%}
 {%- if textbooks_root -%}
 {%- set _ = allow_entries.append('"Read(' ~ textbooks_root ~ '/**)"') -%}
 {%- endif -%}
@@ -26,7 +26,7 @@
 {%- set _ = allow_entries.append('"' ~ entry ~ '"') -%}
 {%- endfor -%}
 {%- endfor -%}
-{%- set _ = allow_entries.append('"NotebookEdit(osprey-workspace/artifacts/**)"') -%}
+{%- set _ = allow_entries.append('"NotebookEdit(_agent_data/artifacts/**)"') -%}
 {#- Per-agent Task() permissions -#}
 {%- for a in agents if a.enabled -%}
 {%- set _ = allow_entries.append('"Task(' ~ a.name ~ ')"') -%}
@@ -69,7 +69,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cat \"$CLAUDE_PROJECT_DIR/osprey-workspace/focus_state.txt\" 2>/dev/null || true",
+            "command": "cat \"$CLAUDE_PROJECT_DIR/_agent_data/focus_state.txt\" 2>/dev/null || true",
             "timeout": 1
           }
         ]

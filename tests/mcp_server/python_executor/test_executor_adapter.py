@@ -179,7 +179,7 @@ def test_container_endpoint_construction_readwrite(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 def test_execution_folder_created(tmp_path, monkeypatch):
-    """Adapter creates timestamped folder in osprey-workspace/data/python_executions/."""
+    """Adapter creates timestamped folder in _agent_data/data/python_executions/."""
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path)
     folder = _create_execution_folder()

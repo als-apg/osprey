@@ -526,7 +526,7 @@ def _indent_code(code: str, spaces: int = 4) -> str:
 # Execution folder
 # ---------------------------------------------------------------------------
 def create_sandbox_execution_folder() -> Path:
-    """Create a timestamped folder under ``osprey-workspace/data/sandbox_executions/``."""
+    """Create a timestamped folder under ``_agent_data/data/sandbox_executions/``."""
     from osprey.utils.workspace import resolve_workspace_root
 
     base = resolve_workspace_root() / "data" / "sandbox_executions"

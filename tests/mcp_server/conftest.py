@@ -71,8 +71,8 @@ def init_registry(tmp_path, monkeypatch):
 
 @pytest.fixture
 def workspace_dir(tmp_path):
-    """Create temporary workspace structure matching osprey-workspace layout."""
-    ws = tmp_path / "osprey-workspace"
+    """Create temporary workspace structure matching _agent_data layout."""
+    ws = tmp_path / "_agent_data"
     for subdir in [
         "channel_results",
         "archiver_data",

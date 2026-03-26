@@ -21,7 +21,7 @@ def _get_session_summary():
 @pytest.fixture
 def workspace(tmp_path, monkeypatch):
     """Set up a temporary workspace with an artifacts dir."""
-    ws = tmp_path / "osprey-workspace"
+    ws = tmp_path / "_agent_data"
     ws.mkdir()
     (ws / "artifacts").mkdir()
     monkeypatch.setenv("OSPREY_WORKSPACE", str(ws))

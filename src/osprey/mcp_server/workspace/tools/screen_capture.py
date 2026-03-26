@@ -26,7 +26,7 @@ def _get_output_dir() -> Path:
     """Resolve the screenshots output directory from config or default."""
     config = load_osprey_config()
     sc_config = config.get("screen_capture", {})
-    output_dir = Path(sc_config.get("output_dir", "./osprey-workspace/screenshots"))
+    output_dir = Path(sc_config.get("output_dir", "./_agent_data/screenshots"))
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
 

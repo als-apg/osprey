@@ -153,7 +153,7 @@ async def test_python_execute_data_file_saving(tmp_path, monkeypatch):
     assert "artifact_id" in data
     assert "data_file" in data
     # data_file is a relative filename within the artifacts/ directory
-    artifacts_dir = tmp_path / "osprey-workspace" / "artifacts"
+    artifacts_dir = tmp_path / "_agent_data" / "artifacts"
     assert (artifacts_dir / data["data_file"]).exists()
 
 
@@ -582,7 +582,7 @@ async def test_data_context_saves_adapter_result(tmp_path, monkeypatch):
     assert "data_file" in data
 
     # data_file is a relative filename within the artifacts/ directory
-    artifacts_dir = tmp_path / "osprey-workspace" / "artifacts"
+    artifacts_dir = tmp_path / "_agent_data" / "artifacts"
     data_file = artifacts_dir / data["data_file"]
     assert data_file.exists()
     # ArtifactStore writes raw JSON (no envelope)
@@ -926,7 +926,7 @@ save_artifact([1, 2, 3], title="List Data")
 # ============================================================================
 # REGRESSION: subprocess cwd must be project root, not execution sandbox
 #
-# User code receives file paths like "osprey-workspace/data/002_archiver_read.json"
+# User code receives file paths like "_agent_data/data/002_archiver_read.json"
 # from other tools. These are relative to the project root. When the subprocess
 # cwd is the execution sandbox, these paths don't resolve.
 # ============================================================================
@@ -936,7 +936,7 @@ save_artifact([1, 2, 3], title="List Data")
 async def test_subprocess_can_read_workspace_files_by_relative_path(tmp_path):
     """REGRESSION: User code must be able to open workspace files by relative path.
 
-    Other MCP tools return paths like 'osprey-workspace/data/002_archiver_read.json'.
+    Other MCP tools return paths like '_agent_data/data/002_archiver_read.json'.
     The subprocess must resolve these relative to the project root, not the
     execution sandbox directory.
 
@@ -945,11 +945,11 @@ async def test_subprocess_can_read_workspace_files_by_relative_path(tmp_path):
     """
     from osprey.mcp_server.python_executor.executor import _execute_via_local
 
-    # Simulate the project layout: project_root/osprey-workspace/data/file.json
+    # Simulate the project layout: project_root/_agent_data/data/file.json
     project_root = tmp_path / "project"
     project_root.mkdir()
 
-    workspace_root = project_root / "osprey-workspace"
+    workspace_root = project_root / "_agent_data"
     workspace_data = workspace_root / "data"
     workspace_data.mkdir(parents=True)
     data_file = workspace_data / "002_archiver_read.json"
@@ -968,7 +968,7 @@ async def test_subprocess_can_read_workspace_files_by_relative_path(tmp_path):
     # that another MCP tool returned
     code = """
 import json
-with open("osprey-workspace/data/002_archiver_read.json") as f:
+with open("_agent_data/data/002_archiver_read.json") as f:
     data = json.load(f)
 print(f"Loaded: {data['channels']}")
 """
@@ -1002,7 +1002,7 @@ async def test_subprocess_outputs_still_written_to_execution_folder(tmp_path):
     project_root = tmp_path / "project"
     project_root.mkdir()
 
-    workspace_root = project_root / "osprey-workspace"
+    workspace_root = project_root / "_agent_data"
     exec_base = workspace_root / "data" / "python_executions"
     exec_base.mkdir(parents=True)
     execution_folder = exec_base / "20260217_test2"

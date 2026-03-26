@@ -114,7 +114,7 @@ as a subprocess:
        python_env_path: /path/to/venv   # optional; defaults to sys.executable
 
 The subprocess working directory is set to the project root so that
-relative workspace paths (e.g. ``osprey-workspace/data/002_archiver_read.json``)
+relative workspace paths (e.g. ``_agent_data/data/002_archiver_read.json``)
 resolve correctly.
 
 Security Model

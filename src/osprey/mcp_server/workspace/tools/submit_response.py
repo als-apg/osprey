@@ -148,6 +148,6 @@ async def submit_response(
             make_error(
                 "internal_error",
                 f"Failed to save response: {exc}",
-                ["Check that the osprey-workspace directory is accessible."],
+                ["Check that the _agent_data directory is accessible."],
             )
         )

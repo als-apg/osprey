@@ -289,7 +289,7 @@ def _create_lifespan(
                         _spec.upstream_base_url,
                     )
 
-        workspace_dir = Path(config.get("watch_dir") or "./osprey-workspace").resolve()
+        workspace_dir = Path(config.get("watch_dir") or "./_agent_data").resolve()
         app.state.workspace_dir = workspace_dir  # base path (file watcher watches all sessions)
         app.state.workspace_base = workspace_dir  # alias for clarity
         app.state.watcher = WorkspaceWatcher(workspace_dir, app.state.broadcaster)

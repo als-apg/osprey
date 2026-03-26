@@ -182,14 +182,14 @@ def find_png_files(root: Path) -> list[Path]:
 
 
 def diagnose_workspace(project_dir: Path, max_depth: int = 3) -> str:
-    """Return a depth-limited directory tree of osprey-workspace/.
+    """Return a depth-limited directory tree of _agent_data/.
 
     Useful for seeing exactly what was created, even if artifacts
     landed somewhere unexpected.
     """
-    workspace = project_dir / "osprey-workspace"
+    workspace = project_dir / "_agent_data"
     if not workspace.exists():
-        return "osprey-workspace/ does not exist"
+        return "_agent_data/ does not exist"
 
     lines = []
 
@@ -210,7 +210,7 @@ def diagnose_workspace(project_dir: Path, max_depth: int = 3) -> str:
                 size = entry.stat().st_size
                 lines.append(f"{prefix}{connector}{entry.name} ({size}B)")
 
-    lines.append("osprey-workspace/")
+    lines.append("_agent_data/")
     _walk(workspace, 1)
     return "\n".join(lines)
 
@@ -227,7 +227,7 @@ def diagnose_python_execute(project_dir: Path) -> str:
     parts = []
 
     # Layer 1: Execution folders
-    exec_dir = project_dir / "osprey-workspace" / "data" / "python_executions"
+    exec_dir = project_dir / "_agent_data" / "data" / "python_executions"
     if not exec_dir.exists():
         parts.append("python_executions/ does not exist -- tool likely never ran")
     else:
@@ -258,7 +258,7 @@ def diagnose_python_execute(project_dir: Path) -> str:
             )
 
     # Layer 3: Artifact store index
-    artifacts_json = project_dir / "osprey-workspace" / "artifacts" / "artifacts.json"
+    artifacts_json = project_dir / "_agent_data" / "artifacts" / "artifacts.json"
     if artifacts_json.exists():
         try:
             index_data = json.loads(artifacts_json.read_text())
@@ -277,7 +277,7 @@ def diagnose_python_execute(project_dir: Path) -> str:
         parts.append("artifacts.json: does not exist")
 
     # Layer 4: Artifact PNGs
-    artifacts_dir = project_dir / "osprey-workspace" / "artifacts"
+    artifacts_dir = project_dir / "_agent_data" / "artifacts"
     if artifacts_dir.exists():
         artifact_pngs = list(artifacts_dir.glob("*.png"))
         parts.append(
@@ -414,12 +414,12 @@ class TestClaudeExecutesArchiverAndPlots:
             f"--- Execution diagnostics ---\n{diagnose_python_execute(project_dir)}"
         )
 
-        # Archiver data was produced (saved to osprey-workspace/data/ by DataContextStore)
-        workspace_dir = project_dir / "osprey-workspace"
+        # Archiver data was produced (saved to _agent_data/data/ by DataContextStore)
+        workspace_dir = project_dir / "_agent_data"
         data_dir = workspace_dir / "data"
         data_files = list(data_dir.rglob("*")) if data_dir.exists() else []
         assert len(data_files) > 0, (
-            "No data files found in osprey-workspace/data/. "
+            "No data files found in _agent_data/data/. "
             "archiver_read may not have been called. "
             f"Workspace contents: {list(workspace_dir.rglob('*')) if workspace_dir.exists() else 'N/A'}"
         )
@@ -438,7 +438,7 @@ class TestClaudeExecutesArchiverAndPlots:
         )
 
         # Secondary check: artifact store should have image entries
-        artifacts_json = project_dir / "osprey-workspace" / "artifacts" / "artifacts.json"
+        artifacts_json = project_dir / "_agent_data" / "artifacts" / "artifacts.json"
         if artifacts_json.exists():
             index_data = json.loads(artifacts_json.read_text())
             entries = index_data.get("entries", [])
@@ -514,12 +514,12 @@ class TestClaudeFullBpmAnalysisPipeline:
             f"--- Execution diagnostics ---\n{diagnose_python_execute(project_dir)}"
         )
 
-        # Archiver data was retrieved (saved to osprey-workspace/data/ by DataContextStore)
-        workspace_dir = project_dir / "osprey-workspace"
+        # Archiver data was retrieved (saved to _agent_data/data/ by DataContextStore)
+        workspace_dir = project_dir / "_agent_data"
         data_dir = workspace_dir / "data"
         data_files = list(data_dir.rglob("*")) if data_dir.exists() else []
         assert len(data_files) > 0, (
-            "No data files found in osprey-workspace/data/. "
+            "No data files found in _agent_data/data/. "
             "The archiver_read tool may not have been called. "
             f"Workspace contents: {list(workspace_dir.rglob('*')) if workspace_dir.exists() else 'N/A'}"
         )
@@ -538,7 +538,7 @@ class TestClaudeFullBpmAnalysisPipeline:
         )
 
         # Secondary check: artifact store should have image entries
-        artifacts_json = project_dir / "osprey-workspace" / "artifacts" / "artifacts.json"
+        artifacts_json = project_dir / "_agent_data" / "artifacts" / "artifacts.json"
         if artifacts_json.exists():
             index_data = json.loads(artifacts_json.read_text())
             entries = index_data.get("entries", [])

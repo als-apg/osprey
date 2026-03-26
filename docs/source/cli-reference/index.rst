@@ -177,7 +177,7 @@ status.
 ``osprey claude regen [OPTIONS]``
    Re-render all Claude Code integration files (``.mcp.json``,
    ``.claude/settings.json``, ``CLAUDE.md``, agents) from ``config.yml``.
-   Existing files are backed up to ``osprey-workspace/backup/``.
+   Existing files are backed up to ``_agent_data/backup/``.
 
    ``-p, --project DIRECTORY`` — Project directory (default: current directory).
 

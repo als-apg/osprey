@@ -216,7 +216,7 @@ class TestUserFilePreservation:
     """Test that regeneration preserves user-maintained files."""
 
     def test_creates_backup(self, tmp_path):
-        """Regen creates backup directory in osprey-workspace/backup/."""
+        """Regen creates backup directory in _agent_data/backup/."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="backup-test",

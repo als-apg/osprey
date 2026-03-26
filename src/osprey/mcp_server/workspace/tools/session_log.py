@@ -189,7 +189,7 @@ async def session_log(
         )
 
     # Read events from Claude Code native transcripts
-    project_dir = workspace_root.parent  # workspace_root = project_dir/osprey-workspace
+    project_dir = workspace_root.parent  # workspace_root = project_dir/_agent_data
     reader = TranscriptReader(project_dir)
     all_events = reader.read_current_session()  # already sorted by timestamp
 

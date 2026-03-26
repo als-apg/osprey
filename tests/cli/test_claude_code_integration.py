@@ -237,10 +237,10 @@ class TestClaudeCodeAcrossTemplates:
 
 
 class TestClaudeCodeGitignore:
-    """Test that project gitignore includes osprey-workspace/."""
+    """Test that project gitignore includes _agent_data/."""
 
     def test_gitignore_includes_osprey_workspace(self, tmp_path):
-        """Project .gitignore includes osprey-workspace/."""
+        """Project .gitignore includes _agent_data/."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="gitignore-test",
@@ -249,7 +249,7 @@ class TestClaudeCodeGitignore:
         )
 
         gitignore = (project_dir / ".gitignore").read_text()
-        assert "osprey-workspace/" in gitignore
+        assert "_agent_data/" in gitignore
 
 
 class TestClaudeCodeCLI:

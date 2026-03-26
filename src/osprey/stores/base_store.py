@@ -56,7 +56,7 @@ class BaseStore(Generic[T]):
         cls._listeners = []
 
     def __init__(self, workspace_root: Path | None = None) -> None:
-        self._workspace = workspace_root or (Path.cwd() / "osprey-workspace")
+        self._workspace = workspace_root or (Path.cwd() / "_agent_data")
         self._store_dir = self._workspace / self._subdir if self._subdir else self._workspace
         self._index_file = self._store_dir / self._index_filename
         self._entries: list[T] = []

@@ -375,7 +375,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     Args:
         workspace_root: Workspace root containing ``artifacts/`` dir.
-            Defaults to ``./osprey-workspace``.
+            Defaults to ``./_agent_data``.
     """
     from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher
     from osprey.stores.artifact_store import (

@@ -55,15 +55,15 @@ def reset_config_cache() -> None:
     config_module._config_cache.clear()
 
 
-def resolve_workspace_root() -> Path:
-    """Resolve the workspace root directory from config.
+def resolve_agent_data_root() -> Path:
+    """Resolve the agent data root directory from config.
 
-    Uses ``workspace.base_dir`` from config.yml, resolved relative to the
+    Uses ``agent_data.base_dir`` from config.yml, resolved relative to the
     config file's parent directory (the project root).  Falls back to
-    ``./osprey-workspace`` relative to cwd if no config is found.
+    ``./_agent_data`` relative to cwd if no config is found.
     """
     config = load_osprey_config()
-    base_dir = config.get("workspace", {}).get("base_dir", "./osprey-workspace")
+    base_dir = config.get("agent_data", {}).get("base_dir", "./_agent_data")
 
     config_path = resolve_config_path()
     if config_path.exists():
@@ -79,8 +79,12 @@ def resolve_workspace_root() -> Path:
     if session_id:
         resolved = resolved / "sessions" / session_id
 
-    logger.debug("Workspace root resolved to %s", resolved)
+    logger.debug("Agent data root resolved to %s", resolved)
     return resolved
+
+
+# Backward-compatible alias
+resolve_workspace_root = resolve_agent_data_root
 
 
 def resolve_path(path_str: str) -> Path:

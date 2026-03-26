@@ -105,7 +105,7 @@ async def test_archiver_read_relative_time(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 async def test_archiver_read_file_persistence(tmp_path, monkeypatch):
-    """Archiver read saves data to osprey-workspace/artifacts/ via ArtifactStore."""
+    """Archiver read saves data to _agent_data/artifacts/ via ArtifactStore."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("archiver:\n  type: mock\n")
     initialize_server_context()
@@ -130,7 +130,7 @@ async def test_archiver_read_file_persistence(tmp_path, monkeypatch):
 
     # Data file is a relative filename within the artifacts dir
 
-    artifacts_dir = tmp_path / "osprey-workspace" / "artifacts"
+    artifacts_dir = tmp_path / "_agent_data" / "artifacts"
     data_file = artifacts_dir / data["data_file"]
     assert data_file.exists()
 

@@ -561,7 +561,7 @@ def regenerate_claude_code(
 
     # Create backup
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    backup_dir = project_dir / "osprey-workspace" / "backup" / f"claude-code-{timestamp}"
+    backup_dir = project_dir / "_agent_data" / "backup" / f"claude-code-{timestamp}"
     backup_dir.mkdir(parents=True, exist_ok=True)
 
     for rel_path in claude_code_files:
