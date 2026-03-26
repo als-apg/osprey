@@ -180,12 +180,16 @@ async def _execute_via_local(
     script_path = execution_folder / "wrapped_script.py"
     script_path.write_text(wrapped_code, encoding="utf-8")
 
-    # Determine python binary
+    # Determine python binary — python_env_path may be an executable or a venv dir
     python_env_path = config.get("python_env_path")
     if python_env_path:
-        python_bin = str(Path(python_env_path) / "bin" / "python")
-        if not Path(python_bin).exists():
-            python_bin = sys.executable
+        p = Path(python_env_path)
+        if p.is_file():
+            python_bin = str(p)
+        else:
+            python_bin = str(p / "bin" / "python")
+            if not Path(python_bin).exists():
+                python_bin = sys.executable
     else:
         python_bin = sys.executable
 

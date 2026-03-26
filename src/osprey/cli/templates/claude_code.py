@@ -58,7 +58,10 @@ def build_claude_code_context(
         "project_name": project_name,
         "package_name": package_name,
         "project_root": str(project_dir.absolute()),
-        "current_python_env": sys.executable,
+        "current_python_env": (
+            config.get("execution", {}).get("python_env_path")
+            or sys.executable
+        ),
         "template_name": template_name,
         "facility_name": config.get("facility_name", project_name),
         "system_timezone": config.get("system", {}).get("timezone", "UTC"),

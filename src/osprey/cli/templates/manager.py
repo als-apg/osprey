@@ -182,7 +182,7 @@ class TemplateManager:
             "framework_version": manifest.get_framework_version(),
             "project_root": str(project_dir.absolute()),
             "venv_path": "${LOCAL_PYTHON_VENV}",
-            "current_python_env": current_python,  # Actual path to current Python
+            "current_python_env": current_python,  # Default; overridden by caller context
             "default_provider": "anthropic",
             "default_model": "haiku",
             "template_name": template_name,  # Make template name available in config.yml
