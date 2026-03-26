@@ -1,7 +1,7 @@
 Contributing to Osprey
 ======================
 
-Thank you for your interest in contributing to the Osprey Framework. This guide covers environment setup, Git workflow, code standards, AI-assisted development, and community guidelines.
+Thank you for your interest in contributing to the Osprey Framework. This guide covers environment setup, Git workflow, code standards, and community guidelines.
 
 ----
 
@@ -212,59 +212,6 @@ All public functions, classes, and methods need Google-style docstrings:
 
 ----
 
-AI-Assisted Development
------------------------
-
-Osprey includes structured AI workflow tasks for coding assistants (Claude Code, Cursor, etc.).
-
-Accessing Workflow Tasks
-^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: bash
-
-   # Browse tasks interactively
-   osprey tasks
-
-   # List all available tasks
-   osprey tasks list
-
-   # Copy a task to your project
-   osprey tasks copy pre-merge-cleanup
-
-   # Install as a Claude Code skill
-   osprey claude install migrate
-
-Available tasks include: ``pre-merge-cleanup``, ``testing-workflow``, ``commit-organization``,
-``docstrings``, ``comments``, ``ai-code-review``, ``create-capability``, ``release-workflow``,
-``update-documentation``, ``channel-finder-pipeline-selection``, ``channel-finder-database-builder``,
-and ``migrate``.
-
-Using Tasks
-^^^^^^^^^^^
-
-**With any AI assistant** -- reference the copied task file:
-
-.. code-block:: text
-
-   @.ai-tasks/pre-merge-cleanup/instructions.md Scan my uncommitted changes
-
-**With Claude Code** -- install as a skill for automatic discovery:
-
-.. code-block:: bash
-
-   osprey claude install create-capability
-
-Then ask Claude directly: *"Help me create a new capability for archiver data retrieval."*
-
-Best Practices
-^^^^^^^^^^^^^^
-
-- Reference specific workflows with ``@`` mentions and provide context.
-- Always review AI-generated code carefully.
-- Run tests to verify AI changes.
-- Check for security issues in AI-generated code.
-- Do not blindly accept suggestions or skip pre-merge cleanup.
-
 Community Guidelines
 --------------------
 
@@ -287,4 +234,3 @@ Getting Help
 
 - `GitHub Discussions <https://github.com/als-apg/osprey/discussions>`_ -- Ask questions, share ideas
 - `GitHub Issues <https://github.com/als-apg/osprey/issues>`_ -- Report bugs, request features
-- ``osprey tasks list`` -- Browse available AI workflow tasks
