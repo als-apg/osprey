@@ -3,20 +3,9 @@ MCP Servers
 
 OSPREY exposes control system operations, data retrieval, and workspace
 management as tools through `FastMCP <https://github.com/jlowin/fastmcp>`_
-servers. Each server is a standalone process that registers tools via the
-``@mcp.tool()`` decorator and communicates with Claude Code over the MCP
-(Model Context Protocol) transport.
-
-.. admonition:: PLACEHOLDER: CONCEPTUAL-MAPPING
-   :class: warning
-
-   **Old content:** N/A (new page)
-
-   **New equivalent:** Needs human judgment
-
-   **Why this is fuzzy:** How Claude Code discovers and selects MCP tools at runtime depends on deployment configuration decisions not yet documented.
-
-   **Action needed:** Describe how tool selection works in Claude Code's MCP architecture, or link to Claude Code docs.
+servers. Claude Code discovers servers from ``.mcp.json`` at startup and calls
+tools via stdio JSON-RPC. There are **8 in-tree MCP servers**; build profiles
+can inject additional servers beyond the core set below.
 
 
 Control System
@@ -145,12 +134,6 @@ tools into several functional areas.
 - ``data_delete`` -- Delete a data entry from the workspace.
 - ``archiver_downsample`` -- Downsample an archiver data entry to a target point count.
 
-**Graph Analysis:**
-
-- ``graph_extract`` -- Extract numerical data from a chart image using the DePlot service.
-- ``graph_compare`` -- Compare two datasets using mathematical distance metrics.
-- ``graph_save_reference`` -- Save a dataset as a named reference for future comparisons.
-
 **Lattice Dashboard:**
 
 - ``lattice_init`` -- Load a lattice file into the dashboard and compute optics.
@@ -216,49 +199,6 @@ and entry creation with attachments.
 - ``entry_get`` -- Get a single logbook entry by its ID.
 - ``entries_by_ids`` -- Get multiple logbook entries by their IDs in a single call.
 - ``entry_create`` -- Create a new logbook entry, optionally with file attachments.
+- ``entry_publish`` -- Publish an existing ARIEL entry to the facility logbook.
 - ``capabilities`` -- Report available ARIEL search capabilities.
 - ``status`` -- Get ARIEL service health, database connectivity, and statistics.
-
-
-AccelPapers
-------------
-
-``accelpapers``
-~~~~~~~~~~~~~~~
-
-Package: ``osprey.mcp_server.accelpapers``
-
-Hybrid BM25 + vector search over approximately 63,000 INSPIRE
-accelerator physics papers stored in a local Typesense collection.
-
-**Tools:**
-
-- ``papers_search`` -- Search papers using hybrid BM25 + vector search.
-- ``papers_search_author`` -- Search for papers by a specific author.
-- ``papers_browse`` -- Browse papers by conference, year, or document type.
-- ``papers_get`` -- Get full details for a specific paper by its texkey identifier.
-- ``papers_list_conferences`` -- List conferences with paper counts.
-- ``papers_stats`` -- Get summary statistics for the paper database.
-
-
-MATLAB
-------
-
-``matlab``
-~~~~~~~~~~
-
-Package: ``osprey.mcp_server.matlab``
-
-Search and browse approximately 3,000 MATLAB Middle Layer functions
-stored in a local SQLite FTS5 database. Includes call-graph traversal
-for dependency analysis.
-
-**Tools:**
-
-- ``mml_search`` -- Search MML functions using full-text BM25-ranked search.
-- ``mml_browse`` -- Browse functions by group or type with sorting.
-- ``mml_get`` -- Get full details for a specific MML function by name.
-- ``mml_list_groups`` -- List all groups in the MML codebase with function counts.
-- ``mml_dependencies`` -- Get the dependency graph for a function (recursive call traversal).
-- ``mml_path`` -- Find the shortest call path between two functions (BFS).
-- ``mml_stats`` -- Get summary statistics for the MML function database.

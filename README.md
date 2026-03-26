@@ -37,13 +37,13 @@ osprey
 # - Create a ready-to-use project with smart defaults
 
 # Alternative: Direct command if you know what you want
-osprey init my-weather-agent --template hello_world_weather
-cd my-weather-agent
+osprey init my-assistant
+cd my-assistant
 # If API keys aren't in your environment, copy and edit .env:
 # cp .env.example .env
 
-# Start the command line chat interface
-osprey chat
+# Start a Claude Code agent session
+claude
 ```
 
 
