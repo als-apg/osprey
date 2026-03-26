@@ -1,0 +1,152 @@
+# ============================================================
+# {{ project_name }} Configuration
+# ============================================================
+# Hello World — Minimal MCP + Mock Control System
+# One MCP server, zero complexity.
+# ============================================================
+
+# Project identity
+project_name: "{{ project_name }}"
+
+build_dir: ./build
+
+# Root directory (absolute path)
+project_root: {{ project_root }}
+
+# ============================================================
+# API CONFIGURATION
+# ============================================================
+# API keys and endpoints for LLM providers
+
+api:
+  providers:
+    cborg:
+      api_key: ${CBORG_API_KEY}
+      base_url: https://api.cborg.lbl.gov/v1
+      models:                        # Model IDs as named by this provider
+        haiku: anthropic/claude-haiku
+        sonnet: anthropic/claude-sonnet
+        opus: anthropic/claude-opus
+    amsc:
+      api_key: ${AMSC_I2_API_KEY}
+      base_url: https://api.i2-core.american-science-cloud.org/v1
+    stanford:
+      api_key: ${STANFORD_API_KEY}
+      base_url: https://aiapi-prod.stanford.edu/v1
+    openai:
+      api_key: ${OPENAI_API_KEY}
+      base_url: https://api.openai.com/v1
+    anthropic:
+      api_key: ${ANTHROPIC_API_KEY}
+      base_url: https://api.anthropic.com
+      models:
+        haiku: claude-haiku-4-5-20251001
+        sonnet: claude-sonnet-4-5-20250929
+        opus: claude-opus-4-6
+    google:
+      api_key: ${GOOGLE_API_KEY}
+      base_url: https://generativelanguage.googleapis.com/v1beta
+    ollama:
+      api_key: ollama
+      base_url: ${OLLAMA_HOST:-http://localhost:11434}
+      host: localhost
+      port: 11434
+    argo:
+      api_key: ${ARGO_API_KEY}
+      base_url: https://argo-bridge.cels.anl.gov
+    als-apg:
+      api_key: ${ALS_APG_API_KEY}
+      base_url: https://llm.gianlucamartino.com/v1
+      models:
+        haiku: claude-haiku-4-5-20251001
+        sonnet: claude-sonnet-4-6
+        opus: claude-opus-4-6
+
+# ============================================================
+# ENVIRONMENT VARIABLES
+# ============================================================
+# Set these in your .env file:
+#
+#   ANTHROPIC_API_KEY=sk-ant-...
+#   TZ=UTC
+
+# ============================================================
+# CONTROL SYSTEM CONFIGURATION
+# ============================================================
+# Mock mode: works instantly with any channel names (no hardware required)
+# Production mode: change type to 'epics' and configure the connector
+#
+# Migration to production:
+# 1. Change control_system.type from 'mock' to 'epics'
+# 2. Configure connector.epics with your gateway addresses
+# 3. Your code doesn't need to change!
+
+control_system:
+  type: mock  # <-- Change to 'epics' for production
+
+  # Write Access Control - Master safety switch
+  # When false, ALL writes are blocked (hard error, non-configurable)
+  writes_enabled: false  # Tutorial default: read-only
+                         # Set to true to explore the human approval flow
+
+  # Runtime connector settings
+  connector:
+    timeout: 5.0  # Default timeout in seconds
+
+# ============================================================
+# EXECUTION INFRASTRUCTURE
+# ============================================================
+
+execution:
+  execution_method: "local"
+  python_env_path: {{ current_python_env }}
+
+# ============================================================
+# SYSTEM CONFIGURATION
+# ============================================================
+
+system:
+  timezone: ${TZ:-UTC}
+
+file_paths:
+  agent_data_dir: _agent_data
+  executed_python_scripts_dir: executed_scripts
+  user_memory_dir: user_memory
+  api_calls_dir: api_calls
+
+# ============================================================
+# WORKSPACE & ARTIFACT GALLERY
+# ============================================================
+
+workspace:
+  base_dir: "./osprey-workspace"
+
+artifact_server:
+  host: "127.0.0.1"
+  port: 8086
+  auto_launch: true
+
+# ============================================================
+# KARMA — Claude Code Analytics Dashboard
+# ============================================================
+
+karma:
+  host: "127.0.0.1"
+  port: 8741
+  auto_launch: true
+
+# ============================================================
+# CLAUDE CODE INTEGRATION
+# ============================================================
+# Only the controls MCP server is enabled for this minimal template.
+
+claude_code:
+  servers:
+    controls: {enabled: true}
+    ariel: {enabled: false}
+    channel-finder: {enabled: false}
+  agents:
+    logbook-search: {enabled: false}
+    logbook-deep-research: {enabled: false}
+  provider: {{ default_provider | default("anthropic") }}
+  default_model: {{ default_model | default("haiku") }}

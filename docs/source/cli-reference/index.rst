@@ -51,7 +51,7 @@ Create a new project from a template.
    osprey init [OPTIONS] PROJECT_NAME
 
 ``--template <name>``
-   ``minimal`` (default), ``hello_world_weather``, or ``control_assistant``.
+   ``hello_world``, ``control_assistant`` (default), or ``lattice_design``.
 
 ``--registry-style <style>``
    ``extend`` (default, recommended) or ``standalone``.
@@ -59,7 +59,7 @@ Create a new project from a template.
 .. code-block:: bash
 
    osprey init my-agent
-   osprey init weather-demo --template hello_world_weather
+   osprey init my-first-agent --template hello_world
 
 osprey config
 =============

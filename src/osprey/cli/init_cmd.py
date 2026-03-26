@@ -57,7 +57,7 @@ def _clear_claude_code_project_state(project_path: Path) -> None:
     "--template",
     "-t",
     default="control_assistant",
-    help="Application template to use (control_assistant, lattice_design)",
+    help="Application template to use (hello_world, control_assistant, lattice_design)",
 )
 @click.option(
     "--output-dir",

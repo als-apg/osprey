@@ -235,6 +235,7 @@ For automation or if you prefer direct commands, use ``osprey init``:
 
 Available templates:
 
+* ``hello_world`` - Minimal tutorial with one MCP server and mock control system
 * ``control_assistant`` (default) - Control system integration with channel finder, archiver, and logbook
 * ``lattice_design`` - Accelerator lattice physics with pyAT integration
 

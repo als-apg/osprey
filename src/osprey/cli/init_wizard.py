@@ -39,6 +39,7 @@ def select_template(templates: list[str]) -> str | None:
     """
     # Template descriptions (could also come from template metadata)
     descriptions = {
+        "hello_world": "Minimal tutorial — one MCP server with mock control system",
         "control_assistant": "Control system integration with channel finder (production-grade)",
     }
 
@@ -61,6 +62,7 @@ def get_default_name_for_template(template: str) -> str:
         Default project name suggestion
     """
     defaults = {
+        "hello_world": "my-first-agent",
         "control_assistant": "my-control-assistant",
     }
     return defaults.get(template, "my-project")
@@ -471,7 +473,7 @@ def run_interactive_init() -> str:
         control_capabilities = selected if selected else None
 
     # 2d. Code generator selection (for templates that use Python execution)
-    # Skip for hello_world_weather (simple example), include for control_assistant
+    # Skip for hello_world (simple example), include for control_assistant
     code_generator = None
     if template == "control_assistant":
         step_num = 5  # After channel finder + capabilities

@@ -55,12 +55,12 @@ By following this comprehensive learning path, you'll have:
 .. grid:: 1 1 3 3
    :gutter: 3
 
-   .. grid-item-card:: 🌤️ 2. Hello World
+   .. grid-item-card:: 🔧 2. Hello World
       :link: hello-world-tutorial
       :link-type: doc
       :class-header: bg-success text-white
 
-      Build a weather agent with natural language queries and mock API integration.
+      Build your first agent with a mock control system — one MCP server, zero complexity.
 
       **Outcome:**
       Your first working agent
