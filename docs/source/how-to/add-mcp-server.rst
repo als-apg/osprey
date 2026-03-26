@@ -1,24 +1,92 @@
 Add an MCP Server
 =================
 
-This guide walks through creating a new MCP server package for Osprey,
-using the **controls** server (``osprey.mcp_server.control_system``) as the
-canonical example.
+Osprey supports two ways to add MCP servers:
 
-Overview
---------
+- **Config-only** — add an external server (any language) via ``config.yml``.
+  No Python code required.
+- **Framework server** — create a Python package under
+  ``src/osprey/mcp_server/`` with full access to the framework's utilities,
+  hooks, and permissions system.
 
-Every Osprey MCP server follows the same four-step pattern:
+
+Add an External Server (Config-Only)
+-------------------------------------
+
+To wire in any MCP server, add it under ``claude_code.servers`` in your
+project's ``config.yml``:
+
+.. code-block:: yaml
+
+   claude_code:
+     servers:
+       my-server:
+         command: "npx"
+         args: ["-y", "@my-org/my-mcp-server"]
+         env:
+           MY_API_KEY: ${MY_API_KEY}
+
+       my-python-server:
+         command: "python"
+         args: ["-m", "my_package.server"]
+         env:
+           OSPREY_CONFIG: "{project_root}/config.yml"
+
+Each entry needs ``command`` and ``args``.  ``env`` is optional.
+``{project_root}`` is expanded to the project directory at build time;
+``${VAR}`` passes through shell environment variables.
+
+To set permissions and hooks on a custom server:
+
+.. code-block:: yaml
+
+   claude_code:
+     servers:
+       my-server:
+         command: "npx"
+         args: ["-y", "@my-org/my-mcp-server"]
+         permissions:
+           allow: [safe_tool, read_data]
+           ask: [write_data, delete_item]
+         hooks:
+           pre_tool_use: [approval]
+
+After editing, regenerate the Claude Code configuration:
+
+.. code-block:: bash
+
+   osprey claude regen
+
+The server will appear in ``.mcp.json`` and its permissions will be added
+to ``.claude/settings.json``.
+
+To disable a framework-provided server you do not need:
+
+.. code-block:: yaml
+
+   claude_code:
+     servers:
+       ariel:
+         enabled: false
+
+
+Create a Framework Server
+--------------------------
+
+For deeper integration — shared startup utilities, workspace singletons,
+hook presets — create a Python package. This section uses the **controls**
+server (``osprey.mcp_server.control_system``) as the canonical example.
+
+Every framework MCP server follows a four-step pattern:
 
 1. Create a Python package under ``src/osprey/mcp_server/<name>/``.
 2. Define a ``FastMCP`` server instance in ``server.py``.
 3. Register tools using ``@mcp.tool()`` decorators in a ``tools/`` sub-package.
-4. Add a ``ServerDefinition`` to the framework registry so ``osprey deploy``
-   wires the server into Claude Code.
+4. Add a ``ServerDefinition`` to the framework registry.
 
 
 Step 1: Create the Package
---------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: text
 
@@ -47,7 +115,7 @@ startup helper:
 
 
 Step 2: Define the Server Instance
------------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 In ``server.py``, create a module-level ``FastMCP`` instance and a
 ``create_server()`` factory that initializes dependencies and imports tools:
@@ -92,7 +160,7 @@ Key points:
 
 
 Step 3: Register Tools
-----------------------
+^^^^^^^^^^^^^^^^^^^^^^
 
 Each tool lives in its own module under ``tools/``.  Import the ``mcp``
 instance from ``server.py`` and decorate async functions:
@@ -127,7 +195,7 @@ Tool guidelines:
 
 
 Step 4: Register in the Framework
-----------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Open ``src/osprey/registry/mcp.py`` and add a ``ServerDefinition`` to
 ``FRAMEWORK_SERVERS``:
@@ -164,16 +232,8 @@ Important ``ServerDefinition`` fields:
     Use ``_APPROVAL`` for human-in-the-loop on safety-critical tools and
     ``_post_error()`` for standard error guidance.
 
-After adding the entry, run ``osprey deploy`` to regenerate the Claude Code
-configuration.  The server will appear in ``.claude/settings.json``.
-
-
-.. admonition:: Placeholder -- Tool Discovery at Runtime
-
-   **PLACEHOLDER: CONCEPTUAL-MAPPING** -- How Claude Code discovers,
-   selects, and routes calls to MCP tools at runtime is outside the scope
-   of this guide.  A future architecture document will cover the runtime
-   tool-selection process.
+After adding the entry, run ``osprey claude regen`` to regenerate the Claude
+Code configuration.  The server will appear in ``.mcp.json``.
 
 
 Testing
