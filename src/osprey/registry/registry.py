@@ -581,6 +581,13 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     class_name="EPICSArchiverConnector",
                     description="EPICS Archiver Appliance connector",
                 ),
+                ConnectorRegistration(
+                    name="mongodb_archiver",
+                    connector_type="archiver",
+                    module_path="osprey.connectors.archiver.mongodb_archiver_connector",
+                    class_name="MongoDBArchiverConnector",
+                    description="MongoDB archiver connector for historical PV data",
+                ),
             ],
             # Framework code generators for Python executor
             code_generators=[
