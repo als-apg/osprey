@@ -490,7 +490,9 @@ def _run_lifecycle_phase(
             msg = f"Lifecycle {phase_name} step '{step.name}' timed out ({elapsed:.0f}s)"
             # Show partial output captured before timeout (quiet mode only;
             # stream mode already printed output in real-time).
-            partial = (e.stdout or "") + (e.stderr or "")
+            _out = e.stdout.decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
+            _err = e.stderr.decode(errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
+            partial = _out + _err
             if partial.strip():
                 tail = "\n".join(partial.strip().splitlines()[-20:])
                 msg += f"\n  Last output:\n{tail}"
