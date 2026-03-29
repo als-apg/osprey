@@ -43,12 +43,14 @@ logger = get_logger("build")
 )
 @click.option("--force", "-f", is_flag=True, help="Force overwrite if project directory exists")
 @click.option("--stream", "-s", is_flag=True, help="Stream lifecycle step output in real-time")
+@click.option("--skip-lifecycle", is_flag=True, help="Skip pre_build, post_build, and validate phases")
 def build(
     project_name: str,
     profile: str,
     output_dir: str,
     force: bool,
     stream: bool,
+    skip_lifecycle: bool,
 ) -> None:
     """Build a facility-specific assistant from a profile.
 
@@ -121,7 +123,7 @@ def build(
                 raise click.Abort()
 
         # 4. Run pre_build lifecycle commands
-        if build_profile.lifecycle.pre_build:
+        if build_profile.lifecycle.pre_build and not skip_lifecycle:
             _run_lifecycle_phase(
                 "pre_build", build_profile.lifecycle.pre_build, profile_dir, project_path,
                 stream=stream,
@@ -230,14 +232,14 @@ def build(
         _git_init_and_commit(project_path)
 
         # 18. Run post_build lifecycle commands
-        if build_profile.lifecycle.post_build:
+        if build_profile.lifecycle.post_build and not skip_lifecycle:
             _run_lifecycle_phase(
                 "post_build", build_profile.lifecycle.post_build, project_path, project_path,
                 stream=stream,
             )
 
         # 19. Run validate lifecycle commands
-        if build_profile.lifecycle.validate:
+        if build_profile.lifecycle.validate and not skip_lifecycle:
             _run_lifecycle_phase(
                 "validate",
                 build_profile.lifecycle.validate,

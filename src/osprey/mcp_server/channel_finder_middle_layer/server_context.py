@@ -39,6 +39,7 @@ class ChannelFinderMLContext:
         self._raw_config: dict[str, Any] = {}
         self._database: MiddleLayerDatabase | None = None
         self._facility_name: str = "control system"
+        self._duckdb_path: str | None = None
         self._initialized = False
 
     def initialize(self) -> None:
@@ -72,6 +73,11 @@ class ChannelFinderMLContext:
                 "channel finder tools will fail until config is provided"
             )
 
+        duckdb_path = db_config.get("duckdb_path")
+        if duckdb_path:
+            self._duckdb_path = self._resolve_path(duckdb_path)
+            logger.info("ChannelFinderMLContext: DuckDB path configured at %s", self._duckdb_path)
+
         facility = self._raw_config.get("facility", {})
         self._facility_name = facility.get("name", "control system")
 
@@ -96,6 +102,11 @@ class ChannelFinderMLContext:
     def facility_name(self) -> str:
         """Facility name from config (e.g. 'ALS')."""
         return self._facility_name
+
+    @property
+    def duckdb_path(self) -> str | None:
+        """Path to the DuckDB channel database, or None if not configured."""
+        return self._duckdb_path
 
     def _resolve_path(self, path_str: str) -> str:
         """Resolve path relative to config file directory."""

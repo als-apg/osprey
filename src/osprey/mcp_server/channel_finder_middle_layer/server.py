@@ -66,6 +66,7 @@ def create_server() -> FastMCP:
         list_channels,
         list_families,
         list_systems,
+        query_channels,
         statistics,
         validate,
     )
