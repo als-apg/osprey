@@ -44,6 +44,7 @@ logger = get_logger("build")
 @click.option("--force", "-f", is_flag=True, help="Force overwrite if project directory exists")
 @click.option("--stream", "-s", is_flag=True, help="Stream lifecycle step output in real-time")
 @click.option("--skip-lifecycle", is_flag=True, help="Skip pre_build, post_build, and validate phases")
+@click.option("--skip-deps", is_flag=True, help="Skip venv creation and dependency installation (CI mode)")
 def build(
     project_name: str,
     profile: str,
@@ -51,6 +52,7 @@ def build(
     force: bool,
     stream: bool,
     skip_lifecycle: bool,
+    skip_deps: bool,
 ) -> None:
     """Build a facility-specific assistant from a profile.
 
@@ -146,7 +148,8 @@ def build(
 
         # 6c. Create project venv with OSPREY + profile deps
         # Moved before template rendering so templates get the real project Python path.
-        _create_project_venv(project_path, build_profile)
+        if not skip_deps:
+            _create_project_venv(project_path, build_profile)
 
         # 6d. Resolve python_env for template context
         python_env = build_profile.python_env or "project"
