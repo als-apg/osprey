@@ -970,20 +970,27 @@ def _inject_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> None
             logger.warning("  MCP server '%s' already exists in .mcp.json — skipping", name)
             continue
 
-        # Resolve bare `python` to the project venv Python so MCP servers
-        # use the right interpreter (with profile deps) at runtime.
-        command = server.command
-        if command == "python":
-            command = str(project_path / ".venv" / "bin" / "python")
-
-        entry: dict[str, Any] = {
-            "command": command,
-            "args": [_resolve_placeholders(a, project_path) for a in server.args],
-        }
-        if server.env:
-            entry["env"] = {
-                k: _resolve_placeholders(v, project_path) for k, v in server.env.items()
+        if server.url:
+            # HTTP/SSE transport — just a URL, no local process
+            entry: dict[str, Any] = {
+                "type": "sse",
+                "url": server.url,
             }
+        else:
+            # Stdio transport — resolve bare `python` to the project venv Python
+            # so MCP servers use the right interpreter (with profile deps) at runtime.
+            command = server.command
+            if command == "python":
+                command = str(project_path / ".venv" / "bin" / "python")
+
+            entry = {
+                "command": command,
+                "args": [_resolve_placeholders(a, project_path) for a in server.args],
+            }
+            if server.env:
+                entry["env"] = {
+                    k: _resolve_placeholders(v, project_path) for k, v in server.env.items()
+                }
         mcp_servers_section[name] = entry
 
     mcp_json_path.write_text(json.dumps(mcp_data, indent=2) + "\n", encoding="utf-8")

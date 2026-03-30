@@ -118,6 +118,44 @@ class TestProfileLoading:
         assert server.env == {"CONFIG": "{project_root}/config.yml"}
         assert server.permissions == {"allow": ["test_tool"], "ask": ["dangerous_tool"]}
 
+    def test_load_profile_mcp_server_url(self, tmp_path: Path):
+        """URL-only MCP server should parse correctly."""
+        p = tmp_path / "profile.yml"
+        p.write_text(
+            yaml.dump(
+                {
+                    "name": "Test",
+                    "mcp_servers": {
+                        "remote": {
+                            "url": "http://host:8001/sse",
+                            "permissions": {"allow": ["search"]},
+                        }
+                    },
+                }
+            )
+        )
+        profile = load_profile(p)
+        server = profile.mcp_servers["remote"]
+        assert server.url == "http://host:8001/sse"
+        assert server.command == ""
+        assert server.permissions == {"allow": ["search"], "ask": []}
+
+    def test_load_profile_mcp_server_both_command_and_url_rejected(self, tmp_path: Path):
+        """Server with both command and url should be rejected at parse time."""
+        p = tmp_path / "profile.yml"
+        p.write_text(
+            yaml.dump(
+                {
+                    "name": "Test",
+                    "mcp_servers": {
+                        "bad": {"command": "npx", "url": "http://host:8001/sse"}
+                    },
+                }
+            )
+        )
+        with pytest.raises(BuildProfileError, match="both 'command' and 'url'"):
+            load_profile(p)
+
     def test_load_profile_defaults(self, tmp_path: Path):
         """Profile with only name should use defaults."""
         simple = tmp_path / "simple.yml"
@@ -214,13 +252,20 @@ class TestValidation:
         with pytest.raises(BuildProfileError, match="must be relative without"):
             profile.validate(tmp_path)
 
-    def test_missing_mcp_server_command(self, tmp_path: Path):
+    def test_missing_mcp_server_command_or_url(self, tmp_path: Path):
         profile = BuildProfile(
             name="Test",
-            mcp_servers={"broken": McpServerDef(command="")},
+            mcp_servers={"broken": McpServerDef()},
         )
-        with pytest.raises(BuildProfileError, match="missing 'command'"):
+        with pytest.raises(BuildProfileError, match="missing 'command' or 'url'"):
             profile.validate(tmp_path)
+
+    def test_mcp_server_url_only_passes_validation(self, tmp_path: Path):
+        profile = BuildProfile(
+            name="Test",
+            mcp_servers={"remote": McpServerDef(url="http://host:8001/sse")},
+        )
+        profile.validate(tmp_path)  # Should not raise
 
     def test_missing_name_reported(self, tmp_path: Path):
         profile = BuildProfile(name="")
@@ -440,6 +485,46 @@ class TestBuildHelpers:
         settings = json.loads((project_path / ".claude" / "settings.json").read_text())
         # Should appear only once
         assert settings["permissions"]["allow"].count("mcp__phoebus__phoebus_launch") == 1
+
+    def test_inject_mcp_servers_url_transport(self, tmp_path: Path):
+        """_inject_mcp_servers should emit SSE entries for URL-based servers."""
+        from osprey.cli.build_cmd import _inject_mcp_servers
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        (project_path / ".mcp.json").write_text('{"mcpServers": {}}')
+        (project_path / ".claude").mkdir()
+        (project_path / ".claude" / "settings.json").write_text(
+            '{"permissions": {"allow": [], "ask": []}}'
+        )
+
+        servers = {
+            "remote_server": McpServerDef(
+                url="http://remote-host:8001/sse",
+                permissions={"allow": ["search", "get"], "ask": []},
+            ),
+            "local_tool": McpServerDef(
+                command="npx",
+                args=["-y", "some-mcp-server"],
+                permissions={"allow": ["do_thing"], "ask": []},
+            ),
+        }
+        _inject_mcp_servers(project_path, servers)
+
+        mcp_data = json.loads((project_path / ".mcp.json").read_text())
+        # URL server should have type + url, no command
+        remote_entry = mcp_data["mcpServers"]["remote_server"]
+        assert remote_entry == {"type": "sse", "url": "http://remote-host:8001/sse"}
+
+        # Stdio server should have command + args, no type
+        local_entry = mcp_data["mcpServers"]["local_tool"]
+        assert local_entry["command"] == "npx"
+        assert "type" not in local_entry
+
+        # Permissions should be set for both
+        settings = json.loads((project_path / ".claude" / "settings.json").read_text())
+        assert "mcp__remote_server__search" in settings["permissions"]["allow"]
+        assert "mcp__local_tool__do_thing" in settings["permissions"]["allow"]
 
     def test_apply_config_overrides(self, tmp_path: Path):
         """_apply_config_overrides should update config.yml fields."""

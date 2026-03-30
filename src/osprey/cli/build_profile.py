@@ -21,11 +21,12 @@ from osprey.errors import BuildProfileError
 class McpServerDef:
     """Definition of an MCP server to inject into a built project."""
 
-    command: str
+    command: str = ""
     args: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
     permissions: dict[str, list[str]] = field(default_factory=dict)
     # permissions: {"allow": ["tool1"], "ask": ["tool2"]}
+    url: str | None = None  # HTTP/SSE transport URL (mutually exclusive with command)
 
 
 @dataclass
@@ -109,8 +110,8 @@ class BuildProfile:
 
         # Validate MCP server definitions
         for name, server in self.mcp_servers.items():
-            if not server.command:
-                errors.append(f"MCP server '{name}' missing 'command'")
+            if not server.command and not server.url:
+                errors.append(f"MCP server '{name}' missing 'command' or 'url'")
 
         # Validate service definitions
         for name, svc in self.services.items():
@@ -216,14 +217,25 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         if not isinstance(sdef, dict):
             raise BuildProfileError(f"MCP server '{name}' must be a mapping")
         perms = sdef.get("permissions", {})
+        url = sdef.get("url")
+        command = sdef.get("command", "")
+        if url and command:
+            raise BuildProfileError(
+                f"MCP server '{name}' has both 'command' and 'url' — use one or the other"
+            )
+        if not url and not command:
+            raise BuildProfileError(
+                f"MCP server '{name}' must have either 'command' or 'url'"
+            )
         mcp_servers[name] = McpServerDef(
-            command=sdef.get("command", ""),
+            command=command,
             args=sdef.get("args", []),
             env=sdef.get("env", {}),
             permissions={
                 "allow": perms.get("allow", []),
                 "ask": perms.get("ask", []),
             },
+            url=url,
         )
 
     services: dict[str, ServiceDef] = {}
