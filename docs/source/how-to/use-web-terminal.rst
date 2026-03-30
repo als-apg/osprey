@@ -43,7 +43,6 @@ On startup the web terminal auto-launches companion web servers that power the
 side panels:
 
 - **Artifact gallery** (port 8086) — workspace artifact browser
-- **Karma analytics** (port 8741) — session transcript viewer
 
 Domain-specific servers are launched when their config section is present:
 
@@ -165,9 +164,8 @@ Manage Claude memory files (Markdown notes persisted across sessions):
 Side Panels
 ^^^^^^^^^^^
 
-The web terminal can embed companion services as iframe panels. **Universal
-panels** (artifacts, karma analytics) are always enabled. **Domain panels** are
-activated in ``config.yml``:
+The web terminal can embed companion services as iframe panels. The **artifact
+gallery** is always enabled. **Domain panels** are activated in ``config.yml``:
 
 .. code-block:: yaml
 

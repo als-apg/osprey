@@ -69,12 +69,6 @@ async def lattice_server_config(request: Request):
     return {"url": url, "available": url is not None}
 
 
-@router.get("/api/karma-server")
-async def karma_server_config(request: Request):
-    """Return the Karma analytics server URL for iframe embedding."""
-    url = getattr(request.app.state, "karma_server_url", None)
-    return {"url": url, "available": url is not None}
-
 
 @router.get("/api/panels")
 async def get_panels(request: Request):

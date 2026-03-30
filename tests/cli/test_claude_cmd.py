@@ -216,7 +216,6 @@ class TestClaudeChatCommand:
         "osprey.cli.claude_cmd._launch_companion_servers",
         return_value=[
             ("Artifact gallery", "http://127.0.0.1:8086"),
-            ("Karma analytics", "http://127.0.0.1:8741"),
         ],
     )
     @patch("subprocess.run", return_value=Mock(returncode=0))
@@ -237,8 +236,6 @@ class TestClaudeChatCommand:
         mock_servers.assert_called_once()
         assert "Artifact gallery" in result.output
         assert "http://127.0.0.1:8086" in result.output
-        assert "Karma analytics" in result.output
-        assert "http://127.0.0.1:8741" in result.output
 
     @patch("osprey.cli.claude_cmd._launch_companion_servers", return_value=[])
     @patch("subprocess.run", return_value=Mock(returncode=0))

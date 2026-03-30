@@ -44,13 +44,6 @@ const PANELS = [
     configEndpoint: '/api/lattice-server',
     statusBarId: null,
   },
-  {
-    id: 'karma',
-    label: 'ANALYTICS',
-    configEndpoint: '/api/karma-server',
-    healthEndpoint: null,
-    statusBarId: null,
-  },
 ];
 
 // ---- State ----

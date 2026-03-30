@@ -49,7 +49,6 @@ On startup, ``osprey claude chat`` launches the same companion servers as
    Companion servers:
      * Artifact gallery  http://127.0.0.1:8086
      * ARIEL server      http://127.0.0.1:8085
-     * Karma analytics   http://127.0.0.1:8741
 
 Open any of these URLs in a browser to access the service while Claude Code
 runs in your terminal. Which servers start depends on your ``config.yml`` —

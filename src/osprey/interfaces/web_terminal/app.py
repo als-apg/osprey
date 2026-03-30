@@ -110,25 +110,6 @@ def _launch_channel_finder_server(app: FastAPI) -> None:
         app.state.channel_finder_server_url = None
 
 
-def _launch_karma_server(app: FastAPI) -> None:
-    """Auto-launch the Karma analytics server if configured."""
-    try:
-        from osprey.infrastructure.server_launcher import ensure_karma_server
-        from osprey.utils.workspace import load_osprey_config
-
-        config = load_osprey_config()
-        karma = config.get("karma", {})
-        host = karma.get("host", "127.0.0.1")
-        port = karma.get("port", 8741)
-
-        app.state.karma_server_url = f"http://{host}:{port}"
-        ensure_karma_server()
-        logger.info("Karma available at %s", app.state.karma_server_url)
-    except Exception:
-        logger.warning("Could not auto-launch Karma", exc_info=True)
-        app.state.karma_server_url = None
-
-
 def _launch_lattice_dashboard_server(app: FastAPI) -> None:
     """Auto-launch the lattice dashboard server if configured."""
     try:
@@ -151,13 +132,12 @@ def _launch_lattice_dashboard_server(app: FastAPI) -> None:
 
 
 # Panel classification constants
-UNIVERSAL_PANELS = {"artifacts", "karma"}
+UNIVERSAL_PANELS = {"artifacts"}
 BUILTIN_PANELS = {
     "artifacts",
     "ariel",
     "tuning",
     "channel-finder",
-    "karma",
     "lattice",
 }
 
@@ -302,7 +282,6 @@ def _create_lifespan(
 
         # Universal servers — always launched
         _launch_artifact_server(app)
-        _launch_karma_server(app)
 
         # Domain servers — template-controlled
         if "ariel" in enabled_panels:

@@ -149,6 +149,16 @@ def web(
         click.echo("WARNING: Binding to 0.0.0.0 exposes the terminal to the network.")
         click.echo("This is a single-user tool — add authentication before external exposure.\n")
 
+    # Pre-flight: check if port is already in use
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind((host, port))
+        except OSError as exc:
+            click.echo(f"ERROR: Port {port} is already in use.", err=True)
+            click.echo(f"  Find the process:  lsof -i :{port}", err=True)
+            click.echo(f"  Or use another:    osprey web --port {port + 1}", err=True)
+            raise SystemExit(1) from exc
+
     click.echo(f"Starting OSPREY Web Terminal on http://{host}:{port}")
     click.echo(f"Shell: {shell}")
     click.echo("Press Ctrl+C to stop\n")
