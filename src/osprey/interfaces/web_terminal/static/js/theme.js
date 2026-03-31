@@ -9,11 +9,10 @@
 const STORAGE_KEY = 'osprey-theme';
 const VALID_THEMES = ['dark', 'light'];
 
-// highlight.js CDN base
-const HLJS_CDN = 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles';
+// highlight.js themes (bundled)
 const HLJS_THEMES = {
-  dark: `${HLJS_CDN}/atom-one-dark.min.css`,
-  light: `${HLJS_CDN}/atom-one-light.min.css`,
+  dark: '/static/vendor/atom-one-dark.min.css',
+  light: '/static/vendor/atom-one-light.min.css',
 };
 
 // xterm.js color palettes (cannot use CSS variables)
