@@ -32,7 +32,7 @@ class TestConnectorFactory:
         config = {
             "type": "mock",
             "connector": {
-                "mock": {"response_delay_ms": 0, "noise_level": 0.01, "enable_writes": True}
+                "mock": {"response_delay_ms": 0, "noise_level": 0.01}
             },
         }
 

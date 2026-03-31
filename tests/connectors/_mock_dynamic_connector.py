@@ -22,7 +22,14 @@ class MockDynamicConnector(ControlSystemConnector):
     async def write_channel(
         self, channel_address, value, timeout=None, verification_level="callback", tolerance=None
     ):
-        return True
+        from osprey.connectors.control_system.base import ChannelWriteResult, WriteVerification
+
+        return ChannelWriteResult(
+            channel_address=channel_address,
+            value_written=value,
+            success=True,
+            verification=WriteVerification(level=verification_level, verified=True),
+        )
 
     async def read_multiple_channels(self, channel_addresses, timeout=None):
         return {}

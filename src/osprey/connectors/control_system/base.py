@@ -6,6 +6,7 @@ subscribing to changes, and retrieving metadata from various control systems.
 
 """
 
+import functools
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -95,6 +96,51 @@ class ControlSystemConnector(ABC):
     """
 
     _limits_validator: Any = None  # Initialized by subclasses in connect()
+
+    @property
+    def _writes_enabled(self) -> bool:
+        """Check whether writes are enabled via global config.
+
+        Returns False (fail-safe) when config is unavailable.
+        """
+        try:
+            from osprey.utils.config import get_config_value
+
+            return get_config_value("control_system.writes_enabled", False)
+        except (FileNotFoundError, RuntimeError):
+            return False
+
+    def __init_subclass__(cls, **kwargs):
+        """Auto-wrap write_channel() with writes_enabled pre-check.
+
+        Any subclass that defines write_channel() gets it transparently wrapped.
+        The wrapper checks _writes_enabled before calling the original method.
+        When writes are disabled, returns ChannelWriteResult(success=False)
+        with an operator-facing error message — no exception is raised.
+
+        This fires before limits validation (intentional: fast-reject when
+        writes are disabled, avoiding unnecessary validation work).
+        """
+        super().__init_subclass__(**kwargs)
+        original = cls.__dict__.get("write_channel")
+        if original is None:
+            return
+
+        @functools.wraps(original)
+        async def _guarded(self, channel_address, value, *args, **kwargs):
+            if not self._writes_enabled:
+                return ChannelWriteResult(
+                    channel_address=channel_address,
+                    value_written=value,
+                    success=False,
+                    error_message=(
+                        f"Write to '{channel_address}' blocked: writes are disabled. "
+                        "Set control_system.writes_enabled: true in config.yml"
+                    ),
+                )
+            return await original(self, channel_address, value, *args, **kwargs)
+
+        cls.write_channel = _guarded
 
     def _get_verification_config(
         self, channel_address: str, value: float

@@ -6,10 +6,17 @@ from per-channel config (limits database) or global config, as documented.
 """
 
 import json
+from unittest.mock import patch
 
 import pytest
 
 from osprey.connectors.control_system.mock_connector import MockConnector
+
+
+def _config_with_writes_enabled(key, default=None):
+    if key == "control_system.writes_enabled":
+        return True
+    return default
 
 
 class TestAutomaticVerification:
@@ -19,17 +26,21 @@ class TestAutomaticVerification:
     async def test_automatic_verification_without_config(self):
         """Test that connector works with automatic verification when no config available."""
         connector = MockConnector()
-        await connector.connect({"response_delay_ms": 1, "enable_writes": True})
+        with patch(
+            "osprey.utils.config.get_config_value",
+            side_effect=_config_with_writes_enabled,
+        ):
+            await connector.connect({"response_delay_ms": 1})
 
-        # Call without verification_level - should use hardcoded default (callback)
-        result = await connector.write_channel("TEST:CHANNEL", 100.0)
+            # Call without verification_level - should use hardcoded default (callback)
+            result = await connector.write_channel("TEST:CHANNEL", 100.0)
 
-        assert result.success is True
-        assert result.verification is not None
-        assert result.verification.level == "callback"
-        assert result.verification.verified is True
+            assert result.success is True
+            assert result.verification is not None
+            assert result.verification.level == "callback"
+            assert result.verification.verified is True
 
-        await connector.disconnect()
+            await connector.disconnect()
 
     @pytest.mark.asyncio
     async def test_automatic_verification_with_global_config(self, tmp_path):
@@ -49,17 +60,21 @@ control_system:
 
         # Create connector (will try to load config but gracefully fall back)
         connector = MockConnector()
-        await connector.connect({"response_delay_ms": 1, "enable_writes": True})
+        with patch(
+            "osprey.utils.config.get_config_value",
+            side_effect=_config_with_writes_enabled,
+        ):
+            await connector.connect({"response_delay_ms": 1})
 
-        # Without explicit params, uses automatic config
-        result = await connector.write_channel("TEST:CHANNEL", 100.0)
+            # Without explicit params, uses automatic config
+            result = await connector.write_channel("TEST:CHANNEL", 100.0)
 
-        assert result.success is True
-        assert result.verification is not None
-        # Will be callback (hardcoded fallback) since we can't inject config in tests
-        # This is expected - tests run without config.yml
+            assert result.success is True
+            assert result.verification is not None
+            # Will be callback (hardcoded fallback) since we can't inject config in tests
+            # This is expected - tests run without config.yml
 
-        await connector.disconnect()
+            await connector.disconnect()
 
     @pytest.mark.asyncio
     async def test_automatic_verification_with_per_channel_config(self, tmp_path, monkeypatch):
@@ -105,7 +120,6 @@ control_system:
         await connector.connect(
             {
                 "response_delay_ms": 1,
-                "enable_writes": True,
                 "noise_level": 0.0,  # No noise for reliable verification tests
             }
         )
@@ -133,27 +147,33 @@ control_system:
     async def test_manual_override_still_works(self):
         """Test that manual verification_level parameter still works (override)."""
         connector = MockConnector()
-        await connector.connect({"response_delay_ms": 1, "enable_writes": True})
+        with patch(
+            "osprey.utils.config.get_config_value",
+            side_effect=_config_with_writes_enabled,
+        ):
+            await connector.connect({"response_delay_ms": 1})
 
-        # Explicitly request 'none' verification
-        result = await connector.write_channel("TEST:CHANNEL", 100.0, verification_level="none")
+            # Explicitly request 'none' verification
+            result = await connector.write_channel(
+                "TEST:CHANNEL", 100.0, verification_level="none"
+            )
 
-        assert result.success is True
-        assert result.verification is not None
-        assert result.verification.level == "none"
-        assert result.verification.verified is False
+            assert result.success is True
+            assert result.verification is not None
+            assert result.verification.level == "none"
+            assert result.verification.verified is False
 
-        # Explicitly request 'readback' with tolerance
-        result = await connector.write_channel(
-            "TEST:CHANNEL", 100.0, verification_level="readback", tolerance=1.0
-        )
+            # Explicitly request 'readback' with tolerance
+            result = await connector.write_channel(
+                "TEST:CHANNEL", 100.0, verification_level="readback", tolerance=1.0
+            )
 
-        assert result.success is True
-        assert result.verification is not None
-        assert result.verification.level == "readback"
-        assert result.verification.tolerance_used == 1.0
+            assert result.success is True
+            assert result.verification is not None
+            assert result.verification.level == "readback"
+            assert result.verification.tolerance_used == 1.0
 
-        await connector.disconnect()
+            await connector.disconnect()
 
     @pytest.mark.asyncio
     async def test_automatic_tolerance_calculation(self, tmp_path, monkeypatch):
@@ -185,7 +205,6 @@ control_system:
         await connector.connect(
             {
                 "response_delay_ms": 1,
-                "enable_writes": True,
                 "noise_level": 0.0,  # No noise for reliable verification tests
             }
         )

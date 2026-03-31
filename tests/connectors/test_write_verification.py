@@ -7,6 +7,8 @@ Tests the three-tier verification approach:
 - readback: Full verification with readback comparison
 """
 
+from unittest.mock import patch
+
 import pytest
 
 from osprey.connectors.control_system.base import (
@@ -16,6 +18,12 @@ from osprey.connectors.control_system.base import (
 from osprey.connectors.control_system.mock_connector import MockConnector
 
 
+def _config_with_writes_enabled(key, default=None):
+    if key == "control_system.writes_enabled":
+        return True
+    return default
+
+
 class TestMockConnectorVerification:
     """Test verification levels in MockConnector."""
 
@@ -23,15 +31,18 @@ class TestMockConnectorVerification:
     async def connector(self):
         """Create and connect MockConnector."""
         conn = MockConnector()
-        await conn.connect(
-            {
-                "response_delay_ms": 1,  # Fast for testing
-                "noise_level": 0.001,  # Low noise
-                "enable_writes": True,
-            }
-        )
-        yield conn
-        await conn.disconnect()
+        with patch(
+            "osprey.utils.config.get_config_value",
+            side_effect=_config_with_writes_enabled,
+        ):
+            await conn.connect(
+                {
+                    "response_delay_ms": 1,  # Fast for testing
+                    "noise_level": 0.001,  # Low noise
+                }
+            )
+            yield conn
+            await conn.disconnect()
 
     @pytest.mark.asyncio
     async def test_verification_none(self, connector):
@@ -105,19 +116,17 @@ class TestMockConnectorVerification:
         assert diff <= absolute_tolerance
 
     @pytest.mark.asyncio
-    async def test_writes_disabled_returns_failure(self, connector):
-        """Test that writes fail when connector has writes disabled."""
-        # Reconfigure connector with writes disabled
-        await connector.disconnect()
-        await connector.connect({"response_delay_ms": 1, "enable_writes": False})  # Disable writes
-
-        result = await connector.write_channel("TEST:CHANNEL", 100.0, verification_level="callback")
+    async def test_writes_disabled_returns_failure(self):
+        """Test that writes fail when writes_enabled=false (via base class wrapper)."""
+        conn = MockConnector()
+        with patch("osprey.utils.config.get_config_value", return_value=False):
+            await conn.connect({"response_delay_ms": 1})
+            result = await conn.write_channel("TEST:CHANNEL", 100.0, verification_level="callback")
+            await conn.disconnect()
 
         assert result.success is False
-        assert result.verification is not None
-        assert result.verification.verified is False
-        assert "disabled" in result.verification.notes.lower()
         assert result.error_message is not None
+        assert "disabled" in result.error_message.lower()
 
     @pytest.mark.asyncio
     async def test_invalid_verification_level_raises_error(self, connector):

@@ -44,7 +44,6 @@ class MockConnector(ControlSystemConnector):
         >>> config = {
         >>>     'response_delay_ms': 10,
         >>>     'noise_level': 0.01,
-        >>>     'enable_writes': True
         >>> }
         >>> connector = MockConnector()
         >>> await connector.connect(config)
@@ -65,24 +64,9 @@ class MockConnector(ControlSystemConnector):
             config: Configuration with keys:
                 - response_delay_ms: Simulated response delay (default: 10)
                 - noise_level: Relative noise level 0-1 (default: 0.01)
-                - enable_writes: Enable/disable write operations (default: False)
         """
         self._response_delay = config.get("response_delay_ms", 10) / 1000.0
         self._noise_level = config.get("noise_level", 0.01)
-
-        # Determine write permissions: explicit config > global config > safe default
-        local_enable = config.get("enable_writes")
-        if local_enable is not None:
-            self._enable_writes = local_enable
-        else:
-            try:
-                from osprey.utils.config import get_config_value
-
-                self._enable_writes = get_config_value("control_system.writes_enabled", False)
-            except (FileNotFoundError, KeyError, RuntimeError):
-                # Config not available (test environment) - default to False (safe)
-                self._enable_writes = False
-                logger.debug("Config unavailable - defaulting writes_enabled to False")
 
         # Initialize limits validator for automatic validation and verification config
         from osprey.connectors.control_system.limits_validator import LimitsValidator
@@ -92,7 +76,7 @@ class MockConnector(ControlSystemConnector):
             logger.debug("Mock connector: limits validator initialized")
 
         self._connected = True
-        logger.debug(f"Mock connector initialized (writes_enabled={self._enable_writes})")
+        logger.debug("Mock connector initialized")
 
     async def disconnect(self) -> None:
         """Cleanup mock connector."""
@@ -188,22 +172,8 @@ class MockConnector(ControlSystemConnector):
             )
             if tolerance is None:
                 tolerance = auto_tolerance
-        # Step 3: Check writes_enabled flag
-        if not self._enable_writes:
-            logger.warning(f"Write to {channel_address} rejected (writes disabled)")
-            return ChannelWriteResult(
-                channel_address=channel_address,
-                value_written=value,
-                success=False,
-                verification=WriteVerification(
-                    level=verification_level,
-                    verified=False,
-                    notes="Writes disabled in mock connector",
-                ),
-                error_message="Mock connector has writes disabled",
-            )
 
-        # Step 4: Execute write with verification
+        # Step 3: Execute write with verification
         # Simulate network delay
         await asyncio.sleep(self._response_delay)
 
