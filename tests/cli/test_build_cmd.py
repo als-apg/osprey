@@ -430,7 +430,7 @@ class TestBuildHelpers:
         mcp_data = json.loads((project_path / ".mcp.json").read_text())
         assert "phoebus" in mcp_data["mcpServers"]
         server_entry = mcp_data["mcpServers"]["phoebus"]
-        assert server_entry["command"] == "python"
+        assert server_entry["command"] == str(project_path / ".venv" / "bin" / "python")
         assert server_entry["args"] == ["-m", "phoebus"]
         # Verify placeholder resolution
         assert server_entry["env"]["CONFIG"] == f"{project_path}/config.yml"

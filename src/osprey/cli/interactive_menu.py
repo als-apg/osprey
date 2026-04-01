@@ -26,7 +26,6 @@ from osprey.cli.init_wizard import (  # noqa: F401
     get_default_name_for_template,
     run_interactive_init,
     select_channel_finder_mode,
-    select_code_generator,
     select_template,
     show_api_key_help,
     show_manual_config_instructions,
@@ -283,9 +282,6 @@ def discover_nearby_projects(max_dirs: int = 50, max_time_ms: int = 100) -> list
 # Cache for provider metadata (loaded once per TUI session)
 _provider_cache: dict[str, dict[str, Any]] | None = None
 
-# Cache for code generator metadata (loaded once per TUI session)
-_code_generator_cache: dict[str, dict[str, Any]] | None = None
-
 
 def get_provider_metadata() -> dict[str, dict[str, Any]]:
     """Get provider information from osprey registry.
@@ -386,64 +382,6 @@ def get_provider_metadata() -> dict[str, dict[str, Any]]:
         # Return empty dict but don't cache failures
         return {}
 
-
-def get_code_generator_metadata() -> dict[str, dict[str, Any]]:
-    """Get code generator information from osprey registry.
-
-    Loads generators directly from the osprey registry configuration,
-    excluding mock generators (for testing only). This reads the
-    framework's code generator registrations without requiring a
-    project config.yml.
-
-    Results are cached for the TUI session to avoid repeated registry loading.
-
-    Returns:
-        Dictionary mapping generator names to their metadata:
-        {
-            'basic': {
-                'name': 'basic',
-                'description': 'Simple single-pass LLM code generator',
-                'available': True
-            },
-            'claude_code': {
-                'name': 'claude_code',
-                'description': 'Claude Code SDK-based generator...',
-                'available': False,  # If dependencies not installed
-                'optional_dependencies': ['claude-agent-sdk']
-            },
-            ...
-        }
-    """
-    global _code_generator_cache
-
-    # Return cached data if available
-    if _code_generator_cache is not None:
-        return _code_generator_cache
-
-    try:
-        # Code generators were removed from the registry
-        generators = {}
-
-        if not generators:
-            console.print(
-                Messages.warning("No code generators could be loaded from osprey registry")
-            )
-
-        # Cache the result for future calls
-        _code_generator_cache = generators
-        return generators
-
-    except Exception as e:
-        # This should rarely happen - osprey registry should always be available
-        console.print(Messages.error(f"Could not load code generators from osprey registry: {e}"))
-        console.print(Messages.warning("The TUI requires access to code generator information."))
-        if os.environ.get("DEBUG"):
-            import traceback
-
-            traceback.print_exc()
-
-        # Return empty dict but don't cache failures
-        return {}
 
 
 # --- Main Menu ---

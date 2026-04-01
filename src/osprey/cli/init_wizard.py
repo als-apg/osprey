@@ -2,8 +2,7 @@
 
 This module contains the step-by-step project creation flow,
 including template selection, channel finder configuration,
-code generator selection, provider/model selection, and
-API key configuration.
+provider/model selection, and API key configuration.
 """
 
 import os
@@ -96,66 +95,6 @@ def select_channel_finder_mode() -> str | None:
     ]
 
     return questionary.select("Channel finder mode:", choices=choices, style=custom_style).ask()
-
-
-def select_code_generator(generators: dict[str, dict[str, Any]]) -> str | None:
-    """Interactive code generator selection.
-
-    Shows all available code generators from the registry, with clear indication
-    of which ones are available vs. require additional dependencies.
-
-    Args:
-        generators: Code generator metadata dictionary from get_code_generator_metadata()
-
-    Returns:
-        Selected generator name, or None if cancelled
-    """
-    if not generators:
-        console.print(f"\n{Messages.error('No code generators available')}")
-        console.print(Messages.warning("Osprey could not load any code generators."))
-        console.print(
-            f"[dim]Check that osprey is properly installed: {Messages.command('uv sync --all-extras')}[/dim]\n"
-        )
-        return None
-
-    console.print("[dim]Select the code generation strategy for Python execution:[/dim]\n")
-
-    choices = []
-    default_choice = None
-
-    # Sort generators: available first, then unavailable
-    sorted_generators = sorted(
-        generators.items(), key=lambda x: (not x[1].get("available", False), x[0])
-    )
-
-    for gen_name, gen_info in sorted_generators:
-        is_available = gen_info.get("available", False)
-        description = gen_info.get("description", "No description available")
-
-        if is_available:
-            # Available generator
-            display = f"{gen_name:15} - {description}"
-            choices.append(Choice(display, value=gen_name))
-
-            # Set basic as default if available
-            if gen_name == "basic" and default_choice is None:
-                default_choice = gen_name
-
-        else:
-            # Unavailable generator (missing optional dependencies)
-            deps = gen_info.get("optional_dependencies", [])
-            deps_str = ", ".join(deps) if deps else "unknown dependencies"
-            display = f"{gen_name:15} - [dim]{description} (requires: {deps_str})[/dim]"
-            choices.append(Choice(display, value=gen_name, disabled=True))
-
-    if not any(not c.disabled for c in choices if hasattr(c, "disabled")):
-        console.print(f"\n{Messages.error('No available code generators found')}")
-        console.print(f"{Messages.warning('All generators require additional dependencies.')}\n")
-        return None
-
-    return questionary.select(
-        "Code generator:", choices=choices, style=custom_style, default=default_choice
-    ).ask()
 
 
 def get_api_key_name(provider: str) -> str | None:
@@ -366,7 +305,6 @@ def run_interactive_init() -> str:
     """
     from osprey.cli.interactive_menu import (
         check_directory_has_active_mounts,
-        get_code_generator_metadata,
         get_provider_metadata,
         select_model,
         select_provider,
@@ -385,13 +323,12 @@ def run_interactive_init() -> str:
     try:
         # Show spinner while loading
         with console.status(
-            "[dim]Loading templates, providers, and code generators...[/dim]", spinner="dots"
+            "[dim]Loading templates and providers...[/dim]", spinner="dots"
         ):
             templates = manager.list_app_templates()
             providers = get_provider_metadata()
-            code_generators = get_code_generator_metadata()
     except Exception as e:
-        console.print(f"[error]✗ Error loading templates/providers/generators:[/error] {e}")
+        console.print(f"[error]✗ Error loading templates/providers:[/error] {e}")
         input("\nPress ENTER to continue...")
         return "menu"
 
@@ -471,16 +408,6 @@ def run_interactive_init() -> str:
                 console.print(f"{Messages.info('Automatically included channel_finding')}\n")
 
         control_capabilities = selected if selected else None
-
-    # 2d. Code generator selection (for templates that use Python execution)
-    # Skip for hello_world (simple example), include for control_assistant
-    code_generator = None
-    if template == "control_assistant":
-        step_num = 5  # After channel finder + capabilities
-        console.print(f"\n[bold]Step {step_num}: Code Generator[/bold]\n")
-        code_generator = select_code_generator(code_generators)
-        if code_generator is None:
-            return "menu"
 
     # Check if project directory already exists (before other configuration steps)
     project_path = Path.cwd() / project_name
@@ -616,7 +543,7 @@ def run_interactive_init() -> str:
 
     # 3. Provider selection (step number adjusts)
     if template == "control_assistant":
-        step_num = 6  # After template, name, channel_finder, capabilities, code_generator
+        step_num = 5  # After template, name, channel_finder, capabilities
     else:
         step_num = 3  # After template, name
     console.print(f"\n[bold]Step {step_num}: AI Provider[/bold]\n")
@@ -626,7 +553,7 @@ def run_interactive_init() -> str:
 
     # 4. Model selection (step number adjusts)
     if template == "control_assistant":
-        step_num = 7  # After template, name, channel_finder, capabilities, code_generator, provider
+        step_num = 6  # After template, name, channel_finder, capabilities, provider
     else:
         step_num = 4  # After template, name, provider
     console.print(f"\n[bold]Step {step_num}: Model Selection[/bold]\n")
@@ -643,8 +570,6 @@ def run_interactive_init() -> str:
     if control_capabilities is not None:
         caps_str = ", ".join(control_capabilities) if control_capabilities else "none"
         console.print(f"  Capabilities:  [value]{caps_str}[/value]")
-    if code_generator:
-        console.print(f"  Code Gen:      [value]{code_generator}[/value]")
     console.print("  Mode:          [value]Claude Code[/value]")
     console.print(f"  Provider:      [value]{provider}[/value]")
     console.print(f"  Model:         [value]{model}[/value]\n")
@@ -666,7 +591,7 @@ def run_interactive_init() -> str:
 
     try:
         # Note: force=True because we already handled directory deletion if user chose override
-        # Build context dict with optional channel_finder_mode and code_generator
+        # Build context dict with optional channel_finder_mode
         context = {
             "default_provider": provider,
             "default_model": model,
@@ -676,8 +601,6 @@ def run_interactive_init() -> str:
             context["channel_finder_mode"] = channel_finder_mode
         if control_capabilities is not None:
             context["control_capabilities"] = control_capabilities
-        if code_generator:
-            context["code_generator"] = code_generator
 
         project_path = manager.create_project(
             project_name=project_name,

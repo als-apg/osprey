@@ -474,10 +474,10 @@ class TestHealthCheckerTimezone:
         assert len(tz_results) == 1
         assert tz_results[0].status == "warning"
 
-    def test_timezone_resolves_env_var(self, monkeypatch):
+    def test_timezone_resolves_env_var(self, monkeypatch, tmp_path):
         """${TZ:-UTC} resolves via env var before checking."""
         monkeypatch.setenv("TZ", "Europe/Berlin")
-        checker = HealthChecker()
+        checker = HealthChecker(project_path=tmp_path)
         checker.config = {"system": {"timezone": "${TZ:-UTC}"}}
 
         with patch("osprey.cli.health_cmd.console"):

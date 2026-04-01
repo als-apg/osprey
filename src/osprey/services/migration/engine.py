@@ -153,14 +153,6 @@ def detect_project_settings(project_dir: Path) -> dict[str, Any]:
                         )
                 break
 
-    # Try to detect code generator from config file presence
-    if (project_dir / "claude_generator_config.yml").exists():
-        settings["code_generator"] = "claude_code"
-        settings["confidence"]["code_generator"] = "high"
-    elif (project_dir / "basic_generator_config.yml").exists():
-        settings["code_generator"] = "basic"
-        settings["confidence"]["code_generator"] = "high"
-
     return settings
 
 

@@ -241,7 +241,7 @@ def test_config_validation_warnings_unknown_type(tmp_path, monkeypatch, caplog):
         },
     )
 
-    with caplog.at_level(logging.WARNING, logger="osprey.mcp_server.registry"):
+    with caplog.at_level(logging.WARNING, logger="osprey.mcp_server.control_system.server_context"):
         initialize_server_context()
 
     assert "Unknown control_system.type: unknown_system" in caplog.text
@@ -254,7 +254,7 @@ def test_config_validation_warnings_missing_sections(tmp_path, monkeypatch, capl
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, {})
 
-    with caplog.at_level(logging.WARNING, logger="osprey.mcp_server.registry"):
+    with caplog.at_level(logging.WARNING, logger="osprey.mcp_server.control_system.server_context"):
         initialize_server_context()
 
     assert "No control_system section" in caplog.text

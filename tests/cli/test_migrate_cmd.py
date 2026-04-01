@@ -292,17 +292,6 @@ def get_registry():
         assert settings["registry_style"] == "extend"
         assert settings["package_name"] == "test_project"
 
-    def test_detect_code_generator(self, tmp_path):
-        """Test detecting code generator from config files."""
-        project_dir = tmp_path / "test-project"
-        project_dir.mkdir()
-
-        (project_dir / "claude_generator_config.yml").write_text("enabled: true")
-
-        settings = detect_project_settings(project_dir)
-
-        assert settings["code_generator"] == "claude_code"
-
 
 class TestManifestLoading:
     """Test manifest loading functionality."""

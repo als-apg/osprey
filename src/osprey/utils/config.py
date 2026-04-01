@@ -219,10 +219,6 @@ class ConfigBuilder:
         return {
             "execution_method": "local",
             "python_env_path": sys.executable,
-            "code_generator": "basic",
-            "generators": {
-                "basic": {"model_config_name": "python_code_generator"}  # Reference models section
-            },
             "modes": {
                 "read_only": {
                     "kernel_name": "python3-readonly",

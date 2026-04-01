@@ -185,11 +185,6 @@ class TestRegistryProvider(RegistryConfigProvider):
         },
         "execution": {
             "execution_method": "local",  # Fast for tests
-            "code_generator": "mock",  # Use mock by default for tests
-            "generators": {
-                "legacy": {"provider": "openai", "model_id": "gpt-4"},
-                "mock": {},  # Mock generator config
-            },
             "modes": {
                 "read_only": {
                     "kernel_name": "python3",
@@ -257,8 +252,6 @@ class TestRegistryProvider(RegistryConfigProvider):
         },
         "execution": {
             "execution_method": "local",
-            "code_generator": "mock",
-            "generators": {"legacy": {"provider": "openai", "model_id": "gpt-4"}, "mock": {}},
             "modes": {
                 "read_only": {
                     "kernel_name": "python3",

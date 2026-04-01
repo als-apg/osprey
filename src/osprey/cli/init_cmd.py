@@ -90,11 +90,6 @@ def _clear_claude_code_project_state(project_path: Path) -> None:
     default=None,
     help="Channel finder pipeline mode (control_assistant template only)",
 )
-@click.option(
-    "--code-generator",
-    default=None,
-    help="Code generator to use (e.g., basic, claude_code)",
-)
 def init(
     project_name: str,
     template: str,
@@ -103,7 +98,6 @@ def init(
     provider: str,
     model: str,
     channel_finder_mode: str,
-    code_generator: str,
 ):
     """Create a new project.
 
@@ -199,8 +193,6 @@ def init(
             context["default_model"] = model
         if channel_finder_mode:
             context["channel_finder_mode"] = channel_finder_mode
-        if code_generator:
-            context["code_generator"] = code_generator
 
         project_path = manager.create_project(
             project_name=project_name,
@@ -216,8 +208,6 @@ def init(
         }
         if channel_finder_mode:
             manifest_context["channel_finder_mode"] = channel_finder_mode
-        if code_generator:
-            manifest_context["code_generator"] = code_generator
         manager.generate_manifest(
             project_dir=project_path,
             project_name=project_name,

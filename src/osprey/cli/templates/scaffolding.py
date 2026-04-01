@@ -179,22 +179,6 @@ def create_project_structure(
     if gitignore_source.exists():
         shutil.copy(gitignore_source, project_dir / ".gitignore")
 
-    # Render code generator config based on selected generator
-    generator_configs = {
-        "claude_code": "claude_generator_config.yml",
-        "basic": "basic_generator_config.yml",
-    }
-    selected_generator = ctx.get("code_generator")
-    if selected_generator in generator_configs:
-        config_filename = generator_configs[selected_generator]
-        config_template = app_template_dir / f"{config_filename}.j2"
-        if config_template.exists():
-            render_template(
-                jinja_env,
-                f"apps/{template_name}/{config_filename}.j2",
-                ctx,
-                project_dir / config_filename,
-            )
 
 
 def copy_services(template_root: Path, project_dir: Path):
@@ -451,10 +435,6 @@ def create_application_code(
         "requirements.txt",
         "pyproject.toml.j2",
         "pyproject.toml",
-        "claude_generator_config.yml.j2",
-        "claude_generator_config.yml",
-        "basic_generator_config.yml.j2",
-        "basic_generator_config.yml",
     }
 
     # Process all files in the template
@@ -546,54 +526,9 @@ def create_agent_data_structure(template_root: Path, project_dir: Path, ctx: dic
         "api_calls",
     ]
 
-    # Conditionally add example_scripts for templates with claude_code generator
-    template_name = ctx.get("template_name", "")
-    code_generator = ctx.get("code_generator", "")
-
-    # Map template names to their example script subdirectories
-    _example_script_dirs = {
-        "control_assistant": ["example_scripts/plotting"],
-        "lattice_design": ["example_scripts/lattice"],
-    }
-
-    example_dirs = []
-    if code_generator == "claude_code" and template_name in _example_script_dirs:
-        example_dirs = _example_script_dirs[template_name]
-        subdirs.extend(example_dirs)
-
     for subdir in subdirs:
         subdir_path = agent_data_dir / subdir
         subdir_path.mkdir(parents=True, exist_ok=True)
-
-    # Copy example script files if using claude_code generator
-    if example_dirs:
-        template_examples_dir = (
-            template_root / "apps" / template_name / "_agent_data" / "example_scripts"
-        )
-        if template_examples_dir.exists():
-            for example_subdir in example_dirs:
-                category = example_subdir.split("/")[-1]  # e.g. "plotting", "lattice"
-                template_category = template_examples_dir / category
-                project_category = agent_data_dir / example_subdir
-
-                if template_category.exists():
-                    files_copied = 0
-                    for file_path in template_category.iterdir():
-                        if file_path.is_file() and (
-                            file_path.suffix == ".py" or file_path.name == "README.md"
-                        ):
-                            shutil.copy2(file_path, project_category / file_path.name)
-                            files_copied += 1
-
-                    if files_copied > 0:
-                        console.print(
-                            f"  [success]✓[/success] Copied {files_copied} example script(s) to [path]_agent_data/{example_subdir}/[/path]"
-                        )
-                else:
-                    console.print(
-                        f"  [warning]⚠[/warning] Template example scripts not found at {template_category}",
-                        style="yellow",
-                    )
 
     console.print(
         f"  [success]✓[/success] Created agent data structure at [path]{agent_data_dir}[/path]"
@@ -607,50 +542,6 @@ This directory contains runtime data for the Claude Code project:
 - `executed_scripts/`: Python scripts executed via MCP tools
 - `user_memory/`: User memory data
 - `api_calls/`: Raw LLM API inputs/outputs (when API logging enabled)
-"""
-
-    # Add example_scripts section if using Claude Code generator
-    if template_name == "control_assistant" and code_generator == "claude_code":
-        readme_content += """- `example_scripts/`: Example code for Claude Code generator to learn from
-
-## Example Scripts
-
-The `example_scripts/` directory contains example code that the Claude Code generator
-can read and learn from when generating code. The framework has provided starter
-examples organized by category:
-
-- `example_scripts/plotting/`: Matplotlib visualization examples (included)
-  - Basic time series plotting
-  - Multi-subplot layouts
-  - Publication-quality figures
-  - Aligned multi-plot arrays
-
-- `example_scripts/analysis/`: Data analysis patterns (add your own)
-- `example_scripts/archiver/`: Archiver retrieval examples (add your own)
-
-**Security Note:** Claude Code can ONLY read files in these example directories.
-It cannot access your project configuration, secrets, or other sensitive files.
-The directories listed in `claude_generator_config.yml` are the only accessible paths.
-
-Add your own examples to help Claude generate better code for your specific use cases!
-
-"""
-
-    elif template_name == "lattice_design" and code_generator == "claude_code":
-        readme_content += """- `example_scripts/`: Example code for lattice physics workflows
-
-## Example Scripts
-
-The `example_scripts/` directory contains AT (Accelerator Toolbox) examples:
-
-- `example_scripts/lattice/`: Lattice physics workflows (included)
-  - Loading and inspecting lattice files
-  - Computing Twiss parameters and optics
-  - Tune and chromaticity fitting
-  - Interactive Plotly optics plots
-
-Add your own examples to help Claude generate better lattice physics code!
-
 """
 
     readme_content += """

@@ -33,12 +33,6 @@ E2E tests must be run **separately** from unit tests due to complex framework in
 # Run all e2e tests
 pytest tests/e2e/ -v
 
-# Run specific e2e test file
-pytest tests/e2e/test_code_generator_workflows.py -v
-
-# Run specific e2e test
-pytest tests/e2e/test_code_generator_workflows.py::test_basic_generator_simple_code_generation -v
-
 # Run MCP capability generation tests
 pytest tests/e2e/test_mcp_capability_generation.py -v
 
@@ -81,19 +75,6 @@ Uses LLM judges to evaluate:
 - Workflow completion
 - Expected artifacts produced
 - Response quality
-
-### Code Generator Workflows (`test_code_generator_workflows.py`)
-
-Tests different code generation strategies:
-- **Basic Generator**: Simple prompt-to-code generation
-- **Claude Code Generator**: Advanced codebase-aware generation with examples
-- **Robust Profile**: Multi-phase workflow (scan → plan → implement)
-
-All tests use **deterministic assertions** (no LLM judges) to verify:
-- Code files are generated
-- Required content (e.g., headers) appears in generated code
-- PNG artifacts are created
-- Workflows complete without errors
 
 ### MCP Capability Generation (`test_mcp_capability_generation.py`)
 

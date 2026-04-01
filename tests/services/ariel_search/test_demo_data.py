@@ -7,8 +7,9 @@ with GenericJSONAdapter for tutorial use.
 import json
 from pathlib import Path
 
-DEMO_DATA_PATH = Path(
-    "src/osprey/templates/apps/control_assistant/data/logbook_seed/demo_logbook.json"
+DEMO_DATA_PATH = (
+    Path(__file__).resolve().parent.parent.parent.parent
+    / "src/osprey/templates/apps/control_assistant/data/logbook_seed/demo_logbook.json"
 )
 
 

@@ -237,7 +237,6 @@ def extract_init_args(
         ("default_provider", "provider"),
         ("default_model", "model"),
         ("channel_finder_mode", "channel_finder_mode"),
-        ("code_generator", "code_generator"),
     ]
 
     for context_key, arg_key in optional_keys:
@@ -276,10 +275,6 @@ def build_reproducible_command(init_args: dict[str, Any]) -> str:
     # Add channel_finder_mode if specified
     if init_args.get("channel_finder_mode"):
         parts.extend(["--channel-finder-mode", init_args["channel_finder_mode"]])
-
-    # Add code_generator if specified
-    if init_args.get("code_generator"):
-        parts.extend(["--code-generator", init_args["code_generator"]])
 
     return " ".join(parts)
 

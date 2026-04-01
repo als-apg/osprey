@@ -137,8 +137,6 @@ def _recreate_vanilla_with_version(
             context["default_model"] = init_args["model"]
         if init_args.get("channel_finder_mode"):
             context["channel_finder_mode"] = init_args["channel_finder_mode"]
-        if init_args.get("code_generator"):
-            context["code_generator"] = init_args["code_generator"]
 
         try:
             project_path = manager.create_project(
@@ -264,9 +262,6 @@ def migrate_init(project: Path, osprey_version: str | None, force: bool):
     if settings.get("model"):
         console.print(f"   [success]✓[/success] Model: {settings['model']}")
 
-    if settings.get("code_generator"):
-        console.print(f"   [success]✓[/success] Code generator: {settings['code_generator']}")
-
     # Get or prompt for OSPREY version
     console.print("\n2. OSPREY version...")
 
@@ -302,8 +297,6 @@ def migrate_init(project: Path, osprey_version: str | None, force: bool):
         context["default_model"] = settings["model"]
     if settings.get("channel_finder_mode"):
         context["channel_finder_mode"] = settings["channel_finder_mode"]
-    if settings.get("code_generator"):
-        context["code_generator"] = settings["code_generator"]
 
     # Generate manifest
     console.print("\n3. Creating manifest...")

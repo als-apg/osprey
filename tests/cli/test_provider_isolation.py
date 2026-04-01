@@ -142,15 +142,16 @@ class TestChatProviderIsolation:
         with patch("dotenv.dotenv_values", return_value={}):
             yield
 
-    @patch("osprey.cli.claude_cmd.os.execvp")
-    def test_chat_sets_auth_token(self, mock_execvp, cli_runner, cborg_project):
+    @patch("subprocess.run")
+    def test_chat_sets_auth_token(self, mock_run, cli_runner, cborg_project):
         """Auth token is set from secret env var before exec."""
         captured_env = {}
 
-        def capture_env(*_args):
+        def capture_env(*_args, **_kwargs):
             captured_env.update(os.environ)
+            return type("Result", (), {"returncode": 0})()
 
-        mock_execvp.side_effect = capture_env
+        mock_run.side_effect = capture_env
 
         env = {
             "CBORG_API_KEY": "test-secret-123",
@@ -161,15 +162,16 @@ class TestChatProviderIsolation:
 
         assert captured_env.get("ANTHROPIC_AUTH_TOKEN") == "test-secret-123"
 
-    @patch("osprey.cli.claude_cmd.os.execvp")
-    def test_chat_scrubs_managed_vars(self, mock_execvp, cli_runner, cborg_project):
+    @patch("subprocess.run")
+    def test_chat_scrubs_managed_vars(self, mock_run, cli_runner, cborg_project):
         """Managed vars are scrubbed then re-injected from provider env block."""
         captured_env = {}
 
-        def capture_env(*_args):
+        def capture_env(*_args, **_kwargs):
             captured_env.update(os.environ)
+            return type("Result", (), {"returncode": 0})()
 
-        mock_execvp.side_effect = capture_env
+        mock_run.side_effect = capture_env
 
         env = {
             "CBORG_API_KEY": "test-secret-123",
@@ -190,15 +192,16 @@ class TestChatProviderIsolation:
         # ANTHROPIC_API_KEY should still be scrubbed (not in cborg env block)
         assert "ANTHROPIC_API_KEY" not in captured_env
 
-    @patch("osprey.cli.claude_cmd.os.execvp")
-    def test_chat_injects_full_env_block(self, mock_execvp, cli_runner, cborg_project):
+    @patch("subprocess.run")
+    def test_chat_injects_full_env_block(self, mock_run, cli_runner, cborg_project):
         """All env_block keys are present with correct values after chat setup."""
         captured_env = {}
 
-        def capture_env(*_args):
+        def capture_env(*_args, **_kwargs):
             captured_env.update(os.environ)
+            return type("Result", (), {"returncode": 0})()
 
-        mock_execvp.side_effect = capture_env
+        mock_run.side_effect = capture_env
 
         env = {
             "CBORG_API_KEY": "test-secret-123",
@@ -214,8 +217,8 @@ class TestChatProviderIsolation:
         # Base URL should be the CBORG proxy
         assert captured_env.get("ANTHROPIC_BASE_URL") == "https://api.cborg.lbl.gov"
 
-    @patch("osprey.cli.claude_cmd.os.execvp")
-    def test_chat_warns_missing_secret(self, mock_execvp, cli_runner, cborg_project):
+    @patch("subprocess.run")
+    def test_chat_warns_missing_secret(self, mock_run, cli_runner, cborg_project):
         """Warning is shown when secret env var is missing."""
         env = {"PATH": os.environ.get("PATH", "")}
         with patch.dict(os.environ, env, clear=True):
