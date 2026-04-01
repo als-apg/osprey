@@ -57,6 +57,7 @@ CATEGORIES: dict[str, TypeDef] = {
     "search_results": TypeDef("search_results", "Search Results", "#fb7185"),
     "notebook": TypeDef("notebook", "Notebook", "#d946ef"),
     "user_artifact": TypeDef("user_artifact", "User Artifact", "#94a3b8"),
+    "diagnostic_report": TypeDef("diagnostic_report", "Diagnostic Report", "#ef4444"),
 }
 
 # Tool types

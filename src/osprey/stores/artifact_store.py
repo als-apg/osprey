@@ -228,8 +228,15 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         mime_type: str = "application/octet-stream",
         tool_source: str = "unknown",
         metadata: dict[str, Any] | None = None,
+        category: str = "",
     ) -> ArtifactEntry:
         """Low-level save: write raw bytes to disk and register in the index."""
+        if category:
+            from osprey.stores.type_registry import valid_category_keys
+
+            if category not in valid_category_keys():
+                logger.warning("Unregistered category %r — add to type_registry.py", category)
+
         with self._with_index_lock():
             art_id = self._make_id()
             # Prefix filename with id to avoid collisions
@@ -248,6 +255,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 timestamp=datetime.now(UTC).isoformat(),
                 tool_source=tool_source,
                 metadata=metadata or {},
+                category=category,
                 session_id=os.environ.get("OSPREY_SESSION_ID", ""),
             )
             self._entries.append(entry)
@@ -273,6 +281,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         artifact_type: str | None = None,
         tool_source: str = "execute",
         metadata: dict[str, Any] | None = None,
+        category: str = "",
     ) -> ArtifactEntry:
         """Smart-serialize a Python object and save it.
 
@@ -289,6 +298,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             mime_type=mime,
             tool_source=tool_source,
             metadata=metadata,
+            category=category,
         )
 
     def save_from_path(
@@ -299,6 +309,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         artifact_type: str | None = None,
         tool_source: str = "artifact_save",
         metadata: dict[str, Any] | None = None,
+        category: str = "",
     ) -> ArtifactEntry:
         """Copy an existing file into the artifact store."""
         source = Path(source_path)
@@ -318,6 +329,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             mime_type=mime,
             tool_source=tool_source,
             metadata=metadata,
+            category=category,
         )
 
     def save_data(

@@ -82,50 +82,77 @@ Extract concrete details from conversation-visible tool responses:
 
 ## Phase 3 — Report
 
-Produce a structured incident report in markdown. Use this exact structure:
+Produce a structured incident report as a **self-contained HTML artifact** and save it to the gallery.
 
-### Failure Summary
+### 3a. Generate the HTML report
 
-1-3 sentences describing the failure. Include the error class from the error-handling protocol taxonomy (Connection, Permission, Validation, Data, Execution, Internal) if one applies. If the failure doesn't map cleanly to one class, say so.
+Build a single HTML string with inline CSS (no external dependencies). Use this structure:
 
-### Evidence
+```html
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Diagnostic Report</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,system-ui,sans-serif; background:#0f172a; color:#e2e8f0; padding:24px; line-height:1.5; }
+  .header { border-bottom:2px solid #ef4444; padding-bottom:12px; margin-bottom:24px; }
+  .header h1 { font-size:1.4rem; color:#f8fafc; }
+  .header .timestamp { font-size:0.85rem; color:#94a3b8; margin-top:4px; }
+  .severity { display:inline-block; padding:2px 10px; border-radius:4px; font-weight:600; font-size:0.8rem; text-transform:uppercase; }
+  .severity-critical { background:#991b1b; color:#fecaca; }
+  .severity-warning  { background:#92400e; color:#fde68a; }
+  .severity-info     { background:#1e3a5f; color:#93c5fd; }
+  section { margin-bottom:24px; }
+  section h2 { font-size:1.1rem; color:#f8fafc; border-bottom:1px solid #334155; padding-bottom:6px; margin-bottom:12px; }
+  .evidence-item { background:#1e293b; border-radius:6px; padding:12px; margin-bottom:8px; border-left:3px solid #3b82f6; }
+  .evidence-source { font-size:0.75rem; color:#60a5fa; text-transform:uppercase; letter-spacing:0.05em; }
+  .evidence-finding { margin-top:4px; }
+  .evidence-significance { margin-top:4px; font-size:0.85rem; color:#94a3b8; font-style:italic; }
+  .cause-item { background:#1e293b; border-radius:6px; padding:12px; margin-bottom:8px; }
+  .cause-rank { display:inline-block; width:24px; height:24px; border-radius:50%; background:#3b82f6; color:#fff; text-align:center; line-height:24px; font-size:0.8rem; font-weight:600; margin-right:8px; }
+  .gap-item { background:#1e293b; border-radius:6px; padding:10px; margin-bottom:6px; border-left:3px solid #f59e0b; }
+  .next-step { background:#1e293b; border-radius:6px; padding:10px; margin-bottom:6px; border-left:3px solid #22c55e; }
+  .timeline-event { display:flex; gap:12px; margin-bottom:8px; }
+  .timeline-time { flex:0 0 100px; font-size:0.8rem; color:#60a5fa; text-align:right; padding-top:2px; }
+  .timeline-dot { flex:0 0 12px; position:relative; }
+  .timeline-dot::before { content:''; display:block; width:10px; height:10px; border-radius:50%; background:#3b82f6; margin-top:5px; }
+  .timeline-dot::after { content:''; position:absolute; top:18px; left:4px; width:2px; height:calc(100% + 4px); background:#334155; }
+  .timeline-event:last-child .timeline-dot::after { display:none; }
+  .timeline-desc { flex:1; }
+</style></head><body>
+<!-- Fill in sections dynamically based on investigation findings -->
+</body></html>
+```
 
-Numbered list. Each item has:
-- **Source**: Where this evidence came from (conversation, session_log, workspace, direct)
-- **Finding**: What was observed
-- **Significance**: What this tells us about the failure
+Populate the HTML with:
 
-### Timeline
+1. **Header** — report title, timestamp, overall severity badge (CRITICAL / WARNING / INFO)
+2. **Failure Summary** — 1-3 sentences. Include the error class (Connection, Permission, Validation, Data, Execution, Internal) if one applies.
+3. **Evidence** — one `.evidence-item` per finding, each with source badge, finding text, and significance.
+4. **Timeline** *(only if multiple events over time)* — chronological `.timeline-event` entries.
+5. **What Was NOT Found** — one `.gap-item` per evidence source that returned empty/inconclusive. Each must say what was queried, that it was empty, and what the absence could mean.
+6. **Possible Causes** — rank-ordered `.cause-item` entries. Each must cite supporting evidence numbers. Do NOT speculate beyond what evidence supports.
+7. **Suggested Next Steps** — one `.next-step` per handoff action for HUMANS (not the agent).
 
-*(Include only if the failure involved multiple events over time.)*
+### 3b. Save to the gallery
 
-Chronological sequence of relevant events with timestamps where available.
+Call the `artifact_save` MCP tool:
 
-### What Was NOT Found
+```
+artifact_save(
+    title="Diagnostic Report — <brief failure description>",
+    description="Infrastructure failure investigation: <1-line summary>",
+    content=<the HTML string>,
+    content_type="html",
+    category="diagnostic_report"
+)
+```
 
-List evidence sources that returned empty or inconclusive results. For each:
-- What was queried
-- That it returned empty/no results
-- What that absence could mean (enumerate possible causes)
+Then call `artifact_focus(artifact_id=<id from response>)` to open the report in the gallery.
 
-This section is mandatory. Every investigation has gaps — documenting them is as important as documenting findings.
+### 3c. Conversation summary
 
-### Possible Causes
-
-Rank-ordered list of possible causes. Each must be supported by at least one piece of evidence from the Evidence section. Format:
-
-1. **[Most likely cause]** — supported by Evidence #N, #M. [Brief explanation.]
-2. **[Less likely cause]** — supported by Evidence #N. [Brief explanation.]
-
-Do NOT speculate beyond what the evidence supports. If only one cause is supported, list only one.
-
-### Suggested Next Steps
-
-Handoff items for the operator or developer. These are actions for HUMANS, not for the agent. Examples:
-- "Check whether the MCP server process is running"
-- "Verify the archiver appliance is accessible from this host"
-- "Review the OSPREY server logs for errors around [timestamp]"
-- "Open a developer session with source code access to investigate [specific component]"
+After saving, present a brief inline summary: the failure summary and suggested next steps. Don't duplicate the full report — point the user to the gallery artifact for details.
 
 ---
 

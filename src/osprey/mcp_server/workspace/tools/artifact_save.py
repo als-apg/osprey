@@ -30,6 +30,7 @@ async def artifact_save(
     file_path: str | None = None,
     content: str | None = None,
     content_type: str = "markdown",
+    category: str = "",
 ) -> str:
     """Save an artifact to the OSPREY gallery for interactive viewing.
 
@@ -46,6 +47,9 @@ async def artifact_save(
         content: Inline string content (markdown, HTML, text, or JSON).
         content_type: Type of inline content — "markdown", "html", "text",
                       or "json". Ignored when file_path is provided.
+        category: Optional category for gallery grouping (e.g.,
+                  "diagnostic_report", "visualization"). See the type
+                  registry for valid categories.
 
     Returns:
         JSON with artifact ID and gallery URL.
@@ -88,6 +92,7 @@ async def artifact_save(
                 title=title,
                 description=description,
                 tool_source="artifact_save",
+                category=category,
             )
         else:
             # Inline content
@@ -113,6 +118,7 @@ async def artifact_save(
                 description=description,
                 mime_type=mime,
                 tool_source="artifact_save",
+                category=category,
             )
 
         url = gallery_url()
