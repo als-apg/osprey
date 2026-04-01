@@ -16,6 +16,7 @@ from osprey.interfaces.web_terminal.routes.panels import router as panels_router
 from osprey.interfaces.web_terminal.routes.prompts import router as prompts_router
 from osprey.interfaces.web_terminal.routes.session import router as session_router
 from osprey.interfaces.web_terminal.routes.chat import router as chat_router
+from osprey.interfaces.web_terminal.routes.proxy import router as proxy_router
 from osprey.interfaces.web_terminal.routes.websocket import router as websocket_router
 
 router = APIRouter()
@@ -27,5 +28,6 @@ router.include_router(memory_router)
 router.include_router(prompts_router)
 router.include_router(websocket_router)
 router.include_router(chat_router)
+router.include_router(proxy_router)
 
 __all__ = ["router"]

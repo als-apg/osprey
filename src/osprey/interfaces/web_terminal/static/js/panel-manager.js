@@ -385,7 +385,7 @@ function navigatePanel(panelId, url) {
 
   if (!state.iframe) return;
 
-  const embedUrl = new URL(url);
+  const embedUrl = new URL(url, window.location.origin);
   embedUrl.searchParams.set('embedded', 'true');
   embedUrl.searchParams.set('theme', getTheme());
   if (state.project) {
@@ -407,7 +407,7 @@ function createIframe(panelId) {
   // Use pendingUrl (from navigatePanel) if available, otherwise base URL
   const targetUrl = state.pendingUrl || state.url;
   state.pendingUrl = null;
-  const embedUrl = new URL(targetUrl);
+  const embedUrl = new URL(targetUrl, window.location.origin);
   embedUrl.searchParams.set('embedded', 'true');
   embedUrl.searchParams.set('theme', getTheme());
   if (state.project) {

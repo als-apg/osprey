@@ -29,8 +29,8 @@ async def health(request: Request):
 @router.get("/api/artifact-server")
 async def artifact_server_config(request: Request):
     """Return the artifact gallery server URL for iframe embedding."""
-    url = getattr(request.app.state, "artifact_server_url", "http://127.0.0.1:8086")
-    return {"url": url}
+    url = getattr(request.app.state, "artifact_server_url", None)
+    return {"url": "/panel/artifacts" if url else "http://127.0.0.1:8086"}
 
 
 @router.get("/api/type-registry")
@@ -45,28 +45,32 @@ async def get_type_registry():
 async def ariel_server_config(request: Request):
     """Return the ARIEL logbook server URL for iframe embedding."""
     url = getattr(request.app.state, "ariel_server_url", None)
-    return {"url": url, "available": url is not None}
+    proxy_url = "/panel/ariel" if url else None
+    return {"url": proxy_url, "available": proxy_url is not None}
 
 
 @router.get("/api/tuning-server")
 async def tuning_server_config(request: Request):
     """Return the tuning panel server URL for iframe embedding."""
     url = getattr(request.app.state, "tuning_server_url", None)
-    return {"url": url, "available": url is not None}
+    proxy_url = "/panel/tuning" if url else None
+    return {"url": proxy_url, "available": proxy_url is not None}
 
 
 @router.get("/api/channel-finder-server")
 async def channel_finder_server_config(request: Request):
     """Return the Channel Finder server URL for iframe embedding."""
     url = getattr(request.app.state, "channel_finder_server_url", None)
-    return {"url": url, "available": url is not None}
+    proxy_url = "/panel/channel-finder" if url else None
+    return {"url": proxy_url, "available": proxy_url is not None}
 
 
 @router.get("/api/lattice-server")
 async def lattice_server_config(request: Request):
     """Return the lattice dashboard server URL for iframe embedding."""
     url = getattr(request.app.state, "lattice_dashboard_server_url", None)
-    return {"url": url, "available": url is not None}
+    proxy_url = "/panel/lattice" if url else None
+    return {"url": proxy_url, "available": proxy_url is not None}
 
 
 
@@ -74,7 +78,10 @@ async def lattice_server_config(request: Request):
 async def get_panels(request: Request):
     """Return panel configuration: enabled built-in panels + custom panels."""
     enabled = list(getattr(request.app.state, "enabled_panels", set()))
-    custom = getattr(request.app.state, "custom_panels", [])
+    custom = list(getattr(request.app.state, "custom_panels", []))
+    for cp in custom:
+        if cp.get("url", "").startswith("http://127.0.0.1"):
+            cp["url"] = f"/panel/{cp['id']}"
     return {"enabled": enabled, "custom": custom}
 
 

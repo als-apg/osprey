@@ -3,6 +3,7 @@
 Tests adapter functionality for ALS, JLab, ORNL, and generic JSON formats.
 """
 
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -787,7 +788,7 @@ class TestALSLogbookAdapterHTTPMocked:
 
         mock_response = AsyncMock()
         mock_response.raise_for_status = MagicMock()
-        mock_response.json = AsyncMock(return_value=mock_response_data)
+        mock_response.text = AsyncMock(return_value=json.dumps(mock_response_data))
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
@@ -831,7 +832,7 @@ class TestALSLogbookAdapterHTTPMocked:
 
         mock_response = AsyncMock()
         mock_response.raise_for_status = MagicMock()
-        mock_response.json = AsyncMock(return_value=mock_response_data)
+        mock_response.text = AsyncMock(return_value=json.dumps(mock_response_data))
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
@@ -873,7 +874,7 @@ class TestALSLogbookAdapterHTTPMocked:
 
         mock_response = AsyncMock()
         mock_response.raise_for_status = MagicMock()
-        mock_response.json = AsyncMock(return_value=mock_response_data)
+        mock_response.text = AsyncMock(return_value=json.dumps(mock_response_data))
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
@@ -922,7 +923,7 @@ class TestALSLogbookAdapterHTTPMocked:
 
         mock_response = AsyncMock()
         mock_response.raise_for_status = MagicMock()
-        mock_response.json = AsyncMock(return_value=mock_response_data)
+        mock_response.text = AsyncMock(return_value=json.dumps(mock_response_data))
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 

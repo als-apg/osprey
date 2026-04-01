@@ -193,9 +193,8 @@ async def keyword_search(
     where_clauses: list[str] = []
 
     if search_text.strip() or phrases:
-        # Combine search text and phrases for tsquery
-        all_search_terms = search_text
-        params.append(all_search_terms)
+        if search_text.strip():
+            params.append(search_text)
 
         for phrase in phrases:
             params.append(phrase)

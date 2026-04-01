@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import httpx
 import yaml
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -297,7 +298,15 @@ def _create_lifespan(
         # hot-reloadable settings (no env var propagation needed).
         app.state.hooks_env = {}
 
+        # Shared httpx client for the panel reverse proxy.
+        app.state.proxy_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=5.0),
+            follow_redirects=True,
+        )
+
         yield
+
+        await app.state.proxy_client.aclose()
 
         # Stop translation proxy if it was started
         from osprey.infrastructure.proxy.lifecycle import stop_proxy
