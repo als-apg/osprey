@@ -22,7 +22,7 @@ router = APIRouter()
 # Paths that companion servers commonly use as root-absolute references.
 # Only these prefixes are rewritten inside string delimiters to avoid
 # false positives on arbitrary ``/`` characters.
-_REWRITE_PREFIXES = ("/static/", "/api/", "/files/", "/health", "/ws/", "/assets/")
+_REWRITE_PREFIXES = ("/static/", "/api/", "/files/", "/health", "/checks", "/ws/", "/assets/")
 
 # Content types eligible for path rewriting.
 _REWRITABLE_TYPES = {
