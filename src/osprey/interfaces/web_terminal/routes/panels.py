@@ -76,12 +76,15 @@ async def lattice_server_config(request: Request):
 
 @router.get("/api/panels")
 async def get_panels(request: Request):
-    """Return panel configuration: enabled built-in panels + custom panels."""
+    """Return panel configuration: enabled built-in panels + custom panels.
+
+    All custom panel URLs are rewritten to ``/panel/{id}`` so the browser
+    routes through the reverse proxy.  The originals in ``app.state`` are
+    left untouched — the proxy reads those for forwarding.
+    """
     enabled = list(getattr(request.app.state, "enabled_panels", set()))
-    custom = list(getattr(request.app.state, "custom_panels", []))
-    for cp in custom:
-        if cp.get("url", "").startswith("http://127.0.0.1"):
-            cp["url"] = f"/panel/{cp['id']}"
+    custom_raw = getattr(request.app.state, "custom_panels", [])
+    custom = [{**cp, "url": f"/panel/{cp['id']}"} for cp in custom_raw]
     return {"enabled": enabled, "custom": custom}
 
 
