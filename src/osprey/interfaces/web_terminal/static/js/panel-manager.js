@@ -89,7 +89,7 @@ export async function initPanelManager(panelId) {
           id: cp.id,
           label: cp.label || cp.id.toUpperCase(),
           configEndpoint: null,
-          healthEndpoint: cp.healthEndpoint || undefined,
+          healthEndpoint: cp.healthEndpoint,  // null = skip health polling
           statusBarId: null,
         });
       }
@@ -198,7 +198,7 @@ async function initPanel(panel) {
   if (state.url) {
     // External panels (healthEndpoint === null) skip health polling —
     // mark healthy immediately so the tab is enabled.
-    if (panel.healthEndpoint === null) {
+    if (panel.healthEndpoint == null) {  // null or undefined → skip polling
       state.healthy = true;
       enableTab(panel.id);
       updateTabState(panel);
