@@ -299,9 +299,13 @@ def _create_lifespan(
         app.state.hooks_env = {}
 
         # Shared httpx client for the panel reverse proxy.
+        # trust_env=False prevents routing through the corporate HTTP proxy
+        # (e.g. Squid) — all panel backends are container-local or on the
+        # Docker network and must be reached directly.
         app.state.proxy_client = httpx.AsyncClient(
             timeout=httpx.Timeout(30.0, connect=5.0),
             follow_redirects=True,
+            trust_env=False,
         )
 
         yield
