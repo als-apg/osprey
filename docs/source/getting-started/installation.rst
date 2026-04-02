@@ -574,7 +574,7 @@ With your project created and configured, launch a Claude Code agent session:
    * ``control_system`` - Read/write channels on the control system (with human approval for writes)
    * ``ariel`` - Logbook search and knowledge retrieval
    * ``export`` - Data export and artifact generation
-   * ``channel_finder_hierarchical`` / ``channel_finder_in_context`` / ``channel_finder_middle_layer`` / ``direct_channel_finder`` - Channel discovery (variant depends on template)
+   * ``channel_finder_hierarchical`` / ``channel_finder_in_context`` / ``channel_finder_middle_layer`` - Channel discovery (variant depends on template)
 
    MCP servers start automatically when Claude Code launches — no manual management required.
    The servers run as subprocesses managed by Claude Code and shut down when the session ends.

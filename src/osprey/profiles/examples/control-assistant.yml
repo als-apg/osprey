@@ -51,7 +51,6 @@ skills:
 
 agents:
   - channel-finder          # Semantic search over channel databases (hierarchical)
-  - direct-channel-finder   # Direct channel lookup for known PV patterns
   - data-visualizer         # Produce strip charts and correlation plots
   - logbook-search          # Search facility logbook for historical entries
   - logbook-deep-research   # Multi-hop logbook research with synthesis

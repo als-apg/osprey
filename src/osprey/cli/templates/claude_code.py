@@ -122,23 +122,6 @@ def build_claude_code_context(
 
     ctx.setdefault("channel_finder_hierarchy", None)
 
-    # Direct channel finder (separate from pipeline-based channel finder)
-    if channel_finder and "channel-finder" in artifacts.get("agents", []):
-        direct_cf = channel_finder.get("direct")
-        if direct_cf:
-            ctx["direct_channel_finder"] = True
-            try:
-                from osprey.services.channel_finder.utils.naming_summary import (
-                    generate_naming_summary,
-                )
-
-                ctx["naming_patterns_summary"] = generate_naming_summary(config)
-            except Exception:
-                logger.warning(
-                    "Could not generate naming summary for direct channel finder",
-                    exc_info=True,
-                )
-
     # Claude Code server + agent resolution (data-driven registry)
     claude_code_config = config.get("claude_code", {})
     ctx["facility_permissions"] = claude_code_config.get("permissions", {})

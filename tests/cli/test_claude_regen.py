@@ -732,7 +732,7 @@ class TestSettingsJsonValidity:
         assert "hooks" in data
 
     def test_all_optional_features_enabled(self, tmp_path):
-        """Valid JSON when all optional features (channel-finder, direct-channel-finder) are on."""
+        """Valid JSON when all optional features (channel-finder) are on."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="json-all-features",
@@ -740,7 +740,6 @@ class TestSettingsJsonValidity:
             data_bundle="control_assistant",
             context={
                 "channel_finder_pipeline": "hierarchical",
-                "direct_channel_finder": True,
             },
         )
         settings_path = project_dir / ".claude" / "settings.json"

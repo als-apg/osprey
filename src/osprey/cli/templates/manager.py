@@ -366,24 +366,6 @@ class TemplateManager:
                     )
             ctx.setdefault("channel_finder_hierarchy", None)
 
-            # Direct channel finder (separate from pipeline-based channel finder)
-            direct_cf = cf_config.get("direct") if cf_config else None
-            if direct_cf:
-                ctx["direct_channel_finder"] = True
-                try:
-                    from osprey.services.channel_finder.utils.naming_summary import (
-                        generate_naming_summary,
-                    )
-
-                    ctx["naming_patterns_summary"] = generate_naming_summary(rendered_config)
-                except Exception:
-                    import logging
-
-                    logging.getLogger("osprey.cli.templates").warning(
-                        "Could not generate naming summary during project creation",
-                        exc_info=True,
-                    )
-
         # Textbooks root -- resolve relative to project directory
         _textbooks_dir = project_dir.parent / "data" / "textbooks"
         ctx["textbooks_root"] = str(_textbooks_dir) if _textbooks_dir.is_dir() else None

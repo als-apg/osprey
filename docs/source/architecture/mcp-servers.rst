@@ -83,22 +83,6 @@ lookups and validation.
 - ``validate`` -- Validate that channel names exist in the database.
 - ``statistics`` -- Get database statistics (total channels, systems, families).
 
-``direct_channel_finder``
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Package: ``osprey.mcp_server.direct_channel_finder``
-
-Queries live PV metadata backends and uses curated channel databases as
-reference context for naming patterns. Best for facilities with an
-online channel finder service.
-
-**Tools:**
-
-- ``search_pvs`` -- Search for PVs matching a glob pattern with optional filters.
-- ``get_pv_metadata`` -- Get detailed metadata for specific PV names.
-- ``get_naming_patterns`` -- Get a summary of PV naming conventions from the curated database.
-
-
 Workspace
 ---------
 

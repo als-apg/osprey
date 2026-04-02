@@ -60,7 +60,6 @@ AGENT_DEFAULT_TIERS: dict[str, str] = {
     "logbook-search": "sonnet",
     "logbook-deep-research": "opus",
     "data-visualizer": "sonnet",
-    "direct-channel-finder": "sonnet",
 }
 
 from osprey.models.tiers import VALID_TIERS

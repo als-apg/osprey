@@ -40,7 +40,7 @@ class TestResolveServers:
         # Core servers always on
         assert {"controls", "workspace", "ariel"} <= enabled
         # Conditional servers off (conditions not in ctx)
-        assert {"channel-finder", "direct-channel-finder"} <= disabled
+        assert {"channel-finder"} <= disabled
 
     def test_resolve_disable_framework_server(self):
         """New format: servers: {ariel: {enabled: false}}."""
@@ -111,14 +111,6 @@ class TestResolveServers:
         # channel_write has 3 hooks
         cw = [r for r in controls["hooks_pre"] if r["matcher"] == "mcp__controls__channel_write"][0]
         assert len(cw["hooks"]) == 3
-
-    def test_direct_channel_finder_resolution(self):
-        """direct_channel_finder in ctx → direct-channel-finder server enabled."""
-        ctx = _base_ctx(direct_channel_finder=True)
-        servers = resolve_servers({}, ctx)
-        dcf = [s for s in servers if s["name"] == "direct-channel-finder"][0]
-        assert dcf["enabled"] is True
-        assert dcf["args"] == ["-m", "osprey.mcp_server.direct_channel_finder"]
 
     def test_channel_finder_pipeline_resolution(self):
         """channel-finder server resolves {channel_finder_pipeline} in module."""
@@ -233,10 +225,7 @@ class TestResolveAgents:
         disabled = {a["name"] for a in agents if not a["enabled"]}
 
         assert {"logbook-search", "logbook-deep-research"} <= enabled
-        assert {
-            "channel-finder",
-            "direct-channel-finder",
-        } <= disabled
+        assert {"channel-finder"} <= disabled
         assert "data-visualizer" in enabled
 
     def test_disable_framework_agent(self):

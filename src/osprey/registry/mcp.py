@@ -229,16 +229,6 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             ),
         ],
     ),
-    "direct-channel-finder": ServerDefinition(
-        name="direct-channel-finder",
-        module="osprey.mcp_server.direct_channel_finder",
-        env={
-            "OSPREY_CONFIG": "{project_root}/config.yml",
-        },
-        condition="direct_channel_finder",
-        fixed_allow=["mcp__direct-channel-finder"],
-        hooks_post=[_post_error("mcp__direct-channel-finder__.*")],
-    ),
 }
 
 
@@ -280,15 +270,6 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
         description=(
             "Creates plots, dashboards, and compiles LaTeX documents. "
             "You do NOT have visualization tools."
-        ),
-    ),
-    "direct-channel-finder": AgentDefinition(
-        name="direct-channel-finder",
-        condition="direct_channel_finder",
-        server_dependency="direct-channel-finder",
-        description=(
-            "Searches live PV databases. "
-            "Use ONLY when explicitly asked to find PVs via direct query."
         ),
     ),
 }
