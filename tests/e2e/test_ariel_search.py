@@ -12,9 +12,12 @@ With verbose LLM judge output:
 
 from __future__ import annotations
 
+import asyncio
 import atexit
+import functools
 import logging
 import os
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -26,6 +29,66 @@ if TYPE_CHECKING:
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.asyncio]
 
 logger = logging.getLogger(__name__)
+
+# Rate limit indicators shared across quota-error handling
+_QUOTA_INDICATORS = [
+    "quota",
+    "rate limit",
+    "rate_limit",
+    "ratelimit",
+    "too many requests",
+    "429",
+    "resource_exhausted",
+    "resourceexhausted",
+]
+
+
+def _is_quota_error(text: str) -> bool:
+    """Check if text contains API quota/rate limit indicators."""
+    text_lower = text.lower()
+    return any(indicator in text_lower for indicator in _QUOTA_INDICATORS)
+
+
+def handle_quota_errors(func):
+    """Decorator to convert API quota/rate limit errors to pytest skips.
+
+    Handles both sync and async functions. Prevents transient rate limiting
+    from failing the test suite while still reporting for visibility.
+    """
+    if asyncio.iscoroutinefunction(func):
+
+        @functools.wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                if _is_quota_error(str(e)):
+                    warnings.warn(
+                        f"API quota/rate limit hit (test skipped): {e}",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    pytest.skip(f"API quota/rate limit: {type(e).__name__}")
+                raise
+
+        return async_wrapper
+    else:
+
+        @functools.wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                if _is_quota_error(str(e)):
+                    warnings.warn(
+                        f"API quota/rate limit hit (test skipped): {e}",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    pytest.skip(f"API quota/rate limit: {type(e).__name__}")
+                raise
+
+        return sync_wrapper
 
 # Path to synthetic test data
 TEST_DATA_PATH = Path(__file__).parent.parent / "fixtures" / "ariel" / "test_logbook_entries.jsonl"
@@ -496,6 +559,7 @@ class TestRAGSearchE2E:
     Requires CBORG_API_KEY environment variable for LLM calls.
     """
 
+    @handle_quota_errors
     async def test_factual_qa(self, seeded_ariel_db, rag_config_env):
         """RAG answers 'What caused the RF trip in sector 3?' using E001."""
         from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
@@ -525,6 +589,7 @@ class TestRAGSearchE2E:
             f"Answer should mention RF trip details. Answer: {result.answer[:300]}"
         )
 
+    @handle_quota_errors
     async def test_multi_entry_synthesis(self, seeded_ariel_db, rag_config_env):
         """RAG synthesizes answer from multiple incident entries."""
         from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
@@ -559,6 +624,7 @@ class TestRAGSearchE2E:
             f"Answer should mention multiple issues. Answer: {result.answer[:300]}"
         )
 
+    @handle_quota_errors
     async def test_no_answer_for_unrelated_query(self, seeded_ariel_db, rag_config_env):
         """RAG gracefully handles queries with no relevant entries."""
         from osprey.models.embeddings.ollama import OllamaEmbeddingProvider

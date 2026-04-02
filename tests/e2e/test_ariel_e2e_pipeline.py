@@ -21,9 +21,12 @@ Requirements:
 
 from __future__ import annotations
 
+import asyncio
 import atexit
+import functools
 import logging
 import os
+import warnings
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -37,6 +40,81 @@ if TYPE_CHECKING:
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.asyncio]
 
 logger = logging.getLogger(__name__)
+
+# Rate limit indicators shared across quota-error handling
+_QUOTA_INDICATORS = [
+    "quota",
+    "rate limit",
+    "rate_limit",
+    "ratelimit",
+    "too many requests",
+    "429",
+    "resource_exhausted",
+    "resourceexhausted",
+]
+
+
+def _is_quota_error(text: str) -> bool:
+    """Check if text contains API quota/rate limit indicators."""
+    text_lower = text.lower()
+    return any(indicator in text_lower for indicator in _QUOTA_INDICATORS)
+
+
+def handle_quota_errors(func):
+    """Decorator to convert API quota/rate limit errors to pytest skips.
+
+    Handles both sync and async functions. Prevents transient rate limiting
+    from failing the test suite while still reporting for visibility.
+    """
+    if asyncio.iscoroutinefunction(func):
+
+        @functools.wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                if _is_quota_error(str(e)):
+                    warnings.warn(
+                        f"API quota/rate limit hit (test skipped): {e}",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    pytest.skip(f"API quota/rate limit: {type(e).__name__}")
+                raise
+
+        return async_wrapper
+    else:
+
+        @functools.wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                if _is_quota_error(str(e)):
+                    warnings.warn(
+                        f"API quota/rate limit hit (test skipped): {e}",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    pytest.skip(f"API quota/rate limit: {type(e).__name__}")
+                raise
+
+        return sync_wrapper
+
+
+def skip_if_rate_limited_response(response_text: str) -> None:
+    """Skip the test if an agent response contains a rate limit error.
+
+    The ReAct agent and full pipeline catch LLM errors internally and
+    surface them in the response text rather than raising exceptions.
+    """
+    if _is_quota_error(response_text):
+        warnings.warn(
+            f"API quota/rate limit in agent response (test skipped): {response_text[:200]}",
+            UserWarning,
+            stacklevel=2,
+        )
+        pytest.skip("API quota/rate limit detected in agent response")
 
 # Dev database URLs - try port 5432 (ariel-postgres), then 5433 (ariel-dev-db)
 DEV_DATABASE_URL_5432 = "postgresql://ariel:ariel@localhost:5432/ariel_pipeline_test"
@@ -446,6 +524,7 @@ class TestAgentExecutorE2E:
     Requires CBORG_API_KEY for LLM calls.
     """
 
+    @handle_quota_errors
     async def test_agent_finds_safety_procedures(
         self, e2e_ariel_seeded_db, e2e_agent_config_env, llm_judge
     ):
@@ -467,6 +546,7 @@ class TestAgentExecutorE2E:
 
         query = "What safety procedures were followed for the power supply work in Sector 8?"
         result = await service.search(query, mode=SearchMode.AGENT)
+        skip_if_rate_limited_response(result.answer or "")
 
         # --- Deterministic assertions ---
 
@@ -496,6 +576,7 @@ class TestAgentExecutorE2E:
             f"LLM judge failed (confidence={evaluation.confidence}):\n{evaluation.reasoning}"
         )
 
+    @handle_quota_errors
     async def test_agent_handles_irrelevant_query(self, e2e_ariel_seeded_db, e2e_agent_config_env):
         """Agent handles queries with no relevant logbook entries gracefully."""
         from osprey.services.ariel_search.models import SearchMode
@@ -512,6 +593,7 @@ class TestAgentExecutorE2E:
             "What is the recipe for chocolate cake?",
             mode=SearchMode.AGENT,
         )
+        skip_if_rate_limited_response(result.answer or "")
 
         # Agent should still produce an answer (not crash)
         assert result.answer is not None, (
@@ -567,6 +649,7 @@ class TestAgentLogbookPipeline:
     5. Verifies the response with deterministic assertions + LLM judge
     """
 
+    @handle_quota_errors
     async def test_agent_routes_logbook_query(
         self, e2e_ariel_seeded_db, e2e_project_factory, llm_judge
     ):
@@ -607,6 +690,13 @@ class TestAgentLogbookPipeline:
         result = await project.query(
             "Search the logbook for any RF cavity trips or issues that were reported"
         )
+
+        # --- Rate limit check (before assertions) ---
+        # The full pipeline catches LLM errors and surfaces them in the
+        # response or error field rather than raising exceptions.
+        if result.error and _is_quota_error(result.error):
+            pytest.skip(f"API quota/rate limit in pipeline: {result.error[:200]}")
+        skip_if_rate_limited_response(result.response)
 
         # --- Deterministic assertions ---
 
@@ -732,6 +822,7 @@ class TestCustomModuleIntegration:
     correct results against real data.
     """
 
+    @handle_quota_errors
     async def test_agent_uses_custom_search_module(
         self, e2e_ariel_watermarked_db, e2e_agent_config_env
     ):
@@ -810,6 +901,7 @@ class TestCustomModuleIntegration:
         )
 
         # --- 5. Assertions ---
+        skip_if_rate_limited_response(result.answer or "")
         assert result.answer is not None, "Agent did not produce an answer"
         assert len(result.answer) > 50, f"Answer too short: {result.answer}"
 
