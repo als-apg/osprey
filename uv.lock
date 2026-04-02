@@ -16,6 +16,10 @@ resolution-markers = [
     "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
+[options]
+exclude-newer = "2026-03-25T16:02:10.010577Z"
+exclude-newer-span = "P7D"
+
 [[package]]
 name = "accelerator-toolbox"
 version = "0.7.1"
