@@ -13,12 +13,6 @@ class TestDetectSystemTimezone:
         result = _detect_system_timezone()
         assert result is None or isinstance(result, str)
 
-    def test_returns_iana_format_when_detected(self):
-        """If a timezone is detected, it contains a '/' (IANA format)."""
-        result = _detect_system_timezone()
-        if result is not None:
-            assert "/" in result, f"Expected IANA format (e.g., America/New_York), got: {result}"
-
     def test_detected_timezone_is_valid(self):
         """If a timezone is detected, it is a valid IANA timezone."""
         result = _detect_system_timezone()
