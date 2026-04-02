@@ -44,15 +44,24 @@ def build_claude_code_context(
     project_name = config.get("project_name", project_dir.name)
     package_name = project_name.replace("-", "_").lower()
 
-    # Read template_name from manifest if available
+    # Read template_name and artifact selections from manifest if available
     manifest_path = project_dir / manifest_mod.MANIFEST_FILENAME
     template_name = "control_assistant"
+    artifacts: dict[str, list[str]] = {}
     if manifest_path.exists():
         try:
             manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
             template_name = manifest_data.get("creation", {}).get("template", "control_assistant")
+            artifacts = manifest_data.get("artifacts", {})
         except (json.JSONDecodeError, OSError):
             pass
+
+    # Fall back to template manifest.yml artifact list when manifest has no artifacts
+    # (projects created before artifact persistence was introduced)
+    if not artifacts:
+        tmpl_manifest = manifest_mod.load_template_manifest(template_root, template_name)
+        if tmpl_manifest:
+            artifacts = tmpl_manifest.get("artifacts", {})
 
     ctx = {
         "project_name": project_name,
@@ -69,7 +78,7 @@ def build_claude_code_context(
 
     # Derive channel finder configuration
     channel_finder = config.get("channel_finder")
-    if channel_finder and template_name == "control_assistant":
+    if channel_finder and "channel-finder" in artifacts.get("agents", []):
         pipeline_mode = channel_finder.get("pipeline_mode", "hierarchical")
         ctx["channel_finder_pipeline"] = pipeline_mode
         ctx["channel_finder_mode"] = pipeline_mode
@@ -106,7 +115,7 @@ def build_claude_code_context(
     ctx.setdefault("channel_finder_hierarchy", None)
 
     # Direct channel finder (separate from pipeline-based channel finder)
-    if channel_finder and template_name == "control_assistant":
+    if channel_finder and "channel-finder" in artifacts.get("agents", []):
         direct_cf = channel_finder.get("direct")
         if direct_cf:
             ctx["direct_channel_finder"] = True
@@ -493,22 +502,41 @@ def regenerate_claude_code(
 
     ctx = build_claude_code_context(template_root, jinja_env, project_dir, config)
 
-    # Load template manifest for filtering
+    # Resolve allowed_outputs from .osprey-manifest.json artifact list.
+    # Fall back to loading the template's manifest.yml for legacy projects.
     template_name = ctx.get("template_name", "control_assistant")
-    tmpl_manifest = manifest_mod.load_template_manifest(template_root, template_name)
+    osprey_manifest_path = project_dir / manifest_mod.MANIFEST_FILENAME
+    regen_manifest: dict | None = None
+    stored_artifacts: dict | None = None
+    if osprey_manifest_path.exists():
+        try:
+            osprey_manifest_data = json.loads(osprey_manifest_path.read_text(encoding="utf-8"))
+            stored_artifacts = osprey_manifest_data.get("artifacts") or None
+            if stored_artifacts:
+                # Build an in-memory manifest dict in the same format as manifest.yml
+                regen_manifest = {"artifacts": stored_artifacts}
+        except (json.JSONDecodeError, OSError):
+            pass
+    if regen_manifest is None:
+        regen_manifest = manifest_mod.load_template_manifest(template_root, template_name)
+
     allowed_outputs = (
-        manifest_mod.resolve_manifest_outputs(tmpl_manifest) if tmpl_manifest else None
+        manifest_mod.resolve_manifest_outputs(regen_manifest) if regen_manifest else None
     )
 
-    # Filter agents to manifest
+    # Filter agents to allowed outputs
     if allowed_outputs is not None:
         ctx["agents"] = [
             a for a in ctx["agents"] if f".claude/agents/{a['name']}.md" in allowed_outputs
         ]
 
     # Collect checksums of existing Claude Code files before regeneration.
-    # Use manifest-aware tracked files, then add agent files (always auto-managed).
-    claude_code_files = manifest_mod.get_tracked_files(template_root, template_name)
+    # When stored_artifacts are present, derive tracked files from the manifest;
+    # otherwise fall back to the template's static tracked-file list.
+    if stored_artifacts and allowed_outputs is not None:
+        claude_code_files = sorted(allowed_outputs)
+    else:
+        claude_code_files = manifest_mod.get_tracked_files(template_root, template_name)
     agents_dir = project_dir / ".claude" / "agents"
     if agents_dir.exists():
         for agent_file in agents_dir.iterdir():
