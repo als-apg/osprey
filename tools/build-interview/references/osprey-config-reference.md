@@ -15,7 +15,7 @@ This document contains the exact YAML structure and JSON schemas needed to gener
 
 ## Complete config.yml Structure
 
-Below is a complete, annotated config.yml for the `control_assistant` template. When generating a config for a build profile, start from this and remove/modify sections based on the interview answers.
+Below is a complete, annotated config.yml for the `control_assistant` data bundle. The profile.yml `config:` section contains overrides applied on top of this structure. When customizing, only override the fields that differ from defaults.
 
 ```yaml
 # ============================================================
@@ -707,12 +707,14 @@ Used when write access is enabled to define safe operating ranges:
 ### Init command format
 
 ```bash
-osprey init \
-  --name "project-name" \
-  --template control_assistant \
-  --provider PROVIDER_NAME \
-  --model MODEL_TIER
+# Create a project from a build profile:
+osprey build project-name path/to/profile.yml
+
+# Or start from an example profile:
+osprey init --example control-assistant my-profile.yml
+# Edit my-profile.yml, then:
+osprey build project-name my-profile.yml
 ```
 
-Valid templates: `hello_world`, `control_assistant`, `lattice_design`
+Valid data bundles: `hello_world`, `control_assistant`, `lattice_design`
 Valid model tiers: `haiku`, `sonnet`, `opus`

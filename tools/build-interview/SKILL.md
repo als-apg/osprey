@@ -11,10 +11,12 @@ You are conducting a friendly, structured interview to gather everything needed 
 
 By the end of this interview you will generate a `build-profile/` directory containing:
 
-1. **README.md** — Plain-language summary of what was configured and step-by-step setup instructions
-2. **config.yml** — A complete OSPREY configuration file tailored to their use case
+1. **profile.yml** — A complete OSPREY build profile that `osprey build` consumes directly
+2. **README.md** — Plain-language summary of what was configured and setup instructions
 3. **channels.json** — A channel database populated with their PVs (if they provided PV details)
 4. **channel_limits.json** — Safety limits for writable channels (if write access was requested)
+
+The profile.yml declares the data bundle, artifact selection (hooks, rules, skills, agents), config overrides, and overlay paths — everything `osprey build` needs to produce a working project in one command.
 
 Read `references/osprey-config-reference.md` before generating any config files — it contains the exact YAML structure, valid field values, and channel database JSON schema.
 
@@ -328,11 +330,58 @@ After addressing findings, if any answers changed substantially, consider runnin
 
 ### Phase 8 — Generate Build Profile
 
-Read `references/osprey-config-reference.md` now for the exact config.yml structure and channel database schema.
+Read `references/osprey-config-reference.md` now for the exact config.yml structure and channel database schema. Also read `src/osprey/profiles/examples/control-assistant.yml` as a reference for the profile YAML format.
 
 Create a `build-profile/` directory with the following files:
 
-#### 1. `build-profile/README.md`
+#### 1. `build-profile/profile.yml`
+
+A complete OSPREY build profile YAML. Start from the `control-assistant.yml` example and customize:
+
+```yaml
+name: "<System Name> Assistant"
+data_bundle: control_assistant
+provider: <chosen_provider>
+model: <chosen_model>
+
+# Artifact selection — only include what they need
+hooks:
+  - approval          # Always include for safety
+  - writes-check      # Include if write access enabled
+  - limits            # Include if write access with limits
+  # ... other hooks based on interview
+rules:
+  - safety            # Always include
+  # ... other rules based on interview
+skills:
+  - diagnose          # Include unless they want minimal
+  # ... other skills based on interview
+agents:
+  # Only include agents for features they selected
+  # - channel-finder  # If channel finder feature selected
+  # - data-visualizer # If data visualization needed
+output_styles:
+  - control-operator
+
+# Config overrides applied after the data bundle's config.yml.j2 renders
+config:
+  project_name: "<project-name>"
+  control_system.type: mock   # or "epics" if they have gateway details
+  system.timezone: "<facility_timezone>"
+  # ... other config overrides from interview
+
+# Overlay: copy interview-generated files into the project
+overlay:
+  channels.json: data/channel_databases/in_context.json
+  # channel_limits.json: data/channel_limits.json  # if write access
+```
+
+Key decisions for the profile:
+- **Artifacts**: Only include hooks/rules/skills/agents for features they actually need. A detector-only setup doesn't need logbook-search or channel-finder agents.
+- **Config overrides**: Set control system type, writes_enabled, provider, model, timezone, facility name
+- **Overlay**: Point to the channels.json and channel_limits.json files in the same directory
+
+#### 2. `build-profile/README.md`
 
 Write a friendly summary including:
 - Project name and one-line description
@@ -340,27 +389,16 @@ Write a friendly summary including:
 - What PVs are configured (or placeholder note)
 - Step-by-step setup instructions:
   1. Install OSPREY (`pip install osprey` or `uv pip install osprey`)
-  2. Create project: `osprey init --name <name> --template control_assistant --provider <provider> --model <model>`
-  3. Replace `config.yml` with the one from this build profile
-  4. Copy `channels.json` to `data/channel_databases/in_context.json` (if provided)
-  5. Copy `channel_limits.json` to `data/` (if provided)
-  6. Regenerate Claude Code artifacts: `osprey claude regen`
-  7. Test: `osprey health` to verify everything works
-  8. Start using: `cd <project-name> && claude` or `osprey web`
-- How to switch from mock to real EPICS when ready (change `control_system.type` and fill in gateway addresses)
+  2. Build the project: `osprey build <project-name> build-profile/profile.yml`
+  3. Test: `cd <project-name> && osprey health`
+  4. Start using: `claude` or `osprey web`
+- How to switch from mock to real EPICS when ready (edit profile.yml: change `control_system.type` from `mock` to `epics`, add gateway config overrides, then rebuild)
+- How to add/remove features later (edit profile.yml artifact lists, then rebuild)
 - Where to get help
 
-#### 2. `build-profile/config.yml`
-
-A complete, valid OSPREY config.yml. Use the control_assistant template as the base but:
-- Disable features they don't need (ARIEL, channel finder, etc.) via the `claude_code.servers` and `claude_code.agents` sections
-- Set the control system type (mock or epics)
-- Set writes_enabled based on their access level
-- Configure limits and verification if write access is enabled
-- Set the AI provider and model
-- Include helpful comments explaining each section
-
 #### 3. `build-profile/channels.json` (if PVs were collected)
+
+This file is referenced by the `overlay:` section in profile.yml and will be copied into the project automatically during `osprey build`.
 
 Use the in_context flat format:
 ```json
@@ -394,6 +432,8 @@ If PVs were NOT collected, generate a skeleton with clear placeholder comments.
 
 #### 4. `build-profile/channel_limits.json` (if write access)
 
+This file is referenced by the `overlay:` section in profile.yml and will be copied into the project automatically during `osprey build`.
+
 ```json
 {
   "channels": {
@@ -411,17 +451,21 @@ If PVs were NOT collected, generate a skeleton with clear placeholder comments.
 
 Generate this only if the user requested a custom monitoring panel in Phase 6. Use the panel specification template from Phase 6. This document serves as a blueprint for building the panel — include all collected details about components, PVs, alarm thresholds, update frequency, and layout.
 
-Also update the `config.yml` to include the panel entry under `web.panels` and set `web.panels` for any relevant built-in panels they enabled.
+Also update `profile.yml` to include the panel in the `web_panels:` artifact list and add the panel URL as a config override under `web.panels`.
 
-If they provided an existing monitoring tool URL instead, just add the config entry — no spec document needed.
+If they provided an existing monitoring tool URL instead, just add the config override — no spec document needed.
 
 #### After generating all files
 
 Tell the user:
-> "Your build profile is ready in the `build-profile/` directory. Here's what I created: [list files]. Follow the README.md for setup instructions. The whole setup should take about 5 minutes."
+> "Your build profile is ready in the `build-profile/` directory. Here's what I created: [list files]. To create your project, run:
+> ```
+> osprey build <project-name> build-profile/profile.yml
+> ```
+> That's it — one command. Then `cd <project-name> && claude` to start using your agent."
 
 If they started with mock mode, remind them:
-> "Everything is set to simulated/mock mode right now, which is perfect for trying things out. When you're ready to connect to real hardware, just change `control_system.type` from `mock` to `epics` and fill in your gateway addresses in config.yml."
+> "Everything is set to simulated/mock mode right now, which is perfect for trying things out. When you're ready to connect to real hardware, edit `profile.yml` — change `control_system.type` from `mock` to `epics`, add your gateway addresses, and run `osprey build` again."
 
 ---
 
