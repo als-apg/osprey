@@ -1,0 +1,58 @@
+# lattice-design.yml
+# Accelerator lattice physics with MATLAB / Accelerator Toolbox (AT).
+#
+# Extends the control-assistant artifact set with lattice-physics rules and
+# skills, and replaces the channel-finder web panel with a lattice dashboard.
+# Requires a MATLAB license and AT installed in the project venv.
+
+name: Lattice Design
+
+# Bundle includes machine data files (ALS, ALS-U lattice files) and the full
+# project skeleton.  Lattice files are under machine_data/ in the project root.
+data_bundle: lattice_design
+
+provider: anthropic
+model: claude-sonnet-4-5   # Lattice work benefits from the more capable model
+
+# ── Artifact selection ───────────────────────────────────────────────────────
+
+hooks:
+  - hook-log       # Append every tool call to a structured JSONL audit log
+  - hook-config    # Inject project config.yml path into every tool call env
+  - approval       # Gate hardware-write tool calls on human approval prompt
+  - writes-check   # Pre-write safety check: confirm channel is writable
+  - error-guidance # Post-error hook that surfaces remediation hints
+  - memory-guard   # Warn when context window approaches threshold
+  - notebook-update  # Sync CLAUDE.md notebook after each session
+
+rules:
+  - safety              # Core safety rules: never write without approval
+  - error-handling      # Standard error handling and retry guidance
+  - artifacts           # Rules for saving diagnostic and tuning artifacts
+  - facility            # Facility-level conventions (naming, units, logbook)
+  - workflows           # Approved workflow patterns (scan, ramp, restore)
+  - timezone            # Always localise timestamps to facility timezone
+  - lattice-physics     # Accelerator physics domain rules (Twiss, emittance, etc.)
+  - python-execution    # Rules governing Python executor sandbox usage
+  - data-visualization  # Rules for producing publication-quality optics plots
+
+skills:
+  - diagnose          # Run a structured fault-diagnosis workflow
+  - setup-mode        # Toggle between interactive and automated modes
+  - session-report    # Summarise session actions and outcomes to logbook
+  - demo-gallery      # Launch guided capability demonstrations
+  - lattice-evaluation  # Structured lattice evaluation workflow (AT dashboard)
+
+agents:
+  - data-visualizer   # Produce optics functions plots and phase-space portraits
+
+output_styles:
+  - control-operator  # Terse, actionable output style
+
+web_panels:
+  - lattice   # Interactive lattice design dashboard (Twiss, tune, chromaticity)
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+config:
+  control_system.type: mock   # Lattice work typically runs against a mock/model
+  # matlab.executable: /usr/local/MATLAB/R2024b/bin/matlab

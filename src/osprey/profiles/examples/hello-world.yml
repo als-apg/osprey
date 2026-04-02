@@ -1,0 +1,40 @@
+# hello-world.yml
+# Minimal starter — one MCP server, mock control system, no approval gates.
+#
+# Use this as a sandbox for learning OSPREY or for unit-testing integrations
+# before graduating to the full control-assistant profile.
+
+name: Hello World
+
+# Minimal bundle: project skeleton and config only (no channel databases,
+# no benchmark data, no logbook seed).
+data_bundle: hello_world
+
+provider: anthropic
+model: claude-haiku-4-5
+
+# ── Artifact selection ───────────────────────────────────────────────────────
+
+hooks:
+  - hook-log       # Append every tool call to a structured JSONL audit log
+  - hook-config    # Inject project config.yml path into every tool call env
+  - error-guidance # Post-error hook that surfaces remediation hints
+
+rules:
+  - safety          # Core safety rules: never write without approval
+  - error-handling  # Standard error handling and retry guidance
+  - facility        # Facility-level conventions (naming, units)
+  - timezone        # Always localise timestamps to facility timezone
+
+skills: []   # No skills — keep the interface minimal
+
+agents: []   # No sub-agents — single-model operation
+
+output_styles:
+  - control-operator  # Terse, actionable output style
+
+web_panels: []   # No web panels
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+config:
+  control_system.type: mock

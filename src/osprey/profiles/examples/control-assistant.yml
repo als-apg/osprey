@@ -1,0 +1,73 @@
+# control-assistant.yml
+# Full control system deployment — the standard starting point for facilities
+# operating a particle accelerator or beamline with EPICS or a mock backend.
+#
+# Copy this file to your own profile directory, rename it, and adjust the
+# config overrides, overlay paths, and MCP server definitions for your site.
+
+name: Control Assistant
+
+# The data bundle provides the project skeleton (config.yml, registry, data
+# files, benchmark datasets, etc.).  "control_assistant" is the standard full
+# bundle that includes channel databases, benchmarks, and a logbook seed.
+data_bundle: control_assistant
+
+# Default LLM provider and model.  Override here or via --provider / --model
+# flags on `osprey build`.
+provider: anthropic
+model: claude-haiku-4-5
+
+# ── Artifact selection ───────────────────────────────────────────────────────
+# Each list entry is a short name resolved from the osprey artifact library.
+# Remove entries you do not need; add facility-specific artifacts via overlay.
+
+hooks:
+  - hook-log          # Append every tool call to a structured JSONL audit log
+  - hook-config       # Inject project config.yml path into every tool call env
+  - approval          # Gate hardware-write tool calls on human approval prompt
+  - writes-check      # Pre-write safety check: confirm channel is writable
+  - limits            # Enforce per-channel min/max limits before writes
+  - error-guidance    # Post-error hook that surfaces remediation hints
+  - memory-guard      # Warn when context window approaches threshold
+  - notebook-update   # Sync CLAUDE.md notebook after each session
+  - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
+
+rules:
+  - safety              # Core safety rules: never write without approval
+  - error-handling      # Standard error handling and retry guidance
+  - artifacts           # Rules for saving diagnostic and tuning artifacts
+  - facility            # Facility-level conventions (naming, units, logbook)
+  - workflows           # Approved workflow patterns (scan, ramp, restore)
+  - timezone            # Always localise timestamps to facility timezone
+  - python-execution    # Rules governing Python executor sandbox usage
+  - data-visualization  # Rules for producing control-room-ready plots
+  - control-system-safety  # EPICS PV safety: alarm limits, soft-IOC guards
+
+skills:
+  - diagnose        # Run a structured fault-diagnosis workflow
+  - setup-mode      # Toggle between interactive and automated operating modes
+  - session-report  # Summarise session actions and outcomes to the logbook
+  - demo-gallery    # Launch guided capability demonstrations
+
+agents:
+  - channel-finder          # Semantic search over channel databases (hierarchical)
+  - direct-channel-finder   # Direct channel lookup for known PV patterns
+  - data-visualizer         # Produce strip charts and correlation plots
+  - logbook-search          # Search facility logbook for historical entries
+  - logbook-deep-research   # Multi-hop logbook research with synthesis
+
+output_styles:
+  - control-operator  # Terse, actionable output style for control-room operators
+
+web_panels:
+  - ariel           # ARIEL search interface (past experiments, papers)
+  - channel-finder  # Interactive channel-finder web UI
+  - tuning          # Beam tuning dashboard
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# These key.path entries are written into config.yml after the template renders.
+# Uncomment and set values appropriate for your facility.
+config:
+  control_system.type: mock   # Change to "epics" for live hardware
+  # system.timezone: America/Los_Angeles
+  # system.facility_name: My Facility
