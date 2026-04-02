@@ -89,6 +89,14 @@ control_system:
   writes_enabled: false  # Tutorial default: read-only
                          # Set to true to explore the human approval flow
 
+  # Runtime Channel Limits Checking
+  limits_checking:
+    enabled: true
+    database_path: "data/channel_limits.json"
+    allow_unlisted_channels: true  # Permissive mode for tutorial
+    on_violation: "skip"   # Options: "error" | "skip" (DEFAULT)
+                           # - error: Strict - ANY violation blocks entire operation
+
   # Runtime connector settings
   connector:
     timeout: 5.0  # Default timeout in seconds

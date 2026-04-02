@@ -1,5 +1,5 @@
 # hello-world.yml
-# Minimal starter — one MCP server, mock control system, no approval gates.
+# Minimal starter — one MCP server, mock control system, safety hooks included.
 #
 # Use this as a sandbox for learning OSPREY or for unit-testing integrations
 # before graduating to the full control-assistant profile.
@@ -19,6 +19,9 @@ hooks:
   - hook-log       # Append every tool call to a structured JSONL audit log
   - hook-config    # Inject project config.yml path into every tool call env
   - error-guidance # Post-error hook that surfaces remediation hints
+  - writes-check   # Pre-write safety check: confirm channel is writable
+  - approval       # Gate hardware-write tool calls on human approval prompt
+  - limits         # Enforce per-channel min/max limits before writes
 
 rules:
   - safety          # Core safety rules: never write without approval

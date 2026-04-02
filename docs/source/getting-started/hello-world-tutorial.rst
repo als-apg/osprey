@@ -24,26 +24,35 @@ Step 1: Create the Project
 
 .. tab-set::
 
-   .. tab-item:: Interactive Mode (Recommended)
+   .. tab-item:: Quick Start (Recommended)
 
-      Launch the interactive wizard:
-
-      .. code-block:: bash
-
-         osprey init
-
-      Select ``hello_world`` when prompted for a template, then follow the
-      prompts to choose your AI provider and model.
-
-   .. tab-item:: Direct CLI Command
+      Create a ready-to-run project in one command:
 
       .. code-block:: bash
 
-         osprey init my-first-agent --template hello_world
+         osprey init my-first-agent --quick hello-world
          cd my-first-agent
 
-Both methods create identical project structures. The wizard auto-detects
-API keys from your environment.
+   .. tab-item:: Profile-Based Workflow
+
+      Create a project from an example profile, customize, then build:
+
+      .. code-block:: bash
+
+         osprey init my-project --example hello-world
+
+      Edit ``my-project/profile.yml`` to adjust settings (provider, model,
+      control system type), then build the workspace:
+
+      .. code-block:: bash
+
+         cd my-project
+         osprey build
+
+.. note::
+
+   First run may take 1--2 minutes to create a virtual environment and install
+   dependencies. Subsequent builds are near-instant.
 
 Step 2: Understand What Was Generated
 --------------------------------------
@@ -58,6 +67,11 @@ Your project has three key files that control everything:
      type: mock    # Change to 'epics' for real hardware
      writes_enabled: false   # Read-only by default
 
+     limits_checking:
+       enabled: true
+       database_path: "data/channel_limits.json"
+       allow_unlisted_channels: true
+
    claude_code:
      servers:
        controls: {enabled: true}   # The one MCP server
@@ -65,6 +79,11 @@ Your project has three key files that control everything:
 This tells OSPREY to use the **mock connector**, which accepts any channel
 name and returns synthetic data. In production, you change ``type: mock`` to
 ``type: epics`` and point it at real hardware --- your agent code stays the same.
+
+The ``limits_checking`` section enables the safety limits system. The limits
+database defines allowed ranges and read-only channels. With
+``allow_unlisted_channels: true``, channels not in the database can still be
+read freely.
 
 **.mcp.json** --- MCP Server Discovery
 
@@ -89,6 +108,13 @@ starts, it launches this server and gains access to tools like
 This file contains instructions that Claude reads on startup. It defines how
 the agent should behave, what safety rules to follow, and how to format
 responses. Edit this file to customize your agent's personality and behavior.
+
+.. note::
+
+   The ``--quick hello-world`` profile also installs Claude Code **hooks** for
+   safety enforcement. These hooks run automatically before each tool call to
+   check limits and require human approval for writes. You don't need to
+   configure them manually.
 
 Step 3: Start the Agent
 ------------------------
@@ -116,7 +142,15 @@ Try these queries to see the mock control system in action:
 
 .. code-block:: text
 
-   You: Read channel SR:CURRENT:RB
+   You: Read channel SR:BEAM:CURRENT
+
+Expected output:
+
+.. code-block:: text
+
+   Channel: SR:BEAM:CURRENT
+   Value:   250.3 mA
+   Status:  OK
 
 The mock connector returns synthetic beam current data. It generates
 realistic values based on the channel name.
@@ -134,15 +168,74 @@ all PV names without needing a real control system.
 
 .. code-block:: text
 
-   You: Read SR:MAG:QF:01:CURRENT:RB and SR:MAG:QD:01:CURRENT:RB
+   You: Read SR:VAC:PRESSURE:01 and SR:MAG:QF:01:CURRENT:RB
 
 Claude calls the ``channel_read`` tool for each channel and presents the
-results together.
+results together --- vacuum pressure and magnet readback values.
 
-Step 5: Understand the Flow
+Step 5: Safety & Limits
+------------------------
+
+OSPREY enforces safety at two levels: **limits checking** (automatic) and
+**human approval** (interactive). This step walks through both.
+
+**1. Enable writes**
+
+Edit ``config.yml`` to allow write operations:
+
+.. code-block:: yaml
+
+   control_system:
+     type: mock
+     writes_enabled: true   # Changed from false
+
+**2. Write within limits** (succeeds with approval)
+
+.. code-block:: text
+
+   You: Write 150.0 to SR:MAG:QF:01:CURRENT:SP
+
+The value 150.0 is within the allowed range for this channel (0--300 A in the
+limits database). The approval hook prompts you before executing:
+
+.. code-block:: text
+
+   ⚠ Write requested: SR:MAG:QF:01:CURRENT:SP = 150.0
+   Approve? [y/N]
+
+Type ``y`` to approve. The mock connector accepts the write and confirms.
+
+**3. Write outside limits** (blocked)
+
+.. code-block:: text
+
+   You: Write 500.0 to SR:MAG:QF:01:CURRENT:SP
+
+The value 500.0 exceeds the maximum of 300.0 defined in
+``data/channel_limits.json``. The limits hook blocks the write before it
+reaches the connector --- no approval prompt appears.
+
+.. code-block:: text
+
+   ✗ Write blocked: 500.0 exceeds max=300.0 for SR:MAG:QF:01:CURRENT:SP
+
+**4. Write to a read-only channel** (blocked)
+
+.. code-block:: text
+
+   You: Write 1.0 to SR:BEAM:CURRENT
+
+``SR:BEAM:CURRENT`` is marked as read-only in ``data/channel_limits.json``.
+The limits hook blocks the write regardless of the value:
+
+.. code-block:: text
+
+   ✗ Write blocked: SR:BEAM:CURRENT is read-only
+
+Step 6: Understand the Flow
 ----------------------------
 
-Here's what happens when you ask "Read channel SR:CURRENT:RB":
+Here's what happens when you ask "Read channel SR:BEAM:CURRENT":
 
 .. code-block:: text
 
@@ -162,7 +255,7 @@ Here's what happens when you ask "Read channel SR:CURRENT:RB":
 ``type: mock``. The connector handles the difference; your agent and queries
 stay the same.
 
-Step 6: Customize
+Step 7: Customize
 ------------------
 
 **Change agent behavior** by editing ``CLAUDE.md``:
@@ -171,23 +264,22 @@ Add a line like "Always report values with 4 decimal places" or "When reading
 magnet channels, also explain what the magnet does." Restart Claude to see
 the effect.
 
-**Enable writes** by editing ``config.yml``:
+**Add new channels to the limits database** by editing
+``data/channel_limits.json``:
 
-.. code-block:: yaml
+.. code-block:: json
 
-   control_system:
-     type: mock
-     writes_enabled: true   # ← changed from false
+   {
+     "SR:MAG:CORR:01:CURRENT:SP": {
+       "min_value": -5.0,
+       "max_value": 5.0,
+       "writable": true
+     }
+   }
 
-Now try:
-
-.. code-block:: text
-
-   You: Write 150.0 to SR:MAG:QF:01:CURRENT:SP
-
-Claude will ask for your **explicit approval** before executing the write ---
-this is OSPREY's human-in-the-loop safety mechanism. In production with real
-hardware, this approval step ensures no accidental writes to the control system.
+This lets you define safe operating ranges for additional channels. Any write
+to a channel listed here is checked against its ``min_value``/``max_value``
+range before the approval prompt.
 
 Next Steps
 ==========

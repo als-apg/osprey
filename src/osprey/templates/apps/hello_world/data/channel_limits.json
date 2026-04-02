@@ -1,0 +1,30 @@
+{
+  "_comment": "Channel Limits Database for hello_world tutorial - demonstrates safety limits and read-only protection",
+  "_version": "1.0",
+
+  "defaults": {
+    "_comment": "Default settings inherited by all channels unless overridden",
+    "writable": true,
+    "verification": {
+      "level": "callback",
+      "_comment": "Default verification: callback (fast, EPICS IOC confirmation)"
+    }
+  },
+
+  "SR:MAG:QF:01:CURRENT:SP": {
+    "_comment": "Focusing quadrupole magnet current setpoint (writable with limits)",
+    "min_value": 0.0,
+    "max_value": 300.0
+  },
+
+  "SR:MAG:QD:01:CURRENT:SP": {
+    "_comment": "Defocusing quadrupole magnet current setpoint (writable with limits)",
+    "min_value": 0.0,
+    "max_value": 250.0
+  },
+
+  "SR:BEAM:CURRENT": {
+    "_comment": "Beam current monitor (read-only, writes blocked)",
+    "writable": false
+  }
+}
