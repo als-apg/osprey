@@ -2,135 +2,89 @@
 Conceptual Tutorial
 ===================
 
-Before building useful agentic AI applications using Osprey, it's important to
-understand the framework's core architecture and operational model.
+This page explains what OSPREY is, how it works, and why it is
+designed the way it is. You do not need to read this before starting
+the hands-on tutorials, but it will help you understand what is
+happening under the hood.
 
-This conceptual tutorial introduces the fundamental concepts and design patterns
-that will prepare you for the hands-on coding journey ahead.
 
-.. admonition:: PLACEHOLDER: CONCEPTUAL-MAPPING
-   :class: warning
+What is OSPREY?
+===============
 
-   **Old content (line 12):** "Building on Proven Foundations -- Osprey is built on LangGraph,
-   a production-ready orchestration framework developed by LangChain..."
-   **New equivalent:** Needs human judgment
-   **Why this is fuzzy:** The old foundation section described LangGraph as the orchestration
-   layer. Osprey now uses Claude Code with MCP servers for orchestration, but describing
-   how Claude Code orchestrates things is out of scope for mechanical porting.
-   **Action needed:** Write a new "Building on Proven Foundations" section explaining
-   Claude Code + MCP as the orchestration foundation.
+Operating a particle accelerator, beamline, or fusion experiment means
+juggling dozens of tools --- archivers, logbooks, channel finders, OPI
+screens --- while holding operational context in your head. Every task
+requires knowing which tool to open, which PV names to use, and what
+the safe operating ranges are.
 
-How Osprey Works
+OSPREY puts an AI agent in front of those tools. You interact in
+natural language --- "read the beam current", "bump the horizontal
+corrector by 0.5 A", "what happened to the vacuum last Tuesday" ---
+and the agent figures out which tools to call, which channels to query,
+and how to present the results.
+
+The catch: the agent can never write to hardware on its own. Safety
+enforcement lives in code that the agent cannot modify or bypass, not
+in the agent's own judgment. The agent proposes actions; the safety
+system and the operator decide whether they happen.
+
+
+How the Agent Works
+===================
+
+The agent is built on two components: **Claude Code** and **MCP tools**.
+
+**Claude Code** is an AI assistant that runs in your terminal (or behind
+a web interface). It reads natural language, reasons about what to do,
+and calls tools to carry out actions. It does not connect to your
+control system directly --- it has no knowledge of PV names, channel
+addresses, or hardware protocols until you give it tools.
+
+**MCP tools** are the interface between the agent and your
+infrastructure. OSPREY ships tools for reading and writing control
+system channels, querying archivers, searching logbooks, and finding
+channel addresses. When the agent starts, it discovers which tools are
+available and what each tool can do. When you ask a question, Claude
+decides which tools to call, calls them, and uses the results to form
+a response.
+
+This separation matters: Claude is the reasoning layer, and the tools
+are the execution layer. You control what the agent can do by choosing
+which tools to enable. If you only enable ``channel_read``, the agent
+can read channels but has no way to write to them --- regardless of
+what the user asks.
+
+
+The Safety Model
 ================
 
-An agentic AI application can be treated as a chatbot with tools. Currently there are two major
-types of agentic AI applications: ReAct agents and Planning agents.
+The agent can propose writes but cannot execute them alone. When a
+write is proposed, the operator sees the target channel and value and
+must explicitly approve before anything reaches hardware.
 
-.. tab-set::
+Two automated checks run behind the scenes. The **kill switch**
+(``writes_enabled`` in ``config.yml``) blocks all writes globally when
+off --- no prompt appears. The **limits system** validates each value
+against per-channel safe ranges and read-only flags. If either check
+fails, the write is blocked before the operator is ever asked.
 
-   .. tab-item:: ReAct Agents
+These checks are enforced by the runtime. The agent cannot modify,
+skip, or influence them.
 
-      ReAct agents work in a way that is similar to how LLMs handle chat history.
-      When a user query comes in, the agent processes the entire conversation history,
-      along with the previous tool usage records, to decide the next action.
 
-      The advantage of ReAct agents is that they can leverage the full power of LLMs to
-      dynamically decide what to do next based on the entire context. However, this
-      also means that ReAct agents can be less efficient and less predictable, as
-      they may revisit previous steps or make decisions that are hard to foresee.
-      Additionally, ReAct agents may get lost in complicated setups with many tools
-      and complex state management.
+The Connector Abstraction
+=========================
 
-   .. tab-item:: Planning Agents
+OSPREY does not talk to your control system directly. It uses a
+**connector** --- an adapter that translates tool calls into the
+appropriate protocol (EPICS Channel Access, mock data, or a custom
+backend).
 
-      Planning agents, on the other hand, separate the "thinking" and "acting" phases.
-      For every user query, they first create a comprehensive plan, breaking down
-      the task into manageable steps. Once the plan is formulated, the agent
-      executes each step sequentially, utilizing tools as necessary to accomplish
-      each subtask.
+You select the connector in ``config.yml`` by setting
+``control_system.type``. Change ``mock`` to ``epics`` and the same
+agent, tools, and safety hooks work against real hardware. No code
+changes, no reconfiguration --- one setting.
 
-      The advantage of Planning agents is that the execution path is more structured and predictable,
-      as the plan is created upfront. This can lead to more efficient use of tools and resources.
-      Additionally, planning agents have less dependency on the LLM's ability to generate stable outputs
-      since they decompose the task into smaller, easier steps. Each step can be
-      handled with more focused prompts and potentially smaller models.
-
-.. admonition:: PLACEHOLDER: CONCEPTUAL-MAPPING
-   :class: warning
-
-   **Old content (line 62):** "Osprey supports both orchestration modes and defaults to
-   the Planning approach... the building blocks are the same: Capabilities -- modular
-   components that encapsulate domain-specific business logic and tool integrations."
-   **New equivalent:** Needs human judgment
-   **Why this is fuzzy:** Capabilities are now MCP tools, not Python classes with
-   requires/provides declarations. The old text described capability chaining and
-   context-based data flow, which no longer applies.
-   **Action needed:** Describe how Osprey now exposes domain logic as MCP tools and how
-   Claude Code selects and chains them.
-
-.. admonition:: PLACEHOLDER: CONCEPTUAL-MAPPING
-   :class: warning
-
-   **Old content (line 70):** "Osprey uses Contexts -- strictly typed Pydantic data classes
-   that provide a structured layer for storing and communicating data between capabilities."
-   **New equivalent:** Needs human judgment
-   **Why this is fuzzy:** The Context system (CapabilityContext, Pydantic data classes for
-   inter-capability data flow) has been removed. Data now flows through MCP tool
-   call/response cycles, but describing that mechanism requires new content.
-   **Action needed:** Explain how data flows between MCP tools in the current architecture.
-
-Mindflow to Build a Weather Assistant in Osprey
-================================================
-
-Assume we want to build a weather assistant that can provide weather information based on user queries.
-
-What would users ask
---------------------
-
-First step is to think about what queries we want to support, or we imagine users would ask. Based on our
-experience in real life, for the weather assistant, users would typically ask questions like:
-
-- "What's the weather like in San Francisco today?"
-- "Will it rain tomorrow in New York?"
-- "Give me a 5-day weather forecast for Los Angeles."
-- "What about the day after tomorrow?" -- referring to previous query
-
-.. admonition:: PLACEHOLDER: MISSING-EXAMPLE
-   :class: warning
-
-   **Old content (line 103):** "What capabilities are needed -- FetchWeatherCapability,
-   ExtractLocationCapability, ExtractDateCapability with context classes LocationContext,
-   DateContext, WeatherContext, and RespondCapability."
-   **New equivalent:** Needs human judgment
-   **Why this is fuzzy:** The old design walkthrough was framed around BaseCapability
-   subclasses with requires/provides context declarations. The new architecture uses
-   MCP tools, so the design process and building blocks are different.
-   **Action needed:** Rewrite the weather assistant design walkthrough using MCP tools
-   instead of Capability classes and Context classes.
-
-.. admonition:: PLACEHOLDER: CONCEPTUAL-MAPPING
-   :class: warning
-
-   **Old content (line 193):** "The Osprey Design Pattern -- 1. Identify required capabilities,
-   2. Define necessary contexts, 3. Check for missing data, 4. Repeat."
-   **New equivalent:** Needs human judgment
-   **Why this is fuzzy:** The iterative design pattern was framed around capabilities and
-   contexts. The new design process likely centers on MCP tool design, but the exact
-   recommended workflow needs human authoring.
-   **Action needed:** Write a new "Osprey Design Pattern" admonition for MCP-based design.
-
-.. admonition:: PLACEHOLDER: CONCEPTUAL-MAPPING
-   :class: warning
-
-   **Old content (line 209):** "How Osprey Chains Capabilities Together -- The orchestrator
-   automatically chains them... Plan-First Mode (default) vs Reactive Mode (ReAct)...
-   orchestration_mode: react in config.yml."
-   **New equivalent:** Needs human judgment
-   **Why this is fuzzy:** The old orchestration section described LangGraph-based plan-first
-   and ReAct modes with capability chaining via contexts. Claude Code handles orchestration
-   differently, and the old config knob no longer applies.
-   **Action needed:** Describe how Claude Code orchestrates MCP tool calls, including
-   any relevant configuration options.
 
 Next Steps
 ==========
@@ -138,9 +92,13 @@ Next Steps
 Now that you understand the core concepts, you're ready to build:
 
 **Start here:** :doc:`hello-world-tutorial`
-  Implements a weather assistant using an even simpler architecture (single MCP tool)
-  to help you get hands-on quickly. Learn the framework basics before tackling complexity.
+  Build your first agent with one MCP server and a mock control system.
+  One command to create, one command to run.
 
 **Then scale up:** :doc:`control-assistant`
-  Demonstrates the full modular architecture from this tutorial applied to a real
-  industrial control system with multiple MCP tools and production deployment.
+  Add channel finding, logbook search, archiver access, and a web
+  terminal for production deployment.
+
+**Go deeper:** :doc:`../architecture/index`
+  Detailed diagrams of the safety chain, data flow, and the full MCP
+  tool catalog.
