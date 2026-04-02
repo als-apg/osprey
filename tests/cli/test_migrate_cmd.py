@@ -45,7 +45,7 @@ class TestManifestGeneration:
         manifest = manager.generate_manifest(
             project_dir=project_dir,
             project_name="test-app",
-            template_name="control_assistant",
+            data_bundle="control_assistant",
             registry_style="extend",
             context={"default_provider": "anthropic"},
         )
@@ -60,7 +60,7 @@ class TestManifestGeneration:
         manifest = manager.generate_manifest(
             project_dir=project_dir,
             project_name="test-app",
-            template_name="control_assistant",
+            data_bundle="control_assistant",
             registry_style="extend",
             context={},
         )
@@ -94,7 +94,7 @@ class TestManifestGeneration:
         manifest = manager.generate_manifest(
             project_dir=project_dir,
             project_name="test-app",
-            template_name="control_assistant",
+            data_bundle="control_assistant",
             registry_style="extend",
             context={
                 "default_provider": "anthropic",
@@ -125,7 +125,7 @@ class TestManifestGeneration:
         manifest = manager.generate_manifest(
             project_dir=project_dir,
             project_name="my-project",
-            template_name="control_assistant",
+            data_bundle="control_assistant",
             registry_style="extend",
             context={"default_provider": "openai"},
         )
@@ -145,7 +145,7 @@ class TestManifestGeneration:
         manifest = manager.generate_manifest(
             project_dir=project_dir,
             project_name="test-app",
-            template_name="control_assistant",
+            data_bundle="control_assistant",
             registry_style="extend",
             context={},
         )
@@ -172,7 +172,7 @@ class TestManifestGeneration:
         manifest = manager.generate_manifest(
             project_dir=project_dir,
             project_name="test-app",
-            template_name="control_assistant",
+            data_bundle="control_assistant",
             registry_style="extend",
             context={},
         )
@@ -188,7 +188,7 @@ class TestManifestGeneration:
         manager.generate_manifest(
             project_dir=project_dir,
             project_name="test-app",
-            template_name="control_assistant",
+            data_bundle="control_assistant",
             registry_style="extend",
             context={},
         )

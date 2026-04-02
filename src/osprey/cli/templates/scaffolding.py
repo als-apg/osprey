@@ -108,7 +108,7 @@ def create_project_structure(
     template_root: Path,
     jinja_env,
     project_dir: Path,
-    template_name: str,
+    data_bundle: str,
     ctx: dict,
 ):
     """Create base project files (config, README, pyproject.toml, etc.).
@@ -117,11 +117,11 @@ def create_project_structure(
         template_root: Path to osprey's bundled templates directory
         jinja_env: Jinja2 environment for template rendering
         project_dir: Root directory of the project
-        template_name: Name of the application template being used
+        data_bundle: Name of the data bundle (apps/ subdirectory) to use
         ctx: Template context variables
     """
     project_template_dir = template_root / "project"
-    app_template_dir = template_root / "apps" / template_name
+    app_template_dir = template_root / "apps" / data_bundle
 
     # Render template files (no pyproject.toml or requirements.txt -- no src/ package)
     files_to_render = [
@@ -146,7 +146,7 @@ def create_project_structure(
             # Use app-specific template
             render_template(
                 jinja_env,
-                f"apps/{template_name}/{app_specific_template.name}",
+                f"apps/{data_bundle}/{app_specific_template.name}",
                 ctx,
                 project_dir / output_file,
             )
@@ -259,7 +259,7 @@ def copy_template_data(
     template_root: Path,
     project_dir: Path,
     package_name: str,
-    template_name: str,
+    data_bundle: str,
     ctx: dict,
     jinja_env=None,
 ):
@@ -274,11 +274,11 @@ def copy_template_data(
         template_root: Path to osprey's bundled templates directory
         project_dir: Root directory of the project
         package_name: Python package name (used to locate template data dirs)
-        template_name: Name of the application template
+        data_bundle: Name of the data bundle (apps/ subdirectory) to use
         ctx: Template context variables
         jinja_env: Optional Jinja2 environment for rendering .j2 data files
     """
-    app_template_dir = template_root / "apps" / template_name
+    app_template_dir = template_root / "apps" / data_bundle
 
     # Look for data/ subdirectory in the template
     template_data_dir = app_template_dir / "data"
@@ -383,7 +383,7 @@ def create_application_code(
     jinja_env,
     src_dir: Path,
     package_name: str,
-    template_name: str,
+    data_bundle: str,
     ctx: dict,
     registry_style: str = "extend",
     project_root: Path = None,
@@ -395,7 +395,7 @@ def create_application_code(
         jinja_env: Jinja2 environment for template rendering
         src_dir: src/ directory where package will be created
         package_name: Python package name (e.g., "my_assistant")
-        template_name: Name of the application template
+        data_bundle: Name of the data bundle (apps/ subdirectory) to use
         ctx: Template context variables
         registry_style: Registry style - "extend" or "standalone"
         project_root: Actual project root (for placing scripts/ at root)
@@ -409,7 +409,7 @@ def create_application_code(
         Special handling: Files in scripts/ directory are placed at project root
         instead of inside the package to provide convenient CLI access.
     """
-    app_template_dir = template_root / "apps" / template_name
+    app_template_dir = template_root / "apps" / data_bundle
     app_dir = src_dir / package_name
     app_dir.mkdir(parents=True)
 
@@ -464,11 +464,11 @@ def create_application_code(
 
             # Special handling for standalone registry style
             if registry_style == "standalone" and output_name == "registry.py":
-                generate_explicit_registry(output_path, ctx, template_name)
+                generate_explicit_registry(output_path, ctx, data_bundle)
             else:
                 # Convert Windows backslashes to forward slashes for Jinja2
                 # (harmless on Linux/macOS where paths already use forward slashes)
-                template_path_str = f"apps/{template_name}/{rel_path}".replace("\\", "/")
+                template_path_str = f"apps/{data_bundle}/{rel_path}".replace("\\", "/")
                 render_template(jinja_env, template_path_str, ctx, output_path)
         else:
             # Static file - copy directly
@@ -477,7 +477,7 @@ def create_application_code(
             shutil.copy(template_file, output_path)
 
 
-def generate_explicit_registry(output_path: Path, ctx: dict, template_name: str):
+def generate_explicit_registry(output_path: Path, ctx: dict, data_bundle: str):
     """Generate explicit registry code using the generic code generation function.
 
     This parses the template to extract app-specific components and uses
@@ -486,7 +486,7 @@ def generate_explicit_registry(output_path: Path, ctx: dict, template_name: str)
     Args:
         output_path: Where to write the generated registry.py
         ctx: Template context with app_class_name, app_display_name, package_name
-        template_name: Name of the template being processed
+        data_bundle: Name of the data bundle being processed
     """
     from osprey.registry import generate_explicit_registry_code
 

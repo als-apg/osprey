@@ -47,11 +47,14 @@ def build_claude_code_context(
     # Read template_name and artifact selections from manifest if available
     manifest_path = project_dir / manifest_mod.MANIFEST_FILENAME
     template_name = "control_assistant"
+    data_bundle = "control_assistant"
     artifacts: dict[str, list[str]] = {}
     if manifest_path.exists():
         try:
             manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
-            template_name = manifest_data.get("creation", {}).get("template", "control_assistant")
+            creation = manifest_data.get("creation", {})
+            template_name = creation.get("template", "control_assistant")
+            data_bundle = creation.get("data_bundle", template_name)
             artifacts = manifest_data.get("artifacts", {})
         except (json.JSONDecodeError, OSError):
             pass
@@ -63,6 +66,9 @@ def build_claude_code_context(
         if tmpl_manifest:
             artifacts = tmpl_manifest.get("artifacts", {})
 
+    # Derive feature flags from artifact selections
+    has_lattice_physics = "lattice-physics" in artifacts.get("rules", [])
+
     ctx = {
         "project_name": project_name,
         "package_name": package_name,
@@ -72,8 +78,10 @@ def build_claude_code_context(
             or sys.executable
         ),
         "template_name": template_name,
+        "data_bundle": data_bundle,
         "facility_name": config.get("facility_name", project_name),
         "system_timezone": config.get("system", {}).get("timezone", "UTC"),
+        "has_lattice_physics": has_lattice_physics,
     }
 
     # Derive channel finder configuration
@@ -536,7 +544,9 @@ def regenerate_claude_code(
     if stored_artifacts and allowed_outputs is not None:
         claude_code_files = sorted(allowed_outputs)
     else:
-        claude_code_files = manifest_mod.get_tracked_files(template_root, template_name)
+        claude_code_files = manifest_mod.get_tracked_files(
+            template_root, template_name, project_dir
+        )
     agents_dir = project_dir / ".claude" / "agents"
     if agents_dir.exists():
         for agent_file in agents_dir.iterdir():

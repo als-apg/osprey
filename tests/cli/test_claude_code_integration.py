@@ -24,7 +24,7 @@ class TestClaudeCodeIntegrationDefault:
         project_dir = manager.create_project(
             project_name="test-project",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         # All core files should exist
@@ -44,7 +44,7 @@ class TestClaudeCodeIntegrationDefault:
         project_dir = manager.create_project(
             project_name="always-claude-project",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         assert (project_dir / ".mcp.json").exists()
@@ -61,7 +61,7 @@ class TestClaudeCodeFileContents:
         return manager.create_project(
             project_name="content-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
     def test_mcp_json_is_valid_json(self, project_dir):
@@ -220,14 +220,14 @@ class TestClaudeCodeFileContents:
 class TestClaudeCodeAcrossTemplates:
     """Test Claude Code integration works for all templates."""
 
-    @pytest.mark.parametrize("template_name", ["control_assistant"])
-    def test_works_for_all_templates(self, tmp_path, template_name):
-        """Claude Code files are generated for all templates."""
+    @pytest.mark.parametrize("data_bundle", ["control_assistant"])
+    def test_works_for_all_templates(self, tmp_path, data_bundle):
+        """Claude Code files are generated for all data bundles."""
         manager = TemplateManager()
         project_dir = manager.create_project(
-            project_name=f"test-{template_name}",
+            project_name=f"test-{data_bundle}",
             output_dir=tmp_path,
-            template_name=template_name,
+            data_bundle=data_bundle,
         )
 
         assert (project_dir / ".mcp.json").exists()
@@ -245,7 +245,7 @@ class TestClaudeCodeGitignore:
         project_dir = manager.create_project(
             project_name="gitignore-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         gitignore = (project_dir / ".gitignore").read_text()
@@ -322,7 +322,7 @@ class TestChannelFinderAgent:
         project_dir = manager.create_project(
             project_name="agent-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         agent_path = project_dir / ".claude" / "agents" / "channel-finder.md"
@@ -336,7 +336,7 @@ class TestChannelFinderAgent:
         project_dir = manager.create_project(
             project_name="frontmatter-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
@@ -356,7 +356,7 @@ class TestChannelFinderAgent:
         project_dir = manager.create_project(
             project_name="pipeline-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
         )
 
@@ -372,7 +372,7 @@ class TestChannelFinderAgent:
         project_dir = manager.create_project(
             project_name="ml-pipeline-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
             context={"channel_finder_mode": "middle_layer"},
         )
 
@@ -388,7 +388,7 @@ class TestChannelFinderAgent:
         project_dir = manager.create_project(
             project_name="ic-pipeline-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
             context={"channel_finder_mode": "in_context"},
         )
 
@@ -404,7 +404,7 @@ class TestChannelFinderAgent:
         project_dir = manager.create_project(
             project_name="cr-submit-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
         assert "submit_response" in content
@@ -416,7 +416,7 @@ class TestChannelFinderAgent:
         project_dir = manager.create_project(
             project_name="cf-allow-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -429,7 +429,7 @@ class TestChannelFinderAgent:
         project_dir = manager.create_project(
             project_name="mcp-isolation-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         data = json.loads((project_dir / ".mcp.json").read_text())
@@ -441,7 +441,7 @@ class TestChannelFinderAgent:
         project_dir = manager.create_project(
             project_name="no-rule-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         assert not (project_dir / ".claude" / "rules" / "channel_finding.md").exists()
@@ -456,7 +456,7 @@ class TestLogbookSearchAgent:
         project_dir = manager.create_project(
             project_name="logbook-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
         agent_path = project_dir / ".claude" / "agents" / "logbook-search.md"
         assert agent_path.exists()
@@ -469,7 +469,7 @@ class TestLogbookSearchAgent:
         project_dir = manager.create_project(
             project_name="logbook-fm-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
         content = (project_dir / ".claude" / "agents" / "logbook-search.md").read_text()
         assert "name: logbook-search" in content
@@ -484,7 +484,7 @@ class TestLogbookSearchAgent:
         project_dir = manager.create_project(
             project_name="logbook-submit-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
         content = (project_dir / ".claude" / "agents" / "logbook-search.md").read_text()
         assert "submit_response" in content
@@ -496,7 +496,7 @@ class TestLogbookSearchAgent:
         project_dir = manager.create_project(
             project_name="logbook-perm-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         assert "Task(logbook-search)" in data["permissions"]["allow"]
@@ -510,7 +510,7 @@ class TestLogbookSearchAgent:
         project_dir = manager.create_project(
             project_name="logbook-claude-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
         content = (project_dir / "CLAUDE.md").read_text()
         assert "logbook-search" in content
@@ -526,7 +526,7 @@ class TestLogbookDeepResearchAgent:
         project_dir = manager.create_project(
             project_name="deep-research-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
         agent_path = project_dir / ".claude" / "agents" / "logbook-deep-research.md"
         assert agent_path.exists()
@@ -539,7 +539,7 @@ class TestLogbookDeepResearchAgent:
         project_dir = manager.create_project(
             project_name="deep-research-fm-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
         content = (project_dir / ".claude" / "agents" / "logbook-deep-research.md").read_text()
         assert "name: logbook-deep-research" in content
@@ -555,7 +555,7 @@ class TestLogbookDeepResearchAgent:
         project_dir = manager.create_project(
             project_name="deep-research-submit-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
         content = (project_dir / ".claude" / "agents" / "logbook-deep-research.md").read_text()
         assert "submit_response" in content
@@ -567,7 +567,7 @@ class TestLogbookDeepResearchAgent:
         project_dir = manager.create_project(
             project_name="deep-research-perm-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         assert "Task(logbook-deep-research)" in data["permissions"]["allow"]
@@ -578,7 +578,7 @@ class TestLogbookDeepResearchAgent:
         project_dir = manager.create_project(
             project_name="deep-research-claude-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
         content = (project_dir / "CLAUDE.md").read_text()
         assert "logbook-deep-research" in content
@@ -596,7 +596,7 @@ class TestNeverFabricateDataRule:
         project_dir = manager.create_project(
             project_name="fabrication-safety-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         content = (project_dir / ".claude" / "rules" / "safety.md").read_text()
@@ -610,7 +610,7 @@ class TestNeverFabricateDataRule:
         project_dir = manager.create_project(
             project_name="fabrication-claude-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -626,7 +626,7 @@ class TestChannelFinderAwareness:
         project_dir = manager.create_project(
             project_name="awareness-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -640,7 +640,7 @@ class TestChannelFinderAwareness:
         project_dir = manager.create_project(
             project_name="no-direct-tools-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -656,7 +656,7 @@ class TestUserOwnedSkipBehavior:
         project_dir = manager.create_project(
             project_name="test-skip-safety",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         # Customize safety.md and add to user_owned
@@ -682,7 +682,7 @@ class TestUserOwnedSkipBehavior:
         project_dir = manager.create_project(
             project_name="test-skip-md",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         custom_content = "# My Custom CLAUDE.md\nFacility-specific content."
@@ -706,7 +706,7 @@ class TestUserOwnedSkipBehavior:
         project_dir = manager.create_project(
             project_name="test-skip-mcp",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         custom_content = '{"mcpServers": {"custom": {}}}'
@@ -730,7 +730,7 @@ class TestUserOwnedSkipBehavior:
         project_dir = manager.create_project(
             project_name="test-no-owned",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         assert (project_dir / "CLAUDE.md").exists()
@@ -743,7 +743,7 @@ class TestUserOwnedSkipBehavior:
         project_dir = manager.create_project(
             project_name="no-project-md-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         assert not (project_dir / "CLAUDE-project.md").exists()
@@ -754,7 +754,7 @@ class TestUserOwnedSkipBehavior:
         project_dir = manager.create_project(
             project_name="no-overrides-dir",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         assert not (project_dir / "overrides").exists()
@@ -776,7 +776,7 @@ class TestProviderEnvBlock:
         project_dir = manager.create_project(
             project_name=f"no-env-{provider}",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
             context={"default_provider": provider},
         )
 
@@ -793,7 +793,7 @@ class TestProviderEnvBlock:
         project_dir = manager.create_project(
             project_name=f"no-model-{provider}",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
             context={"default_provider": provider},
         )
 
@@ -811,7 +811,7 @@ class TestProviderEnvBlock:
         project_dir = manager.create_project(
             project_name="als-apg-config-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
             context={"default_provider": "als-apg"},
         )
 
@@ -829,7 +829,7 @@ class TestProtocolAwareSafetyRules:
         project_dir = manager.create_project(
             project_name="safety-epics",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         # Set control_system.type to epics and regenerate
@@ -861,7 +861,7 @@ class TestProtocolAwareSafetyRules:
         project_dir = manager.create_project(
             project_name="safety-tango",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -891,7 +891,7 @@ class TestProtocolAwareSafetyRules:
         project_dir = manager.create_project(
             project_name="safety-opcua",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -920,7 +920,7 @@ class TestProtocolAwareSafetyRules:
         project_dir = manager.create_project(
             project_name="safety-mock",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -951,7 +951,7 @@ class TestProtocolAwareSafetyRules:
             project_dir = manager.create_project(
                 project_name=f"safety-{protocol}",
                 output_dir=tmp_path / protocol,
-                template_name="control_assistant",
+                data_bundle="control_assistant",
             )
             config = yaml.safe_load((project_dir / "config.yml").read_text())
             config.setdefault("control_system", {})["type"] = protocol
@@ -980,7 +980,7 @@ class TestControlSystemTypeContext:
         project_dir = manager.create_project(
             project_name="ctx-cs-type",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -999,7 +999,7 @@ class TestControlSystemTypeContext:
         project_dir = manager.create_project(
             project_name="ctx-cs-default",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1022,7 +1022,7 @@ class TestGeneralizedRulesContent:
         project_dir = manager.create_project(
             project_name="gen-safety",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         content = (project_dir / ".claude" / "rules" / "safety.md").read_text()
@@ -1037,7 +1037,7 @@ class TestGeneralizedRulesContent:
         project_dir = manager.create_project(
             project_name="gen-errors",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         content = (project_dir / ".claude" / "rules" / "error-handling.md").read_text()
@@ -1067,7 +1067,7 @@ class TestFacilityPermissions:
         project_dir = manager.create_project(
             project_name="perms-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1114,7 +1114,7 @@ class TestFacilityPermissions:
         project_dir = manager.create_project(
             project_name="perms-default",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())

@@ -1,4 +1,4 @@
-"""Utilities for project path resolution.
+"""Utilities for project path resolution and management.
 
 This module provides helper functions for resolving project directories
 across all CLI commands, supporting the --project flag and environment
@@ -7,6 +7,46 @@ variable for flexible project location specification.
 
 import os
 from pathlib import Path
+
+from .styles import Messages, console
+
+
+def _clear_claude_code_project_state(project_path: Path) -> None:
+    """Remove Claude Code's cached state for a project path.
+
+    Claude Code stores trust decisions and session data in two places:
+    - ~/.claude.json  →  projects.<absolute-path>.hasTrustDialogAccepted
+    - ~/.claude/projects/<encoded-path>/  →  session transcripts & memory
+
+    Removing both ensures the trust prompt appears on next launch.
+    """
+    import json
+    import shutil
+
+    project_key = str(project_path)
+    cleared = False
+
+    # 1. Remove trust entry from ~/.claude.json
+    claude_json = Path.home() / ".claude.json"
+    if claude_json.exists():
+        try:
+            data = json.loads(claude_json.read_text())
+            if project_key in data.get("projects", {}):
+                del data["projects"][project_key]
+                claude_json.write_text(json.dumps(data, indent=2) + "\n")
+                cleared = True
+        except (json.JSONDecodeError, OSError):
+            pass  # Don't fail init over this
+
+    # 2. Remove session/memory directory from ~/.claude/projects/
+    encoded_key = project_key.replace("/", "-")
+    claude_project_dir = Path.home() / ".claude" / "projects" / encoded_key
+    if claude_project_dir.exists():
+        shutil.rmtree(claude_project_dir)
+        cleared = True
+
+    if cleared:
+        console.print(f"  {Messages.success('Cleared Claude Code project state')}")
 
 
 def resolve_project_path(project_arg: str | None = None) -> Path:

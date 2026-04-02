@@ -703,3 +703,112 @@ def run_interactive_init() -> str:
             traceback.print_exc()
         input("\nPress ENTER to continue...")
         return "menu"
+
+
+def run_interactive_profile_wizard(project_name: str, output_dir: Path) -> None:
+    """Run the interactive wizard and write a BuildProfile YAML to output_dir.
+
+    Unlike ``run_interactive_init`` (which creates a project directly), this
+    function generates a ``<project_name>.yml`` build profile that can later be
+    passed to ``osprey build``.  The user can review and edit the profile before
+    building.
+
+    Args:
+        project_name: Base name for the output profile file (without extension)
+        output_dir: Directory where the profile YAML will be written
+    """
+    from osprey.cli.interactive_menu import (
+        get_provider_metadata,
+        select_model,
+        select_provider,
+    )
+    from osprey.cli.styles import Messages, console, get_questionary_style
+    from osprey.cli.templates.manager import TemplateManager
+
+    if questionary is None:
+        console.print(
+            "[error]✗[/error] Interactive mode requires the 'questionary' package.\n"
+            "Install with: uv add questionary"
+        )
+        return
+
+    style = get_questionary_style()
+    manager = TemplateManager()
+
+    try:
+        with console.status("[dim]Loading templates and providers...[/dim]", spinner="dots"):
+            templates = manager.list_app_templates()
+            providers = get_provider_metadata()
+    except Exception as e:
+        console.print(f"[error]✗ Error loading data:[/error] {e}")
+        return
+
+    # Step 1: data bundle (template)
+    console.print("\n[bold]Step 1: Select Data Bundle[/bold]\n")
+    data_bundle = select_template(templates)
+    if data_bundle is None:
+        console.print(Messages.warning("Cancelled."))
+        return
+
+    # Step 2: provider
+    console.print("\n[bold]Step 2: AI Provider[/bold]\n")
+    provider = select_provider(providers)
+    if provider is None:
+        console.print(Messages.warning("Cancelled."))
+        return
+
+    # Step 3: model
+    console.print("\n[bold]Step 3: Model[/bold]\n")
+    model = select_model(provider, providers)
+    if model is None:
+        console.print(Messages.warning("Cancelled."))
+        return
+
+    # Step 4: channel finder mode (control_assistant only)
+    channel_finder_mode = None
+    if data_bundle == "control_assistant":
+        console.print("\n[bold]Step 4: Channel Finder Mode[/bold]\n")
+        channel_finder_mode = select_channel_finder_mode()
+        if channel_finder_mode is None:
+            console.print(Messages.warning("Cancelled."))
+            return
+
+    # Build profile dict
+    profile: dict = {
+        "name": project_name,
+        "data_bundle": data_bundle,
+        "provider": provider,
+        "model": model,
+    }
+    if channel_finder_mode:
+        profile["channel_finder_mode"] = channel_finder_mode
+
+    # Summary
+    console.print(f"\n{Messages.header('Profile Summary:')}")
+    for key, val in profile.items():
+        console.print(f"  {key:22} {val}")
+
+    proceed = questionary.confirm(
+        "\nWrite this profile?",
+        default=True,
+        style=style,
+    ).ask()
+
+    if not proceed:
+        console.print(Messages.warning("Cancelled."))
+        return
+
+    # Write YAML
+    import yaml as _yaml
+
+    dst = output_dir / f"{project_name}.yml"
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(
+        _yaml.dump(profile, default_flow_style=False, allow_unicode=True), encoding="utf-8"
+    )
+
+    console.print(f"\n[success]✓[/success] Profile written to [bold]{dst}[/bold]")
+    console.print(
+        f"\nReview [accent]{dst.name}[/accent], then build with:\n"
+        f"  [accent]osprey build {project_name} {dst.name}[/accent]"
+    )

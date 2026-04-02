@@ -84,9 +84,29 @@ def build(
         build_profile = load_profile(profile_path)
 
         logger.info("  Profile: %s", build_profile.name)
-        logger.info("  Template: %s", build_profile.base_template)
+        logger.info("  Data bundle: %s", build_profile.data_bundle)
 
-        # 1b. Check OSPREY version requirement
+        # 1b. Collect and validate profile artifact selections
+        artifacts: dict[str, list[str]] = {}
+        for artifact_type in ("hooks", "rules", "skills", "agents", "output_styles"):
+            names = getattr(build_profile, artifact_type, [])
+            if names:
+                artifacts[artifact_type] = list(names)
+
+        if artifacts:
+            from osprey.cli.templates.artifact_library import validate_artifacts
+
+            validate_artifacts(artifacts)
+            total = sum(len(v) for v in artifacts.values())
+            logger.info(
+                "  ✓ Validated %d artifact(s): %s",
+                total,
+                ", ".join(
+                    f"{len(v)} {k}" for k, v in artifacts.items()
+                ),
+            )
+
+        # 1d. Check OSPREY version requirement
         if build_profile.requires_osprey_version:
             from packaging.specifiers import SpecifierSet
             from packaging.version import Version
@@ -167,10 +187,11 @@ def build(
         project_path = manager.create_project(
             project_name=project_name,
             output_dir=output_path,
-            template_name=build_profile.base_template,
+            data_bundle=build_profile.data_bundle,
             registry_style="extend",
             context=context,
             force=True,  # Directory already exists from step 6b (venv created there)
+            artifacts=artifacts or None,
         )
         logger.info("  ✓ Base template rendered")
 
@@ -226,9 +247,10 @@ def build(
         manager.generate_manifest(
             project_dir=project_path,
             project_name=project_name,
-            template_name=build_profile.base_template,
+            data_bundle=build_profile.data_bundle,
             registry_style="extend",
             context=manifest_context,
+            artifacts=artifacts or None,
         )
 
         # 17. Git init + commit

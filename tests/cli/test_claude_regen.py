@@ -24,7 +24,7 @@ class TestBuildClaudeCodeContext:
         project_dir = manager.create_project(
             project_name="ctx-basic",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -44,7 +44,7 @@ class TestBuildClaudeCodeContext:
         project_dir = manager.create_project(
             project_name="ctx-control",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
         # Generate manifest so build_claude_code_context can discover template_name
         manager.generate_manifest(project_dir, "ctx-control", "control_assistant", "extend", {})
@@ -64,7 +64,7 @@ class TestBuildClaudeCodeContext:
         project_dir = manager.create_project(
             project_name="ctx-manifest",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
         # Generate manifest
         manager.generate_manifest(project_dir, "ctx-manifest", "control_assistant", "extend", {})
@@ -86,7 +86,7 @@ class TestRegenerationCorrectness:
         project_dir = manager.create_project(
             project_name="regen-idempotent",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         # Capture checksums
@@ -112,7 +112,7 @@ class TestRegenerationCorrectness:
         project_dir = manager.create_project(
             project_name="regen-tz",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         # Set timezone to an env-var pattern in config.yml
@@ -135,7 +135,7 @@ class TestRegenerationCorrectness:
         project_dir = manager.create_project(
             project_name="regen-tz-env",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -160,7 +160,7 @@ class TestSafetyPreservation:
         project_dir = manager.create_project(
             project_name="safety-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
         manager.regenerate_claude_code(project_dir)
         return project_dir
@@ -221,7 +221,7 @@ class TestUserFilePreservation:
         project_dir = manager.create_project(
             project_name="backup-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         result = manager.regenerate_claude_code(project_dir)
@@ -239,7 +239,7 @@ class TestUserFilePreservation:
         project_dir = manager.create_project(
             project_name="header-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -263,7 +263,7 @@ class TestErrorHandling:
         project_dir = manager.create_project(
             project_name="dry-run-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         # Record file mtimes
@@ -281,7 +281,7 @@ class TestErrorHandling:
         project_dir = manager.create_project(
             project_name="dry-detect",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         # Disable a core server in config (will cause .mcp.json to change)
@@ -303,7 +303,7 @@ class TestGitignore:
         project_dir = manager.create_project(
             project_name="gitignore-gen-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         gitignore = (project_dir / ".gitignore").read_text()
@@ -332,7 +332,7 @@ class TestDisableServers:
         project_dir = manager.create_project(
             project_name="disable-test",
             output_dir=tmp_path,
-            template_name=template,
+            data_bundle=template,
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -476,7 +476,7 @@ class TestDisableServers:
         project_dir = manager.create_project(
             project_name="ctx-overrides",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -501,7 +501,7 @@ class TestDisableServers:
         project_dir = manager.create_project(
             project_name="ctx-defaults",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -521,7 +521,7 @@ class TestFacilityMd:
         project_dir = manager.create_project(
             project_name="facility-init",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         facility_file = project_dir / ".claude" / "rules" / "facility.md"
@@ -536,7 +536,7 @@ class TestFacilityMd:
         project_dir = manager.create_project(
             project_name="facility-owned",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -552,7 +552,7 @@ class TestFacilityMd:
         project_dir = manager.create_project(
             project_name="facility-preserve",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         # Customize facility.md in-place
@@ -572,7 +572,7 @@ class TestFacilityMd:
         project_dir = manager.create_project(
             project_name="facility-regen-create",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         # Delete facility.md and remove from user_owned
@@ -605,7 +605,7 @@ class TestUserOwned:
         project_dir = manager.create_project(
             project_name="owned-defaults",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -625,7 +625,7 @@ class TestUserOwned:
         project_dir = manager.create_project(
             project_name="owned-regen",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         # Customize safety.md
@@ -654,7 +654,7 @@ class TestUserOwned:
         project_dir = manager.create_project(
             project_name="owned-agents",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         # Regen with some user_owned entries
@@ -682,14 +682,14 @@ class TestSettingsJsonValidity:
     producing invalid JSON (e.g., `},]`).
     """
 
-    @pytest.mark.parametrize("template_name", ["control_assistant"])
-    def test_all_templates_produce_valid_settings_json(self, tmp_path, template_name):
+    @pytest.mark.parametrize("data_bundle", ["control_assistant"])
+    def test_all_templates_produce_valid_settings_json(self, tmp_path, data_bundle):
         """Every built-in template produces valid settings.json."""
         manager = TemplateManager()
         project_dir = manager.create_project(
-            project_name=f"json-valid-{template_name}",
+            project_name=f"json-valid-{data_bundle}",
             output_dir=tmp_path,
-            template_name=template_name,
+            data_bundle=data_bundle,
         )
         settings_path = project_dir / ".claude" / "settings.json"
         data = json.loads(settings_path.read_text())
@@ -716,7 +716,7 @@ class TestSettingsJsonValidity:
         project_dir = manager.create_project(
             project_name=f"json-{label}",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -737,7 +737,7 @@ class TestSettingsJsonValidity:
         project_dir = manager.create_project(
             project_name="json-all-features",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
             context={
                 "channel_finder_pipeline": "hierarchical",
                 "direct_channel_finder": True,
@@ -754,7 +754,7 @@ class TestSettingsJsonValidity:
         project_dir = manager.create_project(
             project_name="json-custom-servers",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -773,11 +773,11 @@ class TestSettingsJsonValidity:
 
     def test_all_mcp_json_files_are_valid(self, tmp_path):
         """Every template also produces valid .mcp.json."""
-        for template_name in ["control_assistant"]:
+        for data_bundle in ["control_assistant"]:
             project_dir = TemplateManager().create_project(
-                project_name=f"mcp-valid-{template_name}",
+                project_name=f"mcp-valid-{data_bundle}",
                 output_dir=tmp_path,
-                template_name=template_name,
+                data_bundle=data_bundle,
             )
             mcp_path = project_dir / ".mcp.json"
             data = json.loads(mcp_path.read_text())

@@ -3,52 +3,34 @@
 This module provides the 'osprey init' command which creates new
 projects from templates with Claude Code integration (MCP servers,
 hooks, and rules).
+
+New workflow: init generates a BuildProfile YAML, which is then
+consumed by 'osprey build' to assemble a project. Use --quick to
+combine both steps.
 """
 
 from pathlib import Path
 
 import click
 
+from .project_utils import _clear_claude_code_project_state
 from .styles import Messages, Styles, console
 from .templates.manager import TemplateManager
 
 
-def _clear_claude_code_project_state(project_path: Path) -> None:
-    """Remove Claude Code's cached state for a project path.
+def _get_examples_dir() -> Path:
+    """Return the path to bundled example profiles."""
+    from importlib.resources import files
 
-    Claude Code stores trust decisions and session data in two places:
-    - ~/.claude.json  →  projects.<absolute-path>.hasTrustDialogAccepted
-    - ~/.claude/projects/<encoded-path>/  →  session transcripts & memory
+    return Path(str(files("osprey").joinpath("profiles/examples")))
 
-    Removing both ensures the trust prompt appears on next launch.
-    """
-    import json
-    import shutil
 
-    project_key = str(project_path)
-    cleared = False
-
-    # 1. Remove trust entry from ~/.claude.json
-    claude_json = Path.home() / ".claude.json"
-    if claude_json.exists():
-        try:
-            data = json.loads(claude_json.read_text())
-            if project_key in data.get("projects", {}):
-                del data["projects"][project_key]
-                claude_json.write_text(json.dumps(data, indent=2) + "\n")
-                cleared = True
-        except (json.JSONDecodeError, OSError):
-            pass  # Don't fail init over this
-
-    # 2. Remove session/memory directory from ~/.claude/projects/
-    encoded_key = project_key.replace("/", "-")
-    claude_project_dir = Path.home() / ".claude" / "projects" / encoded_key
-    if claude_project_dir.exists():
-        shutil.rmtree(claude_project_dir)
-        cleared = True
-
-    if cleared:
-        console.print(f"  {Messages.success('Cleared Claude Code project state')}")
+def _list_examples() -> list[str]:
+    """Return sorted list of bundled example profile names (without .yml)."""
+    examples_dir = _get_examples_dir()
+    if not examples_dir.exists():
+        return []
+    return sorted(p.stem for p in examples_dir.glob("*.yml"))
 
 
 @click.command()
@@ -90,6 +72,29 @@ def _clear_claude_code_project_state(project_path: Path) -> None:
     default=None,
     help="Channel finder pipeline mode (control_assistant template only)",
 )
+@click.option(
+    "--example",
+    "-e",
+    default=None,
+    metavar="NAME",
+    help="Copy a bundled example profile to <project_name>.yml instead of creating a project",
+)
+@click.option(
+    "--list-examples",
+    is_flag=True,
+    help="List available bundled example profiles and exit",
+)
+@click.option(
+    "--interactive",
+    is_flag=True,
+    help="Run the interactive wizard to generate a BuildProfile YAML",
+)
+@click.option(
+    "--quick",
+    default=None,
+    metavar="EXAMPLE",
+    help="Copy EXAMPLE profile and immediately run 'osprey build' on it",
+)
 def init(
     project_name: str,
     template: str,
@@ -98,6 +103,10 @@ def init(
     provider: str,
     model: str,
     channel_finder_mode: str,
+    example: str,
+    list_examples: bool,
+    interactive: bool,
+    quick: str,
 ):
     """Create a new project.
 
@@ -106,26 +115,25 @@ def init(
 
     PROJECT_NAME: Name of your project (e.g., my-assistant, beamline-agent)
 
-    Available templates:
+    New profile-based workflow:
 
     \b
-      - control_assistant: Control system integration with channel finder (production-grade)
-      - lattice_design: Accelerator lattice physics with AT (pyAT) skills
+      # Copy an example profile to customise
+      $ osprey init my-project --example control-assistant
 
-    The generated project includes:
+      # List available examples
+      $ osprey init . --list-examples
+
+      # Copy example and build immediately
+      $ osprey init my-project --quick control-assistant
+
+      # Run interactive wizard to generate a profile
+      $ osprey init my-project --interactive
+
+    Legacy direct-creation workflow:
 
     \b
-      - Configuration file (config.yml) — streamlined for Claude Code
-      - Environment template (.env.example)
-      - Documentation (README.md)
-      - Claude Code integration (.mcp.json, CLAUDE.md, .claude/ hooks & rules)
-      - Template data files (channel databases, logbook seeds for control_assistant)
-      - Lattice physics skills and rules (lattice_design only)
-
-    Examples:
-
-    \b
-      # Create project (uses control_assistant template by default)
+      # Create project with default control_assistant template
       $ osprey init my-assistant
 
       # Create in specific location
@@ -137,6 +145,161 @@ def init(
       # Create with specific AI provider and model
       $ osprey init my-assistant --provider cborg --model anthropic/claude-haiku
     """
+    # --- Flag: --list-examples ---
+    if list_examples:
+        examples = _list_examples()
+        if not examples:
+            console.print("No bundled example profiles found.", style=Styles.WARNING)
+        else:
+            console.print("[bold]Available example profiles:[/bold]")
+            for name in examples:
+                console.print(f"  • {name}")
+            console.print(
+                f"\nUse: [accent]osprey init <project> --example <name>[/accent] to copy one."
+            )
+        return
+
+    # --- Flag: --example ---
+    if example is not None:
+        _copy_example_profile(project_name, example, output_dir, force)
+        return
+
+    # --- Flag: --quick ---
+    if quick is not None:
+        _quick_build(project_name, quick, output_dir, force)
+        return
+
+    # --- Flag: --interactive ---
+    if interactive:
+        _run_interactive_profile_wizard(project_name, output_dir)
+        return
+
+    # --- Legacy direct-creation workflow ---
+    _create_project_direct(
+        project_name=project_name,
+        template=template,
+        output_dir=output_dir,
+        force=force,
+        provider=provider,
+        model=model,
+        channel_finder_mode=channel_finder_mode,
+    )
+
+
+def _copy_example_profile(
+    project_name: str, example: str, output_dir: str, force: bool
+) -> None:
+    """Copy a bundled example profile to <project_name>.yml."""
+    examples_dir = _get_examples_dir()
+    src = examples_dir / f"{example}.yml"
+    if not src.exists():
+        available = _list_examples()
+        console.print(
+            f"[error]✗[/error] Example '{example}' not found.\n"
+            f"Available: {', '.join(available) if available else 'none'}",
+            style=Styles.ERROR,
+        )
+        raise click.Abort()
+
+    output_path = Path(output_dir).resolve()
+    dst = output_path / f"{project_name}.yml"
+
+    if dst.exists() and not force:
+        console.print(
+            f"[error]✗[/error] '{dst}' already exists. Use --force to overwrite.",
+            style=Styles.ERROR,
+        )
+        raise click.Abort()
+
+    import shutil
+
+    shutil.copy(src, dst)
+    console.print(f"[success]✓[/success] Copied example profile to [bold]{dst}[/bold]")
+    console.print(
+        f"\nEdit [accent]{dst.name}[/accent] then run:\n"
+        f"  [accent]osprey build {project_name} {dst.name}[/accent]"
+    )
+
+
+def _quick_build(project_name: str, example: str, output_dir: str, force: bool) -> None:
+    """Copy an example profile and immediately run osprey build."""
+    import tempfile
+
+    examples_dir = _get_examples_dir()
+    src = examples_dir / f"{example}.yml"
+    if not src.exists():
+        available = _list_examples()
+        console.print(
+            f"[error]✗[/error] Example '{example}' not found.\n"
+            f"Available: {', '.join(available) if available else 'none'}",
+            style=Styles.ERROR,
+        )
+        raise click.Abort()
+
+    output_path = Path(output_dir).resolve()
+
+    # Write a temporary profile with the project name injected
+    import yaml as _yaml
+
+    raw = _yaml.safe_load(src.read_text(encoding="utf-8")) or {}
+    raw["name"] = project_name
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".yml", dir=output_path, delete=False, encoding="utf-8"
+    ) as tmp:
+        _yaml.dump(raw, tmp, default_flow_style=False, allow_unicode=True)
+        tmp_path = Path(tmp.name)
+
+    console.print(
+        f"[success]✓[/success] Generated profile from example '{example}'"
+    )
+    console.print(f"  Building [accent]{project_name}[/accent] ...")
+
+    try:
+        from .build_cmd import build
+
+        ctx = click.get_current_context()
+        force_flag = ["--force"] if force else []
+        ctx.invoke(
+            build,
+            project_name=project_name,
+            profile=str(tmp_path),
+            output_dir=str(output_path),
+            force=force,
+            stream=False,
+            skip_lifecycle=False,
+            skip_deps=False,
+        )
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def _run_interactive_profile_wizard(project_name: str, output_dir: str) -> None:
+    """Run the interactive wizard and write a BuildProfile YAML."""
+    try:
+        from .init_wizard import run_interactive_profile_wizard as _wizard
+
+        output_path = Path(output_dir).resolve()
+        _wizard(project_name, output_path)
+    except ImportError:
+        console.print(
+            "[error]✗[/error] Interactive mode requires the 'questionary' package.\n"
+            f"Install with: [accent]uv add questionary[/accent]",
+            style=Styles.ERROR,
+        )
+        raise click.Abort()
+
+
+def _create_project_direct(
+    project_name: str,
+    template: str,
+    output_dir: str,
+    force: bool,
+    provider: str | None,
+    model: str | None,
+    channel_finder_mode: str | None,
+) -> None:
+    """Legacy direct project creation path (original init behavior)."""
     console.print(f"Creating project: [header]{project_name}[/header]")
 
     try:

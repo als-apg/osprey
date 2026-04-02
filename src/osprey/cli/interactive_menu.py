@@ -25,6 +25,7 @@ from osprey.cli.init_wizard import (  # noqa: F401
     get_api_key_name,
     get_default_name_for_template,
     run_interactive_init,
+    run_interactive_profile_wizard,
     select_channel_finder_mode,
     select_template,
     show_api_key_help,

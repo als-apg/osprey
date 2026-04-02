@@ -68,18 +68,58 @@ REGEN_TRACKED_FILES = [
 ]
 
 
-def load_template_manifest(template_root: Path, template_name: str) -> dict | None:
+def load_template_manifest(
+    template_root: Path,
+    template_name: str,
+    project_dir: Path | None = None,
+) -> dict | None:
     """Load manifest.yml for a template, if it exists.
+
+    When the template-level ``manifest.yml`` does not exist, falls back to
+    reading the ``"artifacts"`` section from the project-local
+    ``.osprey-manifest.json`` (when ``project_dir`` is provided).
 
     Args:
         template_root: Path to osprey's bundled templates directory
         template_name: Name of the application template (e.g. "control_assistant")
+        project_dir: Optional project directory. When given and the template
+            manifest does not exist, artifacts are read from the project's
+            ``.osprey-manifest.json`` instead.
 
     Returns:
-        Parsed YAML dict, or None if no manifest.yml exists for this template.
+        Parsed YAML-like dict, or None if no manifest source is available.
     """
     manifest_path = template_root / "apps" / template_name / "manifest.yml"
     if not manifest_path.exists():
+        # Fall back to project-local manifest artifacts
+        if project_dir is not None:
+            osprey_manifest_path = project_dir / MANIFEST_FILENAME
+            if osprey_manifest_path.exists():
+                try:
+                    osprey_data = json.loads(osprey_manifest_path.read_text(encoding="utf-8"))
+                    stored_artifacts = osprey_data.get("artifacts")
+                    if stored_artifacts:
+                        return {"artifacts": stored_artifacts}
+                except (json.JSONDecodeError, OSError):
+                    pass
+        # Fall back to the bundled example profile (manifest.yml was removed; example
+        # profiles are now the canonical source of artifact declarations per data bundle)
+        _example_name = template_name.replace("_", "-") + ".yml"
+        try:
+            import importlib.resources
+
+            profile_text = (
+                importlib.resources.files("osprey.profiles.examples")
+                .joinpath(_example_name)
+                .read_text(encoding="utf-8")
+            )
+            profile_data = yaml.safe_load(profile_text) or {}
+            artifact_keys = ("hooks", "rules", "skills", "agents", "output_styles")
+            artifacts = {k: profile_data.get(k, []) for k in artifact_keys if k in profile_data}
+            if artifacts:
+                return {"artifacts": artifacts}
+        except (FileNotFoundError, ModuleNotFoundError, OSError):
+            pass
         return None
 
     with open(manifest_path, encoding="utf-8") as f:
@@ -158,19 +198,44 @@ def resolve_manifest_outputs(manifest: dict) -> set[str]:
     return result
 
 
-def get_tracked_files(template_root: Path, template_name: str) -> list[str]:
+def get_tracked_files(
+    template_root: Path,
+    template_name: str,
+    project_dir: Path | None = None,
+) -> list[str]:
     """Get the list of tracked files for regen, based on manifest if available.
+
+    Resolution order:
+    1. If ``project_dir`` is given and its ``.osprey-manifest.json`` contains
+       an ``"artifacts"`` key, use those artifact selections.
+    2. Otherwise fall back to the template-level ``manifest.yml``.
+    3. If neither exists, return the static ``REGEN_TRACKED_FILES`` list.
 
     Args:
         template_root: Path to osprey's bundled templates directory
         template_name: Name of the application template
+        project_dir: Optional project directory; when provided, the project-local
+            ``.osprey-manifest.json`` is checked for stored artifact selections.
 
     Returns:
         Sorted list of output paths that should be tracked during regen.
     """
-    manifest = load_template_manifest(template_root, template_name)
-    if manifest is not None:
-        return sorted(resolve_manifest_outputs(manifest))
+    # 1. Try project-local manifest first
+    if project_dir is not None:
+        osprey_manifest_path = project_dir / MANIFEST_FILENAME
+        if osprey_manifest_path.exists():
+            try:
+                osprey_data = json.loads(osprey_manifest_path.read_text(encoding="utf-8"))
+                stored_artifacts = osprey_data.get("artifacts")
+                if stored_artifacts:
+                    return sorted(resolve_manifest_outputs({"artifacts": stored_artifacts}))
+            except (json.JSONDecodeError, OSError):
+                pass
+
+    # 2. Fall back to template manifest.yml
+    tmpl_manifest = load_template_manifest(template_root, template_name)
+    if tmpl_manifest is not None:
+        return sorted(resolve_manifest_outputs(tmpl_manifest))
     return list(REGEN_TRACKED_FILES)
 
 
@@ -417,6 +482,7 @@ def generate_manifest(
     template_name: str,
     registry_style: str,
     context: dict[str, Any],
+    artifacts: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
     """Generate a project manifest for migration support.
 
@@ -429,9 +495,13 @@ def generate_manifest(
         jinja_env: Jinja2 environment for template rendering
         project_dir: Root directory of the created project
         project_name: Name of the project
-        template_name: Template used to create the project
+        template_name: Template (data bundle) used to create the project
         registry_style: Registry style ("extend" or "standalone")
         context: Full context dict used during template rendering
+        artifacts: Profile-driven artifact selection (hooks, rules, skills,
+            agents, output_styles, web_panels). When provided, stored in the
+            manifest so ``regenerate_claude_code`` can read artifact lists
+            from the project manifest instead of loading template manifest.yml.
 
     Returns:
         Dictionary containing the manifest data that was written to file
@@ -452,19 +522,27 @@ def generate_manifest(
     user_owned_manifest = build_user_owned_manifest(template_root, jinja_env, project_dir, context)
 
     # Build manifest
-    manifest_data = {
+    creation_block: dict[str, Any] = {
+        "osprey_version": framework_version,
+        "timestamp": datetime.now(UTC).isoformat(),
+        "template": template_name,
+        "data_bundle": template_name,
+        "registry_style": registry_style,
+        "claude_code_only": True,
+    }
+
+    manifest_data: dict[str, Any] = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
-        "creation": {
-            "osprey_version": framework_version,
-            "timestamp": datetime.now(UTC).isoformat(),
-            "template": template_name,
-            "registry_style": registry_style,
-            "claude_code_only": True,
-        },
+        "creation": creation_block,
         "init_args": init_args,
         "reproducible_command": reproducible_command,
         "file_checksums": file_checksums,
     }
+
+    # Persist artifact selection so regen can reconstruct allowed_outputs
+    # without loading the template-level manifest.yml
+    if artifacts:
+        manifest_data["artifacts"] = artifacts
 
     if user_owned_manifest:
         manifest_data["user_owned"] = user_owned_manifest

@@ -39,7 +39,7 @@ class TestTemplateManager:
         project_dir = manager.create_project(
             project_name="test-project",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         # Verify structure (Claude Code mode — no src/ or pyproject.toml)
@@ -510,7 +510,7 @@ class TestBuildClaudeCodeContextHierarchy:
         project_dir = manager.create_project(
             project_name="test-hier-embed",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
         )
 
@@ -533,7 +533,7 @@ class TestLatticeSkillIsolation:
         project_dir = manager.create_project(
             project_name="ctrl-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         skills_dir = project_dir / ".claude" / "skills"
@@ -549,7 +549,7 @@ class TestLatticeSkillIsolation:
         project_dir = manager.create_project(
             project_name="ctrl-rule-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         rule_file = project_dir / ".claude" / "rules" / "lattice-physics.md"
@@ -563,7 +563,7 @@ class TestLatticeSkillIsolation:
         project_dir = manager.create_project(
             project_name="lat-test",
             output_dir=tmp_path,
-            template_name="lattice_design",
+            data_bundle="lattice_design",
         )
 
         skills_dir = project_dir / ".claude" / "skills"
@@ -581,7 +581,7 @@ class TestLatticeSkillIsolation:
         project_dir = manager.create_project(
             project_name="lat-rule-test",
             output_dir=tmp_path,
-            template_name="lattice_design",
+            data_bundle="lattice_design",
         )
 
         rule_file = project_dir / ".claude" / "rules" / "lattice-physics.md"
@@ -593,33 +593,45 @@ class TestLatticeSkillIsolation:
 class TestTemplateManifest:
     """Test template manifest loading, resolution, and filtering."""
 
-    def test_load_manifest_control_assistant(self):
-        """Control assistant manifest loads with all expected categories."""
-        manager = TemplateManager()
-        mf = manifest.load_template_manifest(manager.template_root, "control_assistant")
+    def test_control_assistant_example_profile_has_expected_artifacts(self):
+        """Control assistant example profile declares all expected artifact categories."""
+        import importlib.resources
 
-        assert mf is not None
-        artifacts = mf["artifacts"]
-        assert "hooks" in artifacts
-        assert "rules" in artifacts
-        assert "skills" in artifacts
-        assert "agents" in artifacts
-        assert "output_styles" in artifacts
-        assert "approval" in artifacts["hooks"]
-        assert "channel-finder" in artifacts["agents"]
+        import yaml
 
-    def test_load_manifest_lattice_design(self):
-        """Lattice design manifest loads with lattice-specific entries."""
-        manager = TemplateManager()
-        mf = manifest.load_template_manifest(manager.template_root, "lattice_design")
+        profile_text = (
+            importlib.resources.files("osprey.profiles.examples")
+            .joinpath("control-assistant.yml")
+            .read_text(encoding="utf-8")
+        )
+        profile = yaml.safe_load(profile_text)
 
-        assert mf is not None
-        artifacts = mf["artifacts"]
-        assert "lattice-physics" in artifacts["rules"]
+        assert "hooks" in profile
+        assert "rules" in profile
+        assert "skills" in profile
+        assert "agents" in profile
+        assert "output_styles" in profile
+        assert "approval" in profile["hooks"]
+        assert "channel-finder" in profile["agents"]
+
+    def test_lattice_design_example_profile_has_expected_artifacts(self):
+        """Lattice design example profile declares lattice-specific entries."""
+        import importlib.resources
+
+        import yaml
+
+        profile_text = (
+            importlib.resources.files("osprey.profiles.examples")
+            .joinpath("lattice-design.yml")
+            .read_text(encoding="utf-8")
+        )
+        profile = yaml.safe_load(profile_text)
+
+        assert "lattice-physics" in profile["rules"]
         # Should NOT have control-system-specific entries
-        assert "limits" not in artifacts["hooks"]
-        assert "cf-feedback-capture" not in artifacts["hooks"]
-        assert "control-system-safety" not in artifacts.get("rules", [])
+        assert "limits" not in profile.get("hooks", [])
+        assert "cf-feedback-capture" not in profile.get("hooks", [])
+        assert "control-system-safety" not in profile.get("rules", [])
 
     def test_load_manifest_nonexistent_template(self):
         """Returns None for unknown template."""
@@ -629,8 +641,7 @@ class TestTemplateManifest:
 
     def test_resolve_manifest_outputs_includes_config_artifacts(self):
         """Resolved outputs always contain config artifacts."""
-        manager = TemplateManager()
-        mf = manifest.load_template_manifest(manager.template_root, "control_assistant")
+        mf = {"artifacts": {"hooks": ["approval"], "rules": ["safety"], "skills": [], "agents": []}}
         outputs = manifest.resolve_manifest_outputs(mf)
 
         assert "CLAUDE.md" in outputs
@@ -658,7 +669,7 @@ class TestTemplateManifest:
         project_dir = manager.create_project(
             project_name="lat-manifest-test",
             output_dir=tmp_path,
-            template_name="lattice_design",
+            data_bundle="lattice_design",
         )
 
         # These should NOT exist
@@ -672,7 +683,7 @@ class TestTemplateManifest:
         project_dir = manager.create_project(
             project_name="lat-artifacts-test",
             output_dir=tmp_path,
-            template_name="lattice_design",
+            data_bundle="lattice_design",
         )
 
         # Lattice-physics rule
@@ -699,7 +710,7 @@ class TestTemplateManifest:
         project_dir = manager.create_project(
             project_name="lat-agents-test",
             output_dir=tmp_path,
-            template_name="lattice_design",
+            data_bundle="lattice_design",
         )
 
         agents_dir = project_dir / ".claude" / "agents"
@@ -714,7 +725,7 @@ class TestTemplateManifest:
         project_dir = manager.create_project(
             project_name="ctrl-hooks-test",
             output_dir=tmp_path,
-            template_name="control_assistant",
+            data_bundle="control_assistant",
         )
 
         expected_hooks = [

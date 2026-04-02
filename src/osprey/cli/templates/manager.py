@@ -113,15 +113,18 @@ class TemplateManager:
         self,
         project_name: str,
         output_dir: Path,
-        template_name: str = "control_assistant",
+        data_bundle: str = "control_assistant",
         registry_style: str = "extend",
         context: dict[str, Any] | None = None,
         force: bool = False,
+        artifacts: dict[str, list[str]] | None = None,
+        # Deprecated alias kept for backward compatibility
+        template_name: str | None = None,
     ) -> Path:
         """Create complete project from template.
 
         This is the main entry point for project creation. It:
-        1. Validates template exists
+        1. Validates data bundle exists
         2. Creates project directory structure
         3. Renders and copies project files
         4. Copies service configurations
@@ -130,22 +133,29 @@ class TemplateManager:
         Args:
             project_name: Name of the project (e.g., "my-assistant")
             output_dir: Parent directory where project will be created
-            template_name: Application template to use (default: "control_assistant")
+            data_bundle: Data bundle (app template) to use (default: "control_assistant")
             registry_style: Registry style - "extend" (recommended) or "standalone" (advanced)
             context: Additional template context variables
             force: If True, skip existence check (used when caller already handled deletion)
+            artifacts: Profile-driven artifact selection (hooks, rules, skills, agents, etc.)
+            template_name: Deprecated alias for data_bundle; use data_bundle instead.
 
         Returns:
             Path to created project directory
 
         Raises:
-            ValueError: If template doesn't exist or project directory exists
+            ValueError: If data bundle doesn't exist or project directory exists
         """
-        # 1. Validate template exists
-        app_templates = self.list_app_templates()
-        if template_name not in app_templates:
+        # Support deprecated template_name alias
+        if template_name is not None:
+            data_bundle = template_name
+
+        # 1. Validate data bundle exists
+        bundle_dir = self.template_root / "apps" / data_bundle
+        if not bundle_dir.is_dir():
+            app_templates = self.list_app_templates()
             raise ValueError(
-                f"Template '{template_name}' not found. "
+                f"Template '{data_bundle}' not found. "
                 f"Available templates: {', '.join(app_templates)}"
             )
 
@@ -172,6 +182,11 @@ class TemplateManager:
         # Detect environment variables from the system
         detected_env_vars = scaffolding.detect_environment_variables()
 
+        # Derive feature flags from artifact selections.
+        # has_lattice_physics: from explicit artifacts list, or from data_bundle name (legacy)
+        _artifact_rules = (artifacts or {}).get("rules", [])
+        has_lattice_physics = "lattice-physics" in _artifact_rules or data_bundle == "lattice_design"
+
         ctx = {
             "project_name": project_name,
             "package_name": package_name,
@@ -185,14 +200,20 @@ class TemplateManager:
             "current_python_env": current_python,  # Default; overridden by caller context
             "default_provider": "anthropic",
             "default_model": "haiku",
-            "template_name": template_name,  # Make template name available in config.yml
+            "template_name": data_bundle,  # Make bundle name available in config.yml
+            "data_bundle": data_bundle,
+            "has_lattice_physics": has_lattice_physics,
             # Add detected environment variables
             "env": detected_env_vars,
             **(context or {}),
         }
 
-        # Derive channel finder configuration if control_assistant template
-        if template_name == "control_assistant":
+        # Derive channel finder configuration:
+        # - When called from build (artifacts provided): check if channel-finder agent is selected
+        # - When called from init (no artifacts): check if bundle config template declares it
+        _profile_agents = (artifacts or {}).get("agents", [])
+        _bundle_has_channel_finder = (bundle_dir / "config.yml.j2").exists() and not artifacts
+        if "channel-finder" in _profile_agents or _bundle_has_channel_finder:
             channel_finder_mode = ctx.get("channel_finder_mode", "all")
 
             # Derive boolean flags for conditional templates
@@ -227,32 +248,46 @@ class TemplateManager:
 
         # 4. Create project structure
         scaffolding.create_project_structure(
-            self.template_root, self.jinja_env, project_dir, template_name, ctx
+            self.template_root, self.jinja_env, project_dir, data_bundle, ctx
         )
 
-        # 5. Copy services (selective -- only postgresql for control_assistant)
-        if template_name == "control_assistant":
-            scaffolding.copy_services_selective(self.template_root, project_dir, ["postgresql"])
+        # 5. Copy services: bundle-level services/ dir takes priority, then
+        #    fall back to matching names from the top-level services/ dir
+        bundle_services_dir = bundle_dir / "services"
+        top_level_services_dir = self.template_root / "services"
+        if bundle_services_dir.is_dir():
+            service_names = [d.name for d in bundle_services_dir.iterdir() if d.is_dir()]
+            if service_names:
+                scaffolding.copy_services_selective(self.template_root, project_dir, service_names)
+        elif top_level_services_dir.is_dir():
+            # Copy top-level services whose names match subdirs declared in bundle config
+            # (e.g., control_assistant's config.yml.j2 references postgresql)
+            available = [d.name for d in top_level_services_dir.iterdir() if d.is_dir()]
+            bundle_config = bundle_dir / "config.yml.j2"
+            if bundle_config.exists():
+                config_text = bundle_config.read_text(encoding="utf-8")
+                to_copy = [name for name in available if name in config_text]
+                if to_copy:
+                    scaffolding.copy_services_selective(self.template_root, project_dir, to_copy)
 
         # 6. Copy data files from template (no src/ package)
         scaffolding.copy_template_data(
             self.template_root,
             project_dir,
             package_name,
-            template_name,
+            data_bundle,
             ctx,
             jinja_env=self.jinja_env,
         )
 
-        # 6a. Copy machine_data/ for lattice templates
-        if template_name == "lattice_design":
-            machine_data_src = self.template_root / "apps" / "lattice_design" / "machine_data"
-            if machine_data_src.exists():
-                machine_data_dst = project_dir / "machine_data"
-                shutil.copytree(machine_data_src, machine_data_dst, dirs_exist_ok=True)
-                console.print(
-                    f"  [success]✓[/success] Copied machine data to [path]{machine_data_dst}[/path]"
-                )
+        # 6a. Copy machine_data/ if bundle provides it
+        machine_data_src = bundle_dir / "machine_data"
+        if machine_data_src.exists():
+            machine_data_dst = project_dir / "machine_data"
+            shutil.copytree(machine_data_src, machine_data_dst, dirs_exist_ok=True)
+            console.print(
+                f"  [success]✓[/success] Copied machine data to [path]{machine_data_dst}[/path]"
+            )
 
         # 6b. Rebase demo logbook timestamps to current date
         scaffolding.rebase_logbook_timestamps(project_dir)
@@ -370,7 +405,7 @@ class TemplateManager:
         ctx["enabled_agents"] = {a["name"] for a in ctx["agents"] if a["enabled"]}
 
         # Load template manifest and resolve allowed outputs
-        manifest_data = manifest.load_template_manifest(self.template_root, template_name)
+        manifest_data = manifest.load_template_manifest(self.template_root, data_bundle)
         allowed_outputs = (
             manifest.resolve_manifest_outputs(manifest_data) if manifest_data else None
         )
@@ -405,30 +440,42 @@ class TemplateManager:
         self,
         project_dir: Path,
         project_name: str,
-        template_name: str,
-        registry_style: str,
-        context: dict[str, Any],
+        data_bundle: str | None = None,
+        registry_style: str = "extend",
+        context: dict[str, Any] | None = None,
+        artifacts: dict[str, list[str]] | None = None,
+        # Deprecated alias kept for backward compatibility
+        template_name: str | None = None,
     ) -> dict[str, Any]:
         """Generate a project manifest for migration support.
 
         Args:
             project_dir: Root directory of the created project
             project_name: Name of the project
-            template_name: Template used to create the project
+            data_bundle: Data bundle used to create the project
             registry_style: Registry style ("extend" or "standalone")
             context: Full context dict used during template rendering
+            artifacts: Profile-driven artifact selection (hooks, rules, skills, agents, etc.)
+            template_name: Deprecated alias for data_bundle; use data_bundle instead.
 
         Returns:
             Dictionary containing the manifest data that was written to file
         """
+        if template_name is not None:
+            data_bundle = template_name
+        if data_bundle is None:
+            data_bundle = "control_assistant"
+        if context is None:
+            context = {}
         return manifest.generate_manifest(
             self.template_root,
             self.jinja_env,
             project_dir,
             project_name,
-            template_name,
+            data_bundle,
             registry_style,
             context,
+            artifacts=artifacts,
         )
 
     def copy_services(self, project_dir: Path):
