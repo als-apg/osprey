@@ -36,6 +36,13 @@ class MockConnector:
         result.success = True
         return result
 
+    async def write_multiple_channels(self, operations, **kwargs):
+        """Mock batch write — delegates to write_channel."""
+        results = []
+        for address, value in operations:
+            results.append(await self.write_channel(address, value, **kwargs))
+        return results
+
     async def read_channel(self, channel_address: str, **kwargs):
         """Mock read operation."""
         self.read_calls.append((channel_address, kwargs))

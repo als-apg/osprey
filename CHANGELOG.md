@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Connectors**: Add `write_multiple_channels()` to `ControlSystemConnector` base class for batch write support. Default implementation writes sequentially; custom connectors can override for atomic batch semantics (e.g., disabling lattice recalculation in simulators). MCP `channel_write` tool and `osprey.runtime.write_channels()` now dispatch to this method for multi-channel writes.
+
 ### Changed
 - **Workspace**: Unify `osprey-workspace/` and `_agent_data/` into single configurable `_agent_data` directory (config key: `agent_data.base_dir`)
 

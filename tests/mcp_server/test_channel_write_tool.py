@@ -192,7 +192,7 @@ async def test_channel_write_multiple_operations(tmp_path, monkeypatch):
         _make_write_result(channel="PV:B", value=2.0),
     ]
     mock_connector = AsyncMock()
-    mock_connector.write_channel.side_effect = results
+    mock_connector.write_multiple_channels.return_value = results
 
     with (
         patch(

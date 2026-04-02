@@ -117,10 +117,10 @@ async def channel_write(
             # Determine per-channel verification level and tolerance
             connector_results = []  # Raw connector results for bridge
             results_serialised = []  # Serialised dicts for the data file
-            for op in operations:
-                channel = op["channel"]
-                value = op["value"]
 
+            if len(operations) == 1:
+                op = operations[0]
+                channel, value = op["channel"], op["value"]
                 level = verification_level
                 tolerance = None
                 if validator:
@@ -129,12 +129,18 @@ async def channel_write(
                         level = cfg_level
                     if cfg_tol is not None:
                         tolerance = cfg_tol
-
                 wr = await connector.write_channel(
                     channel, value, verification_level=level, tolerance=tolerance
                 )
                 connector_results.append(wr)
+            else:
+                write_ops = [(op["channel"], op["value"]) for op in operations]
+                connector_results = await connector.write_multiple_channels(
+                    write_ops,
+                    verification_level=verification_level,
+                )
 
+            for op, wr in zip(operations, connector_results, strict=True):
                 result_entry = {
                     "channel": wr.channel_address,
                     "value_written": wr.value_written,

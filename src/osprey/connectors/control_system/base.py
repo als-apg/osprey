@@ -286,6 +286,41 @@ class ControlSystemConnector(ABC):
         """
         pass
 
+    async def write_multiple_channels(
+        self,
+        operations: list[tuple[str, Any]],
+        timeout: float | None = None,
+        verification_level: str = "callback",
+        tolerance: float | None = None,
+    ) -> list[ChannelWriteResult]:
+        """
+        Write multiple channels. Override for atomic/batched behavior.
+
+        Default implementation writes sequentially via write_channel().
+        Subclasses can override to provide transactional semantics (e.g.,
+        disabling lattice recalculation between writes in a simulator).
+
+        Args:
+            operations: List of (channel_address, value) tuples
+            timeout: Optional timeout in seconds
+            verification_level: Verification strategy ("none", "callback", "readback")
+            tolerance: Absolute tolerance for readback verification
+
+        Returns:
+            List of ChannelWriteResult in the same order as operations
+        """
+        results = []
+        for address, value in operations:
+            result = await self.write_channel(
+                address,
+                value,
+                timeout=timeout,
+                verification_level=verification_level,
+                tolerance=tolerance,
+            )
+            results.append(result)
+        return results
+
     @abstractmethod
     async def subscribe(
         self, channel_address: str, callback: Callable[[ChannelValue], None]

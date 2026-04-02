@@ -112,8 +112,22 @@ async def _read_channel_async(channel_address: str, **kwargs) -> Any:
 
 async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> None:
     """Internal async implementation for writing multiple channels."""
-    for channel_address, value in channel_values.items():
-        await _write_channel_async(channel_address, value, **kwargs)
+    if len(channel_values) == 1:
+        [(address, value)] = channel_values.items()
+        await _write_channel_async(address, value, **kwargs)
+    else:
+        # Validate all values against injected limits validator first
+        if _limits_validator is not None:
+            for channel_address, value in channel_values.items():
+                _limits_validator.validate(channel_address, value)
+
+        connector = await _get_connector()
+        results = await connector.write_multiple_channels(list(channel_values.items()), **kwargs)
+        for result in results:
+            if not result.success:
+                raise RuntimeError(
+                    f"Write failed for {result.channel_address}: {result.error_message}"
+                )
 
 
 def _run_async(coro) -> Any:
