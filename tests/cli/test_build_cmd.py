@@ -46,7 +46,7 @@ def minimal_profile_yaml(profile_dir: Path) -> Path:
     """Write a minimal valid profile YAML and return its path."""
     profile = {
         "name": "Test Profile",
-        "base_template": "control_assistant",
+        "data_bundle": "control_assistant",
         "provider": "cborg",
         "model": "haiku",
         "config": {
@@ -85,7 +85,7 @@ class TestProfileLoading:
     def test_load_minimal_profile(self, minimal_profile_yaml: Path):
         profile = load_profile(minimal_profile_yaml)
         assert profile.name == "Test Profile"
-        assert profile.base_template == "control_assistant"
+        assert profile.data_bundle == "control_assistant"
         assert profile.provider == "cborg"
         assert profile.model == "haiku"
 
@@ -161,7 +161,7 @@ class TestProfileLoading:
         simple = tmp_path / "simple.yml"
         simple.write_text("name: Simple\n")
         profile = load_profile(simple)
-        assert profile.base_template == "control_assistant"
+        assert profile.data_bundle == "control_assistant"
         assert profile.provider is None
         assert profile.config == {}
         assert profile.overlay == {}
@@ -169,6 +169,12 @@ class TestProfileLoading:
         assert profile.lifecycle == LifecycleConfig()
         assert profile.env == EnvConfig()
         assert profile.dependencies == []
+        assert profile.hooks == []
+        assert profile.rules == []
+        assert profile.skills == []
+        assert profile.agents == []
+        assert profile.output_styles == []
+        assert profile.web_panels == []
 
     def test_load_profile_lifecycle_parsed(self, tmp_path: Path):
         profile_data = {

@@ -74,7 +74,7 @@ class BuildProfile:
     """Complete build profile parsed from YAML."""
 
     name: str
-    base_template: str = "control_assistant"
+    data_bundle: str = "control_assistant"
     provider: str | None = None
     model: str | None = None
     channel_finder_mode: str | None = None
@@ -88,6 +88,12 @@ class BuildProfile:
     requires_osprey_version: str | None = None  # PEP 440 specifier, e.g. ">=0.12.0"
     osprey_install: str = "local"  # "local" | "pip" | PEP 508 spec (e.g. "osprey-framework==0.11.5")
     python_env: str = "project"  # "project" | "build" | absolute path to Python executable
+    hooks: list[str] = field(default_factory=list)
+    rules: list[str] = field(default_factory=list)
+    skills: list[str] = field(default_factory=list)
+    agents: list[str] = field(default_factory=list)
+    output_styles: list[str] = field(default_factory=list)
+    web_panels: list[str] = field(default_factory=list)
 
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
@@ -95,6 +101,19 @@ class BuildProfile:
 
         if not self.name:
             errors.append("Profile 'name' is required")
+
+        # Validate data_bundle names a valid bundle directory
+        from importlib.resources import files
+
+        bundles_path = Path(str(files("osprey").joinpath("templates/apps")))
+        if not (bundles_path / self.data_bundle).is_dir():
+            valid = sorted(
+                p.name for p in bundles_path.iterdir() if p.is_dir() and not p.name.startswith("_")
+            )
+            errors.append(
+                f"data_bundle '{self.data_bundle}' not found in templates/apps"
+                f" (valid: {', '.join(valid)})"
+            )
 
         # Validate overlay source paths exist
         for src, _dst in self.overlay.items():
@@ -265,7 +284,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
 
     return BuildProfile(
         name=raw.get("name", ""),
-        base_template=raw.get("base_template", "control_assistant"),
+        data_bundle=raw.get("data_bundle", "control_assistant"),
         provider=raw.get("provider"),
         model=raw.get("model"),
         channel_finder_mode=raw.get("channel_finder_mode"),
@@ -279,4 +298,10 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         requires_osprey_version=raw.get("requires_osprey_version"),
         osprey_install=raw.get("osprey_install", "local"),
         python_env=raw.get("python_env", "project"),
+        hooks=raw.get("hooks", []),
+        rules=raw.get("rules", []),
+        skills=raw.get("skills", []),
+        agents=raw.get("agents", []),
+        output_styles=raw.get("output_styles", []),
+        web_panels=raw.get("web_panels", []),
     )
