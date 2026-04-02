@@ -69,6 +69,100 @@ class ServiceDef:
 _ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 
 
+# ---------------------------------------------------------------------------
+# Profile inheritance helpers
+# ---------------------------------------------------------------------------
+
+
+def _merge_lists(base: list, child: list) -> list:
+    """Merge two YAML lists.
+
+    String lists: union with dedup, base order preserved.
+    Other lists (e.g. lifecycle step dicts): concatenate.
+    """
+    if not base and not child:
+        return []
+    all_items = base + child
+    if all(isinstance(x, str) for x in all_items):
+        seen: set[str] = set()
+        merged: list[str] = []
+        for item in all_items:
+            if item not in seen:
+                seen.add(item)
+                merged.append(item)
+        return merged
+    return list(base) + list(child)
+
+
+def _deep_merge(base: dict, child: dict) -> dict:
+    """Deep-merge two raw YAML profile dicts (child wins on conflict)."""
+    merged = dict(base)
+    for key, child_val in child.items():
+        if key not in base:
+            merged[key] = child_val
+        else:
+            base_val = base[key]
+            if isinstance(base_val, dict) and isinstance(child_val, dict):
+                merged[key] = _deep_merge(base_val, child_val)
+            elif isinstance(base_val, list) and isinstance(child_val, list):
+                merged[key] = _merge_lists(base_val, child_val)
+            else:
+                merged[key] = child_val
+    return merged
+
+
+def _resolve_extends(
+    raw: dict[str, Any], profile_path: Path, chain: list[Path] | None = None
+) -> dict[str, Any]:
+    """Resolve ``extends`` chain, returning a fully merged raw YAML dict.
+
+    Args:
+        raw: The raw YAML dict from the current file.
+        profile_path: Resolved path to the current YAML file.
+        chain: Paths already visited (for circular-reference detection).
+
+    Returns:
+        Merged raw dict with ``extends`` consumed.
+
+    Raises:
+        BuildProfileError: On missing base, circular reference, or bad YAML.
+    """
+    if chain is None:
+        chain = []
+
+    resolved = profile_path.resolve()
+    if resolved in chain:
+        cycle = " -> ".join(str(p) for p in chain) + f" -> {resolved}"
+        raise BuildProfileError(f"Circular extends detected: {cycle}")
+    chain.append(resolved)
+
+    extends_value = raw.pop("extends", None)
+    if extends_value is None:
+        return raw
+
+    base_path = (profile_path.parent / extends_value).resolve()
+    if not base_path.exists():
+        raise BuildProfileError(
+            f"Extended profile not found: {extends_value} "
+            f"(resolved to {base_path})"
+        )
+
+    try:
+        base_raw = yaml.safe_load(base_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as e:
+        raise BuildProfileError(f"Invalid YAML in {base_path}: {e}") from e
+
+    if not isinstance(base_raw, dict):
+        raise BuildProfileError(
+            f"Extended profile must be a YAML mapping: {base_path}"
+        )
+
+    # Recurse: the base may itself extend another profile
+    base_raw = _resolve_extends(base_raw, base_path, chain)
+
+    return _deep_merge(base_raw, raw)
+
+
 @dataclass
 class BuildProfile:
     """Complete build profile parsed from YAML."""
@@ -221,6 +315,8 @@ def load_profile(path: Path) -> BuildProfile:
 
     if not isinstance(raw, dict):
         raise BuildProfileError(f"Profile must be a YAML mapping, got {type(raw).__name__}")
+
+    raw = _resolve_extends(raw, path.resolve())
 
     profile = _parse_profile(raw)
     profile_dir = path.parent

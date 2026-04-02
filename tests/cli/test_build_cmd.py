@@ -866,3 +866,317 @@ class TestBuildCLI:
         runner = CliRunner()
         result = runner.invoke(cli, ["build", "test-proj", "/nonexistent/profile.yml"])
         assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# Profile Inheritance (extends:)
+# ---------------------------------------------------------------------------
+
+
+def _write_yaml(path: Path, data: dict) -> Path:
+    """Helper to write a YAML file and return its path."""
+    path.write_text(yaml.dump(data, default_flow_style=False))
+    return path
+
+
+class TestProfileExtends:
+    """Tests for profile inheritance via the ``extends:`` keyword."""
+
+    def _make_base(self, tmp_path: Path) -> Path:
+        """Create a base profile with overlay source files."""
+        # Create overlay source so validation passes
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(exist_ok=True)
+        (data_dir / "channels.json").write_text("{}")
+
+        return _write_yaml(
+            tmp_path / "base.yml",
+            {
+                "name": "Base Profile",
+                "data_bundle": "control_assistant",
+                "provider": "cborg",
+                "model": "opus",
+                "hooks": ["hook-a", "hook-b"],
+                "rules": ["rule-x"],
+                "config": {
+                    "control_system.type": "mock",
+                    "archiver.type": "mock",
+                },
+                "overlay": {
+                    "data/channels.json": "data/channels.json",
+                },
+                "mcp_servers": {
+                    "server_one": {
+                        "command": "python",
+                        "args": ["-m", "server_one"],
+                        "permissions": {"allow": ["tool_a", "tool_b"]},
+                    },
+                },
+                "env": {
+                    "required": ["API_KEY"],
+                    "defaults": {"LOG_LEVEL": "info"},
+                },
+                "dependencies": ["fastmcp>=2.0", "pyepics>=3.5"],
+            },
+        )
+
+    def test_basic_extends(self, tmp_path: Path):
+        """Child inherits base fields and overrides name."""
+        self._make_base(tmp_path)
+        child_path = _write_yaml(
+            tmp_path / "child.yml",
+            {"extends": "base.yml", "name": "Child Profile"},
+        )
+
+        profile = load_profile(child_path)
+        assert profile.name == "Child Profile"
+        assert profile.hooks == ["hook-a", "hook-b"]
+        assert profile.rules == ["rule-x"]
+        assert profile.provider == "cborg"
+
+    def test_scalar_override(self, tmp_path: Path):
+        """Child overrides scalar fields; unmentioned scalars inherited."""
+        self._make_base(tmp_path)
+        child_path = _write_yaml(
+            tmp_path / "child.yml",
+            {"extends": "base.yml", "name": "Child", "model": "haiku"},
+        )
+
+        profile = load_profile(child_path)
+        assert profile.model == "haiku"
+        assert profile.provider == "cborg"  # inherited
+
+    def test_dict_deep_merge(self, tmp_path: Path):
+        """Config dicts are deep-merged; child keys override, base keys preserved."""
+        self._make_base(tmp_path)
+        child_path = _write_yaml(
+            tmp_path / "child.yml",
+            {
+                "extends": "base.yml",
+                "name": "Child",
+                "config": {
+                    "archiver.type": "epics_archiver",  # override
+                    "system.timezone": "UTC",  # new key
+                },
+            },
+        )
+
+        profile = load_profile(child_path)
+        assert profile.config["control_system.type"] == "mock"  # inherited
+        assert profile.config["archiver.type"] == "epics_archiver"  # overridden
+        assert profile.config["system.timezone"] == "UTC"  # new
+
+    def test_list_union_dedup(self, tmp_path: Path):
+        """String lists are unioned with dedup, base order preserved."""
+        self._make_base(tmp_path)
+        child_path = _write_yaml(
+            tmp_path / "child.yml",
+            {
+                "extends": "base.yml",
+                "name": "Child",
+                "hooks": ["hook-b", "hook-c"],  # hook-b is a dup
+            },
+        )
+
+        profile = load_profile(child_path)
+        assert profile.hooks == ["hook-a", "hook-b", "hook-c"]
+
+    def test_mcp_server_deep_merge(self, tmp_path: Path):
+        """MCP servers are deep-merged: child adds url, inherits permissions."""
+        # Base with permissions-only server (can't be built standalone)
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(exist_ok=True)
+        (data_dir / "channels.json").write_text("{}")
+
+        _write_yaml(
+            tmp_path / "base.yml",
+            {
+                "name": "Base",
+                "data_bundle": "control_assistant",
+                "config": {"control_system.type": "mock"},
+                "mcp_servers": {
+                    "matlab": {
+                        "permissions": {"allow": ["mml_search", "mml_get"]},
+                    },
+                },
+            },
+        )
+        child_path = _write_yaml(
+            tmp_path / "child.yml",
+            {
+                "extends": "base.yml",
+                "name": "Child",
+                "mcp_servers": {
+                    "matlab": {"url": "http://localhost:8001/sse"},
+                },
+            },
+        )
+
+        profile = load_profile(child_path)
+        matlab = profile.mcp_servers["matlab"]
+        assert matlab.url == "http://localhost:8001/sse"
+        assert "mml_search" in matlab.permissions["allow"]
+        assert "mml_get" in matlab.permissions["allow"]
+
+    def test_overlay_merge(self, tmp_path: Path):
+        """Child adds new overlay entries to base set."""
+        self._make_base(tmp_path)
+        # Create extra overlay source
+        rules_dir = tmp_path / "overlays" / "rules"
+        rules_dir.mkdir(parents=True)
+        (rules_dir / "safety.md").write_text("# Safety")
+
+        child_path = _write_yaml(
+            tmp_path / "child.yml",
+            {
+                "extends": "base.yml",
+                "name": "Child",
+                "overlay": {
+                    "overlays/rules/safety.md": ".claude/rules/safety.md",
+                },
+            },
+        )
+
+        profile = load_profile(child_path)
+        assert "data/channels.json" in profile.overlay  # inherited
+        assert "overlays/rules/safety.md" in profile.overlay  # added
+
+    def test_env_merge(self, tmp_path: Path):
+        """Env is deep-merged: file overridden, required unioned, defaults merged."""
+        self._make_base(tmp_path)
+        # Create the env file that the child references
+        (tmp_path / ".env.local").write_text("API_KEY=test\n")
+
+        child_path = _write_yaml(
+            tmp_path / "child.yml",
+            {
+                "extends": "base.yml",
+                "name": "Child",
+                "env": {
+                    "file": ".env.local",
+                    "required": ["API_KEY", "EXTRA_VAR"],
+                    "defaults": {"DEBUG": "true"},
+                },
+            },
+        )
+
+        profile = load_profile(child_path)
+        assert profile.env.file == ".env.local"  # overridden
+        assert "API_KEY" in profile.env.required  # from both (deduped)
+        assert "EXTRA_VAR" in profile.env.required  # from child
+        assert profile.env.defaults["LOG_LEVEL"] == "info"  # inherited
+        assert profile.env.defaults["DEBUG"] == "true"  # from child
+
+    def test_circular_extends(self, tmp_path: Path):
+        """Circular extends chain is detected."""
+        _write_yaml(tmp_path / "a.yml", {"extends": "b.yml", "name": "A"})
+        _write_yaml(tmp_path / "b.yml", {"extends": "a.yml", "name": "B"})
+
+        with pytest.raises(BuildProfileError, match="Circular extends"):
+            load_profile(tmp_path / "a.yml")
+
+    def test_missing_base_file(self, tmp_path: Path):
+        """Extends referencing a nonexistent file raises a clear error."""
+        child_path = _write_yaml(
+            tmp_path / "child.yml",
+            {"extends": "nonexistent.yml", "name": "Child"},
+        )
+
+        with pytest.raises(BuildProfileError, match="Extended profile not found"):
+            load_profile(child_path)
+
+    def test_multi_level_extends(self, tmp_path: Path):
+        """A extends B extends C resolves correctly."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(exist_ok=True)
+        (data_dir / "channels.json").write_text("{}")
+
+        _write_yaml(
+            tmp_path / "grandparent.yml",
+            {
+                "name": "Grandparent",
+                "data_bundle": "control_assistant",
+                "provider": "cborg",
+                "model": "opus",
+                "hooks": ["hook-a"],
+                "config": {"control_system.type": "mock"},
+                "mcp_servers": {
+                    "srv": {"command": "python", "args": ["-m", "srv"]},
+                },
+            },
+        )
+        _write_yaml(
+            tmp_path / "parent.yml",
+            {
+                "extends": "grandparent.yml",
+                "name": "Parent",
+                "hooks": ["hook-b"],
+                "rules": ["rule-x"],
+            },
+        )
+        child_path = _write_yaml(
+            tmp_path / "child.yml",
+            {
+                "extends": "parent.yml",
+                "name": "Child",
+                "hooks": ["hook-c"],
+            },
+        )
+
+        profile = load_profile(child_path)
+        assert profile.name == "Child"
+        assert profile.hooks == ["hook-a", "hook-b", "hook-c"]
+        assert profile.rules == ["rule-x"]  # inherited from parent
+        assert profile.provider == "cborg"  # inherited from grandparent
+
+    def test_no_extends_unchanged(self, minimal_profile_yaml: Path):
+        """Profiles without extends work exactly as before."""
+        profile = load_profile(minimal_profile_yaml)
+        assert profile.name == "Test Profile"
+        assert profile.model == "haiku"
+
+    def test_lifecycle_concatenation(self, tmp_path: Path):
+        """Lifecycle step lists are concatenated (base first, child appended)."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(exist_ok=True)
+        (data_dir / "channels.json").write_text("{}")
+
+        _write_yaml(
+            tmp_path / "base.yml",
+            {
+                "name": "Base",
+                "data_bundle": "control_assistant",
+                "config": {"control_system.type": "mock"},
+                "mcp_servers": {
+                    "srv": {"command": "python", "args": ["-m", "srv"]},
+                },
+                "lifecycle": {
+                    "post_build": [{"name": "step-base", "run": "echo base"}],
+                },
+            },
+        )
+        child_path = _write_yaml(
+            tmp_path / "child.yml",
+            {
+                "extends": "base.yml",
+                "name": "Child",
+                "lifecycle": {
+                    "post_build": [{"name": "step-child", "run": "echo child"}],
+                },
+            },
+        )
+
+        profile = load_profile(child_path)
+        names = [s.name for s in profile.lifecycle.post_build]
+        assert names == ["step-base", "step-child"]
+
+    def test_extends_key_stripped(self, tmp_path: Path):
+        """The extends key does not leak into the parsed BuildProfile."""
+        self._make_base(tmp_path)
+        child_path = _write_yaml(
+            tmp_path / "child.yml",
+            {"extends": "base.yml", "name": "Child"},
+        )
+
+        profile = load_profile(child_path)
+        assert not hasattr(profile, "extends")
