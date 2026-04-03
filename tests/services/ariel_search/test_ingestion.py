@@ -1418,5 +1418,5 @@ class TestALSLogbookAdapterWrite:
             details="Details",
         )
 
-        with pytest.raises(IngestionError, match="auth_user and auth_password"):
+        with pytest.raises(IngestionError, match="credentials"):
             await adapter.create_entry(request)

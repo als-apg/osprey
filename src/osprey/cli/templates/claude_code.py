@@ -23,6 +23,7 @@ def build_claude_code_context(
     jinja_env,
     project_dir: Path,
     config: dict,
+    project_root_override: Path | str | None = None,
 ) -> dict:
     """Build template context for Claude Code artifact rendering.
 
@@ -72,7 +73,7 @@ def build_claude_code_context(
     ctx = {
         "project_name": project_name,
         "package_name": package_name,
-        "project_root": str(project_dir.absolute()),
+        "project_root": str(project_root_override) if project_root_override else str(project_dir.absolute()),
         "current_python_env": (
             config.get("execution", {}).get("python_env_path")
             or sys.executable
@@ -462,6 +463,7 @@ def regenerate_claude_code(
     jinja_env,
     project_dir: Path,
     dry_run: bool = False,
+    project_root_override: Path | str | None = None,
 ) -> dict:
     """Regenerate Claude Code artifacts from current config.yml.
 
@@ -473,6 +475,9 @@ def regenerate_claude_code(
         jinja_env: Jinja2 environment for template rendering
         project_dir: Root directory of the project
         dry_run: If True, report what would change without writing files
+        project_root_override: If set, use this path as ``project_root`` in
+            the rendered context instead of ``project_dir``.  ``project_dir``
+            is still used for all file I/O (reading config, writing output).
 
     Returns:
         Dict with 'changed', 'unchanged', and 'backup_dir' keys
@@ -491,7 +496,10 @@ def regenerate_claude_code(
 
     config = resolve_env_vars(config)
 
-    ctx = build_claude_code_context(template_root, jinja_env, project_dir, config)
+    ctx = build_claude_code_context(
+        template_root, jinja_env, project_dir, config,
+        project_root_override=project_root_override,
+    )
 
     # Resolve allowed_outputs from .osprey-manifest.json artifact list.
     # Fall back to loading the template's manifest.yml for legacy projects.

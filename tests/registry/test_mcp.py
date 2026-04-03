@@ -76,6 +76,27 @@ class TestResolveServers:
         assert s["permissions_ask"] == ["write_data"]
         assert s["is_custom"] is True
 
+    def test_resolve_custom_server_url_transport(self):
+        """Custom URL/SSE server resolves with url field, empty command."""
+        ctx = _base_ctx()
+        cfg = {
+            "servers": {
+                "remote-api": {
+                    "url": "http://remote:8001/sse",
+                    "permissions": {"allow": ["search"], "ask": []},
+                }
+            }
+        }
+        servers = resolve_servers(cfg, ctx)
+        remote = [s for s in servers if s["name"] == "remote-api"]
+        assert len(remote) == 1
+        s = remote[0]
+        assert s["url"] == "http://remote:8001/sse"
+        assert s["command"] == ""
+        assert s["args"] == []
+        assert s["permissions_allow"] == ["search"]
+        assert s["is_custom"] is True
+
     def test_resolve_conditional_server_enabled(self):
         """channel_finder_pipeline in ctx → channel-finder server enabled."""
         ctx = _base_ctx(channel_finder_pipeline="hierarchical")
@@ -403,6 +424,27 @@ class TestTemplateRendering:
         rendered = self._render(template_manager, "claude_code/mcp.json.j2", ctx)
         data = json.loads(rendered)
         assert "channel-finder" in data["mcpServers"]
+
+    def test_render_mcp_json_url_server(self, template_manager):
+        """URL/SSE servers render as {type: sse, url: ...} entries."""
+        ctx = self._full_ctx(
+            _claude_code_config={
+                "servers": {
+                    "remote-api": {
+                        "url": "http://remote:8001/sse",
+                    }
+                }
+            }
+        )
+        rendered = self._render(template_manager, "claude_code/mcp.json.j2", ctx)
+        data = json.loads(rendered)
+        assert "remote-api" in data["mcpServers"]
+        remote = data["mcpServers"]["remote-api"]
+        assert remote == {"type": "sse", "url": "http://remote:8001/sse"}
+        # Framework servers still have command/args, no type
+        controls = data["mcpServers"]["controls"]
+        assert "command" in controls
+        assert "type" not in controls
 
     def test_render_settings_json(self, template_manager):
         """Rendered settings.json is valid JSON with permissions and hooks."""

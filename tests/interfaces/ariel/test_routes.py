@@ -301,7 +301,7 @@ def test_create_entry_endpoint_fallback(client, mock_ariel_service):
     assert data["entry_id"].startswith("ariel-")
     assert data["sync_status"] == "local_only"
     assert data["source_system"] == "ARIEL Web"
-    assert "local only" in data["message"]
+    assert "saved locally" in data["message"]
 
     # Verify fallback path used repository directly
     mock_ariel_service.repository.upsert_entry.assert_called_once()

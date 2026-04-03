@@ -404,18 +404,26 @@ class TemplateManager:
 
         return project_dir
 
-    def regenerate_claude_code(self, project_dir: Path, dry_run: bool = False) -> dict:
+    def regenerate_claude_code(
+        self,
+        project_dir: Path,
+        dry_run: bool = False,
+        project_root_override: Path | str | None = None,
+    ) -> dict:
         """Regenerate Claude Code artifacts from current config.yml.
 
         Args:
             project_dir: Root directory of the project
             dry_run: If True, report what would change without writing files
+            project_root_override: If set, use this path as ``project_root``
+                in the rendered context instead of ``project_dir``.
 
         Returns:
             Dict with 'changed', 'unchanged', and 'backup_dir' keys
         """
         return claude_code.regenerate_claude_code(
-            self.template_root, self.jinja_env, project_dir, dry_run
+            self.template_root, self.jinja_env, project_dir, dry_run,
+            project_root_override=project_root_override,
         )
 
     def generate_manifest(

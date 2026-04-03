@@ -45,6 +45,13 @@ logger = get_logger("build")
 @click.option("--stream", "-s", is_flag=True, help="Stream lifecycle step output in real-time")
 @click.option("--skip-lifecycle", is_flag=True, help="Skip pre_build, post_build, and validate phases")
 @click.option("--skip-deps", is_flag=True, help="Skip venv creation and dependency installation (CI mode)")
+@click.option(
+    "--runtime-root",
+    type=click.Path(),
+    default=None,
+    help="Override project_root in rendered config (for container builds where the "
+    "build path differs from the runtime path, e.g. --runtime-root /app/als-assistant)",
+)
 def build(
     project_name: str,
     profile: str,
@@ -53,6 +60,7 @@ def build(
     stream: bool,
     skip_lifecycle: bool,
     skip_deps: bool,
+    runtime_root: str | None,
 ) -> None:
     """Build a facility-specific assistant from a profile.
 
@@ -173,7 +181,10 @@ def build(
 
         # 6d. Resolve python_env for template context
         python_env = build_profile.python_env or "project"
-        if python_env == "project":
+        if skip_deps:
+            # No venv created — use bare "python" resolved from PATH at runtime
+            resolved_python_env = "python"
+        elif python_env == "project":
             resolved_python_env = str(project_path / ".venv" / "bin" / "python")
         elif python_env == "build":
             import sys
@@ -181,6 +192,10 @@ def build(
         else:
             resolved_python_env = python_env
         context["current_python_env"] = resolved_python_env
+
+        # 6e. Override project_root for container builds
+        if runtime_root:
+            context["project_root"] = str(runtime_root)
 
         # 7. Create project from template
         manager = TemplateManager()
@@ -222,10 +237,10 @@ def build(
             if reg_count:
                 logger.info("  ✓ Registered %d overlay artifact(s) in config.yml", reg_count)
 
-        # 12. Inject MCP servers
+        # 12. Persist profile MCP servers to config.yml
         if build_profile.mcp_servers:
-            _inject_mcp_servers(project_path, build_profile.mcp_servers)
-            logger.info("  ✓ Injected %d MCP server(s)", len(build_profile.mcp_servers))
+            _persist_mcp_servers(project_path, build_profile.mcp_servers)
+            logger.info("  ✓ Persisted %d MCP server(s) to config.yml", len(build_profile.mcp_servers))
 
         # 13. Copy profile .env file (if provided)
         if build_profile.env.file:
@@ -252,6 +267,14 @@ def build(
             context=manifest_context,
             artifacts=artifacts or None,
         )
+
+        # 16b. Re-render Claude Code files with complete config
+        # Profile MCP servers are now in config.yml (step 12), so regen
+        # picks them up alongside framework servers.
+        manager.regenerate_claude_code(
+            project_path, project_root_override=runtime_root,
+        )
+        logger.info("  ✓ Re-rendered Claude Code artifacts")
 
         # 17. Git init + commit
         _git_init_and_commit(project_path)
@@ -966,87 +989,50 @@ def _register_overlay_artifacts(project_path: Path, overlay_dict: dict[str, str]
     return registered
 
 
-def _inject_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> None:
-    """Inject MCP server definitions into .mcp.json and .claude/settings.json.
+def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> None:
+    """Persist profile MCP server definitions into config.yml's claude_code.servers.
 
-    For each server:
-      - Adds command/args/env to .mcp.json mcpServers
-      - Adds tool permissions to .claude/settings.json permissions.allow/ask
-      - Resolves {project_root} placeholders in args and env values
+    Servers are written in the format that ``_custom_server_from_spec()`` parses,
+    so ``regenerate_claude_code()`` can reconstruct them into the rendered
+    ``.mcp.json`` and ``settings.json``.  Placeholders like ``{project_root}``
+    are preserved as-is — resolution happens during regen.
     """
+    from osprey.utils.config_writer import _load, _save
     from .build_profile import McpServerDef
 
-    # --- .mcp.json ---
-    mcp_json_path = project_path / ".mcp.json"
-    if mcp_json_path.exists():
-        mcp_data = json.loads(mcp_json_path.read_text(encoding="utf-8"))
-    else:
-        mcp_data = {}
+    config_path = project_path / "config.yml"
+    data = _load(config_path)
 
-    mcp_servers_section = mcp_data.setdefault("mcpServers", {})
+    # Ensure claude_code.servers section exists
+    if "claude_code" not in data:
+        from ruamel.yaml import CommentedMap
+        data["claude_code"] = CommentedMap()
+    cc = data["claude_code"]
+    if "servers" not in cc:
+        from ruamel.yaml import CommentedMap
+        cc["servers"] = CommentedMap()
+    servers_section = cc["servers"]
 
     for name, server in mcp_servers.items():
         if not isinstance(server, McpServerDef):
             continue
-        if name in mcp_servers_section:
-            logger.warning("  MCP server '%s' already exists in .mcp.json — skipping", name)
-            continue
 
+        spec: dict[str, Any] = {}
         if server.url:
-            # HTTP/SSE transport — just a URL, no local process
-            entry: dict[str, Any] = {
-                "type": "sse",
-                "url": server.url,
-            }
+            spec["url"] = server.url
         else:
-            # Stdio transport — resolve bare `python` to the project venv Python
-            # so MCP servers use the right interpreter (with profile deps) at runtime.
-            command = server.command
-            if command == "python":
-                command = str(project_path / ".venv" / "bin" / "python")
-
-            entry = {
-                "command": command,
-                "args": [_resolve_placeholders(a, project_path) for a in server.args],
-            }
+            if server.command:
+                spec["command"] = server.command
+            if server.args:
+                spec["args"] = list(server.args)
             if server.env:
-                entry["env"] = {
-                    k: _resolve_placeholders(v, project_path) for k, v in server.env.items()
-                }
-        mcp_servers_section[name] = entry
+                spec["env"] = dict(server.env)
+        if server.permissions:
+            spec["permissions"] = dict(server.permissions)
 
-    mcp_json_path.write_text(json.dumps(mcp_data, indent=2) + "\n", encoding="utf-8")
+        servers_section[name] = spec
 
-    # --- .claude/settings.json ---
-    settings_path = project_path / ".claude" / "settings.json"
-    if settings_path.exists():
-        settings = json.loads(settings_path.read_text(encoding="utf-8"))
-    else:
-        settings = {}
-
-    permissions = settings.setdefault("permissions", {})
-    allow_list: list[str] = permissions.setdefault("allow", [])
-    ask_list: list[str] = permissions.setdefault("ask", [])
-
-    for name, server in mcp_servers.items():
-        if not isinstance(server, McpServerDef):
-            continue
-        for tool in server.permissions.get("allow", []):
-            entry = f"mcp__{name}__{tool}"
-            if entry not in allow_list:
-                allow_list.append(entry)
-        for tool in server.permissions.get("ask", []):
-            entry = f"mcp__{name}__{tool}"
-            if entry not in ask_list:
-                ask_list.append(entry)
-
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
-
-
-def _resolve_placeholders(value: str, project_path: Path) -> str:
-    """Replace {project_root} with the actual project path."""
-    return value.replace("{project_root}", str(project_path))
+    _save(config_path, data)
 
 
 def _git_init_and_commit(project_path: Path) -> None:

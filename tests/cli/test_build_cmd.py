@@ -348,17 +348,66 @@ class TestValidation:
 class TestBuildHelpers:
     """Tests for build_cmd.py helper functions."""
 
-    def test_resolve_placeholders(self):
-        from osprey.cli.build_cmd import _resolve_placeholders
+    def test_persist_mcp_servers_url(self, tmp_path: Path):
+        """_persist_mcp_servers writes URL server to config.yml claude_code.servers."""
+        from osprey.cli.build_cmd import _persist_mcp_servers
 
-        result = _resolve_placeholders("{project_root}/config.yml", Path("/tmp/test"))
-        assert result == "/tmp/test/config.yml"
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        (project_path / "config.yml").write_text("facility_name: test\n")
 
-    def test_resolve_placeholders_no_match(self):
-        from osprey.cli.build_cmd import _resolve_placeholders
+        servers = {
+            "matlab": McpServerDef(url="http://matlab:8001/sse"),
+        }
+        _persist_mcp_servers(project_path, servers)
 
-        result = _resolve_placeholders("plain-string", Path("/tmp/test"))
-        assert result == "plain-string"
+        config = yaml.safe_load((project_path / "config.yml").read_text())
+        assert "matlab" in config["claude_code"]["servers"]
+        assert config["claude_code"]["servers"]["matlab"]["url"] == "http://matlab:8001/sse"
+
+    def test_persist_mcp_servers_stdio(self, tmp_path: Path):
+        """_persist_mcp_servers writes stdio server with command/args/env."""
+        from osprey.cli.build_cmd import _persist_mcp_servers
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        (project_path / "config.yml").write_text("facility_name: test\n")
+
+        servers = {
+            "confluence": McpServerDef(
+                command="uvx",
+                args=["--python=3.12", "mcp-atlassian"],
+                env={"CONFLUENCE_URL": "https://wiki.example.com"},
+            ),
+        }
+        _persist_mcp_servers(project_path, servers)
+
+        config = yaml.safe_load((project_path / "config.yml").read_text())
+        entry = config["claude_code"]["servers"]["confluence"]
+        assert entry["command"] == "uvx"
+        assert entry["args"] == ["--python=3.12", "mcp-atlassian"]
+        assert entry["env"]["CONFLUENCE_URL"] == "https://wiki.example.com"
+
+    def test_persist_mcp_servers_permissions(self, tmp_path: Path):
+        """_persist_mcp_servers preserves permission structure in config.yml."""
+        from osprey.cli.build_cmd import _persist_mcp_servers
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        (project_path / "config.yml").write_text("facility_name: test\n")
+
+        servers = {
+            "phoebus": McpServerDef(
+                url="http://phoebus:8003/sse",
+                permissions={"allow": ["phoebus_launch"], "ask": ["dangerous_op"]},
+            ),
+        }
+        _persist_mcp_servers(project_path, servers)
+
+        config = yaml.safe_load((project_path / "config.yml").read_text())
+        entry = config["claude_code"]["servers"]["phoebus"]
+        assert entry["permissions"]["allow"] == ["phoebus_launch"]
+        assert entry["permissions"]["ask"] == ["dangerous_op"]
 
     def test_copy_overlay_path_traversal_guard(self, tmp_path: Path):
         """_copy_overlay_files should reject destinations that escape project root."""
@@ -411,98 +460,13 @@ class TestBuildHelpers:
         assert (project_path / "_mcp_servers" / "server_pkg" / "__init__.py").exists()
         assert (project_path / "_mcp_servers" / "server_pkg" / "main.py").exists()
 
-    def test_inject_mcp_servers_mcp_json(self, tmp_path: Path):
-        """_inject_mcp_servers should add server to .mcp.json."""
-        from osprey.cli.build_cmd import _inject_mcp_servers
+    def test_persist_mcp_servers_writes_to_config(self, tmp_path: Path):
+        """_persist_mcp_servers adds servers to claude_code.servers in config.yml."""
+        from osprey.cli.build_cmd import _persist_mcp_servers
 
         project_path = tmp_path / "project"
         project_path.mkdir()
-        (project_path / ".mcp.json").write_text('{"mcpServers": {}}')
-        (project_path / ".claude").mkdir()
-        (project_path / ".claude" / "settings.json").write_text(
-            '{"permissions": {"allow": [], "ask": []}}'
-        )
-
-        servers = {
-            "phoebus": McpServerDef(
-                command="python",
-                args=["-m", "phoebus"],
-                env={"CONFIG": "{project_root}/config.yml"},
-                permissions={"allow": ["phoebus_launch"], "ask": []},
-            ),
-        }
-        _inject_mcp_servers(project_path, servers)
-
-        mcp_data = json.loads((project_path / ".mcp.json").read_text())
-        assert "phoebus" in mcp_data["mcpServers"]
-        server_entry = mcp_data["mcpServers"]["phoebus"]
-        assert server_entry["command"] == str(project_path / ".venv" / "bin" / "python")
-        assert server_entry["args"] == ["-m", "phoebus"]
-        # Verify placeholder resolution
-        assert server_entry["env"]["CONFIG"] == f"{project_path}/config.yml"
-
-    def test_inject_mcp_servers_permissions(self, tmp_path: Path):
-        """_inject_mcp_servers should add tool permissions to settings.json."""
-        from osprey.cli.build_cmd import _inject_mcp_servers
-
-        project_path = tmp_path / "project"
-        project_path.mkdir()
-        (project_path / ".mcp.json").write_text('{"mcpServers": {}}')
-        (project_path / ".claude").mkdir()
-        (project_path / ".claude" / "settings.json").write_text(
-            '{"permissions": {"allow": ["existing_perm"], "ask": []}}'
-        )
-
-        servers = {
-            "phoebus": McpServerDef(
-                command="python",
-                args=[],
-                permissions={"allow": ["phoebus_launch"], "ask": ["dangerous_op"]},
-            ),
-        }
-        _inject_mcp_servers(project_path, servers)
-
-        settings = json.loads((project_path / ".claude" / "settings.json").read_text())
-        assert "mcp__phoebus__phoebus_launch" in settings["permissions"]["allow"]
-        assert "existing_perm" in settings["permissions"]["allow"]
-        assert "mcp__phoebus__dangerous_op" in settings["permissions"]["ask"]
-
-    def test_inject_mcp_servers_no_duplicate_permissions(self, tmp_path: Path):
-        """Running inject twice shouldn't duplicate permission entries."""
-        from osprey.cli.build_cmd import _inject_mcp_servers
-
-        project_path = tmp_path / "project"
-        project_path.mkdir()
-        (project_path / ".mcp.json").write_text('{"mcpServers": {}}')
-        (project_path / ".claude").mkdir()
-        (project_path / ".claude" / "settings.json").write_text(
-            '{"permissions": {"allow": ["mcp__phoebus__phoebus_launch"], "ask": []}}'
-        )
-
-        servers = {
-            "phoebus": McpServerDef(
-                command="python",
-                args=[],
-                permissions={"allow": ["phoebus_launch"], "ask": []},
-            ),
-        }
-        _inject_mcp_servers(project_path, servers)
-
-        settings = json.loads((project_path / ".claude" / "settings.json").read_text())
-        # Should appear only once
-        assert settings["permissions"]["allow"].count("mcp__phoebus__phoebus_launch") == 1
-
-    def test_inject_mcp_servers_url_transport(self, tmp_path: Path):
-        """_inject_mcp_servers should emit SSE entries for URL-based servers."""
-        from osprey.cli.build_cmd import _inject_mcp_servers
-
-        project_path = tmp_path / "project"
-        project_path.mkdir()
-        (project_path / ".mcp.json").write_text('{"mcpServers": {}}')
-        (project_path / ".claude").mkdir()
-        (project_path / ".claude" / "settings.json").write_text(
-            '{"permissions": {"allow": [], "ask": []}}'
-        )
+        (project_path / "config.yml").write_text("facility_name: test\n")
 
         servers = {
             "remote_server": McpServerDef(
@@ -512,25 +476,47 @@ class TestBuildHelpers:
             "local_tool": McpServerDef(
                 command="npx",
                 args=["-y", "some-mcp-server"],
+                env={"API_KEY": "secret"},
                 permissions={"allow": ["do_thing"], "ask": []},
             ),
         }
-        _inject_mcp_servers(project_path, servers)
+        _persist_mcp_servers(project_path, servers)
 
-        mcp_data = json.loads((project_path / ".mcp.json").read_text())
-        # URL server should have type + url, no command
-        remote_entry = mcp_data["mcpServers"]["remote_server"]
-        assert remote_entry == {"type": "sse", "url": "http://remote-host:8001/sse"}
+        config = yaml.safe_load((project_path / "config.yml").read_text())
+        persisted = config["claude_code"]["servers"]
 
-        # Stdio server should have command + args, no type
-        local_entry = mcp_data["mcpServers"]["local_tool"]
-        assert local_entry["command"] == "npx"
-        assert "type" not in local_entry
+        # URL server
+        assert persisted["remote_server"]["url"] == "http://remote-host:8001/sse"
+        assert "command" not in persisted["remote_server"]
+        assert persisted["remote_server"]["permissions"]["allow"] == ["search", "get"]
 
-        # Permissions should be set for both
-        settings = json.loads((project_path / ".claude" / "settings.json").read_text())
-        assert "mcp__remote_server__search" in settings["permissions"]["allow"]
-        assert "mcp__local_tool__do_thing" in settings["permissions"]["allow"]
+        # Stdio server
+        assert persisted["local_tool"]["command"] == "npx"
+        assert persisted["local_tool"]["args"] == ["-y", "some-mcp-server"]
+        assert persisted["local_tool"]["env"]["API_KEY"] == "secret"
+        assert "url" not in persisted["local_tool"]
+
+    def test_persist_mcp_servers_preserves_existing_config(self, tmp_path: Path):
+        """_persist_mcp_servers doesn't clobber existing config.yml entries."""
+        from osprey.cli.build_cmd import _persist_mcp_servers
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        (project_path / "config.yml").write_text(
+            "facility_name: test\nclaude_code:\n  permissions:\n    allow: [existing]\n"
+        )
+
+        servers = {
+            "my_server": McpServerDef(url="http://host:8001/sse"),
+        }
+        _persist_mcp_servers(project_path, servers)
+
+        config = yaml.safe_load((project_path / "config.yml").read_text())
+        # Original config preserved
+        assert config["facility_name"] == "test"
+        assert config["claude_code"]["permissions"]["allow"] == ["existing"]
+        # Server added
+        assert config["claude_code"]["servers"]["my_server"]["url"] == "http://host:8001/sse"
 
     def test_apply_config_overrides(self, tmp_path: Path):
         """_apply_config_overrides should update config.yml fields."""

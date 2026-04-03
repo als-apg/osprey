@@ -57,6 +57,7 @@ class ServerDefinition:
     is_external: bool = False
     external_command: str | None = None
     external_args: list[str] = field(default_factory=list)
+    url: str | None = None  # HTTP/SSE transport URL (mutually exclusive with command)
 
 
 # ---------------------------------------------------------------------------
@@ -347,6 +348,7 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition:
         is_external=True,
         external_command=spec.get("command", ""),
         external_args=spec.get("args", []),
+        url=spec.get("url"),
         permissions_allow=perms.get("allow", []),
         permissions_ask=perms.get("ask", []),
         hooks_pre=hooks_pre,
@@ -358,10 +360,14 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition:
 
 def _server_to_dict(sdef: ServerDefinition, ctx: dict) -> dict:
     """Convert a ServerDefinition into a plain dict for templates."""
-    # Resolve command
-    if sdef.is_external:
+    # Resolve command / URL
+    url = sdef.url
+    if sdef.url:
+        command = ""
+        args = []
+    elif sdef.is_external:
         command = sdef.external_command or ""
-        args = list(sdef.external_args)
+        args = [_resolve_placeholder(a, ctx) for a in sdef.external_args]
     else:
         command = ctx.get("current_python_env", "python")
         module = _resolve_placeholder(sdef.module, ctx)
@@ -382,6 +388,7 @@ def _server_to_dict(sdef: ServerDefinition, ctx: dict) -> dict:
     return {
         "name": sdef.name,
         "enabled": sdef.default_enabled,
+        "url": url,
         "command": command,
         "args": args,
         "env": env,

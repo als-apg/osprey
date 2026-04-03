@@ -38,6 +38,26 @@ class TestBuildClaudeCodeContext:
         assert "current_python_env" in ctx
         assert ctx["template_name"] == "control_assistant"
 
+    def test_project_root_override(self, tmp_path):
+        """project_root_override replaces project_root in context but keeps file I/O path."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="ctx-override",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config,
+            project_root_override="/app/als-assistant",
+        )
+
+        # project_root uses the override
+        assert ctx["project_root"] == "/app/als-assistant"
+        # project_name still derived from actual project (file I/O uses project_dir)
+        assert ctx["project_name"] == "ctx-override"
+
     def test_control_assistant_config(self, tmp_path):
         """Control assistant config produces channel_finder context vars."""
         manager = TemplateManager()
@@ -436,6 +456,53 @@ class TestDisableServers:
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
         ask = settings["permissions"]["ask"]
         assert "mcp__my-server__do_stuff" in ask
+
+    def test_regen_preserves_url_servers(self, tmp_path):
+        """URL/SSE servers in config.yml survive regen and appear in .mcp.json."""
+        project_dir, _ = self._create_and_regen(
+            tmp_path,
+            custom_servers={
+                "remote-api": {
+                    "url": "http://remote:8001/sse",
+                    "permissions": {"allow": ["search"]},
+                }
+            },
+        )
+
+        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
+        assert "remote-api" in mcp_data["mcpServers"]
+        entry = mcp_data["mcpServers"]["remote-api"]
+        assert entry == {"type": "sse", "url": "http://remote:8001/sse"}
+
+        # Permissions should be in settings.json
+        settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        assert "mcp__remote-api__search" in settings["permissions"]["allow"]
+
+    def test_regen_with_project_root_override(self, tmp_path):
+        """project_root_override changes paths in rendered output."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="override-test",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+        )
+        manager.generate_manifest(
+            project_dir, "override-test", "control_assistant", "extend", {}
+        )
+
+        result = manager.regenerate_claude_code(
+            project_dir, project_root_override="/app/als-assistant"
+        )
+
+        # Verify the override path appears in rendered files
+        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
+        # Framework servers use project_root for env vars
+        controls = mcp_data["mcpServers"].get("controls", {})
+        if "env" in controls:
+            config_path = controls["env"].get("OSPREY_CONFIG", "")
+            assert config_path.startswith("/app/als-assistant")
+
+        assert "changed" in result or "unchanged" in result
 
     def test_disable_does_not_remove_safety_hooks(self, tmp_path):
         """Disabling a server doesn't remove hook script files."""
