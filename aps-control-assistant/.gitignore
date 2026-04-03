@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Agent data
+_agent_data/
+
+# Logs
+*.log
+*.pid
+
+# Temporary
+tmp/
+temp/
+
+# OSPREY workspace (runtime data, not tracked)
+_agent_data/
+
+# Claude Code local settings (personal, not shared)
+.claude/settings.local.json
+CLAUDE.local.md

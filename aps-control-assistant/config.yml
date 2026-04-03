@@ -1,0 +1,629 @@
+# ============================================================
+# aps-control-assistant Configuration
+# ============================================================
+# Accelerator Control System Assistant
+# Based on ALS Assistant deployment (arXiv:2509.17255)
+# Claude Code project — streamlined configuration.
+# Integrated from ITS control assistant (previous osprey).
+# ============================================================
+
+# Project identity
+project_name: "aps-control-assistant"
+
+build_dir: ./build
+
+# Root directory (absolute path)
+project_root: /home/oxygen8/SHANG/next_osprey/aps-control-assistant
+
+# ============================================================
+# API CONFIGURATION
+# ============================================================
+# API keys and endpoints for LLM providers
+
+api:
+  providers:
+    cborg:
+      api_key: ${CBORG_API_KEY}
+      base_url: https://api.cborg.lbl.gov/v1
+      models:                        # Model IDs as named by this provider
+        haiku: anthropic/claude-haiku
+        sonnet: anthropic/claude-sonnet
+        opus: anthropic/claude-opus
+    amsc:
+      api_key: ${AMSC_I2_API_KEY}
+      base_url: https://api.i2-core.american-science-cloud.org/v1
+    stanford:
+      api_key: ${STANFORD_API_KEY}
+      base_url: https://aiapi-prod.stanford.edu/v1
+    openai:
+      api_key: ${OPENAI_API_KEY}
+      base_url: https://api.openai.com/v1
+    anthropic:
+      api_key: ${ANTHROPIC_API_KEY}
+      base_url: https://api.anthropic.com
+      models:
+        haiku: claude-haiku-4-5-20251001
+        sonnet: claude-sonnet-4-5-20250929
+        opus: claude-opus-4-6
+    google:
+      api_key: ${GOOGLE_API_KEY}
+      base_url: https://generativelanguage.googleapis.com/v1beta
+    ollama:
+      api_key: ollama
+      base_url: ${OLLAMA_HOST:-http://localhost:11434}
+      host: localhost
+      port: 11434
+    argo:
+      api_key: ${ARGO_API_KEY}
+      base_url: https://apps.inside.anl.gov/argoapi/v1
+    argo-dev:
+      api_key: ${ARGO_API_KEY}
+      base_url: https://apps-dev.inside.anl.gov/argoapi/v1
+    vllm:
+      api_key: sk-noop
+      base_url: http://164.54.48.12:8000/v1
+    als-apg:
+      api_key: ${ALS_APG_API_KEY}
+      base_url: https://llm.gianlucamartino.com/v1
+      models:
+        haiku: claude-haiku-4-5-20251001
+        sonnet: claude-sonnet-4-6
+        opus: claude-opus-4-6
+
+# ============================================================
+# ENVIRONMENT VARIABLES
+# ============================================================
+# Set these in your .env file:
+#
+#   CBORG_API_KEY=your-cborg-key
+#   AMSC_I2_API_KEY=your-amsc-key
+#   STANFORD_API_KEY=...
+#   ARGO_API_KEY=your-argo-key
+#   OPENAI_API_KEY=sk-...
+#   ANTHROPIC_API_KEY=sk-ant-...
+#   GOOGLE_API_KEY=...
+#   TZ=America/Chicago
+#
+# Optional (for advanced use cases):
+#   PROJECT_ROOT=/path/to/override  # Override project_root from config
+#   LOCAL_PYTHON_VENV=/path/to/venv/bin/python  # Override Python environment
+
+# ============================================================
+# CONTAINER RUNTIME
+# ============================================================
+# Container runtime selection for deployment
+# Options: auto (default), docker, podman
+# - auto: Tries Docker first, then Podman
+# - docker: Use Docker Desktop (recommended for macOS/Windows)
+# - podman: Use Podman (recommended for Linux/security-focused)
+# Can also override via CONTAINER_RUNTIME environment variable
+
+container_runtime: auto
+
+# ============================================================
+# SERVICE CONFIGURATION
+# ============================================================
+# Only PostgreSQL is needed for ARIEL logbook search
+
+services:
+  postgresql:
+    path: ./services/postgresql
+    database_name: ariel
+    username: ariel
+    password: ariel
+    port_host: 5432
+
+# Services to deploy with `osprey deploy up`
+deployed_services:
+- postgresql
+
+# ============================================================
+# SAFETY CONTROLS
+# ============================================================
+
+# Approval workflow for sensitive operations
+# Policies: always (prompt every time), selective (content-aware), skip (no approval)
+approval:
+  enabled: true
+  default_policy: "always"        # Fail-closed: unknown tools require approval
+  tools:
+    channel_write: always          # Always prompt for hardware writes
+    channel_read: skip             # Read-only, no approval needed
+    channel_limits: skip           # Read-only safety metadata, no approval needed
+    archiver_read: skip            # Historical data, no approval needed
+    execute: selective             # Content-aware: checks write patterns + exec mode
+    setup_patch: always            # Config mutation needs approval
+    entry_create: always           # ARIEL logbook write
+
+# ── Hook observability ──────────────────────────────────────────────
+# Set debug: true to enable hook activity logging to stderr.
+# Visible in the terminal where Claude Code runs.
+hooks:
+  debug: true
+
+# ============================================================
+# CONTROL SYSTEM & ARCHIVER CONFIGURATION
+# Issue #18 - Control System Abstraction
+# ============================================================
+# Unified configuration for control systems and archivers.
+# Supports mock mode (development) and production mode (EPICS, etc.)
+#
+# Development Mode: Works instantly with any channel names (no hardware required)
+# Production Mode: Connects to real control system and archiver
+# Switch modes by changing 'type' field
+
+control_system:
+  # Control system type - determines which runtime connector to use
+  # Note: Pattern detection is control-system-agnostic (same for all types)
+  # Options:
+  #   - mock: Development mode (accepts any channel names, no hardware)
+  #   - epics: Production EPICS control system
+  type: epics  # Production EPICS control system
+
+  # Write Access Control - Master safety switch for hardware control
+  # This is OPERATOR-LEVEL authorization (always hard-stops if false)
+  writes_enabled: false  # Safety default: disabled for production
+                         # Set true only when hardware control is needed
+                         # If disabled, ALL writes are blocked (non-configurable hard error)
+
+  # Runtime Channel Limits Checking
+  limits_checking:
+    enabled: true
+    database_path: "data/channel_limits.json"
+    allow_unlisted_channels: true  # Permissive mode for tutorial
+    on_violation: "skip"   # Options: "error" | "skip" (DEFAULT)
+                           # - error: Strict - ANY violation blocks entire operation
+                           # - skip: Resilient - skip invalid writes, continue with valid ones
+                           # Production: "skip" recommended for multi-channel operations
+
+  # Write Verification Configuration
+  # Configures how channel writes are verified for accuracy
+  write_verification:
+    enabled: true  # Enable verification by default
+    default_level: callback  # Options: none, callback, readback
+                            # - none: Fast write, no verification
+                            # - callback: Control system confirms processing (e.g., EPICS IOC callback)
+                            # - readback: Full verification with readback comparison
+    default_tolerance_percent: 0.1  # Default tolerance: 0.1% (one per mil)
+                                    # Only used for "readback" verification level
+                                    # Can be overridden per-channel in channel_limits.json
+    timeout: 5.0  # Timeout for verification operations
+    fail_on_mismatch: false  # false: log warning, true: raise error on verification failure
+
+  # Pattern Detection (Layer 1 - Security)
+  # Purpose: Detect ALL control system operations in generated code for approval workflows
+  #
+  # SECURITY: Catches both approved API usage AND circumvention attempts
+  # The framework automatically detects:
+  #   - Approved: osprey.runtime API (write_channel, read_channel) - has all safety features
+  #   - Security: Direct library calls (epics.caput, tango.DeviceProxy, etc.) - bypasses safety
+  #   - Future: Other control systems (LabVIEW, custom) - comprehensive detection
+  #
+  # This ensures LLM-generated code cannot bypass connector safety features (limits, verification)
+  # by directly importing control system libraries.
+  #
+  # Advanced: Extend patterns for custom control system libraries (rarely needed)
+  # Uncomment and add to customize:
+  # patterns:
+  #   write:
+  #     - 'my_custom_cs_lib\.write\('
+  #   read:
+  #     - 'my_custom_cs_lib\.read\('
+
+  # Runtime Connectors (Layer 2)
+  # Used by: Capabilities (channel_read, channel_write, archiver_retrieval)
+  #          and osprey.runtime API (read_channel, write_channel)
+  # Purpose: Actual I/O operations to control systems with built-in safety features
+  connector:
+    timeout: 5.0  # Default timeout in seconds
+
+    # Mock connector uses sensible defaults (no configuration needed)
+    # Advanced users can configure: response_delay_ms, noise_level
+
+    # EPICS connector (production mode)
+    epics:
+      timeout: 5.0
+      gateways:
+        read_only:
+          address: pvgatemain2.aps4.anl.gov
+          port: 5064
+          use_name_server: false
+        write_access:
+          address: pvgatemain2.aps4.anl.gov
+          port: 5084
+          use_name_server: false
+
+# Archiver Configuration
+archiver:
+  # Archiver type determines which connector to use
+  # Options:
+  #   - mock_archiver: Development mode (generates synthetic data)
+  #   - epics_archiver: EPICS Archiver Appliance (uses archivertools library)
+  #   - aps_archiver_connector.APSArchiverConnector: APS direct REST API (local custom connector)
+  type: aps_archiver_connector.APSArchiverConnector
+
+  # APS Archiver Appliance (direct REST API connector)
+  # Config key must match the type string exactly (with quotes for dotted key)
+  "aps_archiver_connector.APSArchiverConnector":
+    url: https://pvarchiver.aps.anl.gov
+    timeout: 60
+
+  # EPICS Archiver Appliance (archivertools library - for ALS/other facilities)
+  epics_archiver:
+    url: https://pvarchiver.aps.anl.gov
+    timeout: 60
+
+# ============================================================
+# MACHINE STATE CONFIGURATION
+# ============================================================
+machine_state:
+  channels_file: "data/machine_state_channels.json"
+
+# ============================================================
+# CHANNEL FINDER CONFIGURATION
+# ============================================================
+# Natural language channel finding service configuration
+# Pipeline mode: all
+
+channel_finder:
+  # Active pipeline mode
+  pipeline_mode: hierarchical  # "in_context" or "hierarchical"
+
+  # Explicit channel address validation mode
+  # Controls how explicit PV addresses in queries are validated against the channel finder database
+  # Options:
+  #   - lenient (DEFAULT): Accept all explicit addresses, warn if not in database
+  #                       Best for production - trusts user-provided addresses while providing feedback
+  #                       Use case: Database has 200 curated PVs, but users may reference any of 5000+ actual PVs
+  #   - strict: Only accept channels that exist in database
+  #            Best for testing - ensures all channels are documented
+  #   - skip: No validation, accept all addresses immediately (fastest)
+  #          Best for performance - when you fully trust user inputs
+  explicit_validation_mode: lenient
+
+  # Pipeline-specific configurations
+  pipelines:
+
+    # In-Context Pipeline (Semantic Search)
+    # Best for: few hundred channels (example from UCSB FEL)
+    in_context:
+      database:
+        type: flat                    # ITS PV database in flat format
+        path: data/channel_databases/its_pv_in_context.json
+        presentation_mode: explicit    # How to present device families to LLM:
+                                      # "explicit" - list all expanded channel names (BPM01XPosition, BPM02XPosition, ...)
+                                      # "template" - use pattern notation (BPM{01-10}{XPosition,YPosition})
+
+      processing:
+        chunk_dictionary: false       # Whether to chunk the database for large channel lists
+                                      # false - send entire database in one LLM call (faster, recommended for <200 channels)
+                                      # true - split database into chunks and search each independently
+        chunk_size: 50                # Number of channels per chunk when chunk_dictionary=true
+        max_correction_iterations: 2  # Maximum LLM correction attempts when invalid channels are found (0-3 recommended)
+
+      # Benchmark dataset for this pipeline
+      benchmark:
+        dataset_path: data/benchmarks/datasets/in_context_benchmark.json
+        # In-context pipeline benchmark using UCSB FEL channels (30 queries)
+
+
+    # Hierarchical Pipeline (Structured Navigation)
+    # Best for: >1,000 channels with clean naming convention
+    hierarchical:
+      database:
+        type: hierarchical            # Always "hierarchical" for this pipeline mode
+        path: data/channel_databases/hierarchical.json
+                                      # Database must follow nested structure: system → family → device → field → subfield
+
+      # Tree preview: compact database overview injected into LLM prompts
+      # Helps the model reason about where channels live before navigating
+      tree_preview:
+        enabled: true
+        max_depth: 3                  # How deep to render the tree (0 = root only)
+        max_children: 5               # Max children per node before truncating
+
+      # Feedback loop: records successful navigation paths for identical future queries
+      # Injects prior paths as hints so the LLM can resolve repeated queries faster
+      feedback:
+        enabled: true
+        store_path: data/feedback/hierarchical_feedback.json
+
+      # Benchmark dataset for this pipeline
+      benchmark:
+        dataset_path: data/benchmarks/datasets/hierarchical_benchmark.json
+        # Hierarchical pipeline benchmark with multi-level channel structure (47 queries)
+
+
+    # Middle Layer Pipeline (React Agent with MML Database)
+    # Best for: MATLAB Middle Layer (MML) style databases, functional hierarchy (System→Family→Field), device/sector filtering
+    middle_layer:
+      database:
+        type: middle_layer            # Always "middle_layer" for this pipeline mode
+        path: data/channel_databases/middle_layer.json
+                                      # Database must follow MML structure: System → Family → Field → ChannelNames
+                                      # Supports optional _description fields and device/sector filtering via DeviceList
+
+      # Benchmark dataset for this pipeline
+      benchmark:
+        dataset_path: data/benchmarks/datasets/middle_layer_benchmark.json
+        # Middle layer pipeline benchmark with functional hierarchy (35 queries, 174 channels)
+
+
+  # Benchmarking configuration
+  # The active dataset is automatically determined by the selected pipeline_mode
+  # Each pipeline defines its own benchmark dataset in channel_finder.pipelines.<mode>.benchmark
+  # You can override the dataset via CLI: python scripts/run_benchmarks.py --dataset custom_dataset
+  benchmark:
+    # Execution settings
+    execution:
+      runs_per_query: 1                 # Number of times to run each query
+      delay_between_runs: 0             # Delay in seconds between runs
+      continue_on_error: true           # Continue even if some queries fail
+      max_concurrent_queries: 5         # Maximum parallel queries
+      query_selection: all              # "all" or [0,1,2] or range notation
+
+    # Output settings
+    output:
+      results_dir: data/benchmarks/results
+      save_incremental: true            # Save results after each query
+      include_detailed_metrics: true    # Include detailed timing/cost metrics
+
+    # Evaluation thresholds
+    evaluation:
+      exact_match_weight: 1.0
+      partial_match_weight: 0.5
+
+# ============================================================
+# EXECUTION INFRASTRUCTURE
+# ============================================================
+
+# Python execution configuration
+execution:
+  execution_method: "local"              # Options: local | container
+  python_env_path: /home/oxygen8/SHANG/next_osprey/.venv/bin/python3  # Path to Python with dependencies
+
+  # Code generation configuration
+  code_generator: "claude_code"  # Options: basic | claude_code
+  generators:
+    basic:
+      # Reference the model config defined in 'models' section
+      model_config_name: "python_code_generator"
+
+    # Claude Code configuration (requires claude-agent-sdk)
+    claude_code:
+      claude_config_path: "claude_generator_config.yml"  # Path to detailed config
+      profile: "fast"        # Options: fast (DEFAULT, single-phase) | robust (multi-phase)
+
+# ============================================================
+# CLI CONFIGURATION
+# ============================================================
+# Customize the command-line interface appearance
+
+cli:
+  # Theme selection - Options: default | vulcan | custom
+  theme: "default"
+
+  # Custom theme colors (only used when theme: custom)
+  # Uncomment and modify to create your own color scheme
+  # custom_theme:
+  #   primary: "#C75F71"     # Main brand color
+  #   success: "#9988A1"     # Success messages
+  #   accent: "#F0B8B8"      # Interactive elements
+  #   command: "#9988A1"     # Shell commands
+  #   path: "#A2AE9D"        # File paths
+  #   info: "#9988A1"        # Info messages
+
+  # Custom ASCII banner (optional)
+  # Uncomment to override the default Osprey banner
+  # banner: |
+  #   Your custom ASCII art here
+
+
+# Note: Theme system logging uses the existing 'base' logger color
+# No additional logging configuration needed
+# ============================================================
+# SYSTEM CONFIGURATION
+# ============================================================
+
+system:
+  timezone: ${TZ:-America/Chicago}
+
+# File paths - Data storage organization
+file_paths:
+  agent_data_dir: _agent_data
+  executed_python_scripts_dir: executed_scripts
+  user_memory_dir: user_memory
+  api_calls_dir: api_calls
+
+# ============================================================
+# ARIEL - Electronic Logbook Search
+# ============================================================
+# ARIEL provides semantic search over electronic logbooks.
+# Configure the logbook source and search/embedding options below.
+#
+# Provider credentials are defined in api.providers section above.
+# ARIEL references providers by name (e.g., "ollama", "cborg").
+
+ariel:
+  database:
+    uri: postgresql://ariel:ariel@localhost:5432/ariel
+
+  default_max_results: 10
+
+  # Ingestion - demo logbook data (bundled with template)
+  # For production: change adapter and source_url to your logbook system
+  ingestion:
+    adapter: generic_json
+    source_url: data/logbook_seed/demo_logbook.json
+
+  # Search modules (leaf-level search functions)
+  # provider: references api.providers for credentials (api_key, base_url)
+  # Both keyword and semantic are enabled by default.
+  # If Ollama/pgvector are unavailable, ARIEL degrades gracefully to keyword-only.
+  search_modules:
+    keyword:
+      enabled: true
+    semantic:
+      enabled: true      # Degrades gracefully if Ollama/pgvector unavailable
+      provider: ollama    # References api.providers.ollama
+      model: nomic-embed-text
+
+  # Pipelines (compose search modules into higher-level strategies)
+  # retrieval_modules: which search modules each pipeline uses
+  pipelines:
+    rag:
+      enabled: true
+      retrieval_modules: [keyword, semantic]  # Semantic auto-disabled if unavailable
+
+  # Enhancement modules
+  # provider: references api.providers for credentials
+  enhancement_modules:
+    # Semantic processor: LLM-based keyword extraction and summarization
+    # Enables better keyword search and RAG context
+    semantic_processor:
+      enabled: false  # Requires LLM API calls. Enable for better search quality.
+      provider: argo  # References api.providers
+      model:
+        provider: argo
+        model_id: claudesonnet45
+        max_tokens: 256
+
+    # Text embedding: Vector embeddings for semantic search
+    # Degrades gracefully if Ollama or pgvector is unavailable
+    text_embedding:
+      enabled: true   # Degrades gracefully if Ollama/pgvector unavailable
+      provider: ollama  # References api.providers.ollama
+      models:
+      - name: nomic-embed-text
+        dimension: 768
+
+  # Default embedding provider (fallback for modules without explicit provider)
+  embedding:
+    provider: ollama
+
+  # ReAct agent configuration
+  # provider: references api.providers for credentials (api_key, base_url)
+  reasoning:
+    provider: cborg  # References api.providers.cborg for credentials
+    model_id: haiku
+    max_iterations: 5
+    temperature: 0.1
+    total_timeout_seconds: 120
+
+# ============================================================
+# LOGBOOK COMPOSITION
+# ============================================================
+# LLM settings for the logbook compose panel in the artifact gallery.
+# provider: references api.providers for credentials (api_key, base_url)
+# default_tier: which model tier to use when operator doesn't choose one
+# The operator can override the tier (haiku/sonnet/opus) from the UI;
+# the tier is mapped to a model_id via api.providers[provider].models.
+
+logbook:
+  composition:
+    provider: argo
+    model_id: claudesonnet45
+    default_tier: haiku   # Options: haiku | sonnet | opus
+
+# ============================================================
+# AGENT DATA & ARTIFACT GALLERY
+# ============================================================
+# Working directory for artifacts, data context, screenshots, etc.
+# Resolved relative to this config file's directory (project root).
+
+agent_data:
+  base_dir: "./_agent_data"
+
+# Artifact gallery web server (auto-launches on first artifact save)
+artifact_server:
+  host: "127.0.0.1"
+  port: 8086
+  auto_launch: true
+
+# ============================================================
+# CLAUDE CODE INTEGRATION
+# ============================================================
+# Controls which MCP servers and agents are generated by `osprey claude regen`.
+#
+# Auto-derived servers (always present unless disabled):
+#   controls               (core)
+#   python                 (core)
+#   workspace              (core)
+#   ariel                  (core)
+#
+# Auto-derived from config sections (present when section exists):
+#   channel_finder: section → channel-finder MCP server + channel-finder agent
+#
+# Auto-derived agents (always present unless disabled):
+#   logbook-search, logbook-deep-research
+#
+claude_code:
+  # servers:                 # Override server settings
+  #   my-server:             # Add a custom MCP server
+  #     command: "node"
+  #     args: ["my-server.js"]
+  #     env:
+  #       MY_VAR: "value"
+  # agents:                  # Override agent settings
+  #   literature-search:
+  #     enabled: false       # Disable an agent
+  #
+  # ── Model Provider ──────────────────────────────────────────
+  # Which provider serves Claude models. Must support Anthropic Messages API.
+  # Built-in: anthropic (direct), cborg (LBNL proxy), als-apg (ALS AWS proxy)
+  # Custom proxy: any name defined under api.providers below
+  #   (must have base_url set; uses ANTHROPIC_AUTH_TOKEN + provider model IDs)
+  # When set, `osprey claude regen` injects env vars into .claude/settings.json.
+  # permissions:              # Override Claude Code permission policies
+  #   allow: []               # Additional tools to auto-allow
+  #   deny: []                # Additional tools to deny
+  #   ask: []                 # Additional tools requiring human approval
+  #   remove_deny:            # Remove tools from default deny list
+  #     - Bash                # Example: allow Bash for trusted facility
+  provider: argo
+  default_model: claudesonnet45   # Options: haiku, sonnet, opus
+  #
+  # Override model IDs per tier (optional):
+  # models:
+  #   haiku: anthropic/claude-haiku-alt
+  #
+  # Override model tier per agent (optional):
+  # agent_models:
+  #   logbook-search: haiku
+  #   logbook-deep-research: sonnet
+
+# ============================================================
+# WEB PANEL CONFIGURATION
+# ============================================================
+# Controls which panel tabs appear in the web terminal (osprey web).
+# Universal panels (Workspace, Activity, Session Analytics) are always shown.
+# Domain-specific panels are listed here — remove or disable as needed.
+
+web:
+  panels:
+    ariel:
+      enabled: true
+    channel-finder:
+      enabled: true
+    tuning:
+      enabled: true
+    # Custom panels can be added here:
+    # my-grafana:
+    #   label: "GRAFANA"
+    #   url: "http://grafana.local:3000"
+    #   health_endpoint: "/api/health"
+
+# ──────────────────────────────────────────────────────────────────────
+# User-Owned Prompt Artifacts
+# ──────────────────────────────────────────────────────────────────────
+# Claim framework-managed prompt artifacts for in-place editing.
+# Regen skips user-owned files, preserving your customizations.
+# Run `osprey prompts list` to see all available artifacts.
+# Run `osprey prompts claim <name>` to claim an artifact for editing.
+#
+# prompts:
+#   user_owned:
+#     - rules/facility    # Auto-claimed on init — edit .claude/rules/facility.md
+prompts:
+  user_owned:
+  - rules/facility

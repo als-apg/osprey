@@ -1,0 +1,259 @@
+{
+  "_description": "Educational example demonstrating optional hierarchy levels and custom separators",
+  "_purpose": "Tutorial database showing advanced hierarchical patterns: optional levels, separator overrides, and instance expansions",
+  "_total_channels": "82 channels - small enough to understand, large enough to demonstrate all patterns",
+
+  "hierarchy": {
+    "levels": [
+      {"name": "system", "type": "tree"},
+      {"name": "subsystem", "type": "tree"},
+      {"name": "device", "type": "instances"},
+      {"name": "subdevice", "type": "tree", "optional": true},
+      {"name": "signal", "type": "tree"},
+      {"name": "suffix", "type": "tree", "optional": true}
+    ],
+    "naming_pattern": "{system}:{subsystem}:{device}:{subdevice}:{signal}:{suffix}"
+  },
+
+  "_pattern_explanation": {
+    "default_separator": ":",
+    "note": "Pattern uses COLON everywhere - makes _separator overrides clearly visible",
+    "optional_levels": ["subdevice", "suffix"],
+    "separator_overrides_demo": {
+      "Mode": "Uses _ instead of : for suffix (Mode_RB not Mode:RB)",
+      "Config": "Uses _ instead of : for commands (Config_LOAD not Config:LOAD)",
+      "MOTOR": "Uses . instead of : for signals (MOTOR.Position not MOTOR:Position)"
+    }
+  },
+
+  "tree": {
+    "CTRL": {
+      "_description": "Control System: Main accelerator control and monitoring",
+
+      "MAIN": {
+        "_description": "Main Control Subsystem",
+
+        "DEVICE": {
+          "_expansion": {
+            "_type": "range",
+            "_pattern": "MC-{:02d}",
+            "_range": [1, 3]
+          },
+          "_description": "Main control devices (MC-01, MC-02, MC-03) with direct signals (Status, Heartbeat, Mode, Config) and optional subdevices (PSU, ADC, MOTOR, CH)",
+
+          "_comment_1": "=== PATTERN 1: Direct Signals (no subdevice, no suffix) ===",
+
+          "Status": {
+            "_description": "Device operational status (direct signal, no subdevice)"
+          },
+
+          "Heartbeat": {
+            "_description": "Device heartbeat counter (direct signal, no subdevice)"
+          },
+
+          "_comment_2": "=== PATTERN 2: Direct Signals with Suffixes (NEEDS SEPARATOR OVERRIDE) ===",
+
+          "Mode": {
+            "_separator": "_",
+            "_is_leaf": true,
+            "_description": "Operating mode (direct signal, no subdevice) - base + RB/SP variants with underscore separator",
+            "_note": "Without _separator override, would generate Mode:RB instead of Mode_RB",
+
+            "RB": {"_description": "Mode readback"},
+            "SP": {"_description": "Mode setpoint"}
+          },
+
+          "Config": {
+            "_separator": "_",
+            "_is_leaf": true,
+            "_description": "Configuration register (direct signal, no subdevice) - base + command variants with underscore separator",
+
+            "LOAD": {"_description": "Load configuration command"},
+            "SAVE": {"_description": "Save configuration command"},
+            "RESET": {"_description": "Reset to defaults command"}
+          },
+
+          "_comment_3": "=== PATTERN 3: Subdevice with Signals (default separator) ===",
+
+          "PSU": {
+            "_description": "Power Supply Unit subdevice",
+
+            "Voltage": {
+              "_description": "Output voltage"
+            },
+            "Current": {
+              "_description": "Output current"
+            }
+          },
+
+          "_comment_4": "=== PATTERN 4: Subdevice with Signal+Suffix (default separators) ===",
+
+          "ADC": {
+            "_description": "Analog-to-Digital Converter subdevice",
+
+            "Value": {
+              "_separator": "_",
+              "_is_leaf": true,
+              "_description": "ADC value - base + RB/SP variants (underscore override)",
+
+              "RB": {"_description": "ADC readback"},
+              "SP": {"_description": "ADC setpoint"}
+            }
+          },
+
+          "_comment_5": "=== PATTERN 5: Subdevice with Custom Separator (mid-level override) ===",
+
+          "MOTOR": {
+            "_separator": ".",
+            "_description": "Motor subdevice with DOT separator for signals (instead of default colon)",
+            "_note": "Demonstrates mid-level separator override: MOTOR.Position instead of MOTOR:Position",
+
+            "Position": {"_description": "Motor position"},
+            "Velocity": {"_description": "Motor velocity"}
+          },
+
+          "_comment_6": "=== PATTERN 6: Instanced Subdevice ===",
+
+          "CH": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "CH-{}",
+              "_range": [1, 2]
+            },
+            "_description": "Hardware channel interface modules (CH-1, CH-2) with input/gain monitoring",
+
+            "Input": {"_description": "Input value measurement"},
+            "Gain": {
+              "_separator": "_",
+              "_is_leaf": true,
+              "_description": "Gain amplification with RB/SP (underscore override)",
+              "RB": {"_description": "Gain readback"},
+              "SP": {"_description": "Gain setpoint"}
+            }
+          }
+        }
+      },
+
+      "DIAG": {
+        "_description": "Diagnostics Subsystem",
+
+        "DEVICE": {
+          "_expansion": {
+            "_type": "list",
+            "_instances": ["BPM-01", "BPM-02"]
+          },
+          "_description": "Beam Position Monitors (BPM-01, BPM-02) with direct signals (X, Y, Quality) - no subdevices",
+
+          "X": {
+            "_separator": "_",
+            "_is_leaf": true,
+            "_description": "Horizontal position (direct signal, no subdevice) - base + RB with underscore separator",
+            "RB": {"_description": "X position readback"}
+          },
+
+          "Y": {
+            "_separator": "_",
+            "_is_leaf": true,
+            "_description": "Vertical position (direct signal, no subdevice) - base + RB with underscore separator",
+            "RB": {"_description": "Y position readback"}
+          },
+
+          "Quality": {
+            "_description": "Signal quality indicator (direct signal, no subdevice)"
+          }
+        }
+      }
+    }
+  },
+
+  "_channel_examples": {
+    "default_pattern": "CTRL:MAIN:MC-01:Status (all colons - default)",
+    "separator_override_underscore": "CTRL:MAIN:MC-01:Mode_RB (underscore from _separator, not colon!)",
+    "separator_override_command": "CTRL:MAIN:MC-01:Config_LOAD (underscore from _separator)",
+    "separator_override_dot": "CTRL:MAIN:MC-01:MOTOR.Position (dot from _separator, not colon!)",
+    "subdevice_default": "CTRL:MAIN:MC-01:PSU:Voltage (all colons - default)",
+    "optional_subdevice": "CTRL:MAIN:MC-01:Status (subdevice skipped - optional)",
+    "optional_suffix": "CTRL:MAIN:MC-01:ADC:Value (suffix skipped - optional)",
+    "both_optionals": "CTRL:DIAG:BPM-01:Quality (both subdevice and suffix skipped)"
+  },
+
+  "_channel_count_breakdown": {
+    "main_control_devices": 3,
+    "bpm_devices": 2,
+    "per_mc_device": {
+      "direct_signals": 2,
+      "mode_variants": 3,
+      "config_variants": 4,
+      "psu_signals": 2,
+      "adc_signals": 3,
+      "motor_signals": 2,
+      "ch_instances": 2,
+      "per_ch_signals": 4,
+      "total_per_mc": 24
+    },
+    "per_bpm_device": {
+      "x_variants": 2,
+      "y_variants": 2,
+      "quality": 1,
+      "total_per_bpm": 5
+    },
+    "total": 82,
+    "_note": "(3 MC × 24) + (2 BPM × 5) = 72 + 10 = 82 channels"
+  },
+
+  "_key_features": {
+    "optional_subdevice": "Some signals skip subdevice level entirely (Status, Mode)",
+    "optional_suffix": "Some signals have base only, others have RB/SP/CMD variants",
+    "separator_override_leaf": "Mode and Config use _ instead of : for their suffix children",
+    "separator_override_mid": "MOTOR uses . instead of : for its signal children",
+    "automatic_leaf_detection": "Nodes without children are automatically leaves (no _is_leaf needed)",
+    "explicit_leaf_markers": "Nodes with children need _is_leaf: true to also be channels",
+    "instance_expansion": "Both devices (MC-01, MC-02, MC-03) and subdevices (CH-1, CH-2) use expansion",
+    "mixed_patterns": "All 6 common patterns demonstrated in one compact database"
+  },
+
+  "_test_cases": {
+    "1_default_separator_colon": {
+      "example": "CTRL:MAIN:MC-01:Status",
+      "count": 6,
+      "note": "Shows default colon separators throughout"
+    },
+    "2_separator_override_underscore": {
+      "example": "CTRL:MAIN:MC-01:Mode_RB",
+      "critical": true,
+      "count": 21,
+      "note": "Mode and Config use _ not : for suffixes (demonstrates override)",
+      "without_override": "Would be Mode:RB with default pattern"
+    },
+    "3_separator_override_dot": {
+      "example": "CTRL:MAIN:MC-01:MOTOR.Position",
+      "critical": true,
+      "count": 6,
+      "note": "MOTOR uses . not : for signals (demonstrates mid-level override)",
+      "without_override": "Would be MOTOR:Position with default pattern"
+    },
+    "4_subdevice_default_separators": {
+      "example": "CTRL:MAIN:MC-01:PSU:Voltage",
+      "count": 6,
+      "note": "PSU and ADC use default colons (no override)"
+    },
+    "5_optional_levels": {
+      "example": "CTRL:DIAG:BPM-01:Quality",
+      "count": 3,
+      "note": "Demonstrates optional subdevice and suffix levels being skipped"
+    },
+    "6_combined_override_and_optional": {
+      "example": "CTRL:DIAG:BPM-01:X_RB",
+      "count": 4,
+      "note": "X and Y use _ override for suffix, no subdevice (optional)",
+      "pattern": "Combines separator override with optional level skip"
+    }
+  },
+
+  "_usage_guide": {
+    "loading": "HierarchicalChannelDatabase('path/to/optional_levels.json')",
+    "total_channels": "82 channels generated from compact tree definition",
+    "testing": "Run channel_finder/cli.py to test queries interactively",
+    "validation": "All channels validate correctly with _separator overrides"
+  }
+}

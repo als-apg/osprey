@@ -321,26 +321,18 @@ def get_provider_metadata() -> dict[str, dict[str, Any]]:
     if _provider_cache is not None:
         return _provider_cache
 
-    import importlib
-
     try:
-        # Import osprey registry provider directly (no config.yml needed!)
-        from osprey.registry.builtins import FrameworkRegistryProvider
+        # Use the lightweight ProviderRegistry (single source of truth for providers)
+        from osprey.models.provider_registry import get_provider_registry
 
-        # Get osprey registry config (doesn't require project config)
-        framework_registry = FrameworkRegistryProvider()
-        config = framework_registry.get_registry_config()
-
+        pr = get_provider_registry()
         providers = {}
 
-        # Load each provider registration from osprey config
-        for provider_reg in config.providers:
+        for provider_name in pr.list_providers():
             try:
-                # Import the provider module
-                module = importlib.import_module(provider_reg.module_path)
-
-                # Get the provider class
-                provider_class = getattr(module, provider_reg.class_name)
+                provider_class = pr.get_provider(provider_name)
+                if provider_class is None:
+                    continue
 
                 # Extract metadata from class attributes (single source of truth)
                 providers[provider_class.name] = {
@@ -359,7 +351,7 @@ def get_provider_metadata() -> dict[str, dict[str, Any]]:
                 # Skip providers that fail to load, but log for debugging
                 if os.environ.get("DEBUG"):
                     console.print(
-                        f"[dim]Warning: Could not load provider {provider_reg.class_name}: {e}[/dim]"
+                        f"[dim]Warning: Could not load provider {provider_name}: {e}[/dim]"
                     )
                 continue
 
@@ -421,8 +413,32 @@ def get_code_generator_metadata() -> dict[str, dict[str, Any]]:
         return _code_generator_cache
 
     try:
-        # Code generators were removed from the registry
         generators = {}
+
+        # "basic" is always available (built-in single-pass LLM generator)
+        generators["basic"] = {
+            "name": "basic",
+            "description": "Simple single-pass LLM code generator",
+            "available": True,
+        }
+
+        # "claude_code" requires claude-agent-sdk
+        try:
+            import importlib
+
+            importlib.import_module("claude_agent_sdk")
+            generators["claude_code"] = {
+                "name": "claude_code",
+                "description": "Claude Code SDK-based generator with agentic coding",
+                "available": True,
+            }
+        except ImportError:
+            generators["claude_code"] = {
+                "name": "claude_code",
+                "description": "Claude Code SDK-based generator with agentic coding",
+                "available": False,
+                "optional_dependencies": ["claude-agent-sdk"],
+            }
 
         if not generators:
             console.print(

@@ -1,0 +1,485 @@
+{
+  "documentation": {
+    "ITS magnet layout": {
+      "description": "ITS magnet layout",
+      "YAG-bend beamline": [
+        "LTS:H1", "LTS:V1", "LTS:Q1", "LTS:Q2", "LTS:H2", "LTS:V2", "LTS:Q5", "LTS:Q6"
+      ],
+      "Alpha beamline": [
+        "LTS:H1", "LTS:V1", "LTS:Q1", "LTS:Q2", "LTS:H2", "LTS:V2", "LTS:Q3", "LTS:Q4",
+        "LTS:Q7", "LTS:H3", "LTS:V3", "LTS:Alpha", "LTS:H4", "LTS:V4", "LTS:Q8", "LTS:Q9",
+        "LTS:H5", "LTS:V5"]
+    },
+    "Testing notes": {
+      "description": "Notes for testing and development",
+      "storage_ring_pv": {
+        "pv": "S-DCCT:CurrentM",
+        "purpose": "Added for archiver testing only - this is NOT an ITS PV",
+        "reason": "ITS beam current (LTS:CM1:measCurrentCM) has no recent data, so storage ring beam current is used to verify archiver retrieval and timezone handling work correctly",
+        "note": "This PV has data logged every 5 seconds, making it suitable for testing archiver queries"
+      }
+    }
+  },
+  "Suffix Group 1": {
+    "suffix": {
+	  "current setpoint": ":CurrentAO",
+	  "DAC readack": ":DacAI",
+	  "current, current readback": ":CurrentAI",
+    "output current": ":OutCurrAI",
+    "PS output voltage": ":VoltageAI",
+	  "DAC Output voltage": ":DACOutV_AI",
+   "Magnet temperature": ":MagTempAI",
+    "Rate Divider":":RateDivAO",
+	  "Standardize: 1 for start, 0 for stop": ":StdSU.PROC",
+  	"Turn on: 1 for turn on": ":ResetBO",
+	  "Turn off: 1 for turn off": ":OffBO",
+	  "Status: 0 for ready, > 0 for faults and not ready": ":StatusCALC",
+    "Calibrate: set to 1 for start":":CalibrateBO"
+    },
+    "ITS horizontal Correctors": {
+      "ITS h correctors": [
+        { "channel": "ITS H1 corrector", "address_template": "LTS:H1", "description": "ITS H1 corrector", "tags": ["H1", "ITS H1", "ITS H", "SteeringPS", "YAG-bend beamline magnets", "Alpha beamline magnets"] },
+        { "channel": "ITS H2 corrector", "address_template": "LTS:H2", "description": "ITS H2 corrector", "tags": ["H2", "ITS H2", "ITS H", "SteeringPS", "YAG-bend beamline magnets", "Alpha beamline magnets"] },
+        { "channel": "ITS H3 corrector", "address_template": "LTS:H3", "description": "ITS H3 corrector", "tags": ["H3", "ITS H3", "ITS H", "SteeringPS", "Alpha beamline magnets"] },
+        { "channel": "ITS H4 corrector", "address_template": "LTS:H4", "description": "ITS H4 corrector", "tags": ["H4", "ITS H4", "ITS H", "SteeringPS", "Alpha beamline magnets"] }
+      ]
+    },
+    "ITS vertical Correctors": {
+      "ITS v correctors": [
+        { "channel": "ITS V1 corrector", "address_template": "LTS:V1", "description": "ITS V1 corrector", "tags": ["V1", "ITS V1", "ITS V", "SteeringPS", "YAG-bend beamline magnets", "Alpha beamline magnets"] },
+        { "channel": "ITS V2 corrector", "address_template": "LTS:V2", "description": "ITS V2 corrector", "tags": ["V2", "ITS V2", "ITS V", "SteeringPS", "YAG-bend beamline magnets", "Alpha beamline magnets"] },
+        { "channel": "ITS V3 corrector", "address_template": "LTS:V3", "description": "ITS V3 corrector", "tags": ["V3", "ITS V3", "ITS V", "SteeringPS", "Alpha beamline magnets"] },
+        { "channel": "ITS V4 corrector", "address_template": "LTS:V4", "description": "ITS V4 corrector", "tags": ["V4", "ITS V4", "ITS V", "SteeringPS", "Alpha beamline magnets"] }
+      ]
+    },
+    "ITS Quadrupoles": {
+      "ITS quadrupoles": [
+        { "channel": "ITS Q1", "address_template": "LTS:Q1", "description": "ITS Q1 quadrupole", "tags": ["Q1", "ITS Q1", "ITS quadrupole", "MainPS", "YAG-bend beamline magnets", "Alpha beamline magnets"] },
+        { "channel": "ITS Q2", "address_template": "LTS:Q2", "description": "ITS Q2 quadrupole", "tags": ["Q2", "ITS Q2", "ITS quadrupole", "MainPS", "YAG-bend beamline magnets", "Alpha beamline magnets"] },
+        { "channel": "ITS Q3", "address_template": "LTS:Q3", "description": "ITS Q3 quadrupole", "tags": ["Q3", "ITS Q3", "ITS quadrupole", "MainPS", "Alpha beamline magnets"] },
+        { "channel": "ITS Q4", "address_template": "LTS:Q4", "description": "ITS Q4 quadrupole", "tags": ["Q4", "ITS Q4", "ITS quadrupole", "MainPS", "Alpha beamline magnets"] },
+        { "channel": "ITS Q5", "address_template": "LTS:Q5", "description": "ITS Q5 quadrupole", "tags": ["Q5", "ITS Q5", "ITS quadrupole", "MainPS", "YAG-bend beamline magnets", "Alpha beamline magnets"] }
+      ]
+    },
+    "ITS bending magnet": {
+      "ITS bending magnet": [
+        { "channel": "ITS BM1", "address_template": "LTS:BM1", "description": "ITS bending magnet", "tags": ["ITS BM1", "ITS bending magnet", "MainPS", "Alpha beamline magnets"] }
+      ]
+    }
+  },
+  "Suffix Group 2": {
+    "suffix": {
+   "current setpoint": ":CurrentAO",
+   "current, current readback": ":CurrentAI",
+    "PS output voltage": ":VoltageAI",
+    "magnet temperature": ":MagTempAI",
+   "Standardize: 1 for start, 0 for stop": ":StdSU.PROC",
+   	"Turn on: 1 for turn on": ":ResetBO",
+   "Turn off: 1 for turn off": ":OffBO",
+   "Status: 0 for ready, > 0 for faults and not ready": ":readyCC"
+    },
+    "ITS bending magnet 2": {
+      "ITS bending magnet 2": [
+        { "channel": "ITS Bending magnet 2", "address_template": "LTS:BM2", "description": "ITS bending magnet 2", "tags": ["ITS BM2", "ITS bending magnet", "MainPS", "Alpha beamline magnets"] }
+      ]
+    }
+  },
+  "Suffix Group 3": {
+    "suffix": {
+      "current setpoint": ":CurrentAO",
+      "current, current readback": ":CurrentAI",
+      "PS output voltage": ":OutVoltageAI",
+      "Standardize: 1 for start, 0 for stop": ":StdSU.PROC",
+      "Turn on: 1 for turn on": ":ResetBO",
+      "Turn off: 1 for turn off": ":OffBO",
+      "Ready status: 1 for ready, 0 not ready": ":readyCC"
+    },
+    "ITS H5 corrector": {
+      "ITS H5 corrector": [
+        { "channel": "ITS H5 corrector", "address_template": "LTS:H5", "description": "ITS H5 corrector", "tags": ["H5", "ITS H5", "ITS H", "SteeringPS", "Alpha beamline magnets"] }
+      ]
+    },
+    "ITS V6 corrector": {
+      "ITS V6 corrector": [
+        { "channel": "ITS V5 corrector", "address_template": "LTS:V5", "description": "ITS V5 corrector", "tags": ["V5", "ITS V5", "ITS V", "SteeringPS", "Alpha beamline magnets"] }
+      ]
+    },
+    "ITS Quadrupoles Group 2": {
+      "ITS quadrupoles group 2": [
+        { "channel": "ITS Q6", "address_template": "LTS:Q6", "description": "ITS Q6 quadrupole", "tags": ["Q6", "ITS Q6", "ITS quadrupole", "MainPS", "YAG-bend beamline magnets", "Alpha beamline magnets"] },
+        { "channel": "ITS Q7", "address_template": "LTS:Q7", "description": "ITS Q7 quadrupole", "tags": ["Q7", "ITS Q7", "ITS quadrupole", "MainPS", "Alpha beamline magnets"] },
+        { "channel": "ITS Q8", "address_template": "LTS:Q8", "description": "ITS Q8 quadrupole", "tags": ["Q8", "ITS Q8", "ITS quadrupole", "MainPS", "Alpha beamline magnets"] },
+        { "channel": "ITS Q9", "address_template": "LTS:Q9", "description": "ITS Q9 quadrupole", "tags": ["Q9", "ITS Q9", "ITS quadrupole", "MainPS", "Alpha beamline magnets"] }
+      ]
+    }
+  },
+  "ITS Raw PS Suffix Group": {
+    "suffix": {
+      "status": ":StatusCALC",
+      "status bit 0": ":Bit0BI",
+      "status bit 1": ":Bit1BI",
+      "status bit 2": ":Bit2BI",
+      "status bit 6": ":Bit6BI",
+      "status bit 7": ":Bit7BI",
+      "calibrate": ":CalibrateBO",
+      "reset/on": ":ResetSEQ",
+      "off": ":OffBO",
+      "rate divider": ":RateDivAO",
+      "current setpoint": ":CurrentAO",
+      "current readback": ":CurrentAI",
+      "temperature": ":MagTempAI"
+    },
+    "ITS Raw PS": {
+      "ITS Raw PS": [
+        { "channel": "ITS Raw PS", "address_template": "LTS:RAW", "description": "ITS Raw PS", "tags": ["ITS Raw PS"] }
+      ]
+    },
+    "ITS Raw PS PSCU": {
+      "ITS Raw PS PSCU": [
+        { "channel": "ITS Raw PS PSCU local indicator", "address": "LTS:PSCU2:localBI", "description": "Indicates whether PSCU2 is in local (1) or remote (0) for the Raw supply", "tags": ["ITS Raw PS", "PSCU2", "status"] }
+      ]
+    }
+  },
+  "ITS Gun Suffix Group": {
+    "suffix": {
+      "PS voltage setpoint": ":VoltageAO",
+      "DAC reference": ":DacRefAI",
+      "DAC readback": ":DacAI",
+      "status indicator": ":StatusCC",
+      "PS output current": ":CurrentAI",
+      "pre-chopper voltage": ":PreChopVoltAI",
+      "local/remote indicator": ":LocalBI",
+      "status bit 0": ":Bit0BI",
+      "status bit 1": ":Bit1BI",
+      "status bit 2": ":Bit2BI",
+      "status bit 6": ":Bit6BI",
+      "status bit 7": ":Bit7BI",
+      "calculated power": ":PowerCC",
+      "PS output voltage": ":VoltageCC",
+      "calibrate command": ":CalibrateBO",
+      "reset/on command": ":ResetSQ",
+      "off command": ":OffBO",
+      "rate divider": ":RateDivAO",
+      "chopper mode status": ":ChopStatusBI",
+      "chopper toggle": ":ChopSelectBO"
+    },
+    "ITS Gun": {
+      "ITS Gun": [
+        { "channel": "ITS Gun", "address_template": "LTS:G", "description": "ITS Gun", "tags": ["ITS Gun", "power supply", "setpoint"] }
+      ]
+    }
+  },
+  "ITS Alpha Magnet Suffix Group": {
+    "suffix": {
+      "current setpoint": ":CurrentAO",
+      "current readback": ":CurrentAI",
+      "PS voltage": ":OutVoltageAI",
+      "standardize": ":StdSU.PROC",
+      "turn on": ":ResetBO",
+      "turn off": ":OffBO",
+      "ready status": ":readyCC"
+    },
+    "ITS Alpha magnet": {
+      "ITS Alpha magnet": [
+        { "channel": "ITS Alpha magnet", "address_template": "LTS:Alpha", "description": "ITS Alpha magnet", "tags": ["ITS Alpha", "ITS alpha magnet", "setpoint", "Alpha beamline magnets"] }
+      ]
+    }
+  },
+  "ITS Beam Current Suffix Group": {
+    "suffix": {
+      "beam current": ":measCurrentCM",
+      "current setpoint": ":beamCurrentAO",
+      "charge standard deviation": ":measCurrentCM.ISTD",
+      "charge samples used": ":measCurrentCM.NSUM",
+      "current averaging sample target": ":measCurrentCM.CAVG",
+      "current update rate": ":measCurrentCM.MVAL",
+      "current timing source label": ":measCurrentCM.NMTG",
+      "current timing target value": ":measCurrentCM.TGTM",
+      "current no-beam flag": ":measCurrentCM.NBFG",
+      "current minimum voltage threshold": ":measCurrentCM.VMIN",
+      "current gate width": ":measCurrentCM.GWID",
+      "current gate delay": ":measCurrentCM.TVAL",
+      "current mux status": ":measCurrentCM.MSMD",
+      "current engineering units": ":measCurrentCM.EGU",
+      "current instantaneous voltage": ":measCurrentCM.INPV"
+    },
+    "ITS beam current group": {
+      "ITS beam current group": [
+        { "channel": "ITS", "address_template": "LTS:CM1", "description": "ITS current group", "tags": ["ITS current"] }
+      ]
+    },
+    "ITS gun beam controller": {
+      "ITS gun beam controller": [
+        { "channel": "ITS gun beam controller command", "address": "LTS:RFGunBeamIcontrollerRC.SUSP", "description": "ITS Suspension/command PV for the ITS gun beam controller", "tags": ["ITS gun beam controller", "command"] }
+      ]
+    }
+  },
+  "ITS Timing Suffix Group": {
+    "suffix": {
+      "delay 0": ":timingDelay0AO",
+      "delay 1": ":timingDelay1AO",
+      "delay 2": ":timingDelay2AO",
+      "delay 3": ":timingDelay3AO",
+      "delay 4": ":timingDelay4AO",
+      "delay 5": ":timingDelay5AO"
+    },
+    "ITS timing delays": {
+      "ITS timing delays": [
+        { "channel": "ITS timing", "address_template": "LTS", "description": "ITS timing delays", "tags": ["ITS timing delay", "timing", "delay"] }
+      ]
+    }
+  },
+  "ITS Vacuum Suffix Group": {
+    "suffix": {
+      "TW Vacuum CO1": ":TW:VP:CO1.VAL",
+      "Gun Vacuum CO1": ":GUN:VP:CO1.VAL",
+      "Gun Vacuum CO2": ":GUN:VP:CO2.VAL",
+      "BL Vacuum CO1": ":BL:VP:CO1.VAL",
+      "BL Vacuum CO2": ":BL:VP:CO2.VAL",
+      "BL Vacuum CO3": ":BL:VP:CO3.VAL"
+    },
+    "ITS Vacuum": {
+      "ITS Vacuum": [
+        { "channel": "ITS Vacuum", "address_template": "L1:LTS", "description": "ITS Vacuum", "tags": ["ITS  TW Vacuum", "vacuum", "TW", "pressure"] }
+      ]
+    }
+  },
+  "ITS Shutter Suffix Group": {
+    "suffix": {
+      "Gate 1 state": ":GV1:positionMI",
+      "Gate 2 state": ":GV2:positionMI"
+    },
+    "ITS Shutter": {
+      "ITS Shutter": [
+        { "channel": "ITS Shutter", "address_template": "L1:LTS", "description": "ITS Shutter", "tags": ["ITS gate", "shutter", "gate valve", "position"] }
+      ]
+    }
+  },
+  "ITS Temperature Suffix Group": {
+    "suffix": {
+      "room temperature 1": ":TC:K:temp1AI",
+      "Undulator Upstream temperature": ":TC:K:temp2AI",
+      "Undulator middle stream temperature": ":TC:K:temp3AI.EGU",
+      "room temperature 2": ":TC:K:temp4AI",
+      "Gun water temperature": ":RTD:temperature0AI",
+      "Gun water return temperature": ":RTD:temperature1AI"
+    },
+    "ITS temperatures": {
+      "ITS temperatures": [
+        { "channel": "ITS temperatures", "address_template": "LTS", "description": "ITS temperatures", "tags": ["ITS room temperature", "temperature", "monitoring"] }
+      ]
+    }
+  },
+  "ITS PC Gun RF Suffix Group": {
+    "suffix": {
+      "forward power": ":DC1ARF",
+      "reflected power": ":DC1BRF",
+      "RF Phase": ":DC1AIQ.VAL"
+    },
+    "ITS PC Gun RF": {
+      "ITS PC Gun RF": [
+        { "channel": "ITS PC Gun RF", "address_template": "L1:PG1", "description": "ITS PC Gun RF", "tags": ["PC Gun foward powerpower", "PC Gun", "power"] }
+      ]
+    }
+  },
+  "ITS PC Gun Power Supplies Suffix Group": {
+    "suffix": {
+      "BK PS Current": ":BK:PS:CurrentAO",
+      "SM HC PS Current": ":SM:HC:PS:CurrentAO",
+      "SM NQ PS Current": ":SM:NQ:PS:CurrentAO",
+      "SM PS Current": ":SM:PS:CurrentAO",
+      "SM SQ PS Current": ":SM:SQ:PS:CurrentAO",
+      "SM VC PS Current": ":SM:VC:PS:CurrentAO"
+    },
+    "ITS PC Gun Power supplies": {
+      "ITS PC Gun Power supplies": [
+        { "channel": "ITS PC Gun Power supplies", "address_template": "L1:PC1", "description": "ITS PC Gun Power supplies", "tags": ["PC Gun Power Supply", "BK", "current", "PowerSupply"] }
+      ]
+    }
+  },
+  "ITS L1 Water Load Suffix Group": {
+    "suffix": {
+      "forward power": ":DC1ARF",
+      "reflected power": ":DC1BRF"
+    },
+    "Water Load": {
+      "Water Load": [
+        { "channel": "ITS L1 water load", "address_template": "L1:WL", "description": "ITS L1 water load", "tags": ["L1 water load forward power", "L1", "power"] }
+      ]
+    }
+  },
+  "ITS L1 ITS Gate Timing Suffix Group": {
+    "suffix": {
+      "Gate Width": ":PG1:RF:widthAO"
+    },
+    "ITS Gate timing": {
+      "ITS Gate timing": [
+        { "channel": "ITS Gate timing", "address_template": "L1:TM", "description": "ITS Gate Width", "tags": ["ITS Gate Width"] }
+      ]
+    }
+  },
+  "ITS L3 Klystron Suffix Group1": {
+    "suffix": {
+      "LLRF drive power": ":DARF"
+    },
+    "ITS L3 kystron LLRF": {
+      "ITS L3 LLRF": [
+        { "channel": "ITS L3 klystron LLRF drive power", "address_template": "L3", "description": "ITS L3 LLRF drive power", "tags": ["L3 LLRF drive power", "L3", "power"] }
+      ]
+    }
+  },
+  "ITS L3 Klystron Suffix Group2": {
+    "suffix": {
+      "power setpoint": ":DC2ARF:SetpointP",
+      "power error": ":DC2ARF:ErrorM",
+      "Klystron drive": ":DC1RF.VAL",
+      "Klystron forward power": ":DC2ARF.VAL",
+      "RF power change amount": ":DC2A:pwmCtlC",
+      "klystron drive power": ":DC1RF",
+      "klystron reflected power": ":DC2BRF.VAL",
+      "RF phase": ":DC2AIQ.VAL"
+    },
+    "ITS L3 RF klystron": {
+      "ITS L3 RF klystron": [
+        { "channel": "ITS L3 RF klystron", "address_template": "L3:KY", "description": "ITS L3 RF klystron", "tags": ["L3 RF klystron power setpoint"] }
+      ]
+    }
+  },
+  "ITS L3 Klystron Attenuator Suffix Group": {
+    "suffix": {
+      "klystron attenuator": ":klyPosAI",
+      "increase attenuator": ":incKlyBO",
+      "decrease attenuator": ":decKlyBO"
+    },
+    "ITS L3 Klystron Attenuator": {
+      "ITS L3 Klystron Attenuator": [
+        { "channel": "ITS L3 klystron attenuator", "address_template": "L3:MA", "description": "ITS L3 klystron attenuator", "tags": ["L3 klystron attenuator", "L3", "attenuator"] }
+      ]
+    }
+  },
+  "ITS L3 Analog Measurements Suffix Group": {
+    "suffix": {
+      "PFN voltage": ":PFNvAI",
+      "Klystron pulse current": ":KlyPulseCurrAI",
+      "Klystron pulse voltage": ":KlyPulseVoltAI",
+      "PFN charge current": ":PFNChargeCurrAI",
+      "PFN PS voltage actual setpoint": ":PFNPSVoltActualSetPtAI",
+      "Klystron magnet 1 current": ":KlyMag1CurrAI",
+      "Klystron magnet 1 voltage": ":KlyMag1VoltAI",
+      "Klystron magnet 2 current": ":KlyMag2CurrAI",
+      "Klystron magnet 2 voltage": ":KlyMag2VoltAI",
+      "Klystron magnet 3 current": ":KlyMag3CurrAI",
+      "Klystron magnet 3 voltage": ":KlyMag3VoltAI",
+      "PFN transformer bias current": ":PFNXFMRBiasCurrAI",
+      "PFN transformer bias voltage": ":PFNXFMRBiasVoltAI",
+      "Klystron heater current": ":KlyHtrCurrAI",
+      "Klystron heater voltage": ":KlyHtrVoltAI",
+      "Klystron ion pump current": ":KlyIonPumpCurrAI",
+      "Klystron ion pump voltage": ":KlyIonPumpVoltAI",
+      "Klystron magnet temperature": ":KlyMagTempAI",
+      "Klystron collector temperature": ":KlyCollTempAI",
+      "Klystron oil temperature": ":KlyOilTempAI",
+      "Klystron body inlet temperature": ":KlyBodyInTempAI",
+      "Klystron body outlet temperature": ":KlyBodyOutTempAI",
+      "Klystron body temperature difference": ":KlyBodyTempDiffAI",
+      "Klystron heater hours": ":KlyHeaterHoursLI",
+      "Klystron pulse hours": ":KlyPulseHoursLI",
+      "focus magnet water flow rate": ":FocMagWaterFlowRateAI",
+      "HVPS1 water flow rate": ":HVPS1WaterFlowRateAI",
+      "HVPS2 water flow rate": ":HVPS2WaterFlowRateAI",
+      "Klystron body water flow rate": ":KlyBodyWaterFlowRateAI",
+      "Klystron collector water flow rate": ":KlyCollWaterFlowRateAI"
+    },
+    "ITS L3 analog measurement summary": {
+      "ITS L3 analog measurement summary": [
+        { "channel": "ITS L3 analog measurement summary", "address_template": "L3:MO", "description": "ITS L3 analog measurement summary", "tags": ["L3 PFN voltage", "L3", "voltage"] }
+      ]
+    }
+  },
+  "ITS L3 Timing Suffix Group": {
+    "suffix": {
+      "modulator trigger": ":modTrigAO",
+      "gate start": ":DAGateStartAO",
+      "gate width": ":DAGateWidthSetAO"
+    },
+    "ITS L3 timing": {
+      "ITS L3 timing": [
+        { "channel": "ITS L3 timing", "address_template": "L3:TM", "description": "ITS L3 timing", "tags": ["modulator trigger", "L3", "timing"] }
+      ]
+    }
+  },
+  "LI Timing Suffix Group": {
+    "suffix": {
+      "RF timing source selection": ":L3TimingSourceC",
+      "Async gate start": ":ASYNC:DAGateStartTimeAO",
+      "Async gate width": ":ASYNC:DAGateWidthAO",
+      "local modulator rate": ":localModulatorRateAO"
+    },
+    "ITS LI timing": {
+      "ITS LI timing": [
+        { "channel": "ITS LI timing", "address_template": "LI:TM", "description": "ITS LI timing", "tags": ["L3 RF timing source", "L3", "timing"] }
+      ]
+    }
+  },
+  "ITS L6 Measurements Suffix Group": {
+    "suffix": {
+      "Klystron DC2A IQ Phase": ":DC2AIQ.VAL"
+    },
+    "ITS L6 Klystron": {
+      "ITS L6 Klystron": [
+        { "channel": "ITS L6 Klystron", "address_template": "L6:KY", "description": "ITS L6 Klystron DC2A IQ Phase", "tags": ["L6 Klystron DC2A IQ Phase", "L6", "phase"] }
+      ]
+    },
+    "ITS L6 TC": {
+      "ITS L6 TC": [
+        { "channel": "ITS L6 TC DC1A IQ Phase", "address": "L6:TC:DC1AIQ.VAL", "description": "ITS L6 Transverse Coupling DC1A IQ Phase", "tags": ["L6 TC DC1A IQ Phase", "L6", "phase"] }
+      ]
+    }
+  },
+  "ITS Faraday Cup Suffix Group": {
+    "suffix": {
+      "average charge": ":measCurrentCM.VAL",
+      "charge standard deviation": ":measCurrentCM.ISTD",
+      "number of samples used for charge monitor": ":measCurrentCM.NSUM",
+      "average sample target of charrge": ":measCurrentCM.CAVG",
+      "charge update rate": ":measCurrentCM.MVAL",
+      "mux timing gate of charge": ":measCurrentCM.NMTG",
+      "timing target of charge": ":measCurrentCM.TGTM",
+      "no beam flag": ":measCurrentCM.NBFG",
+      "minimum valid voltage": ":measCurrentCM.VMIN",
+      "charge gate width": ":measCurrentCM.GWID",
+      "charge gate delay": ":measCurrentCM.TVAL",
+      "mux select status": ":measCurrentCM.MSMD",
+      "engineering units": ":measCurrentCM.EGU",
+      "instantaneous voltage": ":measCurrentCM.INPV"
+    },
+    "ITS Faraday Cup charge monitor": {
+      "Faraday Cup charge monitor": [
+        { "channel": "ITS Faraday cup 1", "address_template": "LTS:FC1:GI1", "description": "ITS Faraday cup 1", "tags": ["Faraday cup 1"] },
+        { "channel": "ITS Faraday cup 2", "address_template": "LTS:FC1:GI2", "description": "ITS Faraday cup 2", "tags": ["Faraday cup 2"] }
+      ]
+    }
+  },
+  "ITS Faraday Cup Group": {
+    "ITS Faraday Cup": {
+      "ITS Faraday Cup": [
+        { "channel": "ITS Faraday cup selection", "address": "LTS:GI1:selectC", "description": "ITS Command PV for selecting the Faraday cup", "tags": ["Faraday cup", "selection", "command"] }
+      ]
+    }
+  },
+  "Storage Ring Beam Current Group": {
+    "Storage Ring Current": {
+      "Storage Ring Current": [
+        { "channel": "Storage ring beam current", "address": "S-DCCT:CurrentM", "description": "Storage ring DC current transformer measured beam current", "tags": ["storage ring", "beam current", "DCCT", "current monitor", "S-DCCT"] }
+      ]
+    },
+    "Storage Ring Correctors": {
+      "Storage Ring Corrector": [
+          { "channel": "sr correctors", "address": "S02A:FH1:PS:SetCurrentC", "description": "SR fast corrector", "tags": ["storage ring", "fast corrector"] },
+	  { "channel": "sr correctors", "address": "S02A:FH2:PS:SetCurrentC", "description": "SR fast corrector", "tags": ["storage ring", "fast corrector"] },
+	  { "channel": "sr correctors", "address": "S03B:H1:PS:SetCurrentC", "description": "SR slow corrector", "tags": ["storage ring", "slow corrector"] },
+	  { "channel": "sr correctors", "address": "S03B:H7:PS:SetCurrentC", "description": "SR slow corrector", "tags": ["storage ring", "slow corrector"] }
+      ]
+    }
+  }
+}

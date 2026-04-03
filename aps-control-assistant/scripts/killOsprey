@@ -1,0 +1,20 @@
+#!/bin/bash
+# Kill all running osprey processes
+
+pids=$(ps -fed | grep '[o]sprey' | awk '{print $2}')
+
+if [ -z "$pids" ]; then
+    echo "No osprey processes found."
+    exit 0
+fi
+
+echo "Found osprey processes:"
+ps -fed | grep '[o]sprey'
+echo ""
+
+for pid in $pids; do
+    echo "Killing PID $pid"
+    kill "$pid" 2>/dev/null
+done
+
+echo "Done."

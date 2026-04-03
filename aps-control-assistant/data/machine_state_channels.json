@@ -1,0 +1,13 @@
+{
+  "_comment": "Machine state channels — generated for hierarchical pipeline",
+  "_version": "1.0",
+
+  
+  "MAG:DIPOLE[B01]:CURRENT:RB": { "label": "Dipole B01 current", "group": "magnets" },
+  "MAG:QF[QF01]:CURRENT:RB": { "label": "Quad QF01 current", "group": "magnets" },
+  "MAG:QD[QD01]:CURRENT:RB": { "label": "Quad QD01 current", "group": "magnets" },
+  "MAG:HCM[H01]:CURRENT:RB": { "label": "Horiz. corrector H01", "group": "magnets" },
+  "MAG:VCM[V01]:CURRENT:RB": { "label": "Vert. corrector V01", "group": "magnets" },
+  "RF:CAVITY[C1]:VOLTAGE:RB": { "label": "RF cavity voltage", "group": "rf" }
+  
+}

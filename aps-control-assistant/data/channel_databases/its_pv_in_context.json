@@ -1,0 +1,4908 @@
+{
+  "_metadata": {
+    "generated_from": "src/its_control_assistant/data/channel_databases/its_pv.json",
+    "generation_date": "2026-01-13",
+    "generator": "convert_its_pv_to_in_context.py",
+    "description": "ITS PV channel database in in_context format",
+    "stats": {
+      "total_entries": 406
+    }
+  },
+  "channels": [
+    {
+      "template": false,
+      "channel": "ITS H1 corrector current setpoint",
+      "address": "LTS:H1:CurrentAO",
+      "description": "ITS H1 corrector - current setpoint",
+      "tags": [
+        "H1",
+        "ITS H1",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H1 corrector DAC readack",
+      "address": "LTS:H1:DacAI",
+      "description": "ITS H1 corrector - DAC readack",
+      "tags": [
+        "H1",
+        "ITS H1",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H1 corrector current, current readback",
+      "address": "LTS:H1:CurrentAI",
+      "description": "ITS H1 corrector - current, current readback",
+      "tags": [
+        "H1",
+        "ITS H1",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H1 corrector output current",
+      "address": "LTS:H1:OutCurrAI",
+      "description": "ITS H1 corrector - output current",
+      "tags": [
+        "H1",
+        "ITS H1",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H1 corrector PS output voltage",
+      "address": "LTS:H1:VoltageAI",
+      "description": "ITS H1 corrector - PS output voltage",
+      "tags": [
+        "H1",
+        "ITS H1",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H1 corrector DAC Output voltage",
+      "address": "LTS:H1:DACOutV_AI",
+      "description": "ITS H1 corrector - DAC Output voltage",
+      "tags": [
+        "H1",
+        "ITS H1",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H1 corrector Magnet temperature",
+      "address": "LTS:H1:MagTempAI",
+      "description": "ITS H1 corrector - Magnet temperature",
+      "tags": [
+        "H1",
+        "ITS H1",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H1 corrector Rate Divider",
+      "address": "LTS:H1:RateDivAO",
+      "description": "ITS H1 corrector - Rate Divider",
+      "tags": [
+        "H1",
+        "ITS H1",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H1 corrector Standardize: 1 for start, 0 for stop",
+      "address": "LTS:H1:StdSU.PROC",
+      "description": "ITS H1 corrector - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "H1",
+        "ITS H1",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H1 corrector Turn on: 1 for turn on",
+      "address": "LTS:H1:ResetBO",
+      "description": "ITS H1 corrector - Turn on: 1 for turn on",
+      "tags": [
+        "H1",
+        "ITS H1",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H1 corrector Turn off: 1 for turn off",
+      "address": "LTS:H1:OffBO",
+      "description": "ITS H1 corrector - Turn off: 1 for turn off",
+      "tags": [
+        "H1",
+        "ITS H1",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H1 corrector Status: 0 for ready, > 0 for faults and not ready",
+      "address": "LTS:H1:StatusCALC",
+      "description": "ITS H1 corrector - Status: 0 for ready, > 0 for faults and not ready",
+      "tags": [
+        "H1",
+        "ITS H1",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H1 corrector Calibrate: set to 1 for start",
+      "address": "LTS:H1:CalibrateBO",
+      "description": "ITS H1 corrector - Calibrate: set to 1 for start",
+      "tags": [
+        "H1",
+        "ITS H1",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H2 corrector current setpoint",
+      "address": "LTS:H2:CurrentAO",
+      "description": "ITS H2 corrector - current setpoint",
+      "tags": [
+        "H2",
+        "ITS H2",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H2 corrector DAC readack",
+      "address": "LTS:H2:DacAI",
+      "description": "ITS H2 corrector - DAC readack",
+      "tags": [
+        "H2",
+        "ITS H2",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H2 corrector current, current readback",
+      "address": "LTS:H2:CurrentAI",
+      "description": "ITS H2 corrector - current, current readback",
+      "tags": [
+        "H2",
+        "ITS H2",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H2 corrector output current",
+      "address": "LTS:H2:OutCurrAI",
+      "description": "ITS H2 corrector - output current",
+      "tags": [
+        "H2",
+        "ITS H2",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H2 corrector PS output voltage",
+      "address": "LTS:H2:VoltageAI",
+      "description": "ITS H2 corrector - PS output voltage",
+      "tags": [
+        "H2",
+        "ITS H2",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H2 corrector DAC Output voltage",
+      "address": "LTS:H2:DACOutV_AI",
+      "description": "ITS H2 corrector - DAC Output voltage",
+      "tags": [
+        "H2",
+        "ITS H2",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H2 corrector Magnet temperature",
+      "address": "LTS:H2:MagTempAI",
+      "description": "ITS H2 corrector - Magnet temperature",
+      "tags": [
+        "H2",
+        "ITS H2",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H2 corrector Rate Divider",
+      "address": "LTS:H2:RateDivAO",
+      "description": "ITS H2 corrector - Rate Divider",
+      "tags": [
+        "H2",
+        "ITS H2",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H2 corrector Standardize: 1 for start, 0 for stop",
+      "address": "LTS:H2:StdSU.PROC",
+      "description": "ITS H2 corrector - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "H2",
+        "ITS H2",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H2 corrector Turn on: 1 for turn on",
+      "address": "LTS:H2:ResetBO",
+      "description": "ITS H2 corrector - Turn on: 1 for turn on",
+      "tags": [
+        "H2",
+        "ITS H2",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H2 corrector Turn off: 1 for turn off",
+      "address": "LTS:H2:OffBO",
+      "description": "ITS H2 corrector - Turn off: 1 for turn off",
+      "tags": [
+        "H2",
+        "ITS H2",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H2 corrector Status: 0 for ready, > 0 for faults and not ready",
+      "address": "LTS:H2:StatusCALC",
+      "description": "ITS H2 corrector - Status: 0 for ready, > 0 for faults and not ready",
+      "tags": [
+        "H2",
+        "ITS H2",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H2 corrector Calibrate: set to 1 for start",
+      "address": "LTS:H2:CalibrateBO",
+      "description": "ITS H2 corrector - Calibrate: set to 1 for start",
+      "tags": [
+        "H2",
+        "ITS H2",
+        "ITS H",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H3 corrector current setpoint",
+      "address": "LTS:H3:CurrentAO",
+      "description": "ITS H3 corrector - current setpoint",
+      "tags": [
+        "H3",
+        "ITS H3",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H3 corrector DAC readack",
+      "address": "LTS:H3:DacAI",
+      "description": "ITS H3 corrector - DAC readack",
+      "tags": [
+        "H3",
+        "ITS H3",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H3 corrector current, current readback",
+      "address": "LTS:H3:CurrentAI",
+      "description": "ITS H3 corrector - current, current readback",
+      "tags": [
+        "H3",
+        "ITS H3",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H3 corrector output current",
+      "address": "LTS:H3:OutCurrAI",
+      "description": "ITS H3 corrector - output current",
+      "tags": [
+        "H3",
+        "ITS H3",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H3 corrector PS output voltage",
+      "address": "LTS:H3:VoltageAI",
+      "description": "ITS H3 corrector - PS output voltage",
+      "tags": [
+        "H3",
+        "ITS H3",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H3 corrector DAC Output voltage",
+      "address": "LTS:H3:DACOutV_AI",
+      "description": "ITS H3 corrector - DAC Output voltage",
+      "tags": [
+        "H3",
+        "ITS H3",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H3 corrector Magnet temperature",
+      "address": "LTS:H3:MagTempAI",
+      "description": "ITS H3 corrector - Magnet temperature",
+      "tags": [
+        "H3",
+        "ITS H3",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H3 corrector Rate Divider",
+      "address": "LTS:H3:RateDivAO",
+      "description": "ITS H3 corrector - Rate Divider",
+      "tags": [
+        "H3",
+        "ITS H3",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H3 corrector Standardize: 1 for start, 0 for stop",
+      "address": "LTS:H3:StdSU.PROC",
+      "description": "ITS H3 corrector - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "H3",
+        "ITS H3",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H3 corrector Turn on: 1 for turn on",
+      "address": "LTS:H3:ResetBO",
+      "description": "ITS H3 corrector - Turn on: 1 for turn on",
+      "tags": [
+        "H3",
+        "ITS H3",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H3 corrector Turn off: 1 for turn off",
+      "address": "LTS:H3:OffBO",
+      "description": "ITS H3 corrector - Turn off: 1 for turn off",
+      "tags": [
+        "H3",
+        "ITS H3",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H3 corrector Status: 0 for ready, > 0 for faults and not ready",
+      "address": "LTS:H3:StatusCALC",
+      "description": "ITS H3 corrector - Status: 0 for ready, > 0 for faults and not ready",
+      "tags": [
+        "H3",
+        "ITS H3",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H3 corrector Calibrate: set to 1 for start",
+      "address": "LTS:H3:CalibrateBO",
+      "description": "ITS H3 corrector - Calibrate: set to 1 for start",
+      "tags": [
+        "H3",
+        "ITS H3",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H4 corrector current setpoint",
+      "address": "LTS:H4:CurrentAO",
+      "description": "ITS H4 corrector - current setpoint",
+      "tags": [
+        "H4",
+        "ITS H4",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H4 corrector DAC readack",
+      "address": "LTS:H4:DacAI",
+      "description": "ITS H4 corrector - DAC readack",
+      "tags": [
+        "H4",
+        "ITS H4",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H4 corrector current, current readback",
+      "address": "LTS:H4:CurrentAI",
+      "description": "ITS H4 corrector - current, current readback",
+      "tags": [
+        "H4",
+        "ITS H4",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H4 corrector output current",
+      "address": "LTS:H4:OutCurrAI",
+      "description": "ITS H4 corrector - output current",
+      "tags": [
+        "H4",
+        "ITS H4",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H4 corrector PS output voltage",
+      "address": "LTS:H4:VoltageAI",
+      "description": "ITS H4 corrector - PS output voltage",
+      "tags": [
+        "H4",
+        "ITS H4",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H4 corrector DAC Output voltage",
+      "address": "LTS:H4:DACOutV_AI",
+      "description": "ITS H4 corrector - DAC Output voltage",
+      "tags": [
+        "H4",
+        "ITS H4",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H4 corrector Magnet temperature",
+      "address": "LTS:H4:MagTempAI",
+      "description": "ITS H4 corrector - Magnet temperature",
+      "tags": [
+        "H4",
+        "ITS H4",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H4 corrector Rate Divider",
+      "address": "LTS:H4:RateDivAO",
+      "description": "ITS H4 corrector - Rate Divider",
+      "tags": [
+        "H4",
+        "ITS H4",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H4 corrector Standardize: 1 for start, 0 for stop",
+      "address": "LTS:H4:StdSU.PROC",
+      "description": "ITS H4 corrector - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "H4",
+        "ITS H4",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H4 corrector Turn on: 1 for turn on",
+      "address": "LTS:H4:ResetBO",
+      "description": "ITS H4 corrector - Turn on: 1 for turn on",
+      "tags": [
+        "H4",
+        "ITS H4",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H4 corrector Turn off: 1 for turn off",
+      "address": "LTS:H4:OffBO",
+      "description": "ITS H4 corrector - Turn off: 1 for turn off",
+      "tags": [
+        "H4",
+        "ITS H4",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H4 corrector Status: 0 for ready, > 0 for faults and not ready",
+      "address": "LTS:H4:StatusCALC",
+      "description": "ITS H4 corrector - Status: 0 for ready, > 0 for faults and not ready",
+      "tags": [
+        "H4",
+        "ITS H4",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H4 corrector Calibrate: set to 1 for start",
+      "address": "LTS:H4:CalibrateBO",
+      "description": "ITS H4 corrector - Calibrate: set to 1 for start",
+      "tags": [
+        "H4",
+        "ITS H4",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V1 corrector current setpoint",
+      "address": "LTS:V1:CurrentAO",
+      "description": "ITS V1 corrector - current setpoint",
+      "tags": [
+        "V1",
+        "ITS V1",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V1 corrector DAC readack",
+      "address": "LTS:V1:DacAI",
+      "description": "ITS V1 corrector - DAC readack",
+      "tags": [
+        "V1",
+        "ITS V1",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V1 corrector current, current readback",
+      "address": "LTS:V1:CurrentAI",
+      "description": "ITS V1 corrector - current, current readback",
+      "tags": [
+        "V1",
+        "ITS V1",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V1 corrector output current",
+      "address": "LTS:V1:OutCurrAI",
+      "description": "ITS V1 corrector - output current",
+      "tags": [
+        "V1",
+        "ITS V1",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V1 corrector PS output voltage",
+      "address": "LTS:V1:VoltageAI",
+      "description": "ITS V1 corrector - PS output voltage",
+      "tags": [
+        "V1",
+        "ITS V1",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V1 corrector DAC Output voltage",
+      "address": "LTS:V1:DACOutV_AI",
+      "description": "ITS V1 corrector - DAC Output voltage",
+      "tags": [
+        "V1",
+        "ITS V1",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V1 corrector Magnet temperature",
+      "address": "LTS:V1:MagTempAI",
+      "description": "ITS V1 corrector - Magnet temperature",
+      "tags": [
+        "V1",
+        "ITS V1",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V1 corrector Rate Divider",
+      "address": "LTS:V1:RateDivAO",
+      "description": "ITS V1 corrector - Rate Divider",
+      "tags": [
+        "V1",
+        "ITS V1",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V1 corrector Standardize: 1 for start, 0 for stop",
+      "address": "LTS:V1:StdSU.PROC",
+      "description": "ITS V1 corrector - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "V1",
+        "ITS V1",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V1 corrector Turn on: 1 for turn on",
+      "address": "LTS:V1:ResetBO",
+      "description": "ITS V1 corrector - Turn on: 1 for turn on",
+      "tags": [
+        "V1",
+        "ITS V1",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V1 corrector Turn off: 1 for turn off",
+      "address": "LTS:V1:OffBO",
+      "description": "ITS V1 corrector - Turn off: 1 for turn off",
+      "tags": [
+        "V1",
+        "ITS V1",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V1 corrector Status: 0 for ready, > 0 for faults and not ready",
+      "address": "LTS:V1:StatusCALC",
+      "description": "ITS V1 corrector - Status: 0 for ready, > 0 for faults and not ready",
+      "tags": [
+        "V1",
+        "ITS V1",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V1 corrector Calibrate: set to 1 for start",
+      "address": "LTS:V1:CalibrateBO",
+      "description": "ITS V1 corrector - Calibrate: set to 1 for start",
+      "tags": [
+        "V1",
+        "ITS V1",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V2 corrector current setpoint",
+      "address": "LTS:V2:CurrentAO",
+      "description": "ITS V2 corrector - current setpoint",
+      "tags": [
+        "V2",
+        "ITS V2",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V2 corrector DAC readack",
+      "address": "LTS:V2:DacAI",
+      "description": "ITS V2 corrector - DAC readack",
+      "tags": [
+        "V2",
+        "ITS V2",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V2 corrector current, current readback",
+      "address": "LTS:V2:CurrentAI",
+      "description": "ITS V2 corrector - current, current readback",
+      "tags": [
+        "V2",
+        "ITS V2",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V2 corrector output current",
+      "address": "LTS:V2:OutCurrAI",
+      "description": "ITS V2 corrector - output current",
+      "tags": [
+        "V2",
+        "ITS V2",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V2 corrector PS output voltage",
+      "address": "LTS:V2:VoltageAI",
+      "description": "ITS V2 corrector - PS output voltage",
+      "tags": [
+        "V2",
+        "ITS V2",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V2 corrector DAC Output voltage",
+      "address": "LTS:V2:DACOutV_AI",
+      "description": "ITS V2 corrector - DAC Output voltage",
+      "tags": [
+        "V2",
+        "ITS V2",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V2 corrector Magnet temperature",
+      "address": "LTS:V2:MagTempAI",
+      "description": "ITS V2 corrector - Magnet temperature",
+      "tags": [
+        "V2",
+        "ITS V2",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V2 corrector Rate Divider",
+      "address": "LTS:V2:RateDivAO",
+      "description": "ITS V2 corrector - Rate Divider",
+      "tags": [
+        "V2",
+        "ITS V2",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V2 corrector Standardize: 1 for start, 0 for stop",
+      "address": "LTS:V2:StdSU.PROC",
+      "description": "ITS V2 corrector - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "V2",
+        "ITS V2",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V2 corrector Turn on: 1 for turn on",
+      "address": "LTS:V2:ResetBO",
+      "description": "ITS V2 corrector - Turn on: 1 for turn on",
+      "tags": [
+        "V2",
+        "ITS V2",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V2 corrector Turn off: 1 for turn off",
+      "address": "LTS:V2:OffBO",
+      "description": "ITS V2 corrector - Turn off: 1 for turn off",
+      "tags": [
+        "V2",
+        "ITS V2",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V2 corrector Status: 0 for ready, > 0 for faults and not ready",
+      "address": "LTS:V2:StatusCALC",
+      "description": "ITS V2 corrector - Status: 0 for ready, > 0 for faults and not ready",
+      "tags": [
+        "V2",
+        "ITS V2",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V2 corrector Calibrate: set to 1 for start",
+      "address": "LTS:V2:CalibrateBO",
+      "description": "ITS V2 corrector - Calibrate: set to 1 for start",
+      "tags": [
+        "V2",
+        "ITS V2",
+        "ITS V",
+        "SteeringPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V3 corrector current setpoint",
+      "address": "LTS:V3:CurrentAO",
+      "description": "ITS V3 corrector - current setpoint",
+      "tags": [
+        "V3",
+        "ITS V3",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V3 corrector DAC readack",
+      "address": "LTS:V3:DacAI",
+      "description": "ITS V3 corrector - DAC readack",
+      "tags": [
+        "V3",
+        "ITS V3",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V3 corrector current, current readback",
+      "address": "LTS:V3:CurrentAI",
+      "description": "ITS V3 corrector - current, current readback",
+      "tags": [
+        "V3",
+        "ITS V3",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V3 corrector output current",
+      "address": "LTS:V3:OutCurrAI",
+      "description": "ITS V3 corrector - output current",
+      "tags": [
+        "V3",
+        "ITS V3",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V3 corrector PS output voltage",
+      "address": "LTS:V3:VoltageAI",
+      "description": "ITS V3 corrector - PS output voltage",
+      "tags": [
+        "V3",
+        "ITS V3",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V3 corrector DAC Output voltage",
+      "address": "LTS:V3:DACOutV_AI",
+      "description": "ITS V3 corrector - DAC Output voltage",
+      "tags": [
+        "V3",
+        "ITS V3",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V3 corrector Magnet temperature",
+      "address": "LTS:V3:MagTempAI",
+      "description": "ITS V3 corrector - Magnet temperature",
+      "tags": [
+        "V3",
+        "ITS V3",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V3 corrector Rate Divider",
+      "address": "LTS:V3:RateDivAO",
+      "description": "ITS V3 corrector - Rate Divider",
+      "tags": [
+        "V3",
+        "ITS V3",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V3 corrector Standardize: 1 for start, 0 for stop",
+      "address": "LTS:V3:StdSU.PROC",
+      "description": "ITS V3 corrector - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "V3",
+        "ITS V3",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V3 corrector Turn on: 1 for turn on",
+      "address": "LTS:V3:ResetBO",
+      "description": "ITS V3 corrector - Turn on: 1 for turn on",
+      "tags": [
+        "V3",
+        "ITS V3",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V3 corrector Turn off: 1 for turn off",
+      "address": "LTS:V3:OffBO",
+      "description": "ITS V3 corrector - Turn off: 1 for turn off",
+      "tags": [
+        "V3",
+        "ITS V3",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V3 corrector Status: 0 for ready, > 0 for faults and not ready",
+      "address": "LTS:V3:StatusCALC",
+      "description": "ITS V3 corrector - Status: 0 for ready, > 0 for faults and not ready",
+      "tags": [
+        "V3",
+        "ITS V3",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V3 corrector Calibrate: set to 1 for start",
+      "address": "LTS:V3:CalibrateBO",
+      "description": "ITS V3 corrector - Calibrate: set to 1 for start",
+      "tags": [
+        "V3",
+        "ITS V3",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V4 corrector current setpoint",
+      "address": "LTS:V4:CurrentAO",
+      "description": "ITS V4 corrector - current setpoint",
+      "tags": [
+        "V4",
+        "ITS V4",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V4 corrector DAC readack",
+      "address": "LTS:V4:DacAI",
+      "description": "ITS V4 corrector - DAC readack",
+      "tags": [
+        "V4",
+        "ITS V4",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V4 corrector current, current readback",
+      "address": "LTS:V4:CurrentAI",
+      "description": "ITS V4 corrector - current, current readback",
+      "tags": [
+        "V4",
+        "ITS V4",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V4 corrector output current",
+      "address": "LTS:V4:OutCurrAI",
+      "description": "ITS V4 corrector - output current",
+      "tags": [
+        "V4",
+        "ITS V4",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V4 corrector PS output voltage",
+      "address": "LTS:V4:VoltageAI",
+      "description": "ITS V4 corrector - PS output voltage",
+      "tags": [
+        "V4",
+        "ITS V4",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V4 corrector DAC Output voltage",
+      "address": "LTS:V4:DACOutV_AI",
+      "description": "ITS V4 corrector - DAC Output voltage",
+      "tags": [
+        "V4",
+        "ITS V4",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V4 corrector Magnet temperature",
+      "address": "LTS:V4:MagTempAI",
+      "description": "ITS V4 corrector - Magnet temperature",
+      "tags": [
+        "V4",
+        "ITS V4",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V4 corrector Rate Divider",
+      "address": "LTS:V4:RateDivAO",
+      "description": "ITS V4 corrector - Rate Divider",
+      "tags": [
+        "V4",
+        "ITS V4",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V4 corrector Standardize: 1 for start, 0 for stop",
+      "address": "LTS:V4:StdSU.PROC",
+      "description": "ITS V4 corrector - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "V4",
+        "ITS V4",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V4 corrector Turn on: 1 for turn on",
+      "address": "LTS:V4:ResetBO",
+      "description": "ITS V4 corrector - Turn on: 1 for turn on",
+      "tags": [
+        "V4",
+        "ITS V4",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V4 corrector Turn off: 1 for turn off",
+      "address": "LTS:V4:OffBO",
+      "description": "ITS V4 corrector - Turn off: 1 for turn off",
+      "tags": [
+        "V4",
+        "ITS V4",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V4 corrector Status: 0 for ready, > 0 for faults and not ready",
+      "address": "LTS:V4:StatusCALC",
+      "description": "ITS V4 corrector - Status: 0 for ready, > 0 for faults and not ready",
+      "tags": [
+        "V4",
+        "ITS V4",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V4 corrector Calibrate: set to 1 for start",
+      "address": "LTS:V4:CalibrateBO",
+      "description": "ITS V4 corrector - Calibrate: set to 1 for start",
+      "tags": [
+        "V4",
+        "ITS V4",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q1 current setpoint",
+      "address": "LTS:Q1:CurrentAO",
+      "description": "ITS Q1 quadrupole - current setpoint",
+      "tags": [
+        "Q1",
+        "ITS Q1",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q1 DAC readack",
+      "address": "LTS:Q1:DacAI",
+      "description": "ITS Q1 quadrupole - DAC readack",
+      "tags": [
+        "Q1",
+        "ITS Q1",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q1 current, current readback",
+      "address": "LTS:Q1:CurrentAI",
+      "description": "ITS Q1 quadrupole - current, current readback",
+      "tags": [
+        "Q1",
+        "ITS Q1",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q1 output current",
+      "address": "LTS:Q1:OutCurrAI",
+      "description": "ITS Q1 quadrupole - output current",
+      "tags": [
+        "Q1",
+        "ITS Q1",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q1 PS output voltage",
+      "address": "LTS:Q1:VoltageAI",
+      "description": "ITS Q1 quadrupole - PS output voltage",
+      "tags": [
+        "Q1",
+        "ITS Q1",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q1 DAC Output voltage",
+      "address": "LTS:Q1:DACOutV_AI",
+      "description": "ITS Q1 quadrupole - DAC Output voltage",
+      "tags": [
+        "Q1",
+        "ITS Q1",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q1 Magnet temperature",
+      "address": "LTS:Q1:MagTempAI",
+      "description": "ITS Q1 quadrupole - Magnet temperature",
+      "tags": [
+        "Q1",
+        "ITS Q1",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q1 Rate Divider",
+      "address": "LTS:Q1:RateDivAO",
+      "description": "ITS Q1 quadrupole - Rate Divider",
+      "tags": [
+        "Q1",
+        "ITS Q1",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q1 Standardize: 1 for start, 0 for stop",
+      "address": "LTS:Q1:StdSU.PROC",
+      "description": "ITS Q1 quadrupole - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "Q1",
+        "ITS Q1",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q1 Turn on: 1 for turn on",
+      "address": "LTS:Q1:ResetBO",
+      "description": "ITS Q1 quadrupole - Turn on: 1 for turn on",
+      "tags": [
+        "Q1",
+        "ITS Q1",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q1 Turn off: 1 for turn off",
+      "address": "LTS:Q1:OffBO",
+      "description": "ITS Q1 quadrupole - Turn off: 1 for turn off",
+      "tags": [
+        "Q1",
+        "ITS Q1",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q1 Status: 0 for ready, > 0 for faults and not ready",
+      "address": "LTS:Q1:StatusCALC",
+      "description": "ITS Q1 quadrupole - Status: 0 for ready, > 0 for faults and not ready",
+      "tags": [
+        "Q1",
+        "ITS Q1",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q1 Calibrate: set to 1 for start",
+      "address": "LTS:Q1:CalibrateBO",
+      "description": "ITS Q1 quadrupole - Calibrate: set to 1 for start",
+      "tags": [
+        "Q1",
+        "ITS Q1",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q2 current setpoint",
+      "address": "LTS:Q2:CurrentAO",
+      "description": "ITS Q2 quadrupole - current setpoint",
+      "tags": [
+        "Q2",
+        "ITS Q2",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q2 DAC readack",
+      "address": "LTS:Q2:DacAI",
+      "description": "ITS Q2 quadrupole - DAC readack",
+      "tags": [
+        "Q2",
+        "ITS Q2",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q2 current, current readback",
+      "address": "LTS:Q2:CurrentAI",
+      "description": "ITS Q2 quadrupole - current, current readback",
+      "tags": [
+        "Q2",
+        "ITS Q2",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q2 output current",
+      "address": "LTS:Q2:OutCurrAI",
+      "description": "ITS Q2 quadrupole - output current",
+      "tags": [
+        "Q2",
+        "ITS Q2",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q2 PS output voltage",
+      "address": "LTS:Q2:VoltageAI",
+      "description": "ITS Q2 quadrupole - PS output voltage",
+      "tags": [
+        "Q2",
+        "ITS Q2",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q2 DAC Output voltage",
+      "address": "LTS:Q2:DACOutV_AI",
+      "description": "ITS Q2 quadrupole - DAC Output voltage",
+      "tags": [
+        "Q2",
+        "ITS Q2",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q2 Magnet temperature",
+      "address": "LTS:Q2:MagTempAI",
+      "description": "ITS Q2 quadrupole - Magnet temperature",
+      "tags": [
+        "Q2",
+        "ITS Q2",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q2 Rate Divider",
+      "address": "LTS:Q2:RateDivAO",
+      "description": "ITS Q2 quadrupole - Rate Divider",
+      "tags": [
+        "Q2",
+        "ITS Q2",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q2 Standardize: 1 for start, 0 for stop",
+      "address": "LTS:Q2:StdSU.PROC",
+      "description": "ITS Q2 quadrupole - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "Q2",
+        "ITS Q2",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q2 Turn on: 1 for turn on",
+      "address": "LTS:Q2:ResetBO",
+      "description": "ITS Q2 quadrupole - Turn on: 1 for turn on",
+      "tags": [
+        "Q2",
+        "ITS Q2",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q2 Turn off: 1 for turn off",
+      "address": "LTS:Q2:OffBO",
+      "description": "ITS Q2 quadrupole - Turn off: 1 for turn off",
+      "tags": [
+        "Q2",
+        "ITS Q2",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q2 Status: 0 for ready, > 0 for faults and not ready",
+      "address": "LTS:Q2:StatusCALC",
+      "description": "ITS Q2 quadrupole - Status: 0 for ready, > 0 for faults and not ready",
+      "tags": [
+        "Q2",
+        "ITS Q2",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q2 Calibrate: set to 1 for start",
+      "address": "LTS:Q2:CalibrateBO",
+      "description": "ITS Q2 quadrupole - Calibrate: set to 1 for start",
+      "tags": [
+        "Q2",
+        "ITS Q2",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q3 current setpoint",
+      "address": "LTS:Q3:CurrentAO",
+      "description": "ITS Q3 quadrupole - current setpoint",
+      "tags": [
+        "Q3",
+        "ITS Q3",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q3 DAC readack",
+      "address": "LTS:Q3:DacAI",
+      "description": "ITS Q3 quadrupole - DAC readack",
+      "tags": [
+        "Q3",
+        "ITS Q3",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q3 current, current readback",
+      "address": "LTS:Q3:CurrentAI",
+      "description": "ITS Q3 quadrupole - current, current readback",
+      "tags": [
+        "Q3",
+        "ITS Q3",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q3 output current",
+      "address": "LTS:Q3:OutCurrAI",
+      "description": "ITS Q3 quadrupole - output current",
+      "tags": [
+        "Q3",
+        "ITS Q3",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q3 PS output voltage",
+      "address": "LTS:Q3:VoltageAI",
+      "description": "ITS Q3 quadrupole - PS output voltage",
+      "tags": [
+        "Q3",
+        "ITS Q3",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q3 DAC Output voltage",
+      "address": "LTS:Q3:DACOutV_AI",
+      "description": "ITS Q3 quadrupole - DAC Output voltage",
+      "tags": [
+        "Q3",
+        "ITS Q3",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q3 Magnet temperature",
+      "address": "LTS:Q3:MagTempAI",
+      "description": "ITS Q3 quadrupole - Magnet temperature",
+      "tags": [
+        "Q3",
+        "ITS Q3",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q3 Rate Divider",
+      "address": "LTS:Q3:RateDivAO",
+      "description": "ITS Q3 quadrupole - Rate Divider",
+      "tags": [
+        "Q3",
+        "ITS Q3",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q3 Standardize: 1 for start, 0 for stop",
+      "address": "LTS:Q3:StdSU.PROC",
+      "description": "ITS Q3 quadrupole - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "Q3",
+        "ITS Q3",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q3 Turn on: 1 for turn on",
+      "address": "LTS:Q3:ResetBO",
+      "description": "ITS Q3 quadrupole - Turn on: 1 for turn on",
+      "tags": [
+        "Q3",
+        "ITS Q3",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q3 Turn off: 1 for turn off",
+      "address": "LTS:Q3:OffBO",
+      "description": "ITS Q3 quadrupole - Turn off: 1 for turn off",
+      "tags": [
+        "Q3",
+        "ITS Q3",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q3 Status: 0 for ready, > 0 for faults and not ready",
+      "address": "LTS:Q3:StatusCALC",
+      "description": "ITS Q3 quadrupole - Status: 0 for ready, > 0 for faults and not ready",
+      "tags": [
+        "Q3",
+        "ITS Q3",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q3 Calibrate: set to 1 for start",
+      "address": "LTS:Q3:CalibrateBO",
+      "description": "ITS Q3 quadrupole - Calibrate: set to 1 for start",
+      "tags": [
+        "Q3",
+        "ITS Q3",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q4 current setpoint",
+      "address": "LTS:Q4:CurrentAO",
+      "description": "ITS Q4 quadrupole - current setpoint",
+      "tags": [
+        "Q4",
+        "ITS Q4",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q4 DAC readack",
+      "address": "LTS:Q4:DacAI",
+      "description": "ITS Q4 quadrupole - DAC readack",
+      "tags": [
+        "Q4",
+        "ITS Q4",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q4 current, current readback",
+      "address": "LTS:Q4:CurrentAI",
+      "description": "ITS Q4 quadrupole - current, current readback",
+      "tags": [
+        "Q4",
+        "ITS Q4",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q4 output current",
+      "address": "LTS:Q4:OutCurrAI",
+      "description": "ITS Q4 quadrupole - output current",
+      "tags": [
+        "Q4",
+        "ITS Q4",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q4 PS output voltage",
+      "address": "LTS:Q4:VoltageAI",
+      "description": "ITS Q4 quadrupole - PS output voltage",
+      "tags": [
+        "Q4",
+        "ITS Q4",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q4 DAC Output voltage",
+      "address": "LTS:Q4:DACOutV_AI",
+      "description": "ITS Q4 quadrupole - DAC Output voltage",
+      "tags": [
+        "Q4",
+        "ITS Q4",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q4 Magnet temperature",
+      "address": "LTS:Q4:MagTempAI",
+      "description": "ITS Q4 quadrupole - Magnet temperature",
+      "tags": [
+        "Q4",
+        "ITS Q4",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q4 Rate Divider",
+      "address": "LTS:Q4:RateDivAO",
+      "description": "ITS Q4 quadrupole - Rate Divider",
+      "tags": [
+        "Q4",
+        "ITS Q4",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q4 Standardize: 1 for start, 0 for stop",
+      "address": "LTS:Q4:StdSU.PROC",
+      "description": "ITS Q4 quadrupole - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "Q4",
+        "ITS Q4",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q4 Turn on: 1 for turn on",
+      "address": "LTS:Q4:ResetBO",
+      "description": "ITS Q4 quadrupole - Turn on: 1 for turn on",
+      "tags": [
+        "Q4",
+        "ITS Q4",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q4 Turn off: 1 for turn off",
+      "address": "LTS:Q4:OffBO",
+      "description": "ITS Q4 quadrupole - Turn off: 1 for turn off",
+      "tags": [
+        "Q4",
+        "ITS Q4",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q4 Status: 0 for ready, > 0 for faults and not ready",
+      "address": "LTS:Q4:StatusCALC",
+      "description": "ITS Q4 quadrupole - Status: 0 for ready, > 0 for faults and not ready",
+      "tags": [
+        "Q4",
+        "ITS Q4",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q4 Calibrate: set to 1 for start",
+      "address": "LTS:Q4:CalibrateBO",
+      "description": "ITS Q4 quadrupole - Calibrate: set to 1 for start",
+      "tags": [
+        "Q4",
+        "ITS Q4",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q5 current setpoint",
+      "address": "LTS:Q5:CurrentAO",
+      "description": "ITS Q5 quadrupole - current setpoint",
+      "tags": [
+        "Q5",
+        "ITS Q5",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q5 DAC readack",
+      "address": "LTS:Q5:DacAI",
+      "description": "ITS Q5 quadrupole - DAC readack",
+      "tags": [
+        "Q5",
+        "ITS Q5",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q5 current, current readback",
+      "address": "LTS:Q5:CurrentAI",
+      "description": "ITS Q5 quadrupole - current, current readback",
+      "tags": [
+        "Q5",
+        "ITS Q5",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q5 output current",
+      "address": "LTS:Q5:OutCurrAI",
+      "description": "ITS Q5 quadrupole - output current",
+      "tags": [
+        "Q5",
+        "ITS Q5",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q5 PS output voltage",
+      "address": "LTS:Q5:VoltageAI",
+      "description": "ITS Q5 quadrupole - PS output voltage",
+      "tags": [
+        "Q5",
+        "ITS Q5",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q5 DAC Output voltage",
+      "address": "LTS:Q5:DACOutV_AI",
+      "description": "ITS Q5 quadrupole - DAC Output voltage",
+      "tags": [
+        "Q5",
+        "ITS Q5",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q5 Magnet temperature",
+      "address": "LTS:Q5:MagTempAI",
+      "description": "ITS Q5 quadrupole - Magnet temperature",
+      "tags": [
+        "Q5",
+        "ITS Q5",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q5 Rate Divider",
+      "address": "LTS:Q5:RateDivAO",
+      "description": "ITS Q5 quadrupole - Rate Divider",
+      "tags": [
+        "Q5",
+        "ITS Q5",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q5 Standardize: 1 for start, 0 for stop",
+      "address": "LTS:Q5:StdSU.PROC",
+      "description": "ITS Q5 quadrupole - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "Q5",
+        "ITS Q5",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q5 Turn on: 1 for turn on",
+      "address": "LTS:Q5:ResetBO",
+      "description": "ITS Q5 quadrupole - Turn on: 1 for turn on",
+      "tags": [
+        "Q5",
+        "ITS Q5",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q5 Turn off: 1 for turn off",
+      "address": "LTS:Q5:OffBO",
+      "description": "ITS Q5 quadrupole - Turn off: 1 for turn off",
+      "tags": [
+        "Q5",
+        "ITS Q5",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q5 Status: 0 for ready, > 0 for faults and not ready",
+      "address": "LTS:Q5:StatusCALC",
+      "description": "ITS Q5 quadrupole - Status: 0 for ready, > 0 for faults and not ready",
+      "tags": [
+        "Q5",
+        "ITS Q5",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q5 Calibrate: set to 1 for start",
+      "address": "LTS:Q5:CalibrateBO",
+      "description": "ITS Q5 quadrupole - Calibrate: set to 1 for start",
+      "tags": [
+        "Q5",
+        "ITS Q5",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS BM1 current setpoint",
+      "address": "LTS:BM1:CurrentAO",
+      "description": "ITS bending magnet - current setpoint",
+      "tags": [
+        "ITS BM1",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS BM1 DAC readack",
+      "address": "LTS:BM1:DacAI",
+      "description": "ITS bending magnet - DAC readack",
+      "tags": [
+        "ITS BM1",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS BM1 current, current readback",
+      "address": "LTS:BM1:CurrentAI",
+      "description": "ITS bending magnet - current, current readback",
+      "tags": [
+        "ITS BM1",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS BM1 output current",
+      "address": "LTS:BM1:OutCurrAI",
+      "description": "ITS bending magnet - output current",
+      "tags": [
+        "ITS BM1",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS BM1 PS output voltage",
+      "address": "LTS:BM1:VoltageAI",
+      "description": "ITS bending magnet - PS output voltage",
+      "tags": [
+        "ITS BM1",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS BM1 DAC Output voltage",
+      "address": "LTS:BM1:DACOutV_AI",
+      "description": "ITS bending magnet - DAC Output voltage",
+      "tags": [
+        "ITS BM1",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS BM1 Magnet temperature",
+      "address": "LTS:BM1:MagTempAI",
+      "description": "ITS bending magnet - Magnet temperature",
+      "tags": [
+        "ITS BM1",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS BM1 Rate Divider",
+      "address": "LTS:BM1:RateDivAO",
+      "description": "ITS bending magnet - Rate Divider",
+      "tags": [
+        "ITS BM1",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS BM1 Standardize: 1 for start, 0 for stop",
+      "address": "LTS:BM1:StdSU.PROC",
+      "description": "ITS bending magnet - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "ITS BM1",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS BM1 Turn on: 1 for turn on",
+      "address": "LTS:BM1:ResetBO",
+      "description": "ITS bending magnet - Turn on: 1 for turn on",
+      "tags": [
+        "ITS BM1",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS BM1 Turn off: 1 for turn off",
+      "address": "LTS:BM1:OffBO",
+      "description": "ITS bending magnet - Turn off: 1 for turn off",
+      "tags": [
+        "ITS BM1",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS BM1 Status: 0 for ready, > 0 for faults and not ready",
+      "address": "LTS:BM1:StatusCALC",
+      "description": "ITS bending magnet - Status: 0 for ready, > 0 for faults and not ready",
+      "tags": [
+        "ITS BM1",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS BM1 Calibrate: set to 1 for start",
+      "address": "LTS:BM1:CalibrateBO",
+      "description": "ITS bending magnet - Calibrate: set to 1 for start",
+      "tags": [
+        "ITS BM1",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Bending magnet 2 current setpoint",
+      "address": "LTS:BM2:CurrentAO",
+      "description": "ITS bending magnet 2 - current setpoint",
+      "tags": [
+        "ITS BM2",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Bending magnet 2 current, current readback",
+      "address": "LTS:BM2:CurrentAI",
+      "description": "ITS bending magnet 2 - current, current readback",
+      "tags": [
+        "ITS BM2",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Bending magnet 2 PS output voltage",
+      "address": "LTS:BM2:VoltageAI",
+      "description": "ITS bending magnet 2 - PS output voltage",
+      "tags": [
+        "ITS BM2",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Bending magnet 2 magnet temperature",
+      "address": "LTS:BM2:MagTempAI",
+      "description": "ITS bending magnet 2 - magnet temperature",
+      "tags": [
+        "ITS BM2",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Bending magnet 2 Standardize: 1 for start, 0 for stop",
+      "address": "LTS:BM2:StdSU.PROC",
+      "description": "ITS bending magnet 2 - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "ITS BM2",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Bending magnet 2 Turn on: 1 for turn on",
+      "address": "LTS:BM2:ResetBO",
+      "description": "ITS bending magnet 2 - Turn on: 1 for turn on",
+      "tags": [
+        "ITS BM2",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Bending magnet 2 Turn off: 1 for turn off",
+      "address": "LTS:BM2:OffBO",
+      "description": "ITS bending magnet 2 - Turn off: 1 for turn off",
+      "tags": [
+        "ITS BM2",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Bending magnet 2 Status: 0 for ready, > 0 for faults and not ready",
+      "address": "LTS:BM2:readyCC",
+      "description": "ITS bending magnet 2 - Status: 0 for ready, > 0 for faults and not ready",
+      "tags": [
+        "ITS BM2",
+        "ITS bending magnet",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H5 corrector current setpoint",
+      "address": "LTS:H5:CurrentAO",
+      "description": "ITS H5 corrector - current setpoint",
+      "tags": [
+        "H5",
+        "ITS H5",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H5 corrector current, current readback",
+      "address": "LTS:H5:CurrentAI",
+      "description": "ITS H5 corrector - current, current readback",
+      "tags": [
+        "H5",
+        "ITS H5",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H5 corrector PS output voltage",
+      "address": "LTS:H5:OutVoltageAI",
+      "description": "ITS H5 corrector - PS output voltage",
+      "tags": [
+        "H5",
+        "ITS H5",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H5 corrector Standardize: 1 for start, 0 for stop",
+      "address": "LTS:H5:StdSU.PROC",
+      "description": "ITS H5 corrector - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "H5",
+        "ITS H5",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H5 corrector Turn on: 1 for turn on",
+      "address": "LTS:H5:ResetBO",
+      "description": "ITS H5 corrector - Turn on: 1 for turn on",
+      "tags": [
+        "H5",
+        "ITS H5",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H5 corrector Turn off: 1 for turn off",
+      "address": "LTS:H5:OffBO",
+      "description": "ITS H5 corrector - Turn off: 1 for turn off",
+      "tags": [
+        "H5",
+        "ITS H5",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS H5 corrector Ready status: 1 for ready, 0 not ready",
+      "address": "LTS:H5:readyCC",
+      "description": "ITS H5 corrector - Ready status: 1 for ready, 0 not ready",
+      "tags": [
+        "H5",
+        "ITS H5",
+        "ITS H",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V5 corrector current setpoint",
+      "address": "LTS:V5:CurrentAO",
+      "description": "ITS V5 corrector - current setpoint",
+      "tags": [
+        "V5",
+        "ITS V5",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V5 corrector current, current readback",
+      "address": "LTS:V5:CurrentAI",
+      "description": "ITS V5 corrector - current, current readback",
+      "tags": [
+        "V5",
+        "ITS V5",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V5 corrector PS output voltage",
+      "address": "LTS:V5:OutVoltageAI",
+      "description": "ITS V5 corrector - PS output voltage",
+      "tags": [
+        "V5",
+        "ITS V5",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V5 corrector Standardize: 1 for start, 0 for stop",
+      "address": "LTS:V5:StdSU.PROC",
+      "description": "ITS V5 corrector - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "V5",
+        "ITS V5",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V5 corrector Turn on: 1 for turn on",
+      "address": "LTS:V5:ResetBO",
+      "description": "ITS V5 corrector - Turn on: 1 for turn on",
+      "tags": [
+        "V5",
+        "ITS V5",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V5 corrector Turn off: 1 for turn off",
+      "address": "LTS:V5:OffBO",
+      "description": "ITS V5 corrector - Turn off: 1 for turn off",
+      "tags": [
+        "V5",
+        "ITS V5",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS V5 corrector Ready status: 1 for ready, 0 not ready",
+      "address": "LTS:V5:readyCC",
+      "description": "ITS V5 corrector - Ready status: 1 for ready, 0 not ready",
+      "tags": [
+        "V5",
+        "ITS V5",
+        "ITS V",
+        "SteeringPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q6 current setpoint",
+      "address": "LTS:Q6:CurrentAO",
+      "description": "ITS Q6 quadrupole - current setpoint",
+      "tags": [
+        "Q6",
+        "ITS Q6",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q6 current, current readback",
+      "address": "LTS:Q6:CurrentAI",
+      "description": "ITS Q6 quadrupole - current, current readback",
+      "tags": [
+        "Q6",
+        "ITS Q6",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q6 PS output voltage",
+      "address": "LTS:Q6:OutVoltageAI",
+      "description": "ITS Q6 quadrupole - PS output voltage",
+      "tags": [
+        "Q6",
+        "ITS Q6",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q6 Standardize: 1 for start, 0 for stop",
+      "address": "LTS:Q6:StdSU.PROC",
+      "description": "ITS Q6 quadrupole - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "Q6",
+        "ITS Q6",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q6 Turn on: 1 for turn on",
+      "address": "LTS:Q6:ResetBO",
+      "description": "ITS Q6 quadrupole - Turn on: 1 for turn on",
+      "tags": [
+        "Q6",
+        "ITS Q6",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q6 Turn off: 1 for turn off",
+      "address": "LTS:Q6:OffBO",
+      "description": "ITS Q6 quadrupole - Turn off: 1 for turn off",
+      "tags": [
+        "Q6",
+        "ITS Q6",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q6 Ready status: 1 for ready, 0 not ready",
+      "address": "LTS:Q6:readyCC",
+      "description": "ITS Q6 quadrupole - Ready status: 1 for ready, 0 not ready",
+      "tags": [
+        "Q6",
+        "ITS Q6",
+        "ITS quadrupole",
+        "MainPS",
+        "YAG-bend beamline magnets",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q7 current setpoint",
+      "address": "LTS:Q7:CurrentAO",
+      "description": "ITS Q7 quadrupole - current setpoint",
+      "tags": [
+        "Q7",
+        "ITS Q7",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q7 current, current readback",
+      "address": "LTS:Q7:CurrentAI",
+      "description": "ITS Q7 quadrupole - current, current readback",
+      "tags": [
+        "Q7",
+        "ITS Q7",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q7 PS output voltage",
+      "address": "LTS:Q7:OutVoltageAI",
+      "description": "ITS Q7 quadrupole - PS output voltage",
+      "tags": [
+        "Q7",
+        "ITS Q7",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q7 Standardize: 1 for start, 0 for stop",
+      "address": "LTS:Q7:StdSU.PROC",
+      "description": "ITS Q7 quadrupole - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "Q7",
+        "ITS Q7",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q7 Turn on: 1 for turn on",
+      "address": "LTS:Q7:ResetBO",
+      "description": "ITS Q7 quadrupole - Turn on: 1 for turn on",
+      "tags": [
+        "Q7",
+        "ITS Q7",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q7 Turn off: 1 for turn off",
+      "address": "LTS:Q7:OffBO",
+      "description": "ITS Q7 quadrupole - Turn off: 1 for turn off",
+      "tags": [
+        "Q7",
+        "ITS Q7",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q7 Ready status: 1 for ready, 0 not ready",
+      "address": "LTS:Q7:readyCC",
+      "description": "ITS Q7 quadrupole - Ready status: 1 for ready, 0 not ready",
+      "tags": [
+        "Q7",
+        "ITS Q7",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q8 current setpoint",
+      "address": "LTS:Q8:CurrentAO",
+      "description": "ITS Q8 quadrupole - current setpoint",
+      "tags": [
+        "Q8",
+        "ITS Q8",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q8 current, current readback",
+      "address": "LTS:Q8:CurrentAI",
+      "description": "ITS Q8 quadrupole - current, current readback",
+      "tags": [
+        "Q8",
+        "ITS Q8",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q8 PS output voltage",
+      "address": "LTS:Q8:OutVoltageAI",
+      "description": "ITS Q8 quadrupole - PS output voltage",
+      "tags": [
+        "Q8",
+        "ITS Q8",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q8 Standardize: 1 for start, 0 for stop",
+      "address": "LTS:Q8:StdSU.PROC",
+      "description": "ITS Q8 quadrupole - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "Q8",
+        "ITS Q8",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q8 Turn on: 1 for turn on",
+      "address": "LTS:Q8:ResetBO",
+      "description": "ITS Q8 quadrupole - Turn on: 1 for turn on",
+      "tags": [
+        "Q8",
+        "ITS Q8",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q8 Turn off: 1 for turn off",
+      "address": "LTS:Q8:OffBO",
+      "description": "ITS Q8 quadrupole - Turn off: 1 for turn off",
+      "tags": [
+        "Q8",
+        "ITS Q8",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q8 Ready status: 1 for ready, 0 not ready",
+      "address": "LTS:Q8:readyCC",
+      "description": "ITS Q8 quadrupole - Ready status: 1 for ready, 0 not ready",
+      "tags": [
+        "Q8",
+        "ITS Q8",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q9 current setpoint",
+      "address": "LTS:Q9:CurrentAO",
+      "description": "ITS Q9 quadrupole - current setpoint",
+      "tags": [
+        "Q9",
+        "ITS Q9",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q9 current, current readback",
+      "address": "LTS:Q9:CurrentAI",
+      "description": "ITS Q9 quadrupole - current, current readback",
+      "tags": [
+        "Q9",
+        "ITS Q9",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q9 PS output voltage",
+      "address": "LTS:Q9:OutVoltageAI",
+      "description": "ITS Q9 quadrupole - PS output voltage",
+      "tags": [
+        "Q9",
+        "ITS Q9",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q9 Standardize: 1 for start, 0 for stop",
+      "address": "LTS:Q9:StdSU.PROC",
+      "description": "ITS Q9 quadrupole - Standardize: 1 for start, 0 for stop",
+      "tags": [
+        "Q9",
+        "ITS Q9",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q9 Turn on: 1 for turn on",
+      "address": "LTS:Q9:ResetBO",
+      "description": "ITS Q9 quadrupole - Turn on: 1 for turn on",
+      "tags": [
+        "Q9",
+        "ITS Q9",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q9 Turn off: 1 for turn off",
+      "address": "LTS:Q9:OffBO",
+      "description": "ITS Q9 quadrupole - Turn off: 1 for turn off",
+      "tags": [
+        "Q9",
+        "ITS Q9",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Q9 Ready status: 1 for ready, 0 not ready",
+      "address": "LTS:Q9:readyCC",
+      "description": "ITS Q9 quadrupole - Ready status: 1 for ready, 0 not ready",
+      "tags": [
+        "Q9",
+        "ITS Q9",
+        "ITS quadrupole",
+        "MainPS",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Raw PS status",
+      "address": "LTS:RAW:StatusCALC",
+      "description": "ITS Raw PS - status",
+      "tags": [
+        "ITS Raw PS"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Raw PS status bit 0",
+      "address": "LTS:RAW:Bit0BI",
+      "description": "ITS Raw PS - status bit 0",
+      "tags": [
+        "ITS Raw PS"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Raw PS status bit 1",
+      "address": "LTS:RAW:Bit1BI",
+      "description": "ITS Raw PS - status bit 1",
+      "tags": [
+        "ITS Raw PS"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Raw PS status bit 2",
+      "address": "LTS:RAW:Bit2BI",
+      "description": "ITS Raw PS - status bit 2",
+      "tags": [
+        "ITS Raw PS"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Raw PS status bit 6",
+      "address": "LTS:RAW:Bit6BI",
+      "description": "ITS Raw PS - status bit 6",
+      "tags": [
+        "ITS Raw PS"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Raw PS status bit 7",
+      "address": "LTS:RAW:Bit7BI",
+      "description": "ITS Raw PS - status bit 7",
+      "tags": [
+        "ITS Raw PS"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Raw PS calibrate",
+      "address": "LTS:RAW:CalibrateBO",
+      "description": "ITS Raw PS - calibrate",
+      "tags": [
+        "ITS Raw PS"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Raw PS reset/on",
+      "address": "LTS:RAW:ResetSEQ",
+      "description": "ITS Raw PS - reset/on",
+      "tags": [
+        "ITS Raw PS"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Raw PS off",
+      "address": "LTS:RAW:OffBO",
+      "description": "ITS Raw PS - off",
+      "tags": [
+        "ITS Raw PS"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Raw PS rate divider",
+      "address": "LTS:RAW:RateDivAO",
+      "description": "ITS Raw PS - rate divider",
+      "tags": [
+        "ITS Raw PS"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Raw PS current setpoint",
+      "address": "LTS:RAW:CurrentAO",
+      "description": "ITS Raw PS - current setpoint",
+      "tags": [
+        "ITS Raw PS"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Raw PS current readback",
+      "address": "LTS:RAW:CurrentAI",
+      "description": "ITS Raw PS - current readback",
+      "tags": [
+        "ITS Raw PS"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Raw PS temperature",
+      "address": "LTS:RAW:MagTempAI",
+      "description": "ITS Raw PS - temperature",
+      "tags": [
+        "ITS Raw PS"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Raw PS PSCU local indicator",
+      "address": "LTS:PSCU2:localBI",
+      "description": "Indicates whether PSCU2 is in local (1) or remote (0) for the Raw supply",
+      "tags": [
+        "ITS Raw PS",
+        "PSCU2",
+        "status"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun PS voltage setpoint",
+      "address": "LTS:G:VoltageAO",
+      "description": "ITS Gun - PS voltage setpoint",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun DAC reference",
+      "address": "LTS:G:DacRefAI",
+      "description": "ITS Gun - DAC reference",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun DAC readback",
+      "address": "LTS:G:DacAI",
+      "description": "ITS Gun - DAC readback",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun status indicator",
+      "address": "LTS:G:StatusCC",
+      "description": "ITS Gun - status indicator",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun PS output current",
+      "address": "LTS:G:CurrentAI",
+      "description": "ITS Gun - PS output current",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun pre-chopper voltage",
+      "address": "LTS:G:PreChopVoltAI",
+      "description": "ITS Gun - pre-chopper voltage",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun local/remote indicator",
+      "address": "LTS:G:LocalBI",
+      "description": "ITS Gun - local/remote indicator",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun status bit 0",
+      "address": "LTS:G:Bit0BI",
+      "description": "ITS Gun - status bit 0",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun status bit 1",
+      "address": "LTS:G:Bit1BI",
+      "description": "ITS Gun - status bit 1",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun status bit 2",
+      "address": "LTS:G:Bit2BI",
+      "description": "ITS Gun - status bit 2",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun status bit 6",
+      "address": "LTS:G:Bit6BI",
+      "description": "ITS Gun - status bit 6",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun status bit 7",
+      "address": "LTS:G:Bit7BI",
+      "description": "ITS Gun - status bit 7",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun calculated power",
+      "address": "LTS:G:PowerCC",
+      "description": "ITS Gun - calculated power",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun PS output voltage",
+      "address": "LTS:G:VoltageCC",
+      "description": "ITS Gun - PS output voltage",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun calibrate command",
+      "address": "LTS:G:CalibrateBO",
+      "description": "ITS Gun - calibrate command",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun reset/on command",
+      "address": "LTS:G:ResetSQ",
+      "description": "ITS Gun - reset/on command",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun off command",
+      "address": "LTS:G:OffBO",
+      "description": "ITS Gun - off command",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun rate divider",
+      "address": "LTS:G:RateDivAO",
+      "description": "ITS Gun - rate divider",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun chopper mode status",
+      "address": "LTS:G:ChopStatusBI",
+      "description": "ITS Gun - chopper mode status",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gun chopper toggle",
+      "address": "LTS:G:ChopSelectBO",
+      "description": "ITS Gun - chopper toggle",
+      "tags": [
+        "ITS Gun",
+        "power supply",
+        "setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Alpha magnet current setpoint",
+      "address": "LTS:Alpha:CurrentAO",
+      "description": "ITS Alpha magnet - current setpoint",
+      "tags": [
+        "ITS Alpha",
+        "ITS alpha magnet",
+        "setpoint",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Alpha magnet current readback",
+      "address": "LTS:Alpha:CurrentAI",
+      "description": "ITS Alpha magnet - current readback",
+      "tags": [
+        "ITS Alpha",
+        "ITS alpha magnet",
+        "setpoint",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Alpha magnet PS voltage",
+      "address": "LTS:Alpha:OutVoltageAI",
+      "description": "ITS Alpha magnet - PS voltage",
+      "tags": [
+        "ITS Alpha",
+        "ITS alpha magnet",
+        "setpoint",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Alpha magnet standardize",
+      "address": "LTS:Alpha:StdSU.PROC",
+      "description": "ITS Alpha magnet - standardize",
+      "tags": [
+        "ITS Alpha",
+        "ITS alpha magnet",
+        "setpoint",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Alpha magnet turn on",
+      "address": "LTS:Alpha:ResetBO",
+      "description": "ITS Alpha magnet - turn on",
+      "tags": [
+        "ITS Alpha",
+        "ITS alpha magnet",
+        "setpoint",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Alpha magnet turn off",
+      "address": "LTS:Alpha:OffBO",
+      "description": "ITS Alpha magnet - turn off",
+      "tags": [
+        "ITS Alpha",
+        "ITS alpha magnet",
+        "setpoint",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Alpha magnet ready status",
+      "address": "LTS:Alpha:readyCC",
+      "description": "ITS Alpha magnet - ready status",
+      "tags": [
+        "ITS Alpha",
+        "ITS alpha magnet",
+        "setpoint",
+        "Alpha beamline magnets"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS beam current",
+      "address": "LTS:CM1:measCurrentCM",
+      "description": "ITS current group - beam current",
+      "tags": [
+        "ITS current"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS current setpoint",
+      "address": "LTS:CM1:beamCurrentAO",
+      "description": "ITS current group - current setpoint",
+      "tags": [
+        "ITS current"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS charge standard deviation",
+      "address": "LTS:CM1:measCurrentCM.ISTD",
+      "description": "ITS current group - charge standard deviation",
+      "tags": [
+        "ITS current"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS charge samples used",
+      "address": "LTS:CM1:measCurrentCM.NSUM",
+      "description": "ITS current group - charge samples used",
+      "tags": [
+        "ITS current"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS current averaging sample target",
+      "address": "LTS:CM1:measCurrentCM.CAVG",
+      "description": "ITS current group - current averaging sample target",
+      "tags": [
+        "ITS current"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS current update rate",
+      "address": "LTS:CM1:measCurrentCM.MVAL",
+      "description": "ITS current group - current update rate",
+      "tags": [
+        "ITS current"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS current timing source label",
+      "address": "LTS:CM1:measCurrentCM.NMTG",
+      "description": "ITS current group - current timing source label",
+      "tags": [
+        "ITS current"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS current timing target value",
+      "address": "LTS:CM1:measCurrentCM.TGTM",
+      "description": "ITS current group - current timing target value",
+      "tags": [
+        "ITS current"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS current no-beam flag",
+      "address": "LTS:CM1:measCurrentCM.NBFG",
+      "description": "ITS current group - current no-beam flag",
+      "tags": [
+        "ITS current"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS current minimum voltage threshold",
+      "address": "LTS:CM1:measCurrentCM.VMIN",
+      "description": "ITS current group - current minimum voltage threshold",
+      "tags": [
+        "ITS current"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS current gate width",
+      "address": "LTS:CM1:measCurrentCM.GWID",
+      "description": "ITS current group - current gate width",
+      "tags": [
+        "ITS current"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS current gate delay",
+      "address": "LTS:CM1:measCurrentCM.TVAL",
+      "description": "ITS current group - current gate delay",
+      "tags": [
+        "ITS current"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS current mux status",
+      "address": "LTS:CM1:measCurrentCM.MSMD",
+      "description": "ITS current group - current mux status",
+      "tags": [
+        "ITS current"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS current engineering units",
+      "address": "LTS:CM1:measCurrentCM.EGU",
+      "description": "ITS current group - current engineering units",
+      "tags": [
+        "ITS current"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS current instantaneous voltage",
+      "address": "LTS:CM1:measCurrentCM.INPV",
+      "description": "ITS current group - current instantaneous voltage",
+      "tags": [
+        "ITS current"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS gun beam controller command",
+      "address": "LTS:RFGunBeamIcontrollerRC.SUSP",
+      "description": "ITS Suspension/command PV for the ITS gun beam controller",
+      "tags": [
+        "ITS gun beam controller",
+        "command"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS timing delay 0",
+      "address": "LTS:timingDelay0AO",
+      "description": "ITS timing delays - delay 0",
+      "tags": [
+        "ITS timing delay",
+        "timing",
+        "delay"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS timing delay 1",
+      "address": "LTS:timingDelay1AO",
+      "description": "ITS timing delays - delay 1",
+      "tags": [
+        "ITS timing delay",
+        "timing",
+        "delay"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS timing delay 2",
+      "address": "LTS:timingDelay2AO",
+      "description": "ITS timing delays - delay 2",
+      "tags": [
+        "ITS timing delay",
+        "timing",
+        "delay"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS timing delay 3",
+      "address": "LTS:timingDelay3AO",
+      "description": "ITS timing delays - delay 3",
+      "tags": [
+        "ITS timing delay",
+        "timing",
+        "delay"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS timing delay 4",
+      "address": "LTS:timingDelay4AO",
+      "description": "ITS timing delays - delay 4",
+      "tags": [
+        "ITS timing delay",
+        "timing",
+        "delay"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS timing delay 5",
+      "address": "LTS:timingDelay5AO",
+      "description": "ITS timing delays - delay 5",
+      "tags": [
+        "ITS timing delay",
+        "timing",
+        "delay"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Vacuum TW Vacuum CO1",
+      "address": "L1:LTS:TW:VP:CO1.VAL",
+      "description": "ITS Vacuum - TW Vacuum CO1",
+      "tags": [
+        "ITS  TW Vacuum",
+        "vacuum",
+        "TW",
+        "pressure"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Vacuum Gun Vacuum CO1",
+      "address": "L1:LTS:GUN:VP:CO1.VAL",
+      "description": "ITS Vacuum - Gun Vacuum CO1",
+      "tags": [
+        "ITS  TW Vacuum",
+        "vacuum",
+        "TW",
+        "pressure"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Vacuum Gun Vacuum CO2",
+      "address": "L1:LTS:GUN:VP:CO2.VAL",
+      "description": "ITS Vacuum - Gun Vacuum CO2",
+      "tags": [
+        "ITS  TW Vacuum",
+        "vacuum",
+        "TW",
+        "pressure"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Vacuum BL Vacuum CO1",
+      "address": "L1:LTS:BL:VP:CO1.VAL",
+      "description": "ITS Vacuum - BL Vacuum CO1",
+      "tags": [
+        "ITS  TW Vacuum",
+        "vacuum",
+        "TW",
+        "pressure"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Vacuum BL Vacuum CO2",
+      "address": "L1:LTS:BL:VP:CO2.VAL",
+      "description": "ITS Vacuum - BL Vacuum CO2",
+      "tags": [
+        "ITS  TW Vacuum",
+        "vacuum",
+        "TW",
+        "pressure"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Vacuum BL Vacuum CO3",
+      "address": "L1:LTS:BL:VP:CO3.VAL",
+      "description": "ITS Vacuum - BL Vacuum CO3",
+      "tags": [
+        "ITS  TW Vacuum",
+        "vacuum",
+        "TW",
+        "pressure"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Shutter Gate 1 state",
+      "address": "L1:LTS:GV1:positionMI",
+      "description": "ITS Shutter - Gate 1 state",
+      "tags": [
+        "ITS gate",
+        "shutter",
+        "gate valve",
+        "position"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Shutter Gate 2 state",
+      "address": "L1:LTS:GV2:positionMI",
+      "description": "ITS Shutter - Gate 2 state",
+      "tags": [
+        "ITS gate",
+        "shutter",
+        "gate valve",
+        "position"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS temperatures room temperature 1",
+      "address": "LTS:TC:K:temp1AI",
+      "description": "ITS temperatures - room temperature 1",
+      "tags": [
+        "ITS room temperature",
+        "temperature",
+        "monitoring"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS temperatures Undulator Upstream temperature",
+      "address": "LTS:TC:K:temp2AI",
+      "description": "ITS temperatures - Undulator Upstream temperature",
+      "tags": [
+        "ITS room temperature",
+        "temperature",
+        "monitoring"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS temperatures Undulator middle stream temperature",
+      "address": "LTS:TC:K:temp3AI.EGU",
+      "description": "ITS temperatures - Undulator middle stream temperature",
+      "tags": [
+        "ITS room temperature",
+        "temperature",
+        "monitoring"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS temperatures room temperature 2",
+      "address": "LTS:TC:K:temp4AI",
+      "description": "ITS temperatures - room temperature 2",
+      "tags": [
+        "ITS room temperature",
+        "temperature",
+        "monitoring"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS temperatures Gun water temperature",
+      "address": "LTS:RTD:temperature0AI",
+      "description": "ITS temperatures - Gun water temperature",
+      "tags": [
+        "ITS room temperature",
+        "temperature",
+        "monitoring"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS temperatures Gun water return temperature",
+      "address": "LTS:RTD:temperature1AI",
+      "description": "ITS temperatures - Gun water return temperature",
+      "tags": [
+        "ITS room temperature",
+        "temperature",
+        "monitoring"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS PC Gun RF forward power",
+      "address": "L1:PG1:DC1ARF",
+      "description": "ITS PC Gun RF - forward power",
+      "tags": [
+        "PC Gun foward powerpower",
+        "PC Gun",
+        "power"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS PC Gun RF reflected power",
+      "address": "L1:PG1:DC1BRF",
+      "description": "ITS PC Gun RF - reflected power",
+      "tags": [
+        "PC Gun foward powerpower",
+        "PC Gun",
+        "power"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS PC Gun RF RF Phase",
+      "address": "L1:PG1:DC1AIQ.VAL",
+      "description": "ITS PC Gun RF - RF Phase",
+      "tags": [
+        "PC Gun foward powerpower",
+        "PC Gun",
+        "power"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS PC Gun Power supplies BK PS Current",
+      "address": "L1:PC1:BK:PS:CurrentAO",
+      "description": "ITS PC Gun Power supplies - BK PS Current",
+      "tags": [
+        "PC Gun Power Supply",
+        "BK",
+        "current",
+        "PowerSupply"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS PC Gun Power supplies SM HC PS Current",
+      "address": "L1:PC1:SM:HC:PS:CurrentAO",
+      "description": "ITS PC Gun Power supplies - SM HC PS Current",
+      "tags": [
+        "PC Gun Power Supply",
+        "BK",
+        "current",
+        "PowerSupply"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS PC Gun Power supplies SM NQ PS Current",
+      "address": "L1:PC1:SM:NQ:PS:CurrentAO",
+      "description": "ITS PC Gun Power supplies - SM NQ PS Current",
+      "tags": [
+        "PC Gun Power Supply",
+        "BK",
+        "current",
+        "PowerSupply"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS PC Gun Power supplies SM PS Current",
+      "address": "L1:PC1:SM:PS:CurrentAO",
+      "description": "ITS PC Gun Power supplies - SM PS Current",
+      "tags": [
+        "PC Gun Power Supply",
+        "BK",
+        "current",
+        "PowerSupply"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS PC Gun Power supplies SM SQ PS Current",
+      "address": "L1:PC1:SM:SQ:PS:CurrentAO",
+      "description": "ITS PC Gun Power supplies - SM SQ PS Current",
+      "tags": [
+        "PC Gun Power Supply",
+        "BK",
+        "current",
+        "PowerSupply"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS PC Gun Power supplies SM VC PS Current",
+      "address": "L1:PC1:SM:VC:PS:CurrentAO",
+      "description": "ITS PC Gun Power supplies - SM VC PS Current",
+      "tags": [
+        "PC Gun Power Supply",
+        "BK",
+        "current",
+        "PowerSupply"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L1 water load forward power",
+      "address": "L1:WL:DC1ARF",
+      "description": "ITS L1 water load - forward power",
+      "tags": [
+        "L1 water load forward power",
+        "L1",
+        "power"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L1 water load reflected power",
+      "address": "L1:WL:DC1BRF",
+      "description": "ITS L1 water load - reflected power",
+      "tags": [
+        "L1 water load forward power",
+        "L1",
+        "power"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Gate timing Gate Width",
+      "address": "L1:TM:PG1:RF:widthAO",
+      "description": "ITS Gate Width - Gate Width",
+      "tags": [
+        "ITS Gate Width"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 klystron LLRF drive power LLRF drive power",
+      "address": "L3:DARF",
+      "description": "ITS L3 LLRF drive power - LLRF drive power",
+      "tags": [
+        "L3 LLRF drive power",
+        "L3",
+        "power"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 RF klystron power setpoint",
+      "address": "L3:KY:DC2ARF:SetpointP",
+      "description": "ITS L3 RF klystron - power setpoint",
+      "tags": [
+        "L3 RF klystron power setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 RF klystron power error",
+      "address": "L3:KY:DC2ARF:ErrorM",
+      "description": "ITS L3 RF klystron - power error",
+      "tags": [
+        "L3 RF klystron power setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 RF klystron Klystron drive",
+      "address": "L3:KY:DC1RF.VAL",
+      "description": "ITS L3 RF klystron - Klystron drive",
+      "tags": [
+        "L3 RF klystron power setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 RF klystron Klystron forward power",
+      "address": "L3:KY:DC2ARF.VAL",
+      "description": "ITS L3 RF klystron - Klystron forward power",
+      "tags": [
+        "L3 RF klystron power setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 RF klystron RF power change amount",
+      "address": "L3:KY:DC2A:pwmCtlC",
+      "description": "ITS L3 RF klystron - RF power change amount",
+      "tags": [
+        "L3 RF klystron power setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 RF klystron klystron drive power",
+      "address": "L3:KY:DC1RF",
+      "description": "ITS L3 RF klystron - klystron drive power",
+      "tags": [
+        "L3 RF klystron power setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 RF klystron klystron reflected power",
+      "address": "L3:KY:DC2BRF.VAL",
+      "description": "ITS L3 RF klystron - klystron reflected power",
+      "tags": [
+        "L3 RF klystron power setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 RF klystron RF phase",
+      "address": "L3:KY:DC2AIQ.VAL",
+      "description": "ITS L3 RF klystron - RF phase",
+      "tags": [
+        "L3 RF klystron power setpoint"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 klystron attenuator klystron attenuator",
+      "address": "L3:MA:klyPosAI",
+      "description": "ITS L3 klystron attenuator - klystron attenuator",
+      "tags": [
+        "L3 klystron attenuator",
+        "L3",
+        "attenuator"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 klystron attenuator increase attenuator",
+      "address": "L3:MA:incKlyBO",
+      "description": "ITS L3 klystron attenuator - increase attenuator",
+      "tags": [
+        "L3 klystron attenuator",
+        "L3",
+        "attenuator"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 klystron attenuator decrease attenuator",
+      "address": "L3:MA:decKlyBO",
+      "description": "ITS L3 klystron attenuator - decrease attenuator",
+      "tags": [
+        "L3 klystron attenuator",
+        "L3",
+        "attenuator"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary PFN voltage",
+      "address": "L3:MO:PFNvAI",
+      "description": "ITS L3 analog measurement summary - PFN voltage",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron pulse current",
+      "address": "L3:MO:KlyPulseCurrAI",
+      "description": "ITS L3 analog measurement summary - Klystron pulse current",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron pulse voltage",
+      "address": "L3:MO:KlyPulseVoltAI",
+      "description": "ITS L3 analog measurement summary - Klystron pulse voltage",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary PFN charge current",
+      "address": "L3:MO:PFNChargeCurrAI",
+      "description": "ITS L3 analog measurement summary - PFN charge current",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary PFN PS voltage actual setpoint",
+      "address": "L3:MO:PFNPSVoltActualSetPtAI",
+      "description": "ITS L3 analog measurement summary - PFN PS voltage actual setpoint",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron magnet 1 current",
+      "address": "L3:MO:KlyMag1CurrAI",
+      "description": "ITS L3 analog measurement summary - Klystron magnet 1 current",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron magnet 1 voltage",
+      "address": "L3:MO:KlyMag1VoltAI",
+      "description": "ITS L3 analog measurement summary - Klystron magnet 1 voltage",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron magnet 2 current",
+      "address": "L3:MO:KlyMag2CurrAI",
+      "description": "ITS L3 analog measurement summary - Klystron magnet 2 current",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron magnet 2 voltage",
+      "address": "L3:MO:KlyMag2VoltAI",
+      "description": "ITS L3 analog measurement summary - Klystron magnet 2 voltage",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron magnet 3 current",
+      "address": "L3:MO:KlyMag3CurrAI",
+      "description": "ITS L3 analog measurement summary - Klystron magnet 3 current",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron magnet 3 voltage",
+      "address": "L3:MO:KlyMag3VoltAI",
+      "description": "ITS L3 analog measurement summary - Klystron magnet 3 voltage",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary PFN transformer bias current",
+      "address": "L3:MO:PFNXFMRBiasCurrAI",
+      "description": "ITS L3 analog measurement summary - PFN transformer bias current",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary PFN transformer bias voltage",
+      "address": "L3:MO:PFNXFMRBiasVoltAI",
+      "description": "ITS L3 analog measurement summary - PFN transformer bias voltage",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron heater current",
+      "address": "L3:MO:KlyHtrCurrAI",
+      "description": "ITS L3 analog measurement summary - Klystron heater current",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron heater voltage",
+      "address": "L3:MO:KlyHtrVoltAI",
+      "description": "ITS L3 analog measurement summary - Klystron heater voltage",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron ion pump current",
+      "address": "L3:MO:KlyIonPumpCurrAI",
+      "description": "ITS L3 analog measurement summary - Klystron ion pump current",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron ion pump voltage",
+      "address": "L3:MO:KlyIonPumpVoltAI",
+      "description": "ITS L3 analog measurement summary - Klystron ion pump voltage",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron magnet temperature",
+      "address": "L3:MO:KlyMagTempAI",
+      "description": "ITS L3 analog measurement summary - Klystron magnet temperature",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron collector temperature",
+      "address": "L3:MO:KlyCollTempAI",
+      "description": "ITS L3 analog measurement summary - Klystron collector temperature",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron oil temperature",
+      "address": "L3:MO:KlyOilTempAI",
+      "description": "ITS L3 analog measurement summary - Klystron oil temperature",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron body inlet temperature",
+      "address": "L3:MO:KlyBodyInTempAI",
+      "description": "ITS L3 analog measurement summary - Klystron body inlet temperature",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron body outlet temperature",
+      "address": "L3:MO:KlyBodyOutTempAI",
+      "description": "ITS L3 analog measurement summary - Klystron body outlet temperature",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron body temperature difference",
+      "address": "L3:MO:KlyBodyTempDiffAI",
+      "description": "ITS L3 analog measurement summary - Klystron body temperature difference",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron heater hours",
+      "address": "L3:MO:KlyHeaterHoursLI",
+      "description": "ITS L3 analog measurement summary - Klystron heater hours",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron pulse hours",
+      "address": "L3:MO:KlyPulseHoursLI",
+      "description": "ITS L3 analog measurement summary - Klystron pulse hours",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary focus magnet water flow rate",
+      "address": "L3:MO:FocMagWaterFlowRateAI",
+      "description": "ITS L3 analog measurement summary - focus magnet water flow rate",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary HVPS1 water flow rate",
+      "address": "L3:MO:HVPS1WaterFlowRateAI",
+      "description": "ITS L3 analog measurement summary - HVPS1 water flow rate",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary HVPS2 water flow rate",
+      "address": "L3:MO:HVPS2WaterFlowRateAI",
+      "description": "ITS L3 analog measurement summary - HVPS2 water flow rate",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron body water flow rate",
+      "address": "L3:MO:KlyBodyWaterFlowRateAI",
+      "description": "ITS L3 analog measurement summary - Klystron body water flow rate",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 analog measurement summary Klystron collector water flow rate",
+      "address": "L3:MO:KlyCollWaterFlowRateAI",
+      "description": "ITS L3 analog measurement summary - Klystron collector water flow rate",
+      "tags": [
+        "L3 PFN voltage",
+        "L3",
+        "voltage"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 timing modulator trigger",
+      "address": "L3:TM:modTrigAO",
+      "description": "ITS L3 timing - modulator trigger",
+      "tags": [
+        "modulator trigger",
+        "L3",
+        "timing"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 timing gate start",
+      "address": "L3:TM:DAGateStartAO",
+      "description": "ITS L3 timing - gate start",
+      "tags": [
+        "modulator trigger",
+        "L3",
+        "timing"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L3 timing gate width",
+      "address": "L3:TM:DAGateWidthSetAO",
+      "description": "ITS L3 timing - gate width",
+      "tags": [
+        "modulator trigger",
+        "L3",
+        "timing"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS LI timing RF timing source selection",
+      "address": "LI:TM:L3TimingSourceC",
+      "description": "ITS LI timing - RF timing source selection",
+      "tags": [
+        "L3 RF timing source",
+        "L3",
+        "timing"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS LI timing Async gate start",
+      "address": "LI:TM:ASYNC:DAGateStartTimeAO",
+      "description": "ITS LI timing - Async gate start",
+      "tags": [
+        "L3 RF timing source",
+        "L3",
+        "timing"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS LI timing Async gate width",
+      "address": "LI:TM:ASYNC:DAGateWidthAO",
+      "description": "ITS LI timing - Async gate width",
+      "tags": [
+        "L3 RF timing source",
+        "L3",
+        "timing"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS LI timing local modulator rate",
+      "address": "LI:TM:localModulatorRateAO",
+      "description": "ITS LI timing - local modulator rate",
+      "tags": [
+        "L3 RF timing source",
+        "L3",
+        "timing"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L6 Klystron Klystron DC2A IQ Phase",
+      "address": "L6:KY:DC2AIQ.VAL",
+      "description": "ITS L6 Klystron DC2A IQ Phase - Klystron DC2A IQ Phase",
+      "tags": [
+        "L6 Klystron DC2A IQ Phase",
+        "L6",
+        "phase"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS L6 TC DC1A IQ Phase",
+      "address": "L6:TC:DC1AIQ.VAL",
+      "description": "ITS L6 Transverse Coupling DC1A IQ Phase",
+      "tags": [
+        "L6 TC DC1A IQ Phase",
+        "L6",
+        "phase"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 1 average charge",
+      "address": "LTS:FC1:GI1:measCurrentCM.VAL",
+      "description": "ITS Faraday cup 1 - average charge",
+      "tags": [
+        "Faraday cup 1"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 1 charge standard deviation",
+      "address": "LTS:FC1:GI1:measCurrentCM.ISTD",
+      "description": "ITS Faraday cup 1 - charge standard deviation",
+      "tags": [
+        "Faraday cup 1"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 1 number of samples used for charge monitor",
+      "address": "LTS:FC1:GI1:measCurrentCM.NSUM",
+      "description": "ITS Faraday cup 1 - number of samples used for charge monitor",
+      "tags": [
+        "Faraday cup 1"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 1 average sample target of charrge",
+      "address": "LTS:FC1:GI1:measCurrentCM.CAVG",
+      "description": "ITS Faraday cup 1 - average sample target of charrge",
+      "tags": [
+        "Faraday cup 1"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 1 charge update rate",
+      "address": "LTS:FC1:GI1:measCurrentCM.MVAL",
+      "description": "ITS Faraday cup 1 - charge update rate",
+      "tags": [
+        "Faraday cup 1"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 1 mux timing gate of charge",
+      "address": "LTS:FC1:GI1:measCurrentCM.NMTG",
+      "description": "ITS Faraday cup 1 - mux timing gate of charge",
+      "tags": [
+        "Faraday cup 1"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 1 timing target of charge",
+      "address": "LTS:FC1:GI1:measCurrentCM.TGTM",
+      "description": "ITS Faraday cup 1 - timing target of charge",
+      "tags": [
+        "Faraday cup 1"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 1 no beam flag",
+      "address": "LTS:FC1:GI1:measCurrentCM.NBFG",
+      "description": "ITS Faraday cup 1 - no beam flag",
+      "tags": [
+        "Faraday cup 1"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 1 minimum valid voltage",
+      "address": "LTS:FC1:GI1:measCurrentCM.VMIN",
+      "description": "ITS Faraday cup 1 - minimum valid voltage",
+      "tags": [
+        "Faraday cup 1"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 1 charge gate width",
+      "address": "LTS:FC1:GI1:measCurrentCM.GWID",
+      "description": "ITS Faraday cup 1 - charge gate width",
+      "tags": [
+        "Faraday cup 1"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 1 charge gate delay",
+      "address": "LTS:FC1:GI1:measCurrentCM.TVAL",
+      "description": "ITS Faraday cup 1 - charge gate delay",
+      "tags": [
+        "Faraday cup 1"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 1 mux select status",
+      "address": "LTS:FC1:GI1:measCurrentCM.MSMD",
+      "description": "ITS Faraday cup 1 - mux select status",
+      "tags": [
+        "Faraday cup 1"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 1 engineering units",
+      "address": "LTS:FC1:GI1:measCurrentCM.EGU",
+      "description": "ITS Faraday cup 1 - engineering units",
+      "tags": [
+        "Faraday cup 1"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 1 instantaneous voltage",
+      "address": "LTS:FC1:GI1:measCurrentCM.INPV",
+      "description": "ITS Faraday cup 1 - instantaneous voltage",
+      "tags": [
+        "Faraday cup 1"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 2 average charge",
+      "address": "LTS:FC1:GI2:measCurrentCM.VAL",
+      "description": "ITS Faraday cup 2 - average charge",
+      "tags": [
+        "Faraday cup 2"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 2 charge standard deviation",
+      "address": "LTS:FC1:GI2:measCurrentCM.ISTD",
+      "description": "ITS Faraday cup 2 - charge standard deviation",
+      "tags": [
+        "Faraday cup 2"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 2 number of samples used for charge monitor",
+      "address": "LTS:FC1:GI2:measCurrentCM.NSUM",
+      "description": "ITS Faraday cup 2 - number of samples used for charge monitor",
+      "tags": [
+        "Faraday cup 2"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 2 average sample target of charrge",
+      "address": "LTS:FC1:GI2:measCurrentCM.CAVG",
+      "description": "ITS Faraday cup 2 - average sample target of charrge",
+      "tags": [
+        "Faraday cup 2"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 2 charge update rate",
+      "address": "LTS:FC1:GI2:measCurrentCM.MVAL",
+      "description": "ITS Faraday cup 2 - charge update rate",
+      "tags": [
+        "Faraday cup 2"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 2 mux timing gate of charge",
+      "address": "LTS:FC1:GI2:measCurrentCM.NMTG",
+      "description": "ITS Faraday cup 2 - mux timing gate of charge",
+      "tags": [
+        "Faraday cup 2"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 2 timing target of charge",
+      "address": "LTS:FC1:GI2:measCurrentCM.TGTM",
+      "description": "ITS Faraday cup 2 - timing target of charge",
+      "tags": [
+        "Faraday cup 2"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 2 no beam flag",
+      "address": "LTS:FC1:GI2:measCurrentCM.NBFG",
+      "description": "ITS Faraday cup 2 - no beam flag",
+      "tags": [
+        "Faraday cup 2"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 2 minimum valid voltage",
+      "address": "LTS:FC1:GI2:measCurrentCM.VMIN",
+      "description": "ITS Faraday cup 2 - minimum valid voltage",
+      "tags": [
+        "Faraday cup 2"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 2 charge gate width",
+      "address": "LTS:FC1:GI2:measCurrentCM.GWID",
+      "description": "ITS Faraday cup 2 - charge gate width",
+      "tags": [
+        "Faraday cup 2"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 2 charge gate delay",
+      "address": "LTS:FC1:GI2:measCurrentCM.TVAL",
+      "description": "ITS Faraday cup 2 - charge gate delay",
+      "tags": [
+        "Faraday cup 2"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 2 mux select status",
+      "address": "LTS:FC1:GI2:measCurrentCM.MSMD",
+      "description": "ITS Faraday cup 2 - mux select status",
+      "tags": [
+        "Faraday cup 2"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 2 engineering units",
+      "address": "LTS:FC1:GI2:measCurrentCM.EGU",
+      "description": "ITS Faraday cup 2 - engineering units",
+      "tags": [
+        "Faraday cup 2"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup 2 instantaneous voltage",
+      "address": "LTS:FC1:GI2:measCurrentCM.INPV",
+      "description": "ITS Faraday cup 2 - instantaneous voltage",
+      "tags": [
+        "Faraday cup 2"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "ITS Faraday cup selection",
+      "address": "LTS:GI1:selectC",
+      "description": "ITS Command PV for selecting the Faraday cup",
+      "tags": [
+        "Faraday cup",
+        "selection",
+        "command"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "Storage ring beam current",
+      "address": "S-DCCT:CurrentM",
+      "description": "Storage ring DC current transformer measured beam current",
+      "tags": [
+        "storage ring",
+        "beam current",
+        "DCCT",
+        "current monitor",
+        "S-DCCT"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "sr correctors",
+      "address": "S02A:FH1:PS:SetCurrentC",
+      "description": "SR fast corrector",
+      "tags": [
+        "storage ring",
+        "fast corrector"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "sr correctors",
+      "address": "S02A:FH2:PS:SetCurrentC",
+      "description": "SR fast corrector",
+      "tags": [
+        "storage ring",
+        "fast corrector"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "sr correctors",
+      "address": "S03B:H1:PS:SetCurrentC",
+      "description": "SR slow corrector",
+      "tags": [
+        "storage ring",
+        "slow corrector"
+      ]
+    },
+    {
+      "template": false,
+      "channel": "sr correctors",
+      "address": "S03B:H7:PS:SetCurrentC",
+      "description": "SR slow corrector",
+      "tags": [
+        "storage ring",
+        "slow corrector"
+      ]
+    }
+  ]
+}

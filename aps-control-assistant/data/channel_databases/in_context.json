@@ -1,0 +1,256 @@
+{
+  "_metadata": {
+    "description": "Curated storage ring channel database with descriptive aliases for in-context channel finding",
+    "stats": {
+      "template_entries": 5,
+      "standalone_entries": 38,
+      "total_entries": 43
+    }
+  },
+  "channels": [
+    {
+      "template": false,
+      "channel": "StorageRing_BeamCurrent_ReadBack",
+      "address": "SR:DIAG:DCCT:MAIN:CURRENT:RB",
+      "description": "Total stored beam current in the storage ring measured by DC current transformer"
+    },
+    {
+      "template": false,
+      "channel": "StorageRing_BeamLifetime_ReadBack",
+      "address": "SR:DIAG:DCCT:MAIN:LIFETIME:RB",
+      "description": "Beam lifetime in the storage ring calculated from current decay rate"
+    },
+    {
+      "template": false,
+      "channel": "StorageRing_DCCT_Valid",
+      "address": "SR:DIAG:DCCT:MAIN:STATUS:VALID",
+      "description": "DCCT measurement validity flag, false indicates instrument problem or no beam"
+    },
+    {
+      "template": false,
+      "channel": "RF_Cavity1_ForwardPower_ReadBack",
+      "address": "SR:RF:CAVITY:C1:POWER:FWD",
+      "description": "Forward RF power traveling from klystron toward cavity 1 in kilowatts"
+    },
+    {
+      "template": false,
+      "channel": "RF_Cavity1_ReflectedPower_ReadBack",
+      "address": "SR:RF:CAVITY:C1:POWER:REV",
+      "description": "Reflected RF power bouncing back from cavity 1 in kilowatts, should be less than 5% of forward"
+    },
+    {
+      "template": false,
+      "channel": "RF_Cavity1_Voltage_SetPoint",
+      "address": "SR:RF:CAVITY:C1:VOLTAGE:SP",
+      "description": "Commanded RF cavity 1 gap voltage setpoint in megavolts"
+    },
+    {
+      "template": false,
+      "channel": "RF_Cavity1_Voltage_ReadBack",
+      "address": "SR:RF:CAVITY:C1:VOLTAGE:RB",
+      "description": "Measured RF cavity 1 gap voltage readback in megavolts"
+    },
+    {
+      "template": false,
+      "channel": "RF_Cavity1_Temperature_ReadBack",
+      "address": "SR:RF:CAVITY:C1:TEMPERATURE:RB",
+      "description": "RF cavity 1 body temperature in Celsius, water-cooled for frequency stability"
+    },
+    {
+      "template": false,
+      "channel": "RF_Cavity2_ForwardPower_ReadBack",
+      "address": "SR:RF:CAVITY:C2:POWER:FWD",
+      "description": "Forward RF power traveling from klystron toward cavity 2 in kilowatts"
+    },
+    {
+      "template": false,
+      "channel": "RF_Cavity2_Voltage_SetPoint",
+      "address": "SR:RF:CAVITY:C2:VOLTAGE:SP",
+      "description": "Commanded RF cavity 2 gap voltage setpoint in megavolts"
+    },
+    {
+      "template": false,
+      "channel": "RF_Cavity2_Voltage_ReadBack",
+      "address": "SR:RF:CAVITY:C2:VOLTAGE:RB",
+      "description": "Measured RF cavity 2 gap voltage readback in megavolts"
+    },
+    {
+      "template": false,
+      "channel": "RF_Cavity2_Temperature_ReadBack",
+      "address": "SR:RF:CAVITY:C2:TEMPERATURE:RB",
+      "description": "RF cavity 2 body temperature in Celsius"
+    },
+    {
+      "template": false,
+      "channel": "RF_Cavity1_Frequency_SetPoint",
+      "address": "SR:RF:CAVITY:C1:FREQUENCY:SP",
+      "description": "Commanded RF frequency setpoint for cavity 1 in MHz"
+    },
+    {
+      "template": false,
+      "channel": "RF_Cavity1_Frequency_ReadBack",
+      "address": "SR:RF:CAVITY:C1:FREQUENCY:RB",
+      "description": "Measured RF frequency readback for cavity 1 in MHz"
+    },
+    {
+      "template": false,
+      "channel": "Klystron1_OutputPower_ReadBack",
+      "address": "SR:RF:KLYSTRON:K1:POWER:RB",
+      "description": "Klystron 1 RF output power readback in kilowatts"
+    },
+    {
+      "template": false,
+      "channel": "Klystron2_OutputPower_ReadBack",
+      "address": "SR:RF:KLYSTRON:K2:POWER:RB",
+      "description": "Klystron 2 RF output power readback in kilowatts"
+    },
+    {
+      "template": false,
+      "channel": "VacuumIonPump01_Pressure_ReadBack",
+      "address": "SR:VAC:ION-PUMP:SR01:PRESSURE:RB",
+      "description": "Ion pump 1 vacuum pressure readback in Torr, calculated from pump current"
+    },
+    {
+      "template": false,
+      "channel": "VacuumIonPump02_Pressure_ReadBack",
+      "address": "SR:VAC:ION-PUMP:SR02:PRESSURE:RB",
+      "description": "Ion pump 2 vacuum pressure readback in Torr"
+    },
+    {
+      "template": false,
+      "channel": "VacuumIonPump03_Pressure_ReadBack",
+      "address": "SR:VAC:ION-PUMP:SR03:PRESSURE:RB",
+      "description": "Ion pump 3 vacuum pressure readback in Torr"
+    },
+    {
+      "template": false,
+      "channel": "VacuumGauge_SR01A_Pressure_ReadBack",
+      "address": "SR:VAC:GAUGE:SR01A:PRESSURE:RB",
+      "description": "Vacuum gauge SR01A direct pressure readback in Torr from ionization gauge"
+    },
+    {
+      "template": false,
+      "channel": "VacuumGauge_SR01B_Pressure_ReadBack",
+      "address": "SR:VAC:GAUGE:SR01B:PRESSURE:RB",
+      "description": "Vacuum gauge SR01B direct pressure readback in Torr from ionization gauge"
+    },
+    {
+      "template": false,
+      "channel": "VacuumValve01_Position_Open",
+      "address": "SR:VAC:VALVE:V01:POSITION:OPEN",
+      "description": "Vacuum valve 1 open status, true when valve is fully open"
+    },
+    {
+      "template": false,
+      "channel": "VacuumValve01_Control_Open",
+      "address": "SR:VAC:VALVE:V01:CONTROL:OPEN",
+      "description": "Command to open vacuum valve 1"
+    },
+    {
+      "template": false,
+      "channel": "VacuumValve01_Control_Close",
+      "address": "SR:VAC:VALVE:V01:CONTROL:CLOSE",
+      "description": "Command to close vacuum valve 1"
+    },
+    {
+      "template": false,
+      "channel": "NeutronMonitor01_DoseRate_Instantaneous",
+      "address": "SR:DIAG:NEUTRON:NEUT01:DOSE_RATE:INST",
+      "description": "Instantaneous neutron radiation dose rate at monitor 1 in mrem/hour"
+    },
+    {
+      "template": false,
+      "channel": "NeutronMonitor01_Alarm",
+      "address": "SR:DIAG:NEUTRON:NEUT01:STATUS:ALARM",
+      "description": "Neutron monitor 1 alarm status, true when radiation exceeds safety threshold"
+    },
+    {
+      "template": false,
+      "channel": "GammaMonitor01_DoseRate_Instantaneous",
+      "address": "SR:DIAG:GAMMA:GAMM01:DOSE_RATE:INST",
+      "description": "Instantaneous gamma radiation dose rate at monitor 1 in mrem/hour"
+    },
+    {
+      "template": false,
+      "channel": "GammaMonitor01_Alarm",
+      "address": "SR:DIAG:GAMMA:GAMM01:STATUS:ALARM",
+      "description": "Gamma monitor 1 alarm status, true when radiation exceeds safety limit"
+    },
+    {
+      "template": true,
+      "base_name": "BPM_Position",
+      "instances": [1, 20],
+      "sub_channels": ["X", "Y"],
+      "description": "Beam position monitors measuring transverse beam position in millimeters",
+      "address_pattern": "SR:DIAG:BPM:BPM{instance:02d}:POSITION:{suffix}",
+      "channel_descriptions": {
+        "X": "horizontal position readback at BPM {instance}",
+        "Y": "vertical position readback at BPM {instance}"
+      }
+    },
+    {
+      "template": true,
+      "base_name": "DipoleMagnet",
+      "instances": [1, 12],
+      "sub_channels": ["CurrentSetPoint", "CurrentReadBack"],
+      "description": "Dipole bending magnets controlling beam trajectory in the storage ring",
+      "address_pattern": "SR:MAG:DIPOLE:B{instance:02d}:CURRENT:{suffix}",
+      "channel_descriptions": {
+        "CurrentSetPoint": "current setpoint for dipole {instance}",
+        "CurrentReadBack": "current readback for dipole {instance}"
+      },
+      "suffix_map": {
+        "CurrentSetPoint": "SP",
+        "CurrentReadBack": "RB"
+      }
+    },
+    {
+      "template": true,
+      "base_name": "FocusingQuad",
+      "instances": [1, 8],
+      "sub_channels": ["CurrentSetPoint", "CurrentReadBack"],
+      "description": "Focusing quadrupole magnets for beam optics in the storage ring",
+      "address_pattern": "SR:MAG:QF:QF{instance:02d}:CURRENT:{suffix}",
+      "channel_descriptions": {
+        "CurrentSetPoint": "current setpoint for focusing quad {instance}",
+        "CurrentReadBack": "current readback for focusing quad {instance}"
+      },
+      "suffix_map": {
+        "CurrentSetPoint": "SP",
+        "CurrentReadBack": "RB"
+      }
+    },
+    {
+      "template": true,
+      "base_name": "HorizontalCorrectorMagnet",
+      "instances": [1, 10],
+      "sub_channels": ["CurrentSetPoint", "CurrentReadBack"],
+      "description": "Horizontal corrector magnets for fine beam steering",
+      "address_pattern": "SR:MAG:HCM:H{instance:02d}:CURRENT:{suffix}",
+      "channel_descriptions": {
+        "CurrentSetPoint": "current setpoint for horizontal corrector {instance}",
+        "CurrentReadBack": "current readback for horizontal corrector {instance}"
+      },
+      "suffix_map": {
+        "CurrentSetPoint": "SP",
+        "CurrentReadBack": "RB"
+      }
+    },
+    {
+      "template": true,
+      "base_name": "VerticalCorrectorMagnet",
+      "instances": [1, 10],
+      "sub_channels": ["CurrentSetPoint", "CurrentReadBack"],
+      "description": "Vertical corrector magnets for fine beam steering",
+      "address_pattern": "SR:MAG:VCM:V{instance:02d}:CURRENT:{suffix}",
+      "channel_descriptions": {
+        "CurrentSetPoint": "current setpoint for vertical corrector {instance}",
+        "CurrentReadBack": "current readback for vertical corrector {instance}"
+      },
+      "suffix_map": {
+        "CurrentSetPoint": "SP",
+        "CurrentReadBack": "RB"
+      }
+    }
+  ]
+}

@@ -1,0 +1,581 @@
+[
+    {
+        "user_query": "Set the focusing sextupole 3 current",
+        "targeted_pv": [
+            "SR:MAG:SF:SF03:CURRENT:SP"
+        ],
+        "details": "Testing SF (focusing sextupole) family selection for chromaticity correction, specific device, current setpoint"
+    },
+    {
+        "user_query": "What's the status of SF05?",
+        "targeted_pv": [
+            "SR:MAG:SF:SF05:STATUS:READY",
+            "SR:MAG:SF:SF05:STATUS:ON",
+            "SR:MAG:SF:SF05:STATUS:FAULT"
+        ],
+        "details": "Testing SF family with abbreviated device name, all STATUS subfields"
+    },
+    {
+        "user_query": "Give me defocusing sextupole 8 current readback",
+        "targeted_pv": [
+            "SR:MAG:SD:SD08:CURRENT:RB"
+        ],
+        "details": "Testing SD (defocusing sextupole) family for chromaticity correction, specific device number, readback"
+    },
+    {
+        "user_query": "Check all SD sextupole golden setpoints",
+        "targeted_pv": [
+            "SR:MAG:SD:SD01:CURRENT:GOLDEN",
+            "SR:MAG:SD:SD02:CURRENT:GOLDEN",
+            "SR:MAG:SD:SD03:CURRENT:GOLDEN",
+            "SR:MAG:SD:SD04:CURRENT:GOLDEN",
+            "SR:MAG:SD:SD05:CURRENT:GOLDEN",
+            "SR:MAG:SD:SD06:CURRENT:GOLDEN",
+            "SR:MAG:SD:SD07:CURRENT:GOLDEN",
+            "SR:MAG:SD:SD08:CURRENT:GOLDEN",
+            "SR:MAG:SD:SD09:CURRENT:GOLDEN",
+            "SR:MAG:SD:SD10:CURRENT:GOLDEN",
+            "SR:MAG:SD:SD11:CURRENT:GOLDEN",
+            "SR:MAG:SD:SD12:CURRENT:GOLDEN"
+        ],
+        "details": "Testing SD family with GOLDEN subfield across all 12 devices"
+    },
+    {
+        "user_query": "Show me the one-minute neutron rates at monitors 1 and 3",
+        "targeted_pv": [
+            "SR:DIAG:NEUTRON:NEUT01:DOSE_RATE:AVG_1MIN",
+            "SR:DIAG:NEUTRON:NEUT03:DOSE_RATE:AVG_1MIN"
+        ],
+        "details": "Testing NEUTRON radiation monitor family, multiple specific devices, specific DOSE_RATE subfield (AVG_1MIN)"
+    },
+    {
+        "user_query": "Are any neutron monitors in alarm?",
+        "targeted_pv": [
+            "SR:DIAG:NEUTRON:NEUT01:STATUS:ALARM",
+            "SR:DIAG:NEUTRON:NEUT02:STATUS:ALARM",
+            "SR:DIAG:NEUTRON:NEUT03:STATUS:ALARM",
+            "SR:DIAG:NEUTRON:NEUT04:STATUS:ALARM"
+        ],
+        "details": "Testing NEUTRON family with STATUS:ALARM subfield across all monitors for safety check"
+    },
+    {
+        "user_query": "What's 1 hour average gamma dose rate at location 3?",
+        "targeted_pv": [
+            "SR:DIAG:GAMMA:GAMM03:DOSE_RATE:AVG_1HR"
+        ],
+        "details": "Testing GAMMA radiation monitor family with natural language location reference, instantaneous dose rate"
+    },
+    {
+        "user_query": "Show instantaneous gamma readings for all monitors",
+        "targeted_pv": [
+            "SR:DIAG:GAMMA:GAMM01:DOSE_RATE:INST",
+            "SR:DIAG:GAMMA:GAMM02:DOSE_RATE:INST",
+            "SR:DIAG:GAMMA:GAMM03:DOSE_RATE:INST",
+            "SR:DIAG:GAMMA:GAMM04:DOSE_RATE:INST"
+        ],
+        "details": "Testing GAMMA family with instantaneous dose rate subfield across all 4 monitors"
+    },
+    {
+        "user_query": "What's the RF cavity 2 tuner position?",
+        "targeted_pv": [
+            "SR:RF:CAVITY:C2:TUNER:RB"
+        ],
+        "details": "Testing RF CAVITY family with new TUNER field for frequency control, position readback"
+    },
+    {
+        "user_query": "Set the current in dipole magnet 5",
+        "targeted_pv": [
+            "SR:MAG:DIPOLE:B05:CURRENT:SP"
+        ],
+        "details": "Testing basic device selection with specific number, field selection (CURRENT), and both SP/RB subfields"
+    },
+    {
+        "user_query": "Show me the bending magnet 3 current setpoint",
+        "targeted_pv": [
+            "SR:MAG:DIPOLE:B03:CURRENT:SP"
+        ],
+        "details": "Testing synonym (bending magnet = DIPOLE), specific device, specific field, and specific subfield (setpoint = SP)"
+    },
+    {
+        "user_query": "Give me the defocusing quad 12 current readback",
+        "targeted_pv": [
+            "SR:MAG:QD:QD12:CURRENT:RB"
+        ],
+        "details": "Testing QD (defocusing quadrupole) family selection, specific device instance, and readback specification"
+    },
+    {
+        "user_query": "What's the current reading in dipole 8?",
+        "targeted_pv": [
+            "SR:MAG:DIPOLE:B08:CURRENT:RB"
+        ],
+        "details": "Testing CURRENT field selection for dipoles - current readback only"
+    },
+    {
+        "user_query": "Show me all PVs of the first dipole magnet",
+        "targeted_pv": [
+            "SR:MAG:DIPOLE:B01:CURRENT:SP",
+            "SR:MAG:DIPOLE:B01:CURRENT:RB",
+            "SR:MAG:DIPOLE:B01:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:B01:STATUS:READY",
+            "SR:MAG:DIPOLE:B01:STATUS:ON",
+            "SR:MAG:DIPOLE:B01:STATUS:FAULT"
+        ],
+        "details": "Testing broad query for all fields and subfields of a specific device"
+    },
+    {
+        "user_query": "What are the horizontal corrector 7 and 9 current setpoints?",
+        "targeted_pv": [
+            "SR:MAG:HCM:H07:CURRENT:SP",
+            "SR:MAG:HCM:H09:CURRENT:SP"
+        ],
+        "details": "Testing HCM family selection (horizontal corrector), specific device, current field"
+    },
+    {
+        "user_query": "Give me vertical steering setpoint for corrector 3",
+        "targeted_pv": [
+            "SR:MAG:VCM:V03:CURRENT:SP"
+        ],
+        "details": "Testing VCM family (vertical corrector = vertical steering), specific device"
+    },
+    {
+        "user_query": "Check if the focusing quad 5 is ready",
+        "targeted_pv": [
+            "SR:MAG:QF:QF05:STATUS:READY"
+        ],
+        "details": "Testing QF (focusing quadrupole) family and STATUS field selection"
+    },
+    {
+        "user_query": "What are the first three dipole current setpoints?",
+        "targeted_pv": [
+            "SR:MAG:DIPOLE:B01:CURRENT:SP",
+            "SR:MAG:DIPOLE:B02:CURRENT:SP",
+            "SR:MAG:DIPOLE:B03:CURRENT:SP"
+        ],
+        "details": "Testing range understanding (first three = 1-3) with specific field and subfield"
+    },
+    {
+        "user_query": "Are all dipole magnets ready?",
+        "targeted_pv": [
+            "SR:MAG:DIPOLE:B01:STATUS:READY",
+            "SR:MAG:DIPOLE:B02:STATUS:READY",
+            "SR:MAG:DIPOLE:B03:STATUS:READY",
+            "SR:MAG:DIPOLE:B04:STATUS:READY",
+            "SR:MAG:DIPOLE:B05:STATUS:READY",
+            "SR:MAG:DIPOLE:B06:STATUS:READY",
+            "SR:MAG:DIPOLE:B07:STATUS:READY",
+            "SR:MAG:DIPOLE:B08:STATUS:READY",
+            "SR:MAG:DIPOLE:B09:STATUS:READY",
+            "SR:MAG:DIPOLE:B10:STATUS:READY",
+            "SR:MAG:DIPOLE:B11:STATUS:READY",
+            "SR:MAG:DIPOLE:B12:STATUS:READY",
+            "SR:MAG:DIPOLE:B13:STATUS:READY",
+            "SR:MAG:DIPOLE:B14:STATUS:READY",
+            "SR:MAG:DIPOLE:B15:STATUS:READY",
+            "SR:MAG:DIPOLE:B16:STATUS:READY",
+            "SR:MAG:DIPOLE:B17:STATUS:READY",
+            "SR:MAG:DIPOLE:B18:STATUS:READY",
+            "SR:MAG:DIPOLE:B19:STATUS:READY",
+            "SR:MAG:DIPOLE:B20:STATUS:READY",
+            "SR:MAG:DIPOLE:B21:STATUS:READY",
+            "SR:MAG:DIPOLE:B22:STATUS:READY",
+            "SR:MAG:DIPOLE:B23:STATUS:READY",
+            "SR:MAG:DIPOLE:B24:STATUS:READY"
+        ],
+        "details": "Testing aggregate query ('all dipoles'), STATUS field, READY subfield only"
+    },
+    {
+        "user_query": "What's the vacuum pressure reading in ion pump number 3?",
+        "targeted_pv": [
+            "SR:VAC:ION-PUMP:SR03:PRESSURE:RB"
+        ],
+        "details": "Testing VAC system, ION-PUMP family, specific device, PRESSURE field"
+    },
+    {
+        "user_query": "Give me all vacuum gauge readings",
+        "targeted_pv": [
+            "SR:VAC:GAUGE:SR01A:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR01B:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR02A:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR02B:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR03A:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR03B:PRESSURE:RB"
+        ],
+        "details": "Testing aggregate query for all GAUGE devices, PRESSURE field, RB subfield"
+    },
+    {
+        "user_query": "Is vacuum valve 2 open?",
+        "targeted_pv": [
+            "SR:VAC:VALVE:V02:POSITION:OPEN"
+        ],
+        "details": "Testing VALVE family, specific device, POSITION field, OPEN subfield (status query)"
+    },
+    {
+        "user_query": "Open vacuum valve 4",
+        "targeted_pv": [
+            "SR:VAC:VALVE:V04:CONTROL:OPEN"
+        ],
+        "details": "Testing command intent: 'open' verb should map to CONTROL field, OPEN subfield (not POSITION)"
+    },
+    {
+        "user_query": "What's the ion pump 2 voltage setting and reading?",
+        "targeted_pv": [
+            "SR:VAC:ION-PUMP:SR02:VOLTAGE:SP",
+            "SR:VAC:ION-PUMP:SR02:VOLTAGE:RB"
+        ],
+        "details": "Testing ION-PUMP VOLTAGE field (not PRESSURE), both SP and RB"
+    },
+    {
+        "user_query": "Show me RF cavity 1 power levels",
+        "targeted_pv": [
+            "SR:RF:CAVITY:C1:POWER:FWD",
+            "SR:RF:CAVITY:C1:POWER:REV",
+            "SR:RF:CAVITY:C1:POWER:NET"
+        ],
+        "details": "Testing RF system, CAVITY family, POWER field, all power subfields (FWD, REV, NET)"
+    },
+    {
+        "user_query": "What's the cavity 2 gap voltage setpoint and readback?",
+        "targeted_pv": [
+            "SR:RF:CAVITY:C2:VOLTAGE:SP",
+            "SR:RF:CAVITY:C2:VOLTAGE:RB"
+        ],
+        "details": "Testing CAVITY VOLTAGE field (gap voltage), both SP and RB"
+    },
+    {
+        "user_query": "Give me the klystron 1 output power",
+        "targeted_pv": [
+            "SR:RF:KLYSTRON:K1:POWER:RB"
+        ],
+        "details": "Testing KLYSTRON family, POWER field, RB subfield (power is read-only for klystron)"
+    },
+    {
+        "user_query": "What are the RF frequency settings?",
+        "targeted_pv": [
+            "SR:RF:CAVITY:C1:FREQUENCY:SP",
+            "SR:RF:CAVITY:C2:FREQUENCY:SP"
+        ],
+        "details": "Testing ambiguous query - RF frequency without specifying device should return all cavities"
+    },
+    {
+        "user_query": "Is the klystron ready?",
+        "targeted_pv": [
+            "SR:RF:KLYSTRON:K1:STATUS:READY",
+            "SR:RF:KLYSTRON:K2:STATUS:READY"
+        ],
+        "details": "Testing STATUS field, READY subfield, ambiguous device (all klystrons)"
+    },
+    {
+        "user_query": "What's the beam position at BPM 5?",
+        "targeted_pv": [
+            "SR:DIAG:BPM:BPM05:POSITION:X",
+            "SR:DIAG:BPM:BPM05:POSITION:Y"
+        ],
+        "details": "Testing DIAG system, BPM family, POSITION field, both X and Y subfields"
+    },
+    {
+        "user_query": "Show me the horizontal position at BPM 8",
+        "targeted_pv": [
+            "SR:DIAG:BPM:BPM08:POSITION:X"
+        ],
+        "details": "Testing specific axis selection: horizontal = X only"
+    },
+    {
+        "user_query": "What's the vertical golden at BPM 3?",
+        "targeted_pv": [
+            "SR:DIAG:BPM:BPM03:GOLDEN:Y"
+        ],
+        "details": "Testing synonym (orbit = position) and axis selection: vertical = Y"
+    },
+    {
+        "user_query": "What's the beam current?",
+        "targeted_pv": [
+            "SR:DIAG:DCCT:MAIN:CURRENT:RB"
+        ],
+        "details": "Testing DCCT family (beam current monitor), CURRENT field, RB subfield"
+    },
+    {
+        "user_query": "Is the DCCT measurement valid?",
+        "targeted_pv": [
+            "SR:DIAG:DCCT:MAIN:STATUS:VALID"
+        ],
+        "details": "Testing DCCT STATUS field with VALID subfield for measurement validity check"
+    },
+    {
+        "user_query": "What are all the BPM position readings?",
+        "targeted_pv": [
+            "SR:DIAG:BPM:BPM01:POSITION:X",
+            "SR:DIAG:BPM:BPM01:POSITION:Y",
+            "SR:DIAG:BPM:BPM02:POSITION:X",
+            "SR:DIAG:BPM:BPM02:POSITION:Y",
+            "SR:DIAG:BPM:BPM03:POSITION:X",
+            "SR:DIAG:BPM:BPM03:POSITION:Y",
+            "SR:DIAG:BPM:BPM04:POSITION:X",
+            "SR:DIAG:BPM:BPM04:POSITION:Y",
+            "SR:DIAG:BPM:BPM05:POSITION:X",
+            "SR:DIAG:BPM:BPM05:POSITION:Y",
+            "SR:DIAG:BPM:BPM06:POSITION:X",
+            "SR:DIAG:BPM:BPM06:POSITION:Y",
+            "SR:DIAG:BPM:BPM07:POSITION:X",
+            "SR:DIAG:BPM:BPM07:POSITION:Y",
+            "SR:DIAG:BPM:BPM08:POSITION:X",
+            "SR:DIAG:BPM:BPM08:POSITION:Y",
+            "SR:DIAG:BPM:BPM09:POSITION:X",
+            "SR:DIAG:BPM:BPM09:POSITION:Y",
+            "SR:DIAG:BPM:BPM10:POSITION:X",
+            "SR:DIAG:BPM:BPM10:POSITION:Y",
+            "SR:DIAG:BPM:BPM11:POSITION:X",
+            "SR:DIAG:BPM:BPM11:POSITION:Y",
+            "SR:DIAG:BPM:BPM12:POSITION:X",
+            "SR:DIAG:BPM:BPM12:POSITION:Y",
+            "SR:DIAG:BPM:BPM13:POSITION:X",
+            "SR:DIAG:BPM:BPM13:POSITION:Y",
+            "SR:DIAG:BPM:BPM14:POSITION:X",
+            "SR:DIAG:BPM:BPM14:POSITION:Y",
+            "SR:DIAG:BPM:BPM15:POSITION:X",
+            "SR:DIAG:BPM:BPM15:POSITION:Y",
+            "SR:DIAG:BPM:BPM16:POSITION:X",
+            "SR:DIAG:BPM:BPM16:POSITION:Y",
+            "SR:DIAG:BPM:BPM17:POSITION:X",
+            "SR:DIAG:BPM:BPM17:POSITION:Y",
+            "SR:DIAG:BPM:BPM18:POSITION:X",
+            "SR:DIAG:BPM:BPM18:POSITION:Y",
+            "SR:DIAG:BPM:BPM19:POSITION:X",
+            "SR:DIAG:BPM:BPM19:POSITION:Y",
+            "SR:DIAG:BPM:BPM20:POSITION:X",
+            "SR:DIAG:BPM:BPM20:POSITION:Y"
+        ],
+        "details": "Testing aggregate query for all BPM devices, POSITION field only"
+    },
+    {
+        "user_query": "What are the tune correction quadrupole readbacks?",
+        "targeted_pv": [
+            "SR:MAG:QD:QD01:CURRENT:RB",
+            "SR:MAG:QD:QD02:CURRENT:RB",
+            "SR:MAG:QD:QD03:CURRENT:RB",
+            "SR:MAG:QD:QD04:CURRENT:RB",
+            "SR:MAG:QD:QD05:CURRENT:RB",
+            "SR:MAG:QD:QD06:CURRENT:RB",
+            "SR:MAG:QD:QD07:CURRENT:RB",
+            "SR:MAG:QD:QD08:CURRENT:RB",
+            "SR:MAG:QD:QD09:CURRENT:RB",
+            "SR:MAG:QD:QD10:CURRENT:RB",
+            "SR:MAG:QD:QD11:CURRENT:RB",
+            "SR:MAG:QD:QD12:CURRENT:RB",
+            "SR:MAG:QD:QD13:CURRENT:RB",
+            "SR:MAG:QD:QD14:CURRENT:RB",
+            "SR:MAG:QD:QD15:CURRENT:RB",
+            "SR:MAG:QD:QD16:CURRENT:RB",
+            "SR:MAG:QF:QF01:CURRENT:RB",
+            "SR:MAG:QF:QF02:CURRENT:RB",
+            "SR:MAG:QF:QF03:CURRENT:RB",
+            "SR:MAG:QF:QF04:CURRENT:RB",
+            "SR:MAG:QF:QF05:CURRENT:RB",
+            "SR:MAG:QF:QF06:CURRENT:RB",
+            "SR:MAG:QF:QF07:CURRENT:RB",
+            "SR:MAG:QF:QF08:CURRENT:RB",
+            "SR:MAG:QF:QF09:CURRENT:RB",
+            "SR:MAG:QF:QF10:CURRENT:RB",
+            "SR:MAG:QF:QF11:CURRENT:RB",
+            "SR:MAG:QF:QF12:CURRENT:RB",
+            "SR:MAG:QF:QF13:CURRENT:RB",
+            "SR:MAG:QF:QF14:CURRENT:RB",
+            "SR:MAG:QF:QF15:CURRENT:RB",
+            "SR:MAG:QF:QF16:CURRENT:RB"
+        ],
+        "details": "Testing semantic understanding: tune correction = QD and QF families"
+    },
+    {
+        "user_query": "Show me all corrector magnet setpoints",
+        "targeted_pv": [
+            "SR:MAG:HCM:H01:CURRENT:SP",
+            "SR:MAG:HCM:H02:CURRENT:SP",
+            "SR:MAG:HCM:H03:CURRENT:SP",
+            "SR:MAG:HCM:H04:CURRENT:SP",
+            "SR:MAG:HCM:H05:CURRENT:SP",
+            "SR:MAG:HCM:H06:CURRENT:SP",
+            "SR:MAG:HCM:H07:CURRENT:SP",
+            "SR:MAG:HCM:H08:CURRENT:SP",
+            "SR:MAG:HCM:H09:CURRENT:SP",
+            "SR:MAG:HCM:H10:CURRENT:SP",
+            "SR:MAG:HCM:H11:CURRENT:SP",
+            "SR:MAG:HCM:H12:CURRENT:SP",
+            "SR:MAG:HCM:H13:CURRENT:SP",
+            "SR:MAG:HCM:H14:CURRENT:SP",
+            "SR:MAG:HCM:H15:CURRENT:SP",
+            "SR:MAG:HCM:H16:CURRENT:SP",
+            "SR:MAG:HCM:H17:CURRENT:SP",
+            "SR:MAG:HCM:H18:CURRENT:SP",
+            "SR:MAG:HCM:H19:CURRENT:SP",
+            "SR:MAG:HCM:H20:CURRENT:SP",
+            "SR:MAG:VCM:V01:CURRENT:SP",
+            "SR:MAG:VCM:V02:CURRENT:SP",
+            "SR:MAG:VCM:V03:CURRENT:SP",
+            "SR:MAG:VCM:V04:CURRENT:SP",
+            "SR:MAG:VCM:V05:CURRENT:SP",
+            "SR:MAG:VCM:V06:CURRENT:SP",
+            "SR:MAG:VCM:V07:CURRENT:SP",
+            "SR:MAG:VCM:V08:CURRENT:SP",
+            "SR:MAG:VCM:V09:CURRENT:SP",
+            "SR:MAG:VCM:V10:CURRENT:SP",
+            "SR:MAG:VCM:V11:CURRENT:SP",
+            "SR:MAG:VCM:V12:CURRENT:SP",
+            "SR:MAG:VCM:V13:CURRENT:SP",
+            "SR:MAG:VCM:V14:CURRENT:SP",
+            "SR:MAG:VCM:V15:CURRENT:SP",
+            "SR:MAG:VCM:V16:CURRENT:SP",
+            "SR:MAG:VCM:V17:CURRENT:SP",
+            "SR:MAG:VCM:V18:CURRENT:SP",
+            "SR:MAG:VCM:V19:CURRENT:SP",
+            "SR:MAG:VCM:V20:CURRENT:SP"
+        ],
+        "details": "Testing family group understanding: correctors = HCM and VCM, setpoint = SP subfield"
+    },
+    {
+        "user_query": "Give me the golden values for dipole 6",
+        "targeted_pv": [
+            "SR:MAG:DIPOLE:B06:CURRENT:GOLDEN"
+        ],
+        "details": "Testing GOLDEN subfield selection, specific device"
+    },
+    {
+        "user_query": "What's the cavities temperature?",
+        "targeted_pv": [
+            "SR:RF:CAVITY:C1:TEMPERATURE:RB",
+            "SR:RF:CAVITY:C2:TEMPERATURE:RB"
+        ],
+        "details": "Testing TEMPERATURE field, ambiguous device (all cavities)"
+    },
+    {
+        "user_query": "Is the RF system ready?",
+        "targeted_pv": [
+            "SR:RF:CAVITY:C1:STATUS:READY",
+            "SR:RF:CAVITY:C2:STATUS:READY",
+            "SR:RF:KLYSTRON:K1:STATUS:READY",
+            "SR:RF:KLYSTRON:K2:STATUS:READY"
+        ],
+        "details": "Testing system-level status query: all RF families, STATUS field, READY subfield"
+    },
+    {
+        "user_query": "What are the vacuum levels?",
+        "targeted_pv": [
+            "SR:VAC:ION-PUMP:SR01:PRESSURE:RB",
+            "SR:VAC:ION-PUMP:SR02:PRESSURE:RB",
+            "SR:VAC:ION-PUMP:SR03:PRESSURE:RB",
+            "SR:VAC:ION-PUMP:SR04:PRESSURE:RB",
+            "SR:VAC:ION-PUMP:SR05:PRESSURE:RB",
+            "SR:VAC:ION-PUMP:SR06:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR01A:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR01B:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR02A:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR02B:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR03A:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR03B:PRESSURE:RB"
+        ],
+        "details": "Testing synonym (vacuum levels = pressure) across ION-PUMP and GAUGE families"
+    },
+    {
+        "user_query": "Set dipole 4 current to golden values",
+        "targeted_pv": [
+            "SR:MAG:DIPOLE:B04:CURRENT:GOLDEN"
+        ],
+        "details": "Testing understanding of restore/golden intent with specific device"
+    },
+    {
+        "user_query": "Show me orbit deviations at all BPMs",
+        "targeted_pv": [
+            "SR:DIAG:BPM:BPM01:OFFSET:X",
+            "SR:DIAG:BPM:BPM01:OFFSET:Y",
+            "SR:DIAG:BPM:BPM02:OFFSET:X",
+            "SR:DIAG:BPM:BPM02:OFFSET:Y",
+            "SR:DIAG:BPM:BPM03:OFFSET:X",
+            "SR:DIAG:BPM:BPM03:OFFSET:Y",
+            "SR:DIAG:BPM:BPM04:OFFSET:X",
+            "SR:DIAG:BPM:BPM04:OFFSET:Y",
+            "SR:DIAG:BPM:BPM05:OFFSET:X",
+            "SR:DIAG:BPM:BPM05:OFFSET:Y",
+            "SR:DIAG:BPM:BPM06:OFFSET:X",
+            "SR:DIAG:BPM:BPM06:OFFSET:Y",
+            "SR:DIAG:BPM:BPM07:OFFSET:X",
+            "SR:DIAG:BPM:BPM07:OFFSET:Y",
+            "SR:DIAG:BPM:BPM08:OFFSET:X",
+            "SR:DIAG:BPM:BPM08:OFFSET:Y",
+            "SR:DIAG:BPM:BPM09:OFFSET:X",
+            "SR:DIAG:BPM:BPM09:OFFSET:Y",
+            "SR:DIAG:BPM:BPM10:OFFSET:X",
+            "SR:DIAG:BPM:BPM10:OFFSET:Y",
+            "SR:DIAG:BPM:BPM11:OFFSET:X",
+            "SR:DIAG:BPM:BPM11:OFFSET:Y",
+            "SR:DIAG:BPM:BPM12:OFFSET:X",
+            "SR:DIAG:BPM:BPM12:OFFSET:Y",
+            "SR:DIAG:BPM:BPM13:OFFSET:X",
+            "SR:DIAG:BPM:BPM13:OFFSET:Y",
+            "SR:DIAG:BPM:BPM14:OFFSET:X",
+            "SR:DIAG:BPM:BPM14:OFFSET:Y",
+            "SR:DIAG:BPM:BPM15:OFFSET:X",
+            "SR:DIAG:BPM:BPM15:OFFSET:Y",
+            "SR:DIAG:BPM:BPM16:OFFSET:X",
+            "SR:DIAG:BPM:BPM16:OFFSET:Y",
+            "SR:DIAG:BPM:BPM17:OFFSET:X",
+            "SR:DIAG:BPM:BPM17:OFFSET:Y",
+            "SR:DIAG:BPM:BPM18:OFFSET:X",
+            "SR:DIAG:BPM:BPM18:OFFSET:Y",
+            "SR:DIAG:BPM:BPM19:OFFSET:X",
+            "SR:DIAG:BPM:BPM19:OFFSET:Y",
+            "SR:DIAG:BPM:BPM20:OFFSET:X",
+            "SR:DIAG:BPM:BPM20:OFFSET:Y"
+        ],
+        "details": "Testing synonym (orbit deviations = OFFSET), all BPMs, both axes"
+    },
+    {
+        "user_query": "Give me all RF power channels in cavity 1?",
+        "targeted_pv": [
+            "SR:RF:CAVITY:C1:POWER:FWD",
+            "SR:RF:CAVITY:C1:POWER:REV",
+            "SR:RF:CAVITY:C1:POWER:NET"
+        ],
+        "details": "Testing POWER field with all subfields when not specified"
+    },
+    {
+        "user_query": "Give me the reflected power for both cavities",
+        "targeted_pv": [
+            "SR:RF:CAVITY:C1:POWER:REV",
+            "SR:RF:CAVITY:C2:POWER:REV"
+        ],
+        "details": "Testing specific POWER subfield (REV = reflected) across multiple devices"
+    },
+    {
+        "user_query": "Are the BPMs connected?",
+        "targeted_pv": [
+            "SR:DIAG:BPM:BPM01:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM02:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM03:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM04:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM05:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM06:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM07:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM08:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM09:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM10:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM11:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM12:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM13:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM14:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM15:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM16:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM17:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM18:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM19:STATUS:CONNECTED",
+            "SR:DIAG:BPM:BPM20:STATUS:CONNECTED"
+        ],
+        "details": "Testing STATUS field with CONNECTED subfield for all BPMs"
+    },
+    {
+        "user_query": "Show me the current readbacks for focusing quads 10 through 12",
+        "targeted_pv": [
+            "SR:MAG:QF:QF10:CURRENT:RB",
+            "SR:MAG:QF:QF11:CURRENT:RB",
+            "SR:MAG:QF:QF12:CURRENT:RB"
+        ],
+        "details": "Testing range query (10 through 12) with QF family, CURRENT field, RB subfield"
+    }
+]

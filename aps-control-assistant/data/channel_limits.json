@@ -1,0 +1,267 @@
+{
+  "_comment": "Channel Limits Database - defines safety limits and verification for runtime validation",
+  "_version": "1.0",
+  "_description": "ITS (Insertion Test Stand) channel limits. Configures automatic limits validation and verification for channel writes. The connector reads this configuration and applies it automatically.",
+  "defaults": {
+    "_comment": "Default settings inherited by all channels unless overridden",
+    "writable": true,
+    "verification": {
+      "level": "callback",
+      "_comment": "Default verification: callback (fast, EPICS IOC confirmation)"
+    }
+  },
+
+  "LTS:H1:CurrentAO": {
+    "_comment": "ITS H1 corrector - ITS H1 corrector",
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:H2:CurrentAO": {
+    "_comment": "ITS H2 corrector - ITS H2 corrector",
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:H3:CurrentAO": {
+    "_comment": "ITS H3 corrector - ITS H3 corrector",
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:H4:CurrentAO": {
+    "_comment": "ITS H4 corrector - ITS H4 corrector",
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:V1:CurrentAO": {
+    "_comment": "ITS V1 corrector - ITS V1 corrector",
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:V2:CurrentAO": {
+    "_comment": "ITS V2 corrector - ITS V2 corrector",
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:V3:CurrentAO": {
+    "_comment": "ITS V3 corrector - ITS V3 corrector",
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:V4:CurrentAO": {
+    "_comment": "ITS V4 corrector - ITS V4 corrector",
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:Q1:CurrentAO": {
+    "_comment": "ITS Q1 - ITS Q1 quadrupole",
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:Q2:CurrentAO": {
+    "_comment": "ITS Q2 - ITS Q2 quadrupole",
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:Q3:CurrentAO": {
+    "_comment": "ITS Q3 - ITS Q3 quadrupole",
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:Q4:CurrentAO": {
+    "_comment": "ITS Q4 - ITS Q4 quadrupole",
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:Q5:CurrentAO": {
+    "_comment": "ITS Q5 - ITS Q5 quadrupole",
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:BM1:CurrentAO": {
+    "_comment": "ITS BM1 - ITS bending magnet",
+    "min_value": 0.0,
+    "max_value": 33.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:BM2:CurrentAO": {
+    "_comment": "ITS Bending magnet 2 - ITS bending magnet 2",
+    "min_value": 0.0,
+    "max_value": 33.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:H5:CurrentAO": {
+    "_comment": "ITS H5 corrector - ITS H5 corrector",
+    "min_value": -4.0,
+    "max_value": 4.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:V5:CurrentAO": {
+    "_comment": "ITS V5 corrector - ITS V5 corrector",
+    "min_value": -4.0,
+    "max_value": 4.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:Q6:CurrentAO": {
+    "_comment": "ITS Q6 - ITS Q6 quadrupole",
+    "min_value": -4.0,
+    "max_value": 4.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:Q7:CurrentAO": {
+    "_comment": "ITS Q7 - ITS Q7 quadrupole",
+    "min_value": -4.0,
+    "max_value": 4.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:Q8:CurrentAO": {
+    "_comment": "ITS Q8 - ITS Q8 quadrupole",
+    "min_value": -4.0,
+    "max_value": 4.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:Q9:CurrentAO": {
+    "_comment": "ITS Q9 - ITS Q9 quadrupole",
+    "min_value": -4.0,
+    "max_value": 4.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:RAW:CurrentAO": {
+    "_comment": "ITS Raw PS - ITS Raw PS",
+    "min_value": -8.0,
+    "max_value": 8.0,
+    "max_step": 0.2,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  },
+  "LTS:Alpha:CurrentAO": {
+    "_comment": "ITS Alpha magnet - ITS Alpha magnet",
+    "min_value": -15.0,
+    "max_value": 15.0,
+    "max_step": 0.5,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.2,
+      "_comment": "Readback verification with 0.2% tolerance"
+    }
+  }
+}
