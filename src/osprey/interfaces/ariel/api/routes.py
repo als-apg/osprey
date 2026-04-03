@@ -389,7 +389,7 @@ async def create_entry(
 
         return EntryCreateResponse(
             entry_id=entry_id,
-            message=f"Entry {entry_id} created (saved locally, not published to OLOG)",
+            message=f"Entry {entry_id} created (saved locally, not published to external logbook)",
             sync_status="local_only",
             source_system="ARIEL Web",
         )
