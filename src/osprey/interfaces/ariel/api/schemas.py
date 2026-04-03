@@ -144,6 +144,8 @@ class EntryCreateRequest(BaseModel):
     tags: list[str] = []
     attachment_ids: list[str] = []
     metadata: dict | None = None
+    auth_user: str | None = None
+    auth_password: str | None = None
 
 
 class EntryCreateResponse(BaseModel):

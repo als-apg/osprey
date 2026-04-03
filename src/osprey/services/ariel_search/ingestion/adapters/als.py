@@ -206,16 +206,21 @@ class ALSLogbookAdapter(FacilityAdapter):
 
         write_cfg = self.config.ingestion.write  # type: ignore[union-attr]
 
-        if not write_cfg.auth_user or not write_cfg.auth_password:
+        # Prefer per-request credentials, fall back to config/env
+        auth_user = request.auth_user or write_cfg.auth_user
+        auth_password = request.auth_password or write_cfg.auth_password
+
+        if not auth_user or not auth_password:
             raise IngestionError(
-                "ALS write requires auth_user and auth_password in write config "
-                "or ARIEL_WRITE_USER/ARIEL_WRITE_PASSWORD environment variables",
+                "OLOG publishing requires credentials. "
+                "Provide username and password in the submit form, "
+                "or configure ARIEL_WRITE_USER/ARIEL_WRITE_PASSWORD environment variables.",
                 source_system=self.source_system_name,
             )
 
         xml_payload = self._build_xml_payload(
-            author=write_cfg.auth_user,
-            password=write_cfg.auth_password,
+            author=auth_user,
+            password=auth_password,
             subject=request.subject,
             details=request.details,
             logbook=request.logbook,

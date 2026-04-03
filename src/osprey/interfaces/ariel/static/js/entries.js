@@ -356,6 +356,8 @@ async function handleCreateEntry(e) {
       shift: formData.get('shift'),
       tags,
       metadata: draftMetadata,
+      auth_user: formData.get('olog_user') || null,
+      auth_password: formData.get('olog_password') || null,
     };
 
     const fileInput = document.getElementById('entry-files');

@@ -334,6 +334,7 @@ async def create_entry(
 
     try:
         from osprey.services.ariel_search.models import FacilityEntryCreateRequest
+        from osprey.services.ariel_search.exceptions import IngestionError
 
         facility_request = FacilityEntryCreateRequest(
             subject=entry_req.subject,
@@ -342,6 +343,8 @@ async def create_entry(
             logbook=entry_req.logbook,
             shift=entry_req.shift,
             tags=entry_req.tags,
+            auth_user=entry_req.auth_user,
+            auth_password=entry_req.auth_password,
         )
 
         result = await service.create_entry(facility_request)
@@ -353,7 +356,7 @@ async def create_entry(
             source_system=result.source_system,
         )
 
-    except NotImplementedError:
+    except (NotImplementedError, IngestionError):
         # Adapter doesn't support writes — fall back to direct DB insert
         import logging
 
@@ -386,7 +389,7 @@ async def create_entry(
 
         return EntryCreateResponse(
             entry_id=entry_id,
-            message=f"Entry {entry_id} created (local only — adapter does not support writes)",
+            message=f"Entry {entry_id} created (saved locally, not published to OLOG)",
             sync_status="local_only",
             source_system="ARIEL Web",
         )

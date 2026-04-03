@@ -155,6 +155,8 @@ export const entriesApi = {
       shift: data.shift || null,
       tags: data.tags || [],
       metadata: data.metadata || null,
+      auth_user: data.auth_user || null,
+      auth_password: data.auth_password || null,
     });
   },
 
