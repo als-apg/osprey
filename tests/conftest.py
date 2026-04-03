@@ -4,14 +4,7 @@ Pytest configuration and shared test utilities.
 This module provides shared fixtures and utilities for all Osprey tests.
 """
 
-from typing import Any
-
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
-
-from osprey.base.planning import ExecutionPlan, PlannedStep
-from osprey.events import clear_fallback_handlers, register_fallback_handler
-from osprey.state import AgentState
 
 # ===================================================================
 # Auto-reset Registry and Config Between Tests
@@ -23,229 +16,33 @@ def reset_state_between_tests():
     """Auto-reset registry and config before each test to ensure isolation.
 
     This prevents state leakage between tests by:
+    - Clearing OSPREY_CONFIG and CONFIG_FILE env vars
     - Resetting the registry
-    - Clearing config caches
+    - Clearing config caches (utils.config and utils.workspace)
     - Resetting approval manager singleton
-
-    Note: Does NOT clear CONFIG_FILE env var since test fixtures may set it.
-    Tests that need a clean CONFIG_FILE state should handle it explicitly.
     """
     # Reset before test
+    import os as _os
+
     from osprey.registry import reset_registry
-    from osprey.utils import config as config_module
+    from osprey.utils.workspace import reset_config_cache
+
+    # Clear config-related env vars that may leak between tests.
+    # The web terminal lifespan sets OSPREY_CONFIG directly via os.environ,
+    # and monkeypatch undo ordering can leave it set between tests.
+    _os.environ.pop("OSPREY_CONFIG", None)
+    _os.environ.pop("CONFIG_FILE", None)
 
     reset_registry()
-    config_module._default_config = None
-    config_module._default_configurable = None
-    config_module._config_cache.clear()
-
-    # Reset approval manager singleton to prevent approval state pollution
-    try:
-        import osprey.approval.approval_manager as approval_module
-
-        approval_module._approval_manager = None
-    except ImportError:
-        pass  # Approval manager might not be available in all test environments
+    reset_config_cache()
 
     yield
 
     # Reset after test
+    _os.environ.pop("OSPREY_CONFIG", None)
+    _os.environ.pop("CONFIG_FILE", None)
     reset_registry()
-    config_module._default_config = None
-    config_module._default_configurable = None
-    config_module._config_cache.clear()
-
-    # Reset approval manager singleton again
-    try:
-        import osprey.approval.approval_manager as approval_module
-
-        approval_module._approval_manager = None
-    except ImportError:
-        pass
-
-
-# ===================================================================
-# Unified Event System — Event Capture Fixtures
-# ===================================================================
-
-
-@pytest.fixture(autouse=True, scope="function")
-def clear_event_handlers_between_tests():
-    """Clear event fallback handlers between tests to ensure isolation."""
-    clear_fallback_handlers()
-    yield
-    clear_fallback_handlers()
-
-
-@pytest.fixture
-def captured_events() -> list[dict[str, Any]]:
-    """Provide a list to capture emitted events via the unified event system."""
-    return []
-
-
-@pytest.fixture
-def fallback_handler_with_capture(captured_events):
-    """Register a fallback handler that captures events into captured_events list.
-
-    Use this with ``captured_events`` to verify event emission in tests
-    that don't run inside a LangGraph streaming context.
-
-    Example::
-
-        def test_warning_emitted(self, captured_events, fallback_handler_with_capture):
-            logger.warning("something happened")
-            assert any("something happened" in e.get("message", "") for e in captured_events)
-    """
-
-    def handler(event_dict: dict[str, Any]) -> None:
-        captured_events.append(event_dict)
-
-    unregister = register_fallback_handler(handler)
-    yield handler
-    unregister()
-
-
-# ===================================================================
-# Test State Factory
-# ===================================================================
-
-
-def create_test_state(
-    user_message: str = "test query",
-    task_objective: str = "test objective",
-    conversation_history: list[tuple[str, str]] | None = None,
-    capability: str = "test_capability",
-    context_key: str = "test_context",
-    final_objective: str = "Test objective",
-    success_criteria: str = "Task completed successfully",
-    **overrides,
-) -> AgentState:
-    """Factory function to create test states with minimal boilerplate.
-
-    This is a global test utility that can be used across all test modules
-    to create AgentState objects with sensible defaults, reducing test
-    verbosity and maintenance burden.
-
-    Args:
-        user_message: The user's message (used if no conversation_history provided)
-        task_objective: The task objective for the planned step
-        conversation_history: List of (role, content) tuples for multi-turn conversations
-                            role should be 'user' or 'ai'
-        capability: Capability name for the planned step
-        context_key: Context key for the planned step
-        final_objective: The execution plan's final objective
-        success_criteria: Success criteria for the planned step
-        **overrides: Any additional state fields to override
-
-    Returns:
-        Complete AgentState with sensible defaults for testing
-
-    Examples:
-        Simple single-message state::
-
-            state = create_test_state(
-                user_message="whats the weather?",
-                task_objective="Ask for location"
-            )
-
-        Multi-turn conversation::
-
-            state = create_test_state(
-                conversation_history=[
-                    ("user", "I need data"),
-                    ("ai", "What kind of data?"),
-                    ("user", "beam current")
-                ],
-                task_objective="Ask for time range"
-            )
-
-        With capability-specific settings::
-
-            state = create_test_state(
-                user_message="fetch data",
-                capability="data_retrieval",
-                context_key="fetch_pv_data",
-                task_depends_on_chat_history=True
-            )
-    """
-    # Build messages from conversation history or single message
-    messages = []
-    if conversation_history:
-        for role, content in conversation_history:
-            if role == "user":
-                messages.append(HumanMessage(content=content))
-            else:
-                messages.append(AIMessage(content=content))
-    else:
-        messages = [HumanMessage(content=user_message)]
-
-    # Create execution plan
-    execution_plan = ExecutionPlan(
-        steps=[
-            PlannedStep(
-                context_key=context_key,
-                capability=capability,
-                task_objective=task_objective,
-                success_criteria=success_criteria,
-                expected_output=None,
-                inputs=[],
-            )
-        ],
-        final_objective=final_objective,
-    )
-
-    # Create state with defaults
-    state: AgentState = {
-        "messages": messages,
-        "planning_execution_plan": execution_plan,
-        "planning_current_step_index": 0,
-        "capability_context_data": {},
-        "agent_control": {},
-        "status_updates": [],
-        "progress_events": [],
-        "task_current_task": "Test task",
-        "task_depends_on_chat_history": False,
-        "task_depends_on_user_memory": False,
-        "task_custom_message": None,
-        "planning_active_capabilities": [capability],
-        "execution_step_results": {},
-        "execution_last_result": None,
-        "execution_pending_approvals": {},
-        "execution_start_time": None,
-        "execution_total_time": None,
-        "approval_approved": None,
-        "approved_payload": None,
-        "control_reclassification_reason": None,
-        "control_reclassification_count": 0,
-        "control_plans_created_count": 1,
-        "control_current_step_retry_count": 0,
-        "control_retry_count": 0,
-        "control_has_error": False,
-        "control_error_info": None,
-        "control_last_error": None,
-        "control_max_retries": 3,
-        "control_is_killed": False,
-        "control_kill_reason": None,
-        "control_is_awaiting_validation": False,
-        "control_validation_context": None,
-        "control_validation_timestamp": None,
-        "ui_captured_notebooks": [],
-        "ui_captured_figures": [],
-        "ui_launchable_commands": [],
-        "ui_agent_context": None,
-        "runtime_checkpoint_metadata": None,
-        "runtime_info": None,
-        # Reactive orchestration fields
-        "react_messages": [],
-        "react_step_count": 0,
-        "react_rejection_count": 0,
-        "react_response_generated": False,
-    }
-
-    # Apply any overrides
-    state.update(overrides)
-
-    return state
+    reset_config_cache()
 
 
 # ===================================================================
@@ -313,12 +110,6 @@ class PromptTestHelpers:
 
 
 @pytest.fixture
-def test_state():
-    """Fixture providing a basic test state for quick testing."""
-    return create_test_state()
-
-
-@pytest.fixture
 def prompt_helpers():
     """Fixture providing prompt testing helper methods."""
     return PromptTestHelpers
@@ -378,10 +169,7 @@ class TestRegistryProvider(RegistryConfigProvider):
     def get_registry_config(self):
         # Use extend_framework_registry helper - the recommended way
         # This extends the framework registry with no additions
-        return extend_framework_registry(
-            capabilities=[],
-            context_classes=[]
-        )
+        return extend_framework_registry()
 """
     )
 
@@ -389,31 +177,8 @@ class TestRegistryProvider(RegistryConfigProvider):
     config = {
         "project_root": str(tmp_path),
         "registry_path": str(registry_file),
-        "langgraph": {"use_postgres": False},
-        "execution_control": {
-            "epics": {"writes_enabled": False},
-            "agent_control": {
-                "task_extraction_bypass_enabled": False,
-                "capability_selection_bypass_enabled": False,
-            },
-            "limits": {
-                "max_reclassifications": 1,
-                "max_planning_attempts": 2,
-                "max_step_retries": 3,
-                "max_execution_time_seconds": 300,
-                "graph_recursion_limit": 100,
-                "max_concurrent_classifications": 5,
-            },
-        },
         "approval": {
             "global_mode": "selective",
-            "capabilities": {
-                "python_execution": {
-                    "enabled": False,  # Disable approval for tests
-                    "mode": "all_code",
-                },
-                "memory": {"enabled": False},  # Disable approval for tests
-            },
         },
         "control_system": {
             "type": "mock",  # Use mock for tests - default patterns include write_channel/read_channel
@@ -476,10 +241,7 @@ class TestRegistryProvider(RegistryConfigProvider):
     def get_registry_config(self):
         # Use extend_framework_registry helper - the recommended way
         # This extends the framework registry with no additions
-        return extend_framework_registry(
-            capabilities=[],
-            context_classes=[]
-        )
+        return extend_framework_registry()
 """
     )
 
@@ -487,31 +249,8 @@ class TestRegistryProvider(RegistryConfigProvider):
     config = {
         "project_root": str(tmp_path),
         "registry_path": str(registry_file),
-        "langgraph": {"use_postgres": False},
-        "execution_control": {
-            "epics": {"writes_enabled": False},
-            "agent_control": {
-                "task_extraction_bypass_enabled": False,
-                "capability_selection_bypass_enabled": False,
-            },
-            "limits": {
-                "max_reclassifications": 1,
-                "max_planning_attempts": 2,
-                "max_step_retries": 3,
-                "max_execution_time_seconds": 300,
-                "graph_recursion_limit": 100,
-                "max_concurrent_classifications": 5,
-            },
-        },
         "approval": {
             "global_mode": "selective",
-            "capabilities": {
-                "python_execution": {
-                    "enabled": True,  # ENABLED for approval tests
-                    "mode": "all_code",
-                },
-                "memory": {"enabled": True},
-            },
         },
         "control_system": {
             "type": "mock",  # Use mock for tests - default patterns include write_channel/read_channel
@@ -547,33 +286,3 @@ class TestRegistryProvider(RegistryConfigProvider):
     # to avoid state pollution between tests
 
     return config_file
-
-
-@pytest.fixture
-def mock_code_generator():
-    """Fixture providing a MockCodeGenerator for testing.
-
-    Creates a fresh MockCodeGenerator with success behavior.
-    This is a globally-available fixture for any test that needs
-    deterministic code generation.
-
-    Returns:
-        MockCodeGenerator configured for successful execution
-
-    Examples:
-        Basic usage::
-
-            def test_something(mock_code_generator):
-                code = await mock_code_generator.generate_code(request, [])
-                assert 'results' in code
-
-        With custom code::
-
-            def test_custom(mock_code_generator):
-                mock_code_generator.set_code("results = {'value': 42}")
-                code = await mock_code_generator.generate_code(request, [])
-                assert code == "results = {'value': 42}"
-    """
-    from osprey.services.python_executor.generation import MockCodeGenerator
-
-    return MockCodeGenerator(behavior="success")

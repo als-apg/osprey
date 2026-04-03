@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lattice Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/dashboard.css">
+  <script src="https://cdn.plot.ly/plotly-3.3.1.min.js"></script>
+  <!-- Theme sync: set initial theme + listen for live changes from parent Web Terminal.
+       This MUST be inline (not in a module) so it runs before CSS loads and has zero
+       import dependencies that could prevent the listener from registering. -->
+  <script>
+    (function() {
+      var p = new URLSearchParams(window.location.search);
+      var t = p.get('theme') || localStorage.getItem('osprey-theme');
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+      window.addEventListener('message', function(e) {
+        if (e.data && e.data.type === 'osprey-theme-change' && e.data.theme) {
+          document.documentElement.setAttribute('data-theme', e.data.theme);
+        }
+      });
+    })();
+  </script>
+</head>
+<body>
+  <!-- Top Bar -->
+  <header id="topbar">
+    <div class="topbar-left">
+      <span class="topbar-logo">LATTICE</span>
+      <span id="lattice-name" class="topbar-lattice">No lattice loaded</span>
+    </div>
+    <div class="topbar-stats" id="stats-row">
+      <div class="stat-chip" id="stat-energy" title="Beam energy">
+        <span class="stat-label">E</span>
+        <span class="stat-value">—</span>
+        <span class="stat-unit">GeV</span>
+      </div>
+      <div class="stat-chip" id="stat-nux" title="Horizontal tune">
+        <span class="stat-label">&nu;<sub>x</sub></span>
+        <span class="stat-value">—</span>
+      </div>
+      <div class="stat-chip" id="stat-nuy" title="Vertical tune">
+        <span class="stat-label">&nu;<sub>y</sub></span>
+        <span class="stat-value">—</span>
+      </div>
+      <div class="stat-chip" id="stat-chrom-x" title="Horizontal chromaticity">
+        <span class="stat-label">&xi;<sub>x</sub></span>
+        <span class="stat-value">—</span>
+      </div>
+      <div class="stat-chip" id="stat-chrom-y" title="Vertical chromaticity">
+        <span class="stat-label">&xi;<sub>y</sub></span>
+        <span class="stat-value">—</span>
+      </div>
+      <div class="stat-chip" id="stat-circumference" title="Circumference">
+        <span class="stat-label">C</span>
+        <span class="stat-value">—</span>
+        <span class="stat-unit">m</span>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button id="btn-layout" class="action-btn" title="Toggle panel layout">
+        <svg class="icon-grid" width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.3"/>
+          <rect x="9" y="1" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.3"/>
+          <rect x="1" y="9" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.3"/>
+          <rect x="9" y="9" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.3"/>
+        </svg>
+        <svg class="icon-stack" width="14" height="14" viewBox="0 0 16 16" fill="none" style="display:none">
+          <rect x="2" y="1" width="12" height="3.5" rx="1" stroke="currentColor" stroke-width="1.3"/>
+          <rect x="2" y="6.25" width="12" height="3.5" rx="1" stroke="currentColor" stroke-width="1.3"/>
+          <rect x="2" y="11.5" width="12" height="3.5" rx="1" stroke="currentColor" stroke-width="1.3"/>
+        </svg>
+        <span class="layout-label">Grid</span>
+      </button>
+      <button id="btn-refresh" class="action-btn" title="Refresh fast figures">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M14 2v5h-5M2 14V9h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 6A6 6 0 0113.3 3.8L14 7M13.5 10a6 6 0 01-10.8 2.2L2 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        Refresh
+      </button>
+      <button id="btn-verify" class="action-btn action-btn--verify" title="Run DA + LMA verification">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 1v14M1 8h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2" opacity="0.4"/></svg>
+        Verify
+      </button>
+      <button id="btn-baseline" class="action-btn action-btn--baseline" title="Set current as baseline">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 14l4-4 3 3 5-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Baseline
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <div id="main-layout">
+    <!-- Sidebar: Tabbed Controls (collapsed by default) -->
+    <aside id="sidebar" class="sidebar-collapsed">
+      <div class="sidebar-header">
+        <div class="sidebar-tabs">
+          <button class="sidebar-tab sidebar-tab--active" data-tab="magnets" title="Magnet families">
+            <svg class="sidebar-tab-icon" width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M4 2v12M12 2v12M4 5h8M4 11h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            </svg>
+            <span class="sidebar-tab-label">MAGNETS</span>
+          </button>
+          <button class="sidebar-tab" data-tab="settings" title="Computation settings">
+            <svg class="sidebar-tab-icon" width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.3"/>
+              <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+            </svg>
+            <span class="sidebar-tab-label">SETTINGS</span>
+          </button>
+        </div>
+        <button id="btn-sidebar-toggle" class="sidebar-toggle" title="Toggle panel">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+            <path class="chevron-path" d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+      <div id="sidebar-content">
+        <div id="tab-magnets" class="sidebar-tab-content sidebar-tab-content--active">
+          <div id="slider-container">
+            <div class="sidebar-empty">Load a lattice to see controls</div>
+          </div>
+        </div>
+        <div id="tab-settings" class="sidebar-tab-content">
+          <div id="settings-container">
+            <div class="sidebar-empty">Loading settings...</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Figure Grid -->
+    <main id="figure-area">
+      <!-- Fast figures: 2x2 -->
+      <div class="figure-grid">
+        <div class="figure-cell" id="cell-optics" data-figure="optics">
+          <div class="figure-header">
+            <span class="figure-led" id="led-optics"></span>
+            <span class="figure-title">Optics</span>
+          </div>
+          <div class="figure-plot" id="plot-optics">
+            <div class="figure-placeholder">Waiting for lattice...</div>
+          </div>
+        </div>
+        <div class="figure-cell" id="cell-resonance" data-figure="resonance">
+          <div class="figure-header">
+            <span class="figure-led" id="led-resonance"></span>
+            <span class="figure-title">Resonance Diagram</span>
+          </div>
+          <div class="figure-plot" id="plot-resonance">
+            <div class="figure-placeholder">Waiting for lattice...</div>
+          </div>
+        </div>
+        <div class="figure-cell" id="cell-chromaticity" data-figure="chromaticity">
+          <div class="figure-header">
+            <span class="figure-led" id="led-chromaticity"></span>
+            <span class="figure-title">Chromaticity</span>
+          </div>
+          <div class="figure-plot" id="plot-chromaticity">
+            <div class="figure-placeholder">Waiting for lattice...</div>
+          </div>
+        </div>
+        <div class="figure-cell" id="cell-footprint" data-figure="footprint">
+          <div class="figure-header">
+            <span class="figure-led" id="led-footprint"></span>
+            <span class="figure-title">Tune Footprint</span>
+          </div>
+          <div class="figure-plot" id="plot-footprint">
+            <div class="figure-placeholder">Waiting for lattice...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Verification figures: 1x2 -->
+      <div class="verification-row">
+        <div class="figure-cell figure-cell--verification" id="cell-da" data-figure="da">
+          <div class="figure-header">
+            <span class="figure-led" id="led-da"></span>
+            <span class="figure-title">Dynamic Aperture</span>
+            <span class="figure-badge figure-badge--ondemand">ON DEMAND</span>
+          </div>
+          <div class="figure-plot" id="plot-da">
+            <div class="figure-placeholder figure-placeholder--verification">
+              Click <strong>Verify</strong> to compute
+            </div>
+          </div>
+        </div>
+        <div class="figure-cell figure-cell--verification" id="cell-lma" data-figure="lma">
+          <div class="figure-header">
+            <span class="figure-led" id="led-lma"></span>
+            <span class="figure-title">Momentum Aperture</span>
+            <span class="figure-badge figure-badge--ondemand">ON DEMAND</span>
+          </div>
+          <div class="figure-plot" id="plot-lma">
+            <div class="figure-placeholder figure-placeholder--verification">
+              Click <strong>Verify</strong> to compute
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

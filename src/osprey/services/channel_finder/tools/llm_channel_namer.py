@@ -1,13 +1,7 @@
-"""LLM-based Channel Name Generator.
+"""LLM-based channel name generator using structured output.
 
-This module provides intelligent channel name generation using language models.
-It takes short technical names and natural language descriptions to create
-descriptive, intuitive channel names that are self-documenting.
-
-Key Features:
-- Batch processing for efficiency
-- Configurable LLM providers
-- Validation and quality checks
+Takes short technical PV names and natural language descriptions to
+create descriptive, self-documenting channel names via batch LLM calls.
 """
 
 import logging
@@ -34,7 +28,7 @@ class LLMChannelNamer:
 
     def __init__(
         self,
-        provider: str = "cborg",
+        provider: str = "anthropic",
         model_id: str = "google/gemini-flash",
         max_tokens: int = 1000,
         batch_size: int = 10,
@@ -337,25 +331,29 @@ def create_namer_from_config(config_path: str | None = None) -> LLMChannelNamer:
     Returns:
         Configured LLMChannelNamer instance
     """
-    from osprey.services.channel_finder.utils.config import get_config, load_config
+    from osprey.utils.config import load_config
 
     if config_path:
         config = load_config(str(config_path))
     else:
-        config = get_config()
+        config = load_config()
 
     name_gen_config = config.get("channel_finder", {}).get("channel_name_generation", {})
 
     llm_config = name_gen_config.get("llm_model", {})
-    provider = llm_config.get("provider", "cborg")
+    provider = llm_config.get("provider", "anthropic")
 
     api_config = config.get("api", {}).get("providers", {}).get(provider, {})
     base_url = api_config.get("base_url")
     api_key = api_config.get("api_key")
 
+    from osprey.models.tiers import resolve_model_id
+
+    model_id = resolve_model_id(provider, llm_config.get("model_id", "haiku"))
+
     return LLMChannelNamer(
         provider=provider,
-        model_id=llm_config.get("model_id", "anthropic/claude-haiku"),
+        model_id=model_id,
         max_tokens=llm_config.get("max_tokens", 1000),
         batch_size=name_gen_config.get("llm_batch_size", 10),
         base_url=base_url,

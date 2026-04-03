@@ -13,47 +13,20 @@ from .core.exceptions import (
     PipelineModeError,
     QueryProcessingError,
 )
-
-# Core models and base classes
 from .core.models import (
-    ChannelCorrectionOutput,
     ChannelFinderResult,
     ChannelInfo,
-    ChannelMatchOutput,
-    QuerySplitterOutput,
 )
-
-# Databases
 from .databases import FlatChannelDatabase, HierarchicalChannelDatabase, TemplateChannelDatabase
-
-# Backward compatibility alias
-LegacyChannelDatabase = FlatChannelDatabase
-
-# Pipelines
-from .pipelines.in_context import InContextPipeline
-
-# Service (high-level interface)
-from .service import ChannelFinderService
 
 __version__ = "2.0.0"
 
 __all__ = [
-    # Service (high-level interface)
-    "ChannelFinderService",
-    # Pipelines
-    "InContextPipeline",
-    # Database classes
     "FlatChannelDatabase",
     "TemplateChannelDatabase",
-    "LegacyChannelDatabase",  # Backward compatibility
     "HierarchicalChannelDatabase",
-    # Data models
-    "QuerySplitterOutput",
-    "ChannelMatchOutput",
-    "ChannelCorrectionOutput",
     "ChannelFinderResult",
     "ChannelInfo",
-    # Exceptions
     "ChannelFinderError",
     "PipelineModeError",
     "DatabaseLoadError",

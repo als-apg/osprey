@@ -1,6 +1,7 @@
 """ARIEL CLI commands.
 
-This module provides CLI commands for the ARIEL search service.
+Thin CLI wrappers that delegate business logic to
+``osprey.services.ariel_search.cli_operations``.
 
 See 04_OSPREY_INTEGRATION.md Sections 13 for specification.
 """
@@ -22,6 +23,43 @@ if TYPE_CHECKING:
     from datetime import datetime
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _load_ariel_config() -> dict:
+    """Load ARIEL config dict, raising SystemExit if missing."""
+    config_dict = get_config_value("ariel", {})
+    if not config_dict:
+        click.echo("Error: ARIEL not configured in config.yml", err=True)
+        raise SystemExit(1)
+    return config_dict
+
+
+def _handle_db_error(e: Exception) -> None:
+    """Raise SystemExit on database connection errors, otherwise return."""
+    msg = str(e)
+    if "connection" in msg.lower() or "connect" in msg.lower():
+        click.echo("Error: Cannot connect to the ARIEL database.", err=True)
+        click.echo("Make sure the database is running: osprey deploy up", err=True)
+        raise SystemExit(1) from None
+
+
+def _handle_missing_tables(e: Exception) -> None:
+    """Raise SystemExit on missing-table errors, otherwise return."""
+    msg = str(e)
+    if "relation" in msg and "does not exist" in msg:
+        click.echo("Error: ARIEL database is not initialized.", err=True)
+        click.echo("Run 'osprey ariel migrate' to create the required tables.", err=True)
+        raise SystemExit(1) from None
+
+
+# ---------------------------------------------------------------------------
+# Group
+# ---------------------------------------------------------------------------
+
+
 @click.group("ariel")
 def ariel_group() -> None:
     """ARIEL search service commands.
@@ -29,6 +67,11 @@ def ariel_group() -> None:
     Commands for managing the ARIEL (Agentic Retrieval Interface for
     Electronic Logbooks) search service.
     """
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
 
 
 @ariel_group.command("status")
@@ -40,74 +83,10 @@ def status_command(output_json: bool) -> None:
     """
     import json as json_module
 
-    async def _get_status() -> dict:
-        from osprey.services.ariel_search import ARIELConfig, create_ariel_service
+    from osprey.services.ariel_search.cli_operations import get_status
 
-        try:
-            # Load config (get_config imported at module level)
-            config_dict = get_config_value("ariel", {})
-            if not config_dict:
-                return {"status": "error", "message": "ARIEL not configured"}
-
-            config = ARIELConfig.from_dict(config_dict)
-
-            service = await create_ariel_service(config)
-            async with service:
-                # Health check
-                healthy, message = await service.health_check()
-
-                # Get enhancement stats
-                stats = await service.repository.get_enhancement_stats()
-
-                # Get embedding tables
-                tables = await service.repository.get_embedding_tables()
-
-                return {
-                    "status": "healthy" if healthy else "unhealthy",
-                    "message": message,
-                    "database": {
-                        "uri": config.database.uri.split("@")[-1]
-                        if "@" in config.database.uri
-                        else config.database.uri,
-                        "connected": healthy,
-                    },
-                    "entries": stats.get("total_entries", 0),
-                    "embedding_tables": [
-                        {
-                            "table": t.table_name,
-                            "entries": t.entry_count,
-                            "dimension": t.dimension,
-                            "active": t.is_active,
-                        }
-                        for t in tables
-                    ],
-                    "enhancement_modules": {
-                        "text_embedding": config.is_enhancement_module_enabled("text_embedding"),
-                        "semantic_processor": config.is_enhancement_module_enabled(
-                            "semantic_processor"
-                        ),
-                    },
-                    "search_modules": {
-                        "keyword": config.is_search_module_enabled("keyword"),
-                        "semantic": config.is_search_module_enabled("semantic"),
-                    },
-                    "pipelines": {
-                        "rag": config.is_pipeline_enabled("rag"),
-                        "agent": config.is_pipeline_enabled("agent"),
-                    },
-                }
-
-        except Exception as e:
-            msg = str(e)
-            if "connection" in msg.lower() or "connect" in msg.lower():
-                return {
-                    "status": "error",
-                    "message": "Cannot connect to the ARIEL database. "
-                    "Make sure the database is running: osprey deploy up",
-                }
-            return {"status": "error", "message": msg}
-
-    result = asyncio.run(_get_status())
+    config_dict = get_config_value("ariel", {})
+    result = asyncio.run(get_status(config_dict))
 
     if output_json:
         click.echo(json_module.dumps(result, indent=2))
@@ -129,39 +108,49 @@ def migrate_command() -> None:
 
     Creates required database schema and tables based on enabled modules.
     """
+    from osprey.services.ariel_search.cli_operations import run_migrate
 
-    async def _migrate() -> None:
-        from osprey.services.ariel_search import ARIELConfig
-        from osprey.services.ariel_search.database.connection import create_connection_pool
-        from osprey.services.ariel_search.database.migrate import run_migrations
+    config_dict = _load_ariel_config()
+    try:
+        asyncio.run(run_migrate(config_dict, progress=click.echo))
+    except Exception as e:
+        _handle_db_error(e)
+        raise
 
-        # Load config (get_config imported at module level)
-        config_dict = get_config_value("ariel", {})
-        if not config_dict:
-            click.echo("Error: ARIEL not configured in config.yml", err=True)
-            raise SystemExit(1)
 
-        config = ARIELConfig.from_dict(config_dict)
+@ariel_group.command("sync")
+@click.option("--limit", type=int, help="Maximum entries to ingest per run")
+def sync_command(limit: int | None) -> None:
+    """Sync ARIEL database: migrate, incremental ingest, enhance.
 
-        click.echo(f"Connecting to database: {config.database.uri.split('@')[-1]}")
+    Idempotent — safe to run on every build. Only fetches new entries
+    since the last successful ingest run. On a fresh database, runs
+    a full ingest.
 
-        try:
-            pool = await create_connection_pool(config.database)
-        except Exception as e:
-            if "connection" in str(e).lower() or "connect" in str(e).lower():
-                click.echo("Error: Cannot connect to the ARIEL database.", err=True)
-                click.echo("Make sure the database is running: osprey deploy up", err=True)
-                raise SystemExit(1) from None
-            raise
+    Example:
+        osprey ariel sync                # Full sync
+        osprey ariel sync --limit 1000   # Limit ingest to 1000 entries
+    """
+    from osprey.services.ariel_search.cli_operations import run_sync
+    from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
-        try:
-            click.echo("Running migrations...")
-            await run_migrations(pool, config)
-            click.echo("Migrations complete.")
-        finally:
-            await pool.close()
-
-    asyncio.run(_migrate())
+    config_dict = _load_ariel_config()
+    try:
+        result = asyncio.run(run_sync(config_dict, limit=limit, progress=click.echo))
+        click.echo(
+            f"\nSync complete: "
+            f"{result.entries_ingested} ingested, "
+            f"{result.entries_enhanced} enhanced, "
+            f"{result.entries_failed} failed"
+        )
+        if result.migrations_applied:
+            click.echo(f"  Migrations applied: {result.migrations_applied}")
+    except DatabaseQueryError as e:
+        _handle_missing_tables(e)
+        raise
+    except Exception as e:
+        _handle_db_error(e)
+        raise
 
 
 @ariel_group.command("ingest")
@@ -189,121 +178,27 @@ def ingest_command(
     and stores them in the ARIEL database. Accepts both local
     file paths and HTTP/HTTPS URLs.
     """
-
-    async def _ingest() -> None:
-        from osprey.services.ariel_search import ARIELConfig, create_ariel_service
-        from osprey.services.ariel_search.enhancement import create_enhancers_from_config
-        from osprey.services.ariel_search.ingestion import get_adapter
-
-        # Load config (get_config imported at module level)
-        config_dict = get_config_value("ariel", {})
-        if not config_dict:
-            click.echo("Error: ARIEL not configured in config.yml", err=True)
-            raise SystemExit(1)
-
-        # Override source_url from command line
-        if "ingestion" not in config_dict:
-            config_dict["ingestion"] = {}
-        config_dict["ingestion"]["source_url"] = source
-        config_dict["ingestion"]["adapter"] = adapter
-
-        config = ARIELConfig.from_dict(config_dict)
-
-        # Get adapter
-        adapter_instance = get_adapter(config)
-
-        click.echo(f"Using adapter: {adapter_instance.source_system_name}")
-        click.echo(f"Source: {source}")
-
-        # Get enabled enhancement modules
-        enhancers = create_enhancers_from_config(config)
-        if enhancers:
-            click.echo(f"Enhancement modules: {[e.name for e in enhancers]}")
-
-        if dry_run:
-            # Just count entries
-            count = 0
-            async for _entry in adapter_instance.fetch_entries(since=since, limit=limit):
-                count += 1
-                if count % 100 == 0:
-                    click.echo(f"  Parsed {count} entries...")
-
-            click.echo(f"\nDry run complete: {count} entries would be ingested")
-            if enhancers:
-                click.echo(f"Enhancement modules would run: {[e.name for e in enhancers]}")
-            return
-
-        # Full ingestion with enhancement and run tracking
-        service = await create_ariel_service(config)
-        async with service:
-            source_system = adapter_instance.source_system_name
-            run_id = await service.repository.start_ingestion_run(source_system)
-
-            count = 0
-            enhanced_count = 0
-            failed_count = 0
-
-            try:
-                async with service.pool.connection() as conn:
-                    async for entry in adapter_instance.fetch_entries(since=since, limit=limit):
-                        # Store entry
-                        await service.repository.upsert_entry(entry)
-                        count += 1
-
-                        # Run enabled enhancement modules
-                        if enhancers:
-                            for enhancer in enhancers:
-                                try:
-                                    await enhancer.enhance(entry, conn)
-                                    await service.repository.mark_enhancement_complete(
-                                        entry["entry_id"],
-                                        enhancer.name,
-                                    )
-                                    enhanced_count += 1
-                                except Exception as e:
-                                    await service.repository.mark_enhancement_failed(
-                                        entry["entry_id"],
-                                        enhancer.name,
-                                        str(e),
-                                    )
-                                    failed_count += 1
-
-                        if count % 100 == 0:
-                            if enhancers:
-                                click.echo(f"  Ingested and enhanced {count} entries...")
-                            else:
-                                click.echo(f"  Ingested {count} entries...")
-
-                await service.repository.complete_ingestion_run(
-                    run_id,
-                    entries_added=count,
-                    entries_updated=0,
-                    entries_failed=failed_count,
-                )
-            except Exception as e:
-                await service.repository.fail_ingestion_run(run_id, str(e))
-                raise
-
-            click.echo(f"\nIngestion complete: {count} entries stored")
-            if enhancers:
-                click.echo(f"Enhancement complete: {enhanced_count} enhancements applied")
-
+    from osprey.services.ariel_search.cli_operations import run_ingest
     from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
+    config_dict = _load_ariel_config()
     try:
-        asyncio.run(_ingest())
+        result = asyncio.run(
+            run_ingest(config_dict, source, adapter, since, limit, dry_run, progress=click.echo)
+        )
+        if result.dry_run:
+            click.echo(f"\nDry run complete: {result.count} entries would be ingested")
+            if result.enhancer_names:
+                click.echo(f"Enhancement modules would run: {result.enhancer_names}")
+        else:
+            click.echo(f"\nIngestion complete: {result.count} entries stored")
+            if result.enhancer_names:
+                click.echo(f"Enhancement complete: {result.enhanced_count} enhancements applied")
     except DatabaseQueryError as e:
-        # Check for "relation does not exist" error indicating missing tables
-        if "relation" in str(e) and "does not exist" in str(e):
-            click.echo("Error: ARIEL database is not initialized.", err=True)
-            click.echo("Run 'osprey ariel migrate' to create the required tables.", err=True)
-            raise SystemExit(1) from None
-        raise  # Re-raise other database errors
+        _handle_missing_tables(e)
+        raise
     except Exception as e:
-        if "connection" in str(e).lower() or "connect" in str(e).lower():
-            click.echo("Error: Cannot connect to the ARIEL database.", err=True)
-            click.echo("Make sure the database is running: osprey deploy up", err=True)
-            raise SystemExit(1) from None
+        _handle_db_error(e)
         raise
 
 
@@ -340,92 +235,34 @@ def watch_command(
         osprey ariel watch --interval 300          # Poll every 5 minutes
         osprey ariel watch -s https://api/logbook  # Override source URL
     """
-    import signal
-
-    async def _watch() -> None:
-        from osprey.services.ariel_search import ARIELConfig, create_ariel_service
-        from osprey.services.ariel_search.ingestion.scheduler import IngestionScheduler
-
-        # Load config
-        config_dict = get_config_value("ariel", {})
-        if not config_dict:
-            click.echo("Error: ARIEL not configured in config.yml", err=True)
-            raise SystemExit(1)
-
-        # Apply CLI overrides
-        if source or adapter:
-            if "ingestion" not in config_dict:
-                config_dict["ingestion"] = {}
-            if source:
-                config_dict["ingestion"]["source_url"] = source
-            if adapter:
-                config_dict["ingestion"]["adapter"] = adapter
-
-        if interval is not None:
-            if "ingestion" not in config_dict:
-                config_dict["ingestion"] = {}
-            config_dict["ingestion"]["poll_interval_seconds"] = interval
-
-        config = ARIELConfig.from_dict(config_dict)
-
-        if not config.ingestion or not config.ingestion.source_url:
-            click.echo(
-                "Error: No ingestion source configured. "
-                "Set ingestion.source_url in config.yml or use --source.",
-                err=True,
-            )
-            raise SystemExit(1)
-
-        service = await create_ariel_service(config)
-        async with service:
-            scheduler = IngestionScheduler(
-                config=config,
-                repository=service.repository,
-            )
-
-            if once:
-                click.echo(f"Running single poll cycle (source: {config.ingestion.source_url})")
-                result = await scheduler.poll_once(dry_run=dry_run)
-                prefix = "[dry-run] " if dry_run else ""
-                click.echo(
-                    f"\n{prefix}Poll complete: "
-                    f"{result.entries_added} added, "
-                    f"{result.entries_failed} failed "
-                    f"({result.duration_seconds:.1f}s)"
-                )
-                if result.since:
-                    click.echo(f"  Since: {result.since.isoformat()}")
-                return
-
-            # Daemon mode with signal handling
-            poll_secs = config.ingestion.poll_interval_seconds
-            click.echo(f"Watching: {config.ingestion.source_url}")
-            click.echo(f"Poll interval: {poll_secs}s")
-            click.echo("Press Ctrl+C to stop\n")
-
-            loop = asyncio.get_event_loop()
-            for sig in (signal.SIGINT, signal.SIGTERM):
-                loop.add_signal_handler(sig, lambda: asyncio.ensure_future(scheduler.stop()))
-
-            await scheduler.start()
-
+    from osprey.services.ariel_search.cli_operations import run_watch
     from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
+    config_dict = _load_ariel_config()
     try:
-        asyncio.run(_watch())
+        result = asyncio.run(
+            run_watch(config_dict, source, adapter, once, interval, dry_run, progress=click.echo)
+        )
+        if result is not None:
+            prefix = "[dry-run] " if result.dry_run else ""
+            click.echo(
+                f"\n{prefix}Poll complete: "
+                f"{result.entries_added} added, "
+                f"{result.entries_failed} failed "
+                f"({result.duration_seconds:.1f}s)"
+            )
+            if result.since:
+                click.echo(f"  Since: {result.since.isoformat()}")
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1) from None
     except DatabaseQueryError as e:
-        if "relation" in str(e) and "does not exist" in str(e):
-            click.echo("Error: ARIEL database is not initialized.", err=True)
-            click.echo("Run 'osprey ariel migrate' to create the required tables.", err=True)
-            raise SystemExit(1) from None
+        _handle_missing_tables(e)
         raise
     except KeyboardInterrupt:
         click.echo("\nStopping watcher...")
     except Exception as e:
-        if "connection" in str(e).lower() or "connect" in str(e).lower():
-            click.echo("Error: Cannot connect to the ARIEL database.", err=True)
-            click.echo("Make sure the database is running: osprey deploy up", err=True)
-            raise SystemExit(1) from None
+        _handle_db_error(e)
         raise
 
 
@@ -444,65 +281,12 @@ def enhance_command(module: str | None, force: bool, limit: int) -> None:
     Processes entries that haven't been enhanced yet, or re-processes
     all entries if --force is specified.
     """
+    from osprey.services.ariel_search.cli_operations import run_enhance
 
-    async def _enhance() -> None:
-        from osprey.services.ariel_search import ARIELConfig, create_ariel_service
-        from osprey.services.ariel_search.enhancement import create_enhancers_from_config
-
-        # Load config (get_config imported at module level)
-        config_dict = get_config_value("ariel", {})
-        if not config_dict:
-            click.echo("Error: ARIEL not configured in config.yml", err=True)
-            raise SystemExit(1)
-
-        config = ARIELConfig.from_dict(config_dict)
-
-        # Get enhancers
-        enhancers = create_enhancers_from_config(config)
-        if module:
-            enhancers = [e for e in enhancers if e.name == module]
-
-        if not enhancers:
-            click.echo("No enhancement modules enabled or selected")
-            return
-
-        click.echo(f"Enhancement modules: {[e.name for e in enhancers]}")
-
-        service = await create_ariel_service(config)
-        async with service:
-            # Get entries to enhance
-            if force:
-                entries = await service.repository.search_by_time_range(limit=limit)
-            else:
-                entries = await service.repository.get_incomplete_entries(
-                    module_name=module,
-                    limit=limit,
-                )
-
-            click.echo(f"Processing {len(entries)} entries...")
-
-            async with service.pool.connection() as conn:
-                for i, entry in enumerate(entries):
-                    for enhancer in enhancers:
-                        try:
-                            await enhancer.enhance(entry, conn)
-                            await service.repository.mark_enhancement_complete(
-                                entry["entry_id"],
-                                enhancer.name,
-                            )
-                        except Exception as e:
-                            await service.repository.mark_enhancement_failed(
-                                entry["entry_id"],
-                                enhancer.name,
-                                str(e),
-                            )
-
-                    if (i + 1) % 10 == 0:
-                        click.echo(f"  Processed {i + 1} entries...")
-
-            click.echo(f"\nEnhancement complete: {len(entries)} entries processed")
-
-    asyncio.run(_enhance())
+    config_dict = _load_ariel_config()
+    result = asyncio.run(run_enhance(config_dict, module, force, limit, progress=click.echo))
+    if result.entries_processed > 0:
+        click.echo(f"\nEnhancement complete: {result.entries_processed} entries processed")
 
 
 @ariel_group.command("models")
@@ -511,35 +295,22 @@ def models_command() -> None:
 
     Shows all embedding tables in the database and their status.
     """
+    from osprey.services.ariel_search.cli_operations import list_models
 
-    async def _list_models() -> None:
-        from osprey.services.ariel_search import ARIELConfig, create_ariel_service
+    config_dict = _load_ariel_config()
+    tables = asyncio.run(list_models(config_dict))
 
-        # Load config (get_config imported at module level)
-        config_dict = get_config_value("ariel", {})
-        if not config_dict:
-            click.echo("Error: ARIEL not configured in config.yml", err=True)
-            raise SystemExit(1)
+    if not tables:
+        click.echo("No embedding tables found.")
+        return
 
-        config = ARIELConfig.from_dict(config_dict)
-
-        service = await create_ariel_service(config)
-        async with service:
-            tables = await service.repository.get_embedding_tables()
-
-            if not tables:
-                click.echo("No embedding tables found.")
-                return
-
-            click.echo("Embedding Models:")
-            for table in tables:
-                active = " (active)" if table.is_active else ""
-                click.echo(f"\n  {table.table_name}{active}")
-                click.echo(f"    Entries: {table.entry_count}")
-                if table.dimension:
-                    click.echo(f"    Dimension: {table.dimension}")
-
-    asyncio.run(_list_models())
+    click.echo("Embedding Models:")
+    for table in tables:
+        active = " (active)" if table["is_active"] else ""
+        click.echo(f"\n  {table['table_name']}{active}")
+        click.echo(f"    Entries: {table['entry_count']}")
+        if table["dimension"]:
+            click.echo(f"    Dimension: {table['dimension']}")
 
 
 @ariel_group.command("search")
@@ -554,52 +325,10 @@ def search_command(query: str, mode: str, limit: int, output_json: bool) -> None
     """
     import json as json_module
 
-    async def _search() -> dict:
-        from osprey.services.ariel_search import ARIELConfig, SearchMode, create_ariel_service
+    from osprey.services.ariel_search.cli_operations import run_search
 
-        # Load config (get_config imported at module level)
-        config_dict = get_config_value("ariel", {})
-        if not config_dict:
-            return {"error": "ARIEL not configured"}
-
-        config = ARIELConfig.from_dict(config_dict)
-
-        search_mode = None
-        if mode != "auto":
-            search_mode = SearchMode[mode.upper()]
-
-        try:
-            service = await create_ariel_service(config)
-            async with service:
-                result = await service.search(
-                    query=query,
-                    max_results=limit,
-                    mode=search_mode,
-                )
-
-                return {
-                    "query": query,
-                    "answer": result.answer,
-                    "sources": list(result.sources),
-                    "search_modes": [m.value for m in result.search_modes_used],
-                    "reasoning": result.reasoning,
-                }
-        except Exception as e:
-            msg = str(e)
-            if "connection" in msg.lower() or "connect" in msg.lower():
-                return {
-                    "error": "Cannot connect to the ARIEL database. "
-                    "Make sure the database is running: osprey deploy up"
-                }
-            if "relation" in msg and "does not exist" in msg:
-                return {
-                    "error": "Logbook database tables not found. "
-                    "Run 'osprey ariel migrate' to create tables, then "
-                    "'osprey ariel ingest' to populate data."
-                }
-            return {"error": msg}
-
-    result = asyncio.run(_search())
+    config_dict = get_config_value("ariel", {})
+    result = asyncio.run(run_search(config_dict, query, mode, limit))
 
     if output_json:
         click.echo(json_module.dumps(result, indent=2))
@@ -642,165 +371,17 @@ def reembed_command(
         osprey ariel reembed --model nomic-embed-text --dimension 768
         osprey ariel reembed --model mxbai-embed-large --dimension 1024 --force
     """
+    from osprey.services.ariel_search.cli_operations import run_reembed
 
-    async def _reembed() -> None:
-        from osprey.services.ariel_search import ARIELConfig, create_ariel_service
-        from osprey.services.ariel_search.database.migration import model_to_table_name
-        from osprey.services.ariel_search.enhancement.text_embedding import (
-            TextEmbeddingMigration,
-        )
-
-        # Load config (get_config imported at module level)
-        config_dict = get_config_value("ariel", {})
-        if not config_dict:
-            click.echo("Error: ARIEL not configured in config.yml", err=True)
-            raise SystemExit(1)
-
-        config = ARIELConfig.from_dict(config_dict)
-        table_name = model_to_table_name(model)
-
-        if dry_run:
-            click.echo(f"DRY RUN - Would re-embed entries using model: {model}")
-            click.echo(f"  Table: {table_name}")
-            click.echo(f"  Dimension: {dimension}")
-            click.echo(f"  Batch size: {batch_size}")
-            click.echo(f"  Force overwrite: {force}")
-            return
-
-        service = await create_ariel_service(config)
-        async with service:
-            # Check if table exists
-            tables = await service.repository.get_embedding_tables()
-            table_exists = any(t.table_name == table_name for t in tables)
-
-            if not table_exists:
-                click.echo(f"Creating embedding table: {table_name}")
-                # Create the migration and run it
-                migration = TextEmbeddingMigration([(model, dimension)])
-                async with service.pool.connection() as conn:
-                    await migration.up(conn)
-                click.echo(f"  Table created: {table_name}")
-
-            # Get entries to embed
-            entry_count = await service.repository.count_entries()
-            click.echo(f"Found {entry_count} entries to embed")
-
-            if entry_count == 0:
-                click.echo("No entries to embed.")
-                return
-
-            # Get embedding provider
-            from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
-
-            embedder = OllamaEmbeddingProvider()
-            base_url = getattr(config.embedding, "base_url", None) or embedder.default_base_url
-
-            # Process entries in batches
-            processed = 0
-            skipped = 0
-            errors = 0
-
-            async with service.pool.connection() as conn:
-                async with conn.cursor() as cur:
-                    # Get all entries
-                    await cur.execute(
-                        "SELECT entry_id, raw_text FROM enhanced_entries ORDER BY entry_id"
-                    )
-                    rows = await cur.fetchall()
-
-                    batch_texts = []
-                    batch_ids = []
-
-                    for entry_id, raw_text in rows:
-                        # Check if embedding already exists (unless force)
-                        if not force:
-                            await cur.execute(
-                                f"SELECT 1 FROM {table_name} WHERE entry_id = %s",  # noqa: S608
-                                (entry_id,),
-                            )
-                            if await cur.fetchone():
-                                skipped += 1
-                                continue
-
-                        batch_texts.append(raw_text or "")
-                        batch_ids.append(entry_id)
-
-                        if len(batch_texts) >= batch_size:
-                            # Process batch
-                            try:
-                                embeddings = embedder.execute_embedding(
-                                    texts=batch_texts,
-                                    model_id=model,
-                                    base_url=base_url,
-                                )
-
-                                for eid, emb in zip(batch_ids, embeddings, strict=True):
-                                    if force:
-                                        await cur.execute(
-                                            f"""
-                                            INSERT INTO {table_name} (entry_id, embedding)
-                                            VALUES (%s, %s)
-                                            ON CONFLICT (entry_id) DO UPDATE SET embedding = EXCLUDED.embedding
-                                            """,  # noqa: S608
-                                            (eid, emb),
-                                        )
-                                    else:
-                                        await cur.execute(
-                                            f"""
-                                            INSERT INTO {table_name} (entry_id, embedding)
-                                            VALUES (%s, %s)
-                                            ON CONFLICT (entry_id) DO NOTHING
-                                            """,  # noqa: S608
-                                            (eid, emb),
-                                        )
-                                processed += len(batch_ids)
-                                click.echo(f"  Processed {processed} entries...")
-                            except Exception as e:
-                                click.echo(f"  Error in batch: {e}", err=True)
-                                errors += len(batch_ids)
-
-                            batch_texts = []
-                            batch_ids = []
-
-                    # Process remaining batch
-                    if batch_texts:
-                        try:
-                            embeddings = embedder.execute_embedding(
-                                texts=batch_texts,
-                                model_id=model,
-                                base_url=base_url,
-                            )
-
-                            for eid, emb in zip(batch_ids, embeddings, strict=True):
-                                if force:
-                                    await cur.execute(
-                                        f"""
-                                        INSERT INTO {table_name} (entry_id, embedding)
-                                        VALUES (%s, %s)
-                                        ON CONFLICT (entry_id) DO UPDATE SET embedding = EXCLUDED.embedding
-                                        """,  # noqa: S608
-                                        (eid, emb),
-                                    )
-                                else:
-                                    await cur.execute(
-                                        f"""
-                                        INSERT INTO {table_name} (entry_id, embedding)
-                                        VALUES (%s, %s)
-                                        ON CONFLICT (entry_id) DO NOTHING
-                                        """,  # noqa: S608
-                                        (eid, emb),
-                                    )
-                            processed += len(batch_ids)
-                        except Exception as e:
-                            click.echo(f"  Error in final batch: {e}", err=True)
-                            errors += len(batch_ids)
-
-            click.echo("\nRe-embedding complete:")
-            click.echo(f"  Processed: {processed}")
-            click.echo(f"  Skipped (existing): {skipped}")
-            click.echo(f"  Errors: {errors}")
-
-    asyncio.run(_reembed())
+    config_dict = _load_ariel_config()
+    result = asyncio.run(
+        run_reembed(config_dict, model, dimension, batch_size, dry_run, force, progress=click.echo)
+    )
+    if not result.dry_run:
+        click.echo("\nRe-embedding complete:")
+        click.echo(f"  Processed: {result.processed}")
+        click.echo(f"  Skipped (existing): {result.skipped}")
+        click.echo(f"  Errors: {result.errors}")
 
 
 @ariel_group.command("quickstart")
@@ -822,120 +403,14 @@ def quickstart_command(source: str | None) -> None:
         osprey ariel quickstart                    # Use bundled demo data
         osprey ariel quickstart -s my_logbook.json # Use custom data
     """
+    from osprey.services.ariel_search.cli_operations import run_quickstart
 
-    async def _quickstart() -> None:
-        from osprey.services.ariel_search import ARIELConfig, create_ariel_service
-        from osprey.services.ariel_search.database.connection import create_connection_pool
-        from osprey.services.ariel_search.database.migrate import run_migrations
-        from osprey.services.ariel_search.ingestion import get_adapter
-
-        # 1. Load config
-        config_dict = get_config_value("ariel", {})
-        if not config_dict:
-            click.echo("Error: ARIEL not configured in config.yml", err=True)
-            click.echo("Add an 'ariel:' section to your config.yml file.", err=True)
-            raise SystemExit(1)
-
-        # Override source if provided via CLI
-        if source:
-            if "ingestion" not in config_dict:
-                config_dict["ingestion"] = {}
-            config_dict["ingestion"]["source_url"] = source
-            config_dict["ingestion"]["adapter"] = "generic_json"
-
-        config = ARIELConfig.from_dict(config_dict)
-
-        # 2. Check database connection
-        click.echo("Checking database connection...")
-        try:
-            pool = await create_connection_pool(config.database)
-        except Exception as e:
-            if "connection" in str(e).lower() or "connect" in str(e).lower():
-                click.echo("\nError: Cannot connect to the ARIEL database.", err=True)
-                click.echo("Start it with: osprey deploy up", err=True)
-                click.echo("Then re-run: osprey ariel quickstart", err=True)
-                raise SystemExit(1) from None
-            raise
-        click.echo("  Database: connected")
-
-        try:
-            # 3. Run migrations
-            click.echo("Running migrations...")
-            applied = await run_migrations(pool, config)
-            if applied:
-                click.echo(f"  Tables: created ({len(applied)} migrations applied)")
-            else:
-                click.echo("  Tables: already up to date")
-
-            # 4. Ingest data
-            if not config.ingestion or not config.ingestion.source_url:
-                click.echo("\nNo ingestion source configured. Skipping data ingestion.")
-                click.echo(
-                    "Set ingestion.source_url in config.yml or use --source flag.",
-                    err=True,
-                )
-            else:
-                click.echo(f"Ingesting data from: {config.ingestion.source_url}")
-                adapter_instance = get_adapter(config)
-
-                from osprey.services.ariel_search.enhancement import (
-                    create_enhancers_from_config,
-                )
-
-                enhancers = create_enhancers_from_config(config)
-                if enhancers:
-                    click.echo(f"  Enhancement modules: {[e.name for e in enhancers]}")
-
-                service = await create_ariel_service(config)
-                async with service:
-                    count = 0
-                    enhanced_count = 0
-                    failed_count = 0
-
-                    async with service.pool.connection() as conn:
-                        async for entry in adapter_instance.fetch_entries():
-                            await service.repository.upsert_entry(entry)
-                            count += 1
-
-                            if enhancers:
-                                for enhancer in enhancers:
-                                    try:
-                                        await enhancer.enhance(entry, conn)
-                                        await service.repository.mark_enhancement_complete(
-                                            entry["entry_id"],
-                                            enhancer.name,
-                                        )
-                                        enhanced_count += 1
-                                    except Exception as e:
-                                        await service.repository.mark_enhancement_failed(
-                                            entry["entry_id"],
-                                            enhancer.name,
-                                            str(e),
-                                        )
-                                        failed_count += 1
-                                        logger.debug(
-                                            f"Enhancement failed for {entry['entry_id']}: {e}"
-                                        )
-
-                    click.echo(f"  Entries: {count} ingested")
-                    if enhancers:
-                        click.echo(
-                            f"  Enhancements: {enhanced_count} applied"
-                            + (f", {failed_count} failed" if failed_count else "")
-                        )
-
-            # 5. Summary
-            enabled_search = config.get_enabled_search_modules()
-            click.echo(
-                f"\nARIEL quickstart complete!"
-                f"\n  Search modules: {', '.join(enabled_search) or 'none'}"
-            )
-            click.echo('\nTry it: osprey ariel search "What happened with the RF cavity?"')
-
-        finally:
-            await pool.close()
-
-    asyncio.run(_quickstart())
+    config_dict = _load_ariel_config()
+    try:
+        asyncio.run(run_quickstart(config_dict, source, progress=click.echo))
+    except Exception as e:
+        _handle_db_error(e)
+        raise
 
 
 @ariel_group.command("web")
@@ -954,12 +429,7 @@ def web_command(port: int, host: str, reload: bool) -> None:
         osprey ariel web --host 0.0.0.0     # Bind to all interfaces
         osprey ariel web --reload           # Development mode with auto-reload
     """
-    # Check if ARIEL is configured
-    config_dict = get_config_value("ariel", {})
-    if not config_dict:
-        click.echo("Error: ARIEL not configured in config.yml", err=True)
-        click.echo("Add an 'ariel:' section to your config.yml file.", err=True)
-        raise SystemExit(1)
+    _load_ariel_config()
 
     click.echo(f"Starting ARIEL Web Interface on http://{host}:{port}")
     click.echo("Press Ctrl+C to stop\n")
@@ -986,74 +456,35 @@ def purge_command(yes: bool, embeddings_only: bool) -> None:
         osprey ariel purge -y           # Skip confirmation
         osprey ariel purge --embeddings-only  # Keep entries, clear embeddings
     """
+    from osprey.services.ariel_search.cli_operations import execute_purge, get_purge_info
 
-    async def _purge() -> None:
-        from osprey.services.ariel_search import ARIELConfig
-        from osprey.services.ariel_search.database.connection import create_connection_pool
+    config_dict = _load_ariel_config()
 
-        # Load config (get_config imported at module level)
-        config_dict = get_config_value("ariel", {})
-        if not config_dict:
-            click.echo("Error: ARIEL not configured in config.yml", err=True)
-            raise SystemExit(1)
+    try:
+        info = asyncio.run(get_purge_info(config_dict))
+    except Exception as e:
+        _handle_db_error(e)
+        raise
 
-        config = ARIELConfig.from_dict(config_dict)
+    click.echo("\n⚠️  WARNING: This will permanently delete:")
+    if embeddings_only:
+        click.echo(f"  - Embedding tables: {info.embedding_tables or '(none)'}")
+        click.echo(f"  - Entries will be KEPT ({info.entry_count} entries)")
+    else:
+        click.echo(f"  - All {info.entry_count} logbook entries")
+        click.echo(f"  - All embedding tables: {info.embedding_tables or '(none)'}")
+        click.echo("  - All ingestion history")
 
-        # Get current counts for display
-        pool = await create_connection_pool(config.database)
+    if not yes:
+        if not click.confirm("\nAre you sure you want to continue?"):
+            click.echo("Aborted.")
+            return
 
-        try:
-            async with pool.connection() as conn:
-                async with conn.cursor() as cur:
-                    # Get entry count
-                    await cur.execute("SELECT COUNT(*) FROM enhanced_entries")
-                    row = await cur.fetchone()
-                    entry_count = row[0] if row else 0
-
-                    # Get embedding tables
-                    await cur.execute("""
-                        SELECT table_name FROM information_schema.tables
-                        WHERE table_schema = 'public' AND table_name LIKE 'text_embeddings_%'
-                    """)
-                    embedding_tables = [r[0] for r in await cur.fetchall()]
-
-            # Show what will be deleted
-            click.echo("\n⚠️  WARNING: This will permanently delete:")
-            if embeddings_only:
-                click.echo(f"  - Embedding tables: {embedding_tables or '(none)'}")
-                click.echo(f"  - Entries will be KEPT ({entry_count} entries)")
-            else:
-                click.echo(f"  - All {entry_count} logbook entries")
-                click.echo(f"  - All embedding tables: {embedding_tables or '(none)'}")
-                click.echo("  - All ingestion history")
-
-            # Confirm
-            if not yes:
-                if not click.confirm("\nAre you sure you want to continue?"):
-                    click.echo("Aborted.")
-                    return
-
-            # Perform purge
-            async with pool.connection() as conn:
-                async with conn.cursor() as cur:
-                    if embeddings_only:
-                        # Only drop embedding tables
-                        for table in embedding_tables:
-                            await cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")  # noqa: S608
-                            click.echo(f"  Dropped {table}")
-                        click.echo("\n✓ Embedding tables purged. Entries preserved.")
-                    else:
-                        # Full purge - truncate all tables
-                        await cur.execute("TRUNCATE enhanced_entries CASCADE")
-                        await cur.execute("TRUNCATE ingestion_runs CASCADE")
-                        for table in embedding_tables:
-                            await cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")  # noqa: S608
-                        click.echo("\n✓ All ARIEL data purged.")
-
-        finally:
-            await pool.close()
-
-    asyncio.run(_purge())
+    try:
+        asyncio.run(execute_purge(config_dict, embeddings_only, progress=click.echo))
+    except Exception as e:
+        _handle_db_error(e)
+        raise
 
 
 __all__ = ["ariel_group"]

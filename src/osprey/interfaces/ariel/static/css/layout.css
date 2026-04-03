@@ -93,6 +93,9 @@
   gap: var(--space-3);
 }
 
+/* When embedded in web terminal, hide logo (tab bar shows module name) */
+body.embedded .logo { display: none; }
+
 /* === Main Content === */
 .main {
   flex: 1;

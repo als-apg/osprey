@@ -143,6 +143,7 @@ class EntryCreateRequest(BaseModel):
     shift: str | None = None
     tags: list[str] = []
     attachment_ids: list[str] = []
+    metadata: dict | None = None
 
 
 class EntryCreateResponse(BaseModel):
@@ -152,6 +153,7 @@ class EntryCreateResponse(BaseModel):
     message: str = "Entry created successfully"
     sync_status: str | None = None
     source_system: str | None = None
+    attachment_count: int = 0
 
 
 class EmbeddingTableStatus(BaseModel):

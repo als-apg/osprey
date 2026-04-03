@@ -1,0 +1,143 @@
+{%- set ns = namespace() -%}
+{
+  "showThinkingSummaries": true,
+  "outputStyle": ".claude/output-styles/control-operator.md",
+  "_PROMPT_PROVIDER_NOTE": "Permissions policy: allow/deny/ask lists. Framework defaults merged with facility overrides from claude_code.permissions config.",
+  "permissions": {
+    "allow": [
+{#- Build allow list from server registry -#}
+{%- set allow_entries = [] -%}
+{%- set _ = allow_entries.append('"Read(_agent_data/**)"') -%}
+{%- set _ = allow_entries.append('"Read(_agent_data/data/**)"') -%}
+{%- set _ = allow_entries.append('"Read(_agent_data/plots/**)"') -%}
+{%- set _ = allow_entries.append('"Read(_agent_data/results/**)"') -%}
+{%- if textbooks_root -%}
+{%- set _ = allow_entries.append('"Read(' ~ textbooks_root ~ '/**)"') -%}
+{%- endif -%}
+{%- if textbooks_root_tilde -%}
+{%- set _ = allow_entries.append('"Read(' ~ textbooks_root_tilde ~ '/**)"') -%}
+{%- endif -%}
+{#- Per-server tool permissions -#}
+{%- for s in servers if s.enabled -%}
+{%- for tool in s.permissions_allow -%}
+{%- set _ = allow_entries.append('"mcp__' ~ s.name ~ '__' ~ tool ~ '"') -%}
+{%- endfor -%}
+{%- for entry in s.fixed_allow -%}
+{%- set _ = allow_entries.append('"' ~ entry ~ '"') -%}
+{%- endfor -%}
+{%- endfor -%}
+{%- set _ = allow_entries.append('"NotebookEdit(_agent_data/artifacts/**)"') -%}
+{#- Per-agent Task() permissions -#}
+{%- for a in agents if a.enabled -%}
+{%- set _ = allow_entries.append('"Task(' ~ a.name ~ ')"') -%}
+{%- endfor -%}
+{%- for entry in facility_permissions.get('allow', []) -%}
+{%- set _ = allow_entries.append('"' ~ entry ~ '"') -%}
+{%- endfor -%}
+{% for entry in allow_entries %}      {{ entry }}{% if not loop.last %},{% endif %}
+{% endfor %}    ],
+{%- set deny_defaults = ["Bash", "Edit", "WebFetch", "WebSearch", "mcp__plugin_playwright_playwright__*", "mcp__plugin_context7_context7__*"] -%}
+{%- set deny_entries = [] -%}
+{%- for d in deny_defaults if d not in facility_permissions.get('remove_deny', []) -%}
+{%- set _ = deny_entries.append(d) -%}
+{%- endfor -%}
+{%- for d in facility_permissions.get('deny', []) -%}
+{%- set _ = deny_entries.append(d) -%}
+{%- endfor -%}
+    "deny": [
+{% for entry in deny_entries %}      "{{ entry }}"{% if not loop.last %},{% endif %}
+{% endfor %}    ],
+    "ask": [
+{%- set ask_entries = [] -%}
+{%- for s in servers if s.enabled -%}
+{%- for tool in s.permissions_ask -%}
+{%- set _ = ask_entries.append('"mcp__' ~ s.name ~ '__' ~ tool ~ '"') -%}
+{%- endfor -%}
+{%- for entry in s.fixed_ask -%}
+{%- set _ = ask_entries.append('"' ~ entry ~ '"') -%}
+{%- endfor -%}
+{%- endfor -%}
+{%- for entry in facility_permissions.get('ask', []) -%}
+{%- set _ = ask_entries.append('"' ~ entry ~ '"') -%}
+{%- endfor -%}
+{% for entry in ask_entries %}      {{ entry }}{% if not loop.last %},{% endif %}
+{% endfor %}    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat \"$CLAUDE_PROJECT_DIR/_agent_data/focus_state.txt\" 2>/dev/null || true",
+            "timeout": 1
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+{%- set pre_rules = [] -%}
+{%- for s in servers if s.enabled -%}
+{%- for rule in s.hooks_pre -%}
+{%- set _ = pre_rules.append(rule) -%}
+{%- endfor -%}
+{%- endfor -%}
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_memory_guard.py\"",
+            "timeout": 5
+          }
+        ]
+      }{% if pre_rules %},{% endif %}
+{%- for rule in pre_rules %}
+      {
+        "matcher": "{{ rule.matcher }}",
+        "hooks": [
+{%- for h in rule.hooks %}
+          {
+            "type": "{{ h.type }}",
+            "command": {{ h.command | tojson }},
+            "timeout": {{ h.timeout }}
+          }{% if not loop.last %},{% endif %}
+{%- endfor %}
+        ]
+      }{% if not loop.last %},{% endif %}
+{%- endfor %}
+    ],
+    "PostToolUse": [
+{%- set post_rules = [] -%}
+{%- for s in servers if s.enabled -%}
+{%- for rule in s.hooks_post -%}
+{%- set _ = post_rules.append(rule) -%}
+{%- endfor -%}
+{%- endfor -%}
+{%- for rule in post_rules %}
+      {
+        "matcher": "{{ rule.matcher }}",
+        "hooks": [
+{%- for h in rule.hooks %}
+          {
+            "type": "{{ h.type }}",
+            "command": {{ h.command | tojson }},
+            "timeout": {{ h.timeout }}
+          }{% if not loop.last %},{% endif %}
+{%- endfor %}
+        ]
+      },
+{%- endfor %}
+      {
+        "matcher": "NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_notebook_update.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

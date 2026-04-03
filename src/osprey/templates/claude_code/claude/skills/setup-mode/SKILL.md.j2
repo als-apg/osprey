@@ -1,0 +1,184 @@
+---
+name: setup-mode
+description: >
+  Enter diagnostic mode to inspect and troubleshoot OSPREY agent configuration.
+  Reads live config, identifies issues, and can patch config files.
+summary: Diagnoses and fixes OSPREY agent configuration issues
+---
+
+# Setup Mode — OSPREY Configuration Diagnostics
+
+Systematic protocol for inspecting, diagnosing, and fixing OSPREY agent configuration.
+
+---
+
+## Diagnostic Protocol
+
+Follow these steps in order. Do not skip steps.
+
+### Step 1 — Inspect
+
+Call `setup_inspect` (no arguments). This returns a full snapshot of the current configuration.
+
+### Step 2 — Compare
+
+Check the snapshot against the expected configuration for this deployment:
+
+**Expected deployment profile:**
+- Project: **{{ project_name }}**
+- Facility: **{{ facility_name }}**
+- Template: **{{ template_name }}**
+
+Compare each section:
+- `config` — Does `control_system.type` match the expected connector?
+- `mcp_servers` — Are all expected servers present and enabled?
+- `settings` — Are permissions (allow/deny/ask) correct?
+- `hooks` — Are safety hooks registered for the right matchers?
+- `rules` — Are all expected rule files present?
+- `agents` — Are expected agent files present?
+- `skills` — Are expected skill directories present?
+- `environment` — Are required `OSPREY_*` variables set?
+- `workspace` — Does the workspace exist with expected subdirectories?
+
+### Step 3 — Report
+
+Present findings as a structured diagnostic report:
+
+```
+## Configuration Health
+
+| Section       | Status | Notes                    |
+|---------------|--------|--------------------------|
+| Config        | OK/WARN/ERR | ...                |
+| MCP Servers   | OK/WARN/ERR | ...                |
+| Settings      | OK/WARN/ERR | ...                |
+| Hooks         | OK/WARN/ERR | ...                |
+| Rules         | OK/WARN/ERR | ...                |
+| Workspace     | OK/WARN/ERR | ...                |
+| Environment   | OK/WARN/ERR | ...                |
+```
+
+### Step 4 — Propose Fixes
+
+For each issue found, propose a specific fix. Classify each as:
+- **Auto-fixable**: Can be resolved with `setup_patch`
+- **Manual**: Requires operator action (e.g., setting environment variables, restarting services)
+- **Regen**: Requires `osprey claude regen` to regenerate from templates
+
+Ask the operator which fixes to apply before proceeding.
+
+### Step 5 — Apply & Verify
+
+For approved auto-fixes:
+1. Call `setup_patch` with the specific file, key_path, and value
+2. Note the hot/cold classification in the response
+3. After all patches, call `setup_inspect` again to verify
+
+For cold changes, remind the operator: "These changes require an MCP server restart to take effect."
+
+### Step 6 — Regen (if needed)
+
+If any issues require template regeneration, instruct the operator to run:
+```
+osprey claude regen
+```
+Then re-enter `/setup-mode` to verify the fix.
+
+---
+
+## Config Reference
+{# Deployment-specific valid values and defaults rendered from template context #}
+
+### MCP Servers
+
+| Server | Purpose | Status |
+|--------|---------|--------|
+| `workspace` | Memory, artifacts, plots, screen capture | {% if "workspace" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
+| `controls` | Channel read/write, archiver, channel find | {% if "controls" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
+| `python` | Python code execution | {% if "python" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
+| `ariel` | ARIEL logbook search and entry creation | {% if "ariel" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
+{% if channel_finder_pipeline is defined %}| `channel-finder` | Channel finder pipeline ({{ channel_finder_pipeline }}) | {% if "channel-finder" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
+{% endif %}
+### Required Environment Variables
+
+| Variable | Purpose | Required |
+|----------|---------|----------|
+| `OSPREY_CONFIG` | Path to config.yml | Recommended (falls back to `./config.yml`) |
+| `OSPREY_SESSION_ID` | Session isolation for workspace | Optional |
+| `CLAUDE_PROJECT_DIR` | Claude Code project directory | Set by Claude Code |
+
+### Workspace Structure
+
+Expected subdirectories in `_agent_data/`:
+- `data/` — Data context entries
+- `plots/` — Generated static/interactive plots
+- `memory/` — Persistent memory store
+- `artifacts/` — Saved artifacts (HTML reports, dashboards)
+- `screenshots/` — Screen captures
+- `results/` — Channel read results
+
+---
+
+## Hot vs. Cold Changes
+
+| Change | Type | Effect |
+|--------|------|--------|
+| `control_system.writes_enabled` | Hot | Hooks re-read on each call |
+| `control_system.limits_checking.enabled` | Hot | Hooks re-read on each call |
+| `control_system.limits_checking.allow_unlisted_channels` | Hot | Hooks re-read on each call |
+| `approval.mode` | Hot | Hooks re-read on each call |
+| `control_system.type` | Cold | Requires MCP server restart |
+| `archiver.*` | Cold | Requires MCP server restart |
+| `.mcp.json` changes | Cold | Requires new Claude Code session |
+| `.claude/settings.json` | Cold | Requires new Claude Code session |
+| Hook scripts | Cold | Requires new Claude Code session |
+
+---
+
+## Common Issues Catalog
+
+### 1. MCP Server Won't Start
+**Symptoms**: Tool calls fail with connection errors.
+**Check**: `setup_inspect` → `mcp_servers` section. Verify server entries exist in `.mcp.json`.
+**Fix**: Usually missing `OSPREY_CONFIG` env var or wrong path.
+
+### 2. Writes Blocked
+**Symptoms**: `channel_write` rejected.
+**Check**: `setup_inspect` → `config.control_system.writes_enabled`.
+**Fix**: `setup_patch config.yml control_system.writes_enabled true` (hot change).
+
+### 3. Missing Safety Hooks
+**Symptoms**: Writes proceed without approval prompts.
+**Check**: `setup_inspect` → `hooks.PreToolUse`. Look for `osprey_approval.py` matcher.
+**Fix**: Run `osprey claude regen` to regenerate hooks from template.
+
+### 4. Permission Denied on Tools
+**Symptoms**: Tools blocked by settings.
+**Check**: `setup_inspect` → `settings.permissions`. Verify tool is in `allow` or `ask` list.
+**Fix**: Run `osprey claude regen` or manually add to settings.json (cold change).
+
+### 5. Workspace Not Found
+**Symptoms**: Artifact/memory tools fail.
+**Check**: `setup_inspect` → `workspace.exists`.
+**Fix**: Create workspace directory: `mkdir -p _agent_data/{data,plots,memory,artifacts,screenshots,results}`.
+
+### 6. Environment Variables Missing
+**Symptoms**: Config not found, wrong project root.
+**Check**: `setup_inspect` → `environment`. Look for missing `OSPREY_CONFIG`.
+**Fix**: Set in `.env` file or shell profile (manual — cannot auto-fix env vars).
+
+---
+
+## Escalation Rules
+
+**Do NOT attempt to fix** (escalate to operator):
+- Permission/authentication issues with external services
+- Network connectivity problems
+- Missing Python dependencies
+- Corrupted config files (invalid YAML/JSON)
+- Issues requiring changes to `.claude/settings.json` or hook scripts (use `osprey claude regen`)
+
+**Always confirm before**:
+- Changing `control_system.writes_enabled` (safety-critical)
+- Modifying `.mcp.json` server entries (requires session restart)
+- Any change that could affect production control system access

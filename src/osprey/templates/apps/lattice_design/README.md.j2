@@ -1,0 +1,81 @@
+# {{ app_display_name }}
+
+A demo template for accelerator lattice design and tuning using AT (Accelerator Toolbox).
+
+**Framework:** Osprey {{ framework_version }}
+**Template:** lattice_design
+
+---
+
+## Overview
+
+This template demonstrates Osprey's web interface and artifact gallery for lattice
+physics workflows. An AI agent uses AT via the Python executor to:
+
+- **Load & Inspect** machine lattice files
+- **Compute Optics** — Twiss parameters, beta functions, dispersion
+- **Fit Tunes** — adjust quadrupole families to match target tunes
+- **Fit Chromaticity** — correct chromaticity with sextupole families
+- **Interactive Plots** — Plotly optics plots saved to the artifact gallery
+
+Two demo lattices are included:
+
+- **ALS** — the existing ALS storage ring (1.9 GeV, 12 superperiods)
+- **ALS-U AR** — the ALS-U accumulator ring (2.0 GeV, 12 sectors)
+
+## Quick Start
+
+```bash
+# 1. Install dependencies
+pip install -r requirements.txt
+
+# 2. Start the web interface
+osprey web
+
+# 3. Open http://localhost:8086 to see the artifact gallery
+```
+
+## Example Queries
+
+Try these in the chat interface:
+
+- "Load the ALS lattice and show me a summary"
+- "Compute the optics and plot beta functions"
+- "Fit the tunes to 0.25 and 0.20"
+- "Correct the chromaticity to 1.0 in both planes"
+- "Compare the optics before and after the tune change"
+
+## Project Structure
+
+```
+{{ project_name }}/
+├── config.yml              # Project configuration
+├── machine_data/
+│   ├── als.m               # ALS lattice file (PyAT format)
+│   └── alsu_ar.m           # ALS-U accumulator ring lattice (AT format)
+├── _agent_data/
+│   ├── artifacts/           # Interactive HTML plots
+│   └── plots/               # Static PNG plots
+├── _agent_data/
+│   └── example_scripts/
+│       └── lattice/         # AT example scripts
+├── .claude/
+│   ├── skills/              # Lattice physics skills
+│   └── rules/               # AT API reference
+├── CLAUDE.md                # Agent system prompt
+└── .mcp.json                # MCP server configuration
+```
+
+## MCP Servers
+
+| Server | Purpose |
+|--------|---------|
+| `python` | Executes AT code via Python executor |
+| `workspace` | Artifact gallery, plots, memory |
+| `accelpapers` | Accelerator physics literature search |
+
+## Requirements
+
+- Python 3.11+
+- Osprey framework with `[lattice]` extra
+- No control system hardware required

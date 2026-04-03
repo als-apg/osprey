@@ -1,18 +1,10 @@
-"""Service deployment command.
+"""Service deployment CLI command wrapping osprey.deployment.container_manager."""
 
-This module provides the 'osprey deploy' command which wraps the existing
-container_manager functionality. It preserves 100% of the original behavior
-while providing a cleaner CLI interface.
-
-IMPORTANT: This is a thin wrapper around osprey.deployment.container_manager.
-All existing functionality is preserved without modification.
-"""
+import os
 
 import click
 
 from osprey.cli.styles import Styles, console
-
-# Import existing container manager functions (Phase 1.5 refactored)
 from osprey.deployment.container_manager import (
     clean_deployment,
     deploy_down,
@@ -23,7 +15,7 @@ from osprey.deployment.container_manager import (
     show_status,
 )
 
-from .project_utils import resolve_config_path
+from .project_utils import resolve_config_path, resolve_project_path
 
 
 @click.command()
@@ -118,12 +110,16 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool, ex
       $ osprey deploy rebuild --dev
     """
 
-    # Only show action message for operations that have multiple steps
-    # Status check is quick, don't need the extra line
     if action != "status":
         console.print(f"Service management: [bold]{action}[/bold]")
 
     try:
+        # Resolve project directory and chdir into it so that all
+        # CWD-relative operations (template loading, .env lookup,
+        # build/ output) resolve against the project root.
+        project_dir = resolve_project_path(project)
+        os.chdir(project_dir)
+
         # Resolve config path from project and config args
         config_path = resolve_config_path(project, config)
 
@@ -133,10 +129,10 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool, ex
         config_file = Path(config_path)
         if not config_file.exists():
             console.print(
-                f"\n❌ Configuration file not found: [accent]{config_path}[/accent]",
+                f"\n✗ Configuration file not found: [accent]{config_path}[/accent]",
                 style=Styles.ERROR,
             )
-            console.print("\n💡 Are you in a project directory?", style=Styles.WARNING)
+            console.print("\nHint: Are you in a project directory?", style=Styles.WARNING)
             console.print(f"   Current directory: [dim]{Path.cwd()}[/dim]\n")
 
             # Look for nearby project directories with config.yml
@@ -187,8 +183,6 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool, ex
             console.print("\n   Or use interactive menu: [command]osprey[/command]\n")
             raise click.Abort()
 
-        # Dispatch to existing container_manager functions
-        # These are the ORIGINAL functions from Phase 1.5, behavior unchanged
         if action == "up":
             deploy_up(config_path, detached=detached, dev_mode=dev, expose_network=expose)
 
@@ -199,15 +193,15 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool, ex
             deploy_restart(config_path, detached=detached, expose_network=expose)
 
         elif action == "status":
-            show_status(config_path)
+            show_status(config_path, console=console, styles=Styles)
 
         elif action == "build":
             # Just prepare compose files without starting services
-            console.print("🔨 Building compose files...")
+            console.print("Building compose files...")
             _, compose_files = prepare_compose_files(
                 config_path, dev_mode=dev, expose_network=expose
             )
-            console.print("\n✅ Compose files built successfully:")
+            console.print("\n✓ Compose files built successfully:")
             for compose_file in compose_files:
                 console.print(f"  • {compose_file}")
 
@@ -221,17 +215,12 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool, ex
         elif action == "rebuild":
             rebuild_deployment(config_path, detached=detached, dev_mode=dev, expose_network=expose)
 
-        # Note: The original functions handle all output and error messaging
-        # We don't add extra output to avoid changing user experience
-
     except KeyboardInterrupt:
-        console.print("\n⚠️  Operation cancelled by user", style=Styles.WARNING)
+        console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
         raise click.Abort() from None
     except Exception as e:
-        console.print(f"❌ Deployment failed: {e}", style=Styles.ERROR)
+        console.print(f"✗ Deployment failed: {e}", style=Styles.ERROR)
         # Show more details in verbose mode
-        import os
-
         if os.environ.get("DEBUG"):
             import traceback
 

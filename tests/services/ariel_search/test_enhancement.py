@@ -547,6 +547,119 @@ class TestTextEmbeddingModuleEnhance:
         for call in mock_conn.execute.call_args_list:
             assert "INSERT" not in str(call)
 
+    @pytest.mark.asyncio
+    async def test_enhance_single_model_failure_raises(self, module, sample_entry):
+        """Single model failure raises RuntimeError (not silently swallowed)."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        mock_result = MagicMock()
+        mock_result.fetchone = AsyncMock(return_value=(True,))
+        mock_conn = MagicMock()
+        mock_conn.execute = AsyncMock(return_value=mock_result)
+
+        with patch.object(module, "_get_provider") as mock_get:
+            mock_provider = MagicMock()
+            mock_provider.execute_embedding.side_effect = RuntimeError("Ollama 500")
+            mock_provider.default_base_url = "http://localhost:11434"
+            mock_get.return_value = mock_provider
+
+            with pytest.raises(RuntimeError, match="All embedding models failed"):
+                await module.enhance(sample_entry, mock_conn)
+
+    @pytest.mark.asyncio
+    async def test_enhance_all_models_fail_raises(self, sample_entry):
+        """All models failing raises RuntimeError with all error details."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from osprey.services.ariel_search.enhancement.text_embedding import TextEmbeddingModule
+
+        module = TextEmbeddingModule()
+        module.configure(
+            {
+                "models": [
+                    {"name": "model-a", "dimension": 768},
+                    {"name": "model-b", "dimension": 384},
+                ],
+                "provider": {"base_url": "http://localhost:11434"},
+            }
+        )
+
+        mock_result = MagicMock()
+        mock_result.fetchone = AsyncMock(return_value=(True,))
+        mock_conn = MagicMock()
+        mock_conn.execute = AsyncMock(return_value=mock_result)
+
+        with patch.object(module, "_get_provider") as mock_get:
+            mock_provider = MagicMock()
+            mock_provider.execute_embedding.side_effect = RuntimeError("connection refused")
+            mock_provider.default_base_url = "http://localhost:11434"
+            mock_get.return_value = mock_provider
+
+            with pytest.raises(RuntimeError, match="All embedding models failed") as exc_info:
+                await module.enhance(sample_entry, mock_conn)
+            assert "model-a" in str(exc_info.value)
+            assert "model-b" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_enhance_partial_model_failure_succeeds(self, sample_entry):
+        """Partial failure (some models succeed) does not raise."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from osprey.services.ariel_search.enhancement.text_embedding import TextEmbeddingModule
+
+        module = TextEmbeddingModule()
+        module.configure(
+            {
+                "models": [
+                    {"name": "model-a", "dimension": 768},
+                    {"name": "model-b", "dimension": 384},
+                ],
+                "provider": {"base_url": "http://localhost:11434"},
+            }
+        )
+
+        mock_result = MagicMock()
+        mock_result.fetchone = AsyncMock(return_value=(True,))
+        mock_conn = MagicMock()
+        mock_conn.execute = AsyncMock(return_value=mock_result)
+
+        call_count = 0
+
+        def side_effect(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return [[0.1] * 768]  # model-a succeeds
+            raise RuntimeError("Ollama 500")  # model-b fails
+
+        with patch.object(module, "_get_provider") as mock_get:
+            mock_provider = MagicMock()
+            mock_provider.execute_embedding.side_effect = side_effect
+            mock_provider.default_base_url = "http://localhost:11434"
+            mock_get.return_value = mock_provider
+
+            # Should NOT raise — partial success is acceptable
+            await module.enhance(sample_entry, mock_conn)
+
+    @pytest.mark.asyncio
+    async def test_enhance_empty_embedding_result_counted_as_error(self, module, sample_entry):
+        """Empty embedding result is counted as an error."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        mock_result = MagicMock()
+        mock_result.fetchone = AsyncMock(return_value=(True,))
+        mock_conn = MagicMock()
+        mock_conn.execute = AsyncMock(return_value=mock_result)
+
+        with patch.object(module, "_get_provider") as mock_get:
+            mock_provider = MagicMock()
+            mock_provider.execute_embedding.return_value = []  # Empty result
+            mock_provider.default_base_url = "http://localhost:11434"
+            mock_get.return_value = mock_provider
+
+            with pytest.raises(RuntimeError, match="All embedding models failed"):
+                await module.enhance(sample_entry, mock_conn)
+
 
 class TestSemanticProcessorEnhanceWithLLM:
     """Tests for SemanticProcessorModule enhance with mocked LLM."""

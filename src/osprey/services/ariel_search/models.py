@@ -62,6 +62,18 @@ class AttachmentInfo(TypedDict):
     caption: NotRequired[str | None]  # Caption (JLab)
 
 
+class AttachmentFileRecord(TypedDict):
+    """Row from the attachment_files table."""
+
+    attachment_id: str
+    entry_id: str
+    filename: str
+    mime_type: str | None
+    data: NotRequired[bytes]  # Omitted in metadata-only queries
+    size_bytes: int
+    created_at: datetime
+
+
 class EnhancedLogbookEntry(TypedDict):
     """ARIEL's enriched logbook entry - the core data model.
 
@@ -126,13 +138,14 @@ class SearchMode(Enum):
         KEYWORD: PostgreSQL full-text search (direct function call)
         SEMANTIC: Embedding similarity search (direct function call)
         RAG: Deterministic RAG pipeline with hybrid retrieval, RRF fusion, and LLM generation
-        AGENT: Agentic orchestration with ReAct agent (AgentExecutor)
+        AGENT: Agentic orchestration with ReAct agent
     """
 
     KEYWORD = "keyword"
     SEMANTIC = "semantic"
     RAG = "rag"
     AGENT = "agent"
+    SQL = "sql_query"
 
 
 class DiagnosticLevel(Enum):
@@ -245,7 +258,6 @@ class ARIELSearchRequest:
         facility: Facility filter
         max_results: Maximum results to return (default: 10, range: 1-100)
         include_images: Include image attachments (default: False)
-        capability_context_data: Context from main graph state
     """
 
     query: str
@@ -254,7 +266,6 @@ class ARIELSearchRequest:
     facility: str | None = None
     max_results: int = 10
     include_images: bool = False
-    capability_context_data: dict[str, Any] = field(default_factory=dict)
     advanced_params: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

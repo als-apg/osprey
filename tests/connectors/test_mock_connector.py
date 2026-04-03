@@ -9,6 +9,13 @@ from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConne
 from osprey.connectors.control_system.mock_connector import MockConnector
 
 
+def _config_with_writes_enabled(key, default=None):
+    """Mock get_config_value that enables writes but returns sane defaults otherwise."""
+    if key == "control_system.writes_enabled":
+        return True
+    return default
+
+
 class TestMockConnector:
     """Test MockConnector functionality."""
 
@@ -16,7 +23,7 @@ class TestMockConnector:
     async def test_connect_disconnect(self):
         """Test connector connection and disconnection."""
         connector = MockConnector()
-        config = {"response_delay_ms": 0, "noise_level": 0.01, "enable_writes": True}
+        config = {"response_delay_ms": 0, "noise_level": 0.01}
 
         await connector.connect(config)
         assert connector._connected is True
@@ -66,57 +73,63 @@ class TestMockConnector:
     async def test_write_and_read_maintains_state(self):
         """Test that mock connector maintains state between writes and reads."""
         connector = MockConnector()
-        await connector.connect(
-            {
-                "response_delay_ms": 0,
-                "enable_writes": True,
-                "noise_level": 0.0,  # No noise for exact comparison
-            }
-        )
+        with patch(
+            "osprey.utils.config.get_config_value",
+            side_effect=_config_with_writes_enabled,
+        ):
+            await connector.connect(
+                {
+                    "response_delay_ms": 0,
+                    "noise_level": 0.0,  # No noise for exact comparison
+                }
+            )
 
-        # Write a value
-        pv_name = "TEST:SETPOINT:SP"
-        test_value = 123.45
-        result = await connector.write_channel(pv_name, test_value)
-        assert result.success is True
+            # Write a value
+            pv_name = "TEST:SETPOINT:SP"
+            test_value = 123.45
+            result = await connector.write_channel(pv_name, test_value)
+            assert result.success is True
 
-        # Read it back
-        result = await connector.read_channel(pv_name)
-        assert abs(result.value - test_value) < 0.1  # Allow tiny variance
+            # Read it back
+            result = await connector.read_channel(pv_name)
+            assert abs(result.value - test_value) < 0.1  # Allow tiny variance
 
-        await connector.disconnect()
+            await connector.disconnect()
 
     @pytest.mark.asyncio
     async def test_write_creates_readback(self):
         """Test that writing to :SP creates corresponding :RB."""
         connector = MockConnector()
-        await connector.connect(
-            {"response_delay_ms": 0, "enable_writes": True, "noise_level": 0.001}
-        )
+        with patch(
+            "osprey.utils.config.get_config_value",
+            side_effect=_config_with_writes_enabled,
+        ):
+            await connector.connect({"response_delay_ms": 0, "noise_level": 0.001})
 
-        # Write to setpoint
-        sp_name = "MAGNET:CURRENT:SP"
-        rb_name = "MAGNET:CURRENT:RB"
-        test_value = 100.0
+            # Write to setpoint
+            sp_name = "MAGNET:CURRENT:SP"
+            rb_name = "MAGNET:CURRENT:RB"
+            test_value = 100.0
 
-        await connector.write_channel(sp_name, test_value)
+            await connector.write_channel(sp_name, test_value)
 
-        # Check that readback exists and is close
-        rb_result = await connector.read_channel(rb_name)
-        assert abs(rb_result.value - test_value) < 1.0
+            # Check that readback exists and is close
+            rb_result = await connector.read_channel(rb_name)
+            assert abs(rb_result.value - test_value) < 1.0
 
-        await connector.disconnect()
+            await connector.disconnect()
 
     @pytest.mark.asyncio
     async def test_write_disabled(self):
-        """Test that writes can be disabled."""
+        """Test that writes are blocked via base class when config says false."""
         connector = MockConnector()
-        await connector.connect({"response_delay_ms": 0, "enable_writes": False})
+        with patch("osprey.utils.config.get_config_value", return_value=False):
+            await connector.connect({"response_delay_ms": 0})
 
-        result = await connector.write_channel("TEST:PV", 100.0)
-        assert result.success is False
+            result = await connector.write_channel("TEST:PV", 100.0)
+            assert result.success is False
 
-        await connector.disconnect()
+            await connector.disconnect()
 
     @pytest.mark.asyncio
     async def test_read_multiple_channels(self):

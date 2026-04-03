@@ -1,5 +1,7 @@
 """Tests for pattern detection module."""
 
+from unittest.mock import patch
+
 from osprey.services.python_executor.analysis.pattern_detection import (
     detect_control_system_operations,
     get_framework_standard_patterns,
@@ -107,3 +109,145 @@ if current < 400:
 
         assert result_epics["has_writes"] == result_mock["has_writes"]
         assert result_epics["has_writes"] is True
+
+    def test_custom_patterns_merged_with_framework(self):
+        """Custom patterns from config extend framework patterns by default.
+
+        When a facility adds custom write patterns via config (mode=extend),
+        the framework's standard patterns must still be present.
+        """
+        code_custom = "my_custom_cs_lib.write('DEVICE', 42)"
+        code_epics = "epics.caput('BEAM:CURRENT', 500.0)"
+
+        custom_patterns = {
+            "write": [r"my_custom_cs_lib\.write\("],
+            "read": [],
+        }
+
+        def mock_config(key, default=None):
+            if key == "control_system.patterns":
+                return custom_patterns
+            if key == "control_system.type":
+                return "custom"
+            return default
+
+        with (
+            patch(
+                "osprey.services.python_executor.analysis.pattern_detection.get_config_value",
+                side_effect=mock_config,
+                create=True,
+            ),
+            patch(
+                "osprey.utils.config.get_config_value",
+                side_effect=mock_config,
+            ),
+        ):
+            # Custom pattern detected
+            result_custom = detect_control_system_operations(
+                code_custom, control_system_type="custom"
+            )
+            assert result_custom["has_writes"] is True
+
+            # Framework EPICS pattern still present after merge
+            result_epics = detect_control_system_operations(
+                code_epics, control_system_type="custom"
+            )
+            assert result_epics["has_writes"] is True
+
+    def test_passed_patterns_merged_with_framework(self):
+        """Patterns passed via the `patterns` parameter merge by default.
+
+        The approval hook passes config-driven patterns directly. In extend
+        mode (default), these are appended to framework standard patterns.
+        """
+        custom = {
+            "write": [r"my_facility_write\("],
+            "read": [r"my_facility_read\("],
+        }
+
+        # Custom pattern detected
+        result = detect_control_system_operations(
+            "my_facility_write('CH1', 10)", patterns=custom, control_system_type="custom"
+        )
+        assert result["has_writes"] is True
+
+        # Framework pattern still present
+        result2 = detect_control_system_operations(
+            "epics.caput('PV', 1.0)", patterns=custom, control_system_type="custom"
+        )
+        assert result2["has_writes"] is True
+
+        # Verify merged count is at least framework + custom unique
+        result3 = detect_control_system_operations(
+            "my_facility_write('CH1', 10)\nepics.caput('PV', 1.0)",
+            patterns=custom,
+            control_system_type="custom",
+        )
+        assert len(result3["detected_patterns"]["writes"]) >= 2
+
+    def test_override_mode_replaces_framework_patterns(self):
+        """With pattern_mode='override', custom patterns replace framework entirely.
+
+        A facility that sets mode: override gets full control — only their
+        patterns are used, framework standards are not included.
+        """
+        custom = {
+            "write": [r"my_facility_write\("],
+            "read": [],
+        }
+
+        # Custom pattern detected in override mode
+        result = detect_control_system_operations(
+            "my_facility_write('CH1', 10)",
+            patterns=custom,
+            control_system_type="custom",
+            pattern_mode="override",
+        )
+        assert result["has_writes"] is True
+
+        # Framework EPICS pattern NOT present in override mode
+        result2 = detect_control_system_operations(
+            "epics.caput('PV', 1.0)",
+            patterns=custom,
+            control_system_type="custom",
+            pattern_mode="override",
+        )
+        assert result2["has_writes"] is False
+
+    def test_override_mode_from_config(self):
+        """Config with mode: override replaces framework patterns via config path."""
+        custom_patterns = {
+            "mode": "override",
+            "write": [r"my_facility_write\("],
+            "read": [],
+        }
+
+        def mock_config(key, default=None):
+            if key == "control_system.patterns":
+                return custom_patterns
+            if key == "control_system.type":
+                return "custom"
+            return default
+
+        with (
+            patch(
+                "osprey.services.python_executor.analysis.pattern_detection.get_config_value",
+                side_effect=mock_config,
+                create=True,
+            ),
+            patch(
+                "osprey.utils.config.get_config_value",
+                side_effect=mock_config,
+            ),
+        ):
+            # Custom pattern detected
+            result = detect_control_system_operations(
+                "my_facility_write('CH1', 10)", control_system_type="custom"
+            )
+            assert result["has_writes"] is True
+
+            # Framework pattern NOT present (override mode)
+            result2 = detect_control_system_operations(
+                "epics.caput('PV', 1.0)", control_system_type="custom"
+            )
+            assert result2["has_writes"] is False

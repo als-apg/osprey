@@ -1,171 +1,236 @@
 Contributing to Osprey
 ======================
 
-Thank you for your interest in contributing to the Osprey Framework!
-
-This guide will help you get set up and ready to contribute. Whether you're fixing a bug, adding a feature, or improving documentation, we're excited to have you here.
-
-----
-
-Contributing Guide
-------------------
-
-.. grid:: 2
-   :gutter: 3
-
-   .. grid-item-card:: 🔄 Git & GitHub Workflow
-      :link: 01_git-and-github
-      :link-type: doc
-
-      Learn branching conventions, commit messages, and the PR process.
-
-   .. grid-item-card:: 📋 Code Standards
-      :link: 02_code-standards
-      :link-type: doc
-
-      Python style guide, testing requirements, and linting setup.
-
-   .. grid-item-card:: 🤖 AI-Assisted Development
-      :link: 03_ai-assisted-development
-      :link-type: doc
-
-      Structured workflows designed for AI coding assistants.
-
-   .. grid-item-card:: 🤝 Community Guidelines
-      :link: 04_community
-      :link-type: doc
-
-      Code of conduct, reporting bugs, and getting help.
+Thank you for your interest in contributing to the Osprey Framework. This guide covers environment setup, Git workflow, code standards, and community guidelines.
 
 ----
 
 Environment Setup
 -----------------
 
-Before you can contribute, you'll need to set up your local development environment. This process takes about 5-10 minutes for first-time setup.
-
-**Prerequisites:**
-
-- Python 3.11 or 3.12
-- Git for version control
-- A GitHub account
+**Prerequisites:** Python 3.11+, Git, a GitHub account, and `uv <https://docs.astral.sh/uv/>`_.
 
 **1. Fork and Clone**
-
-First, fork the Osprey repository on GitHub, then clone your fork locally:
 
 .. code-block:: bash
 
    git clone https://github.com/YOUR-USERNAME/osprey.git
    cd osprey
 
-**2. Create Virtual Environment**
+**2. Install Dependencies**
 
-We strongly recommend using a virtual environment to isolate dependencies:
+.. code-block:: bash
 
-.. tab-set::
+   # Install all dev and docs dependencies (creates .venv automatically)
+   uv sync --extra dev --extra docs
 
-    .. tab-item:: uv (Recommended)
+   # Add a new dependency
+   uv add <package>
 
-        `uv <https://docs.astral.sh/uv/>`_ is a fast Python package manager that handles virtual environments automatically:
+**3. Set Up Pre-commit Hooks**
 
-        .. code-block:: bash
+.. code-block:: bash
 
-           # uv creates and manages the .venv automatically
-           uv venv
-           # uv will auto-activate in commands, or:
-           source .venv/bin/activate
+   pre-commit install
 
-    .. tab-item:: pip (Traditional)
-
-        .. code-block:: bash
-
-           python3.11 -m venv venv
-           source venv/bin/activate  # macOS/Linux
-           # or: venv\Scripts\activate  # Windows
-
-**3. Install Dependencies**
-
-Install Osprey in development mode with all development and documentation dependencies:
-
-.. tab-set::
-
-    .. tab-item:: uv (Recommended)
-
-        .. code-block:: bash
-
-           uv sync --extra dev --extra docs
-
-    .. tab-item:: pip (Traditional)
-
-        .. code-block:: bash
-
-           pip install --upgrade pip
-           pip install -e ".[dev,docs]"
-
-This installs the framework in "editable" mode, meaning changes you make to the source code are immediately available.
+Hooks auto-fix formatting and prevent commits with common problems.
 
 **4. Verify Installation**
 
-Run the test suite to make sure everything is working:
-
 .. code-block:: bash
 
    uv run pytest tests/ --ignore=tests/e2e -v
-   # or with pip:
-   pytest tests/ --ignore=tests/e2e -v
 
-If all tests pass, you're ready to start contributing!
+If all tests pass, you are ready to contribute.
 
 ----
 
-Quick Reference
----------------
+Git and GitHub Workflow
+-----------------------
 
-**Common Commands:**
+Branch Naming
+^^^^^^^^^^^^^
+
+- ``feature/description`` -- New features
+- ``fix/description`` -- Bug fixes
+- ``docs/description`` -- Documentation
+- ``refactor/description`` -- Code refactoring
+- ``test/description`` -- Test improvements
+
+Making Changes
+^^^^^^^^^^^^^^
+
+**1. Create a branch:**
 
 .. code-block:: bash
 
-   # Run tests
-   uv run pytest tests/ --ignore=tests/e2e -v
+   git checkout -b feature/your-feature-name
 
-   # Check code style
+**2. Make changes** -- follow the code standards below, add tests, update docs.
+
+**3. Test locally** using the three-tier system:
+
+.. code-block:: bash
+
+   # Tier 1: Quick check (< 30s) -- before every commit
+   ./scripts/quick_check.sh
+
+   # Tier 2: Full CI check (2-3 min) -- before pushing
+   ./scripts/ci_check.sh
+
+   # Tier 3: Pre-merge check -- before creating a PR
+   ./scripts/premerge_check.sh main
+
+**4. Commit changes** using conventional commit format:
+
+.. code-block:: bash
+
+   git add .
+   git commit -m "feat(scope): short description
+
+   - Detail about what changed
+   - Another detail"
+
+Commit Message Format
+^^^^^^^^^^^^^^^^^^^^^
+
+- ``feat:`` -- New features
+- ``fix:`` -- Bug fixes
+- ``docs:`` -- Documentation
+- ``refactor:`` -- Code refactoring
+- ``test:`` -- Tests
+- ``chore:`` -- Dependencies, build
+
+Every commit needs a corresponding CHANGELOG entry added **before** committing.
+
+Pull Request Process
+^^^^^^^^^^^^^^^^^^^^
+
+1. Push your branch: ``git push origin feature/your-feature-name``
+2. Open a PR on GitHub with a description, related issues, and testing performed.
+3. PR requirements: pass all CI checks, receive maintainer approval, include CHANGELOG entries, have appropriate tests.
+4. During review: respond to feedback promptly, make requested changes, ask questions if unclear.
+
+----
+
+Code Standards
+--------------
+
+Python Style
+^^^^^^^^^^^^
+
+We follow PEP 8 with Ruff enforcement:
+
+- **Line length**: 100 characters
+- **Type hints**: Gradual typing enforced with mypy
+- **Docstrings**: Google style
+- **Classes**: PascalCase, **Functions**: snake_case, **Constants**: UPPER_SNAKE_CASE
+
+**Import organization:** standard library, then third-party, then local (``from osprey...``).
+
+Linting and Formatting
+^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: bash
+
+   # Lint and format
    uv run ruff check src/ tests/
+   uv run ruff format src/ tests/
 
-   # Pre-commit check
-   ./scripts/premerge_check.sh
+   # Auto-fix lint issues
+   uv run ruff check --fix src/ tests/
 
-   # Build documentation
-   cd docs && uv run sphinx-autobuild source build
+   # Type checking
+   uv run mypy src/
 
-**Before Every Commit:**
+Testing
+^^^^^^^
 
-- Run ``./scripts/premerge_check.sh`` to catch common issues
-- Follow conventional commit format (``feat:``, ``fix:``, ``docs:``, etc.)
-- Add a CHANGELOG entry
-- Ensure tests pass
+All new functionality must include tests.
 
-See the guide cards above for detailed workflows and standards.
+.. list-table::
+   :header-rows: 1
+   :widths: 20 40 40
+
+   * - Type
+     - When to Use
+     - Cost/Speed
+   * - **Unit**
+     - Pure functions, business logic, utilities
+     - Fast, no external dependencies
+   * - **Integration**
+     - Component interactions, API endpoints
+     - Medium
+   * - **E2E**
+     - Critical user flows, deployment validation
+     - Slow, requires API keys ($0.10-$0.25/run)
+
+**Running tests:**
+
+.. code-block:: bash
+
+   # Unit tests (fast, no API keys required)
+   uv run pytest tests/ --ignore=tests/e2e -v
+
+   # Single test file
+   uv run pytest tests/path/to/test_file.py -v
+
+   # Single test function
+   uv run pytest tests/path/to/test_file.py::test_function_name -v
+
+   # E2E tests (requires API keys) -- MUST use path, NOT marker
+   uv run pytest tests/e2e/ -v
+
+   # With coverage
+   uv run pytest tests/ --ignore=tests/e2e --cov=src/osprey
+
+.. warning::
+
+   E2E tests **must** be run with ``pytest tests/e2e/`` not ``pytest -m e2e``.
+   The marker-based approach causes registry state leaks and service conflicts.
+
+Docstrings
+^^^^^^^^^^
+
+All public functions, classes, and methods need Google-style docstrings:
+
+.. code-block:: python
+
+   def capability_function(param1: str, param2: int) -> bool:
+       """Short description of function.
+
+       Args:
+           param1: Description of first parameter.
+           param2: Description of second parameter.
+
+       Returns:
+           Description of return value.
+
+       Raises:
+           ValueError: When parameter is invalid.
+       """
 
 ----
+
+Community Guidelines
+--------------------
+
+**Code of Conduct**: We are committed to a welcoming and inclusive environment. Be respectful, welcome newcomers, accept constructive criticism, and show empathy. Harassment, personal attacks, trolling, or publishing private information are unacceptable. Report issues to the maintainers; all reports are handled confidentially.
+
+**Communication Channels:**
+
+- **GitHub Issues** -- Bug reports, feature requests, task tracking
+- **GitHub Discussions** -- Questions, ideas, brainstorming
+- **Pull Requests** -- Code contributions, documentation, code review
+
+**Reporting Bugs**: Search existing issues first, then open a bug report with a clear description, reproduction steps, environment details (OS, Python version, Osprey version), and full error messages.
+
+**Feature Requests**: Describe your use case, current limitations, proposed solution, and alternatives considered.
+
+**Response Expectations**: Maintainers are volunteers. Please be patient and provide clear, detailed information.
 
 Getting Help
 ------------
 
-**Stuck? Have questions?**
-
-- `GitHub Discussions <https://github.com/als-apg/osprey/discussions>`_ - Ask questions, share ideas, get help from the community
-- `GitHub Issues <https://github.com/als-apg/osprey/issues>`_ - Report bugs, request features
-- :doc:`../developer-guides/index` - Deep technical documentation on framework architecture
-- :doc:`04_community` - Community guidelines and code of conduct
-
-
-
-.. toctree::
-   :maxdepth: 1
-   :hidden:
-
-   01_git-and-github
-   02_code-standards
-   03_ai-assisted-development
-   04_community
+- `GitHub Discussions <https://github.com/als-apg/osprey/discussions>`_ -- Ask questions, share ideas
+- `GitHub Issues <https://github.com/als-apg/osprey/issues>`_ -- Report bugs, request features

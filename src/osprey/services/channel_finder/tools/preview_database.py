@@ -21,67 +21,22 @@ from osprey.services.channel_finder.databases import (
     MiddleLayerDatabase,
     TemplateChannelDatabase,
 )
+from osprey.services.channel_finder.utils.detection import detect_pipeline_config
+
+_default_console = Console()
 
 
 def _resolve_path(path_str: str) -> Path:
-    """Resolve a database path. Absolute paths returned as-is; relative paths resolved via config."""
+    """Resolve a database path."""
     path = Path(path_str)
     if path.is_absolute():
         return path
     try:
-        from osprey.services.channel_finder.utils.config import resolve_path
+        from osprey.utils.workspace import resolve_path
 
         return resolve_path(path_str)
     except Exception:
         return Path.cwd() / path
-
-
-try:
-    from osprey.cli.styles import console as osprey_console
-    from osprey.cli.styles import get_active_theme
-
-    console = osprey_console
-    theme = get_active_theme()
-except ImportError:
-    console = Console()
-    theme = None
-
-
-def detect_pipeline_config(config) -> tuple[str | None, dict | None]:
-    """Detect which pipeline is configured.
-
-    Returns:
-        tuple: (pipeline_type, db_config)
-    """
-    cf_config = config.get("channel_finder", {})
-    pipelines = cf_config.get("pipelines", {})
-
-    pipeline_mode = cf_config.get("pipeline_mode")
-
-    hierarchical_config = pipelines.get("hierarchical", {})
-    in_context_config = pipelines.get("in_context", {})
-    middle_layer_config = pipelines.get("middle_layer", {})
-
-    if pipeline_mode == "in_context" and in_context_config.get("database", {}).get("path"):
-        return "in_context", in_context_config.get("database", {})
-    elif pipeline_mode == "hierarchical" and hierarchical_config.get("database", {}).get("path"):
-        return "hierarchical", hierarchical_config.get("database", {})
-    elif pipeline_mode == "middle_layer" and middle_layer_config.get("database", {}).get("path"):
-        return "middle_layer", middle_layer_config.get("database", {})
-
-    if middle_layer_config.get("database", {}).get("path"):
-        return "middle_layer", middle_layer_config.get("database", {})
-    elif hierarchical_config.get("database", {}).get("path"):
-        return "hierarchical", hierarchical_config.get("database", {})
-    elif in_context_config.get("database", {}).get("path"):
-        return "in_context", in_context_config.get("database", {})
-    else:
-        return None, None
-
-
-# ============================================================================
-# Middle Layer Preview
-# ============================================================================
 
 
 def preview_middle_layer(
@@ -91,8 +46,10 @@ def preview_middle_layer(
     sections: list = None,
     focus: str = None,
     show_full: bool = False,
+    console: Console | None = None,
 ) -> None:
     """Preview middle layer database with tree structure."""
+    console = console or _default_console
     if sections is None:
         sections = ["tree"]
 
@@ -160,11 +117,15 @@ def preview_middle_layer(
 
     if "tree" in sections:
         _render_middle_layer_tree(
-            database, depth if not show_full else -1, max_items if not show_full else -1, focus
+            database,
+            depth if not show_full else -1,
+            max_items if not show_full else -1,
+            focus,
+            console=console,
         )
 
     if "samples" in sections:
-        _render_samples_section(database)
+        _render_samples_section(database, console=console)
 
     console.print()
     console.print(
@@ -176,8 +137,11 @@ def preview_middle_layer(
     console.print()
 
 
-def _render_middle_layer_tree(database, depth, max_items, focus) -> None:
+def _render_middle_layer_tree(
+    database, depth, max_items, focus, *, console: Console | None = None
+) -> None:
     """Render the middle layer hierarchy tree."""
+    console = console or _default_console
     console.print()
 
     tree_data = _build_middle_layer_tree(database)
@@ -336,19 +300,16 @@ def _add_middle_layer_nodes(parent, data, level, max_depth, max_items) -> None:
             _add_middle_layer_nodes(branch, node_data, level + 1, max_depth, max_items)
 
 
-# ============================================================================
-# Hierarchical Preview
-# ============================================================================
-
-
 def preview_hierarchical(
     db_path: str,
     depth: int = 3,
     max_items: int = 3,
     sections: list = None,
     focus: str = None,
+    console: Console | None = None,
 ) -> None:
     """Preview hierarchical database with tree structure."""
+    console = console or _default_console
     if sections is None:
         sections = ["tree"]
 
@@ -393,16 +354,16 @@ def preview_hierarchical(
     )
 
     if "tree" in sections:
-        _render_tree_section(database, hierarchy_levels, depth, max_items, focus)
+        _render_tree_section(database, hierarchy_levels, depth, max_items, focus, console=console)
 
     if "stats" in sections:
-        _render_stats_section(database, hierarchy_levels)
+        _render_stats_section(database, hierarchy_levels, console=console)
 
     if "breakdown" in sections:
-        _render_breakdown_section(database, hierarchy_levels, focus)
+        _render_breakdown_section(database, hierarchy_levels, focus, console=console)
 
     if "samples" in sections:
-        _render_samples_section(database)
+        _render_samples_section(database, console=console)
 
     console.print()
     footer_msg = f"[success]\u2713 Preview complete! [bold]{total_channels}[/bold] total channels"
@@ -414,8 +375,11 @@ def preview_hierarchical(
     console.print()
 
 
-def _render_tree_section(database, hierarchy_levels, depth, max_items, focus):
+def _render_tree_section(
+    database, hierarchy_levels, depth, max_items, focus, *, console: Console | None = None
+):
     """Render the hierarchy tree section."""
+    console = console or _default_console
     console.print()
 
     db_tree = database.tree
@@ -490,8 +454,9 @@ def _render_tree_section(database, hierarchy_levels, depth, max_items, focus):
         )
 
 
-def _render_stats_section(database, hierarchy_levels):
+def _render_stats_section(database, hierarchy_levels, *, console: Console | None = None):
     """Render the level statistics section."""
+    console = console or _default_console
     console.print()
 
     level_stats = _calculate_level_statistics(database, hierarchy_levels)
@@ -514,8 +479,9 @@ def _render_stats_section(database, hierarchy_levels):
     )
 
 
-def _render_breakdown_section(database, hierarchy_levels, focus):
+def _render_breakdown_section(database, hierarchy_levels, focus, *, console: Console | None = None):
     """Render channel count breakdown by path."""
+    console = console or _default_console
     console.print()
 
     breakdown = _calculate_breakdown(database, hierarchy_levels, focus)
@@ -540,8 +506,9 @@ def _render_breakdown_section(database, hierarchy_levels, focus):
     )
 
 
-def _render_samples_section(database, num_samples=5):
+def _render_samples_section(database, num_samples=5, *, console: Console | None = None):
     """Render sample channel names."""
+    console = console or _default_console
     console.print()
 
     all_channels = database.get_all_channels()
@@ -760,13 +727,11 @@ def _count_channels_at_path(database, hierarchy_levels, path_values, current_lev
     return count
 
 
-# ============================================================================
-# In-Context Preview
-# ============================================================================
-
-
-def preview_in_context(db_path: str, presentation_mode: str, show_full: bool = False):
+def preview_in_context(
+    db_path: str, presentation_mode: str, show_full: bool = False, console: Console | None = None
+):
     """Preview in-context database with formatted channel list."""
+    console = console or _default_console
 
     console.print()
     console.print(
@@ -848,11 +813,6 @@ def preview_in_context(db_path: str, presentation_mode: str, show_full: bool = F
     console.print()
 
 
-# ============================================================================
-# Main Entry Point
-# ============================================================================
-
-
 def preview_database(
     depth: int = 3,
     max_items: int = 3,
@@ -860,6 +820,7 @@ def preview_database(
     focus: str = None,
     show_full: bool = False,
     db_path: str = None,
+    console: Console | None = None,
 ) -> None:
     """Preview database based on configured pipeline type.
 
@@ -870,7 +831,9 @@ def preview_database(
         focus: Path to focus on (hierarchical/middle_layer only)
         show_full: Sets depth and max_items to -1 for complete view
         db_path: Direct path to database file (overrides config)
+        console: Rich Console instance for output (default: plain Console)
     """
+    console = console or _default_console
 
     if db_path:
         resolved_path = _resolve_path(db_path)
@@ -894,7 +857,7 @@ def preview_database(
             console.print(f"[error]\u2717 Error loading database from {db_path}: {e}[/error]")
             return
     else:
-        from osprey.services.channel_finder.utils.config import get_config
+        from osprey.utils.config import load_config as get_config
 
         config = get_config()
         pipeline_type, db_config = detect_pipeline_config(config)
@@ -929,7 +892,12 @@ def preview_database(
 
     if pipeline_type == "hierarchical":
         preview_hierarchical(
-            db_path=db_path, depth=depth, max_items=max_items, sections=section_list, focus=focus
+            db_path=db_path,
+            depth=depth,
+            max_items=max_items,
+            sections=section_list,
+            focus=focus,
+            console=console,
         )
     elif pipeline_type == "middle_layer":
         preview_middle_layer(
@@ -939,7 +907,8 @@ def preview_database(
             sections=section_list,
             focus=focus,
             show_full=show_full,
+            console=console,
         )
     else:
         presentation_mode = db_config.get("presentation_mode", "template")
-        preview_in_context(db_path, presentation_mode, show_full)
+        preview_in_context(db_path, presentation_mode, show_full, console=console)

@@ -58,17 +58,19 @@ class TestLazyGroup:
         commands = group.list_commands(ctx)
 
         # Verify expected commands are present
-        # Note: 'workflows' and 'assist' are deprecated (still work but hidden from help)
         expected_commands = [
             "init",
             "config",
             "deploy",
-            "chat",
-            "generate",
-            "remove",
+            "migrate",
             "health",
-            "tasks",
+            "channel-finder",
             "claude",
+            "eject",
+            "ariel",
+            "artifacts",
+            "web",
+            "prompts",
         ]
         assert isinstance(commands, list)
         assert len(commands) > 0
@@ -90,20 +92,15 @@ class TestLazyGroup:
             # Should get config attribute from module
             assert mock_import.called
 
-    def test_get_command_handles_deprecated_export_config(self):
-        """Test handling of deprecated export-config command."""
+    def test_get_command_handles_removed_export_config(self):
+        """Test that fully removed export-config command returns None."""
         group = LazyGroup(name="test")
         ctx = mock.Mock()
 
-        with mock.patch("importlib.import_module") as mock_import:
-            mock_module = mock.Mock()
-            mock_module.export_config = mock.Mock()
-            mock_import.return_value = mock_module
+        cmd = group.get_command(ctx, "export-config")
 
-            group.get_command(ctx, "export-config")
-
-            # Should still be accessible for backward compatibility
-            assert mock_import.called
+        # export-config has been fully removed, should return None
+        assert cmd is None
 
 
 class TestCliGroup:
@@ -141,18 +138,6 @@ class TestCliGroup:
 
         # Should attempt theme initialization (silent failure is OK)
         assert mock_init_theme.called
-
-    @mock.patch("osprey.cli.styles.initialize_theme_from_config")
-    def test_cli_handles_theme_initialization_failure(self, mock_init_theme, runner):
-        """Test CLI continues if theme initialization fails."""
-        mock_init_theme.side_effect = Exception("Theme loading failed")
-
-        with mock.patch("osprey.cli.interactive_menu.launch_tui"):
-            result = runner.invoke(cli, [])
-
-        # Should not crash - silent failure
-        # TUI should still be launched
-        assert result.exit_code == 0 or result.exception is None
 
     def test_cli_subcommand_invocation(self, runner):
         """Test CLI can invoke subcommands."""

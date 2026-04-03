@@ -5,11 +5,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from osprey.services.python_executor.exceptions import ChannelLimitsViolationError
-from osprey.services.python_executor.execution.limits_validator import (
+from osprey.connectors.control_system.limits_validator import (
     ChannelLimitsConfig,
     LimitsValidator,
 )
+from osprey.errors import ChannelLimitsViolationError
 
 
 class TestChannelLimitsConfig:
@@ -474,10 +474,8 @@ class TestChannelLimitsViolationError:
         assert "Current Value: 50.0" in error_msg
         assert "Maximum Step Size: 10.0" in error_msg
 
-    def test_error_category_is_code_related(self):
-        """Test that exception category is CODE_RELATED."""
-        from osprey.services.python_executor.exceptions import ErrorCategory
-
+    def test_inherits_from_exception(self):
+        """Test that exception inherits from Exception (framework-level)."""
         error = ChannelLimitsViolationError(
             channel_address="TEST:PV",
             value=150.0,
@@ -485,6 +483,6 @@ class TestChannelLimitsViolationError:
             violation_reason="Test",
         )
 
-        assert error.category == ErrorCategory.CODE_RELATED
-        assert error.is_code_error() is True
-        assert error.should_retry_code_generation() is True
+        assert isinstance(error, Exception)
+        assert error.channel_address == "TEST:PV"
+        assert error.violation_type == "MAX_EXCEEDED"

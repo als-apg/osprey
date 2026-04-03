@@ -4,7 +4,6 @@ EPICS control system connector using pyepics.
 Provides interface to EPICS Channel Access (CA) control system.
 Refactored from existing EPICS integration code.
 
-Related to Issue #18 - Control System Abstraction (Layer 2 - EPICS Implementation)
 """
 
 import asyncio
@@ -47,7 +46,7 @@ class EPICSConnector(ControlSystemConnector):
         >>> }
         >>> connector = EPICSConnector()
         >>> await connector.connect(config)
-        >>> value = await connector.read_pv('BEAM:CURRENT')
+        >>> value = await connector.read_channel('BEAM:CURRENT')
         >>> print(f"Beam current: {value.value} {value.metadata.units}")
 
         SSH tunnel connection:
@@ -63,7 +62,7 @@ class EPICSConnector(ControlSystemConnector):
         >>> }
         >>> connector = EPICSConnector()
         >>> await connector.connect(config)
-        >>> value = await connector.read_pv('BEAM:CURRENT')
+        >>> value = await connector.read_channel('BEAM:CURRENT')
         >>> print(f"Beam current: {value.value} {value.metadata.units}")
     """
 
@@ -73,7 +72,6 @@ class EPICSConnector(ControlSystemConnector):
         self._pv_cache: dict[str, Any] = {}
         self._pv_cache_lock = threading.Lock()  # Thread safety for PV cache
         self._epics_configured = False
-        self._limits_validator = None  # Initialized during connect()
 
     async def connect(self, config: dict[str, Any]) -> None:
         """
@@ -136,7 +134,7 @@ class EPICSConnector(ControlSystemConnector):
         self._timeout = config.get("timeout", 5.0)
 
         # Initialize limits validator for automatic validation and verification config
-        from osprey.services.python_executor.execution.limits_validator import LimitsValidator
+        from osprey.connectors.control_system.limits_validator import LimitsValidator
 
         self._limits_validator = LimitsValidator.from_config()
         if self._limits_validator:
@@ -230,56 +228,6 @@ class EPICSConnector(ControlSystemConnector):
 
         return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
 
-    def _get_verification_config(
-        self, channel_address: str, value: float
-    ) -> tuple[str, float | None]:
-        """Get verification level and tolerance for a channel write.
-
-        Priority:
-        1. Explicit parameters (for backward compatibility / manual override)
-        2. Per-channel config from limits database
-        3. Global config from config.yml
-        4. Fallback: callback with 0.1% tolerance
-
-        Args:
-            channel_address: Channel being written
-            value: Value being written (for percentage tolerance calculation)
-
-        Returns:
-            Tuple of (verification_level, tolerance)
-        """
-        # Try per-channel config first (if limits validator available)
-        if self._limits_validator:
-            level, tolerance = self._limits_validator.get_verification_config(
-                channel_address, value
-            )
-            if level is not None:
-                logger.debug(f"Using per-channel verification for {channel_address}: {level}")
-                return level, tolerance
-
-        # Fall back to global config (or hardcoded defaults if config unavailable)
-        try:
-            from osprey.utils.config import get_config_value
-
-            level = get_config_value("control_system.write_verification.default_level", "callback")
-
-            # Calculate tolerance for readback verification
-            tolerance = None
-            if level == "readback":
-                default_percent = get_config_value(
-                    "control_system.write_verification.default_tolerance_percent", 0.1
-                )
-                tolerance = abs(value) * default_percent / 100.0
-
-            logger.debug(f"Using global verification config for {channel_address}: {level}")
-            return level, tolerance
-        except (FileNotFoundError, KeyError, RuntimeError):
-            # Config not available - use hardcoded safe defaults
-            logger.debug(
-                f"Using hardcoded verification defaults for {channel_address} (config unavailable)"
-            )
-            return "callback", None
-
     async def write_channel(
         self,
         channel_address: str,
@@ -320,7 +268,7 @@ class EPICSConnector(ControlSystemConnector):
                 logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
             except Exception as e:
                 # Import here to avoid circular dependency
-                from osprey.services.python_executor.exceptions import ChannelLimitsViolationError
+                from osprey.errors import ChannelLimitsViolationError
 
                 # Re-raise limits violations
                 if isinstance(e, ChannelLimitsViolationError):

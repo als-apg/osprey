@@ -2,7 +2,7 @@
 Database Validation Tool
 
 Validates channel database JSON files for correctness and compatibility with the system.
-Auto-detects pipeline type (hierarchical vs in_context) and validates accordingly.
+Auto-detects pipeline type (hierarchical, in_context, or middle_layer) and validates accordingly.
 """
 
 import json
@@ -17,43 +17,9 @@ from osprey.services.channel_finder.databases import (
     HierarchicalChannelDatabase,
     TemplateChannelDatabase,
 )
+from osprey.services.channel_finder.utils.detection import detect_pipeline_config
 
-try:
-    from osprey.cli.styles import console as osprey_console
-    from osprey.cli.styles import get_active_theme
-
-    console = osprey_console
-    theme = get_active_theme()
-except ImportError:
-    console = Console()
-    theme = None
-
-
-def detect_pipeline_config(config):
-    """Detect which pipeline is configured.
-
-    Returns:
-        tuple: (pipeline_type, db_config) where pipeline_type is 'hierarchical' or 'in_context'
-    """
-    cf_config = config.get("channel_finder", {})
-    pipelines = cf_config.get("pipelines", {})
-
-    pipeline_mode = cf_config.get("pipeline_mode")
-
-    hierarchical_config = pipelines.get("hierarchical", {})
-    in_context_config = pipelines.get("in_context", {})
-
-    if pipeline_mode == "in_context" and in_context_config.get("database", {}).get("path"):
-        return "in_context", in_context_config.get("database", {})
-    elif pipeline_mode == "hierarchical" and hierarchical_config.get("database", {}).get("path"):
-        return "hierarchical", hierarchical_config.get("database", {})
-
-    if hierarchical_config.get("database", {}).get("path"):
-        return "hierarchical", hierarchical_config.get("database", {})
-    elif in_context_config.get("database", {}).get("path"):
-        return "in_context", in_context_config.get("database", {})
-    else:
-        return None, None
+_default_console = Console()
 
 
 def validate_json_structure(db_path: Path) -> tuple[bool, list[str], list[str]]:
@@ -211,8 +177,10 @@ def print_validation_results(
     stats: dict = None,
     verbose: bool = False,
     pipeline_type: str = None,
+    console: Console | None = None,
 ):
     """Print formatted validation results using rich console and osprey theme."""
+    console = console or _default_console
     console.print()
 
     if is_valid and not errors:
@@ -329,6 +297,7 @@ def run_validation(
     database: str | None = None,
     pipeline: str | None = None,
     verbose: bool = False,
+    console: Console | None = None,
 ) -> int:
     """Run database validation.
 
@@ -336,11 +305,14 @@ def run_validation(
         database: Path to database file (default: from config).
         pipeline: Override pipeline type ('hierarchical' or 'in_context').
         verbose: Show detailed statistics.
+        console: Rich Console instance for output (default: plain Console).
 
     Returns:
         0 if valid, 1 if invalid.
     """
-    from osprey.services.channel_finder.utils.config import get_config, resolve_path
+    console = console or _default_console
+    from osprey.utils.config import load_config as get_config
+    from osprey.utils.workspace import resolve_path
 
     pipeline_type = pipeline
 
@@ -422,7 +394,12 @@ def run_validation(
         is_valid, errors, warnings = validate_json_structure(db_path)
         if not is_valid:
             print_validation_results(
-                False, errors, warnings, verbose=verbose, pipeline_type=pipeline_type
+                False,
+                errors,
+                warnings,
+                verbose=verbose,
+                pipeline_type=pipeline_type,
+                console=console,
             )
             return 1
     else:
@@ -436,7 +413,13 @@ def run_validation(
     is_valid = is_valid and load_success
 
     print_validation_results(
-        is_valid, errors, warnings, stats, verbose=verbose, pipeline_type=pipeline_type
+        is_valid,
+        errors,
+        warnings,
+        stats,
+        verbose=verbose,
+        pipeline_type=pipeline_type,
+        console=console,
     )
 
     return 0 if is_valid else 1

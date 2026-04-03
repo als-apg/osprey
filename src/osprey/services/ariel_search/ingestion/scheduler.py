@@ -106,7 +106,7 @@ class IngestionScheduler:
 
         logger.info("Ingestion scheduler stopped")
 
-    async def poll_once(self, dry_run: bool = False) -> IngestionPollResult:
+    async def poll_once(self, dry_run: bool = False, limit: int | None = None) -> IngestionPollResult:
         """Execute a single poll cycle.
 
         1. Determine since-timestamp from last successful run
@@ -122,6 +122,9 @@ class IngestionScheduler:
         """
         from osprey.services.ariel_search.enhancement import create_enhancers_from_config
         from osprey.services.ariel_search.ingestion import get_adapter
+        from osprey.services.ariel_search.ingestion.metadata_attachment import (
+            extract_metadata_from_attachments,
+        )
 
         start_time = time.monotonic()
 
@@ -152,7 +155,7 @@ class IngestionScheduler:
 
         if dry_run:
             count = 0
-            async for _entry in adapter.fetch_entries(since=since):
+            async for _entry in adapter.fetch_entries(since=since, limit=limit):
                 count += 1
             return IngestionPollResult(
                 entries_added=count,
@@ -168,8 +171,9 @@ class IngestionScheduler:
         entries_failed = 0
 
         try:
-            async for entry in adapter.fetch_entries(since=since):
+            async for entry in adapter.fetch_entries(since=since, limit=limit):
                 try:
+                    await extract_metadata_from_attachments(entry)
                     await self.repository.upsert_entry(entry)
                     entries_added += 1
 

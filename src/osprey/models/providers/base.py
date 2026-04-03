@@ -18,7 +18,7 @@ class BaseProvider(ABC):
 
     Metadata Attributes (define on subclass):
         name: Provider identifier (e.g., "anthropic", "openai")
-        description: User-friendly description for display in TUI (e.g., "Anthropic (Claude models)")
+        description: User-friendly description (e.g., "Anthropic (Claude models)")
         requires_api_key: Whether provider requires API key for authentication
         requires_base_url: Whether provider requires custom base URL
         requires_model_id: Whether provider requires model ID specification
@@ -26,7 +26,7 @@ class BaseProvider(ABC):
         default_base_url: Default API endpoint URL if applicable
         default_model_id: Default model recommended for general use (used in templates)
         health_check_model_id: Cheapest/fastest model for health checks
-        available_models: List of available model IDs for this provider (for TUI/selection)
+        available_models: List of available model IDs for this provider
         api_key_url: URL where users can obtain an API key (e.g., "https://console.anthropic.com/")
         api_key_instructions: Step-by-step instructions for obtaining an API key
         api_key_note: Additional notes or requirements (e.g., "Requires affiliation")

@@ -168,6 +168,9 @@ class ORNLLogbookAdapter(FacilityAdapter):
             else:
                 metadata["attachment_headers"] = att_headers
 
+        if data.get("metadata") and isinstance(data["metadata"], dict):
+            metadata.update(data["metadata"])
+
         return {
             "entry_id": str(data.get("ID", data.get("id", ""))),
             "source_system": self.source_system_name,

@@ -192,7 +192,7 @@ async def run_quickstart(config_dict: dict) -> None:
     """Run the ARIEL quickstart workflow: migrate, ingest, embed."""
     from osprey.services.ariel_search import ARIELConfig, create_ariel_service
     from osprey.services.ariel_search.database.connection import create_connection_pool
-    from osprey.services.ariel_search.database.migrate import run_migrations
+    from osprey.services.ariel_search.database.migrations import run_migrations
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
     from osprey.services.ariel_search.ingestion import get_adapter
 

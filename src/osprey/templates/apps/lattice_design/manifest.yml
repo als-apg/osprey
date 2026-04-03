@@ -1,0 +1,35 @@
+name: lattice_design
+description: "Lattice physics with Accelerator Toolbox"
+
+artifacts:
+  hooks:
+    - hook-log
+    - hook-config
+    - approval
+    - writes-check
+    - error-guidance
+    - memory-guard
+    - notebook-update
+  rules:
+    - safety
+    - error-handling
+    - artifacts
+    - facility
+    - workflows
+    - timezone
+    - lattice-physics
+    - python-execution
+    - data-visualization
+  skills:
+    - diagnose
+    - setup-mode
+    - session-report
+    - demo-gallery
+    - lattice-evaluation  # references only (SKILL.md.j2 replaced by dashboard)
+  agents:
+    - data-visualizer
+  output_styles:
+    - control-operator
+
+web_panels:
+  - lattice

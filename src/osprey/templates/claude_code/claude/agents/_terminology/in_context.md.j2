@@ -1,0 +1,36 @@
+
+## Channel Database Terminology
+
+### Database Profile
+
+This is a **flat / in-context** channel database — all channels are loaded into
+memory and matched by name patterns and descriptions. There is no hierarchy to
+navigate; instead you search, filter, and match against channel names directly.
+
+### Terminology Mapping
+
+Operators use domain language. Map their terms to channel name patterns:
+
+| Operator Language | Channel Name Patterns |
+|---|---|
+| "beam current" | Look for channels containing `DCCT`, `BCM`, `current` |
+| "BPM positions" / "beam position" | Channels containing `BPM`, `position`, possibly with `X`/`Y` suffix |
+| "corrector magnets" | `HCM` (horizontal), `VCM` (vertical), `corrector`, `steering` |
+| "quadrupole" / "quad" | `QF` (focusing), `QD` (defocusing), `quad` |
+| "readback" / "monitor" | Channels with `RB`, `ReadBack`, `Monitor` in name |
+| "setpoint" / "control" | Channels with `SP`, `Set`, `Setpoint`, `Control` in name |
+| "temperature" | `Temp`, `TC`, `temperature` patterns |
+| "vacuum" / "pressure" | `VGC`, `CCG`, `pressure`, `vacuum` patterns |
+| "RF" / "radio frequency" | `RF`, `LLRF`, `cavity`, `frequency` patterns |
+| "power supply" | `PS`, `PSU`, `supply`, `current` (in magnet context) |
+
+### Channel Naming Conventions
+
+- Channel names in flat databases are often **descriptive identifiers**
+  (e.g., `StorageRing_BeamCurrent_ReadBack`)
+- The actual PV address may differ from the descriptive name — always call
+  `resolve_addresses()` to get the real PV address
+- Use `statistics()` first to understand database size before choosing chunk-based
+  or full retrieval
+- When descriptions are available, prefer matching on description content over name
+  patterns — descriptions use more natural language

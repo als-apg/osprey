@@ -8,7 +8,7 @@ Key capabilities:
 - Automatic capture of caller context using Python's inspect module
 - Context variable propagation through async/thread boundaries
 - Structured logging with metadata headers
-- Integration with existing debug_print_prompt pattern
+- Integration with debug logging patterns
 - Configurable output directory and file naming
 - Support for both timestamped and latest-only file modes
 
@@ -21,7 +21,6 @@ Key capabilities:
 
 .. seealso::
    :func:`~completion.get_chat_completion` : Main chat completion interface
-   :func:`~prompts.base.debug_print_prompt` : Similar pattern for prompt debugging
    :func:`set_api_call_context` : Set caller context for async/thread pool calls
 """
 
@@ -167,7 +166,6 @@ def _get_caller_info(skip_frames: int = 2) -> dict[str, Any]:
             "/concurrent/futures/",  # Thread/process pool executors
             "/threading.py",  # Threading module
             "/asyncio/",  # AsyncIO internals
-            "/langgraph/",  # LangGraph execution engine
             "/litellm/",  # LiteLLM adapter
             "/queue.py",  # Queue module
         ]

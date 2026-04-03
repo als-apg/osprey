@@ -193,7 +193,6 @@ def execute_litellm_completion(
             completion_kwargs["thinking_config"] = {"thinking_budget": budget_tokens}
 
     # Allow retries for transient errors (5xx, connection) with short backoff.
-    # The Retry-After cap in langchain.py prevents 60s waits on 429s.
     completion_kwargs.setdefault("num_retries", 2)
 
     # Handle structured output

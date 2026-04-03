@@ -8,7 +8,7 @@ import pytest
 
 from osprey.services.ariel_search.config import ARIELConfig, DatabaseConfig
 from osprey.services.ariel_search.database.core_migration import CoreMigration
-from osprey.services.ariel_search.database.migration import BaseMigration, model_to_table_name
+from osprey.services.ariel_search.database.migrations import BaseMigration, model_to_table_name
 from osprey.services.ariel_search.enhancement.semantic_processor.migration import (
     SemanticProcessorMigration,
 )
@@ -336,13 +336,13 @@ class TestMigrationModuleExports:
 
     def test_model_to_table_name_exported(self) -> None:
         """model_to_table_name is exported."""
-        from osprey.services.ariel_search.database.migration import model_to_table_name
+        from osprey.services.ariel_search.database.migrations import model_to_table_name
 
         assert callable(model_to_table_name)
 
     def test_base_migration_exported(self) -> None:
         """BaseMigration is exported."""
-        from osprey.services.ariel_search.database.migration import BaseMigration
+        from osprey.services.ariel_search.database.migrations import BaseMigration
 
         assert BaseMigration is not None
 
@@ -455,7 +455,7 @@ class TestMigrationRunnerLogic:
 
     def test_known_migrations_registry(self) -> None:
         """Test that KNOWN_MIGRATIONS registry exists and has expected entries."""
-        from osprey.services.ariel_search.database.migrate import KNOWN_MIGRATIONS
+        from osprey.services.ariel_search.database.migrations import KNOWN_MIGRATIONS
 
         # KNOWN_MIGRATIONS is a list of tuples (name, module, class_name, enable_key)
         names = [m[0] for m in KNOWN_MIGRATIONS]

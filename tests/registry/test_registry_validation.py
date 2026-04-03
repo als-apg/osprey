@@ -64,7 +64,7 @@ from osprey.registry import RegistryConfigProvider, RegistryConfig
 
 class Provider(RegistryConfigProvider):
     def get_registry_config(self):
-        return RegistryConfig(capabilities=[], context_classes=[])
+        return RegistryConfig()
 """
         )
 
@@ -105,11 +105,11 @@ from osprey.registry import RegistryConfigProvider, RegistryConfig
 
 class Provider1(RegistryConfigProvider):
     def get_registry_config(self):
-        return RegistryConfig(capabilities=[], context_classes=[])
+        return RegistryConfig()
 
 class Provider2(RegistryConfigProvider):
     def get_registry_config(self):
-        return RegistryConfig(capabilities=[], context_classes=[])
+        return RegistryConfig()
 """
         )
 
@@ -153,47 +153,12 @@ class Provider(RegistryConfigProvider):
 class TestConfigurationValidation:
     """Test validation of registry configurations."""
 
-    def test_standalone_mode_validates_required_components(self, tmp_path):
-        """Test validation warns about missing required components in standalone mode.
+    def test_standalone_mode_validates_configuration(self, tmp_path):
+        """Test that standalone registry config can be loaded.
 
         Note: With the unified TypedEvent pipeline, warnings are emitted as TypedEvents
         not Python logs. The underlying validation still works.
         """
-        # Test 1: Missing required infrastructure nodes
-        registry_file = tmp_path / "app1" / "registry.py"
-        registry_file.parent.mkdir(parents=True)
-        registry_file.write_text(
-            """
-from osprey.registry import (
-    RegistryConfigProvider,
-    RegistryConfig,
-    CapabilityRegistration
-)
-
-class IncompleteProvider(RegistryConfigProvider):
-    def get_registry_config(self):
-        return RegistryConfig(
-            core_nodes=[],  # Missing required nodes!
-            capabilities=[
-                CapabilityRegistration(
-                    name="test",
-                    module_path="app.cap",
-                    class_name="TestCap",
-                    description="Test",
-                    provides=[],
-                    requires=[]
-                )
-            ],
-            context_classes=[]
-        )
-"""
-        )
-
-        # Validation still runs during RegistryManager init
-        # Warnings are emitted as TypedEvents (not Python logs)
-        _ = RegistryManager(registry_path=str(registry_file))
-
-        # Test 2: Missing required capabilities
         registry_file2 = tmp_path / "app2" / "registry.py"
         registry_file2.parent.mkdir(parents=True)
         registry_file2.write_text(
@@ -201,67 +166,17 @@ class IncompleteProvider(RegistryConfigProvider):
 from osprey.registry import (
     RegistryConfigProvider,
     RegistryConfig,
-    NodeRegistration
 )
 
-class IncompleteProvider(RegistryConfigProvider):
+class MinimalProvider(RegistryConfigProvider):
     def get_registry_config(self):
-        return RegistryConfig(
-            core_nodes=[
-                NodeRegistration(
-                    name="router",
-                    module_path="osprey.infrastructure.router_node",
-                    function_name="RouterNode",
-                    description="Router"
-                )
-            ],
-            capabilities=[],  # Missing respond and clarify!
-            context_classes=[]
-        )
+        return RegistryConfig()
 """
         )
 
         # Validation still runs during RegistryManager init
         # Warnings are emitted as TypedEvents (not Python logs)
         _ = RegistryManager(registry_path=str(registry_file2))
-
-    def test_invalid_capability_registration_caught(self, tmp_path):
-        """Test that invalid capability registrations are handled.
-
-        Note: With the unified TypedEvent pipeline, warnings are emitted as TypedEvents
-        not Python logs. The underlying validation still works.
-        """
-        registry_file = tmp_path / "app" / "registry.py"
-        registry_file.parent.mkdir(parents=True)
-        registry_file.write_text(
-            """
-from osprey.registry import (
-    RegistryConfigProvider,
-    extend_framework_registry,
-    CapabilityRegistration
-)
-
-class Provider(RegistryConfigProvider):
-    def get_registry_config(self):
-        return extend_framework_registry(
-            capabilities=[
-                CapabilityRegistration(
-                    name="",  # Empty name - invalid!
-                    module_path="app.cap",
-                    class_name="Cap",
-                    description="Test",
-                    provides=[],
-                    requires=[]
-                )
-            ]
-        )
-"""
-        )
-
-        # Registry loads but emits TypedEvent warnings for invalid capabilities
-        manager = RegistryManager(registry_path=str(registry_file))
-        manager.initialize()
-        # Validation still happens, just warnings are TypedEvents now
 
 
 class TestHelpfulErrorMessages:
@@ -298,11 +213,11 @@ from osprey.registry import RegistryConfigProvider, RegistryConfig
 
 class FirstProvider(RegistryConfigProvider):
     def get_registry_config(self):
-        return RegistryConfig(capabilities=[], context_classes=[])
+        return RegistryConfig()
 
 class SecondProvider(RegistryConfigProvider):
     def get_registry_config(self):
-        return RegistryConfig(capabilities=[], context_classes=[])
+        return RegistryConfig()
 """
         )
 
@@ -375,93 +290,6 @@ class BadProvider(RegistryConfigProvider):
 
 class TestConfigurationErrorMessages:
     """Test configuration-related error messages."""
-
-    def test_invalid_module_path_error(self, tmp_path):
-        """Test that invalid module paths are handled.
-
-        Note: With the unified TypedEvent pipeline, warnings are emitted as TypedEvents
-        not Python logs. The underlying validation still works.
-        """
-        registry_file = tmp_path / "app" / "registry.py"
-        registry_file.parent.mkdir(parents=True)
-        registry_file.write_text(
-            """
-from osprey.registry import (
-    RegistryConfigProvider,
-    extend_framework_registry,
-    CapabilityRegistration
-)
-
-class Provider(RegistryConfigProvider):
-    def get_registry_config(self):
-        return extend_framework_registry(
-            capabilities=[
-                CapabilityRegistration(
-                    name="test",
-                    module_path="nonexistent.module.path",
-                    class_name="TestCap",
-                    description="Test",
-                    provides=[],
-                    requires=[]
-                )
-            ]
-        )
-"""
-        )
-
-        # Create manager and initialize
-        # Warnings are emitted as TypedEvents (not Python logs)
-        manager = RegistryManager(registry_path=str(registry_file))
-        manager.initialize()
-
-    def test_invalid_class_name_error(self, tmp_path):
-        """Test that missing class names are handled.
-
-        Note: With the unified TypedEvent pipeline, warnings are emitted as TypedEvents
-        not Python logs. The underlying validation still works.
-        """
-        # Create the module file
-        app_dir = tmp_path / "app"
-        app_dir.mkdir(parents=True)
-
-        cap_file = app_dir / "cap.py"
-        cap_file.write_text(
-            """
-class ExistingClass:
-    pass
-"""
-        )
-
-        registry_file = app_dir / "registry.py"
-        registry_file.write_text(
-            """
-from osprey.registry import (
-    RegistryConfigProvider,
-    extend_framework_registry,
-    CapabilityRegistration
-)
-
-class Provider(RegistryConfigProvider):
-    def get_registry_config(self):
-        return extend_framework_registry(
-            capabilities=[
-                CapabilityRegistration(
-                    name="test",
-                    module_path="app.cap",
-                    class_name="NonExistentClass",  # Doesn't exist!
-                    description="Test",
-                    provides=[],
-                    requires=[]
-                )
-            ]
-        )
-"""
-        )
-
-        # Create manager and initialize
-        # Warnings are emitted as TypedEvents (not Python logs)
-        manager = RegistryManager(registry_path=str(registry_file))
-        manager.initialize()
 
 
 if __name__ == "__main__":

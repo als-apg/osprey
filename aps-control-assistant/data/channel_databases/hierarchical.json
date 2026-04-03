@@ -1,0 +1,5098 @@
+{
+  "_comment": "APS Control System - Hierarchical Channel Database. SR and BTS power supply channels from sr_bts_ps.json. Device names are PV prefixes (e.g. S02A:FH1). Subfield keys are PV suffixes (e.g. :PS:SetCurrentC). Full PV = device + subfield (e.g. S02A:FH1:PS:SetCurrentC).",
+  "hierarchy": {
+    "levels": [
+      {
+        "name": "ring",
+        "type": "tree"
+      },
+      {
+        "name": "system",
+        "type": "tree"
+      },
+      {
+        "name": "family",
+        "type": "tree"
+      },
+      {
+        "name": "device",
+        "type": "instances"
+      },
+      {
+        "name": "field",
+        "type": "tree"
+      },
+      {
+        "name": "subfield",
+        "type": "tree"
+      }
+    ],
+    "naming_pattern": "{device}{subfield}"
+  },
+  "tree": {
+    "SR": {
+      "_description": "Storage Ring (SR): Main synchrotron light source. 12-sector electron storage ring operating at 1.9 GeV. Contains magnets, diagnostics, vacuum, and RF systems for stable beam circulation and photon production.",
+      "MAG": {
+        "_description": "Magnet System (MAG): APS Storage Ring power supplies. All 40 sectors with A, B, and some C girders. PV address = device prefix + suffix (e.g., S02A:FH1:PS:SetCurrentC).",
+        "FAST_CORR": {
+          "_description": "Fast Correctors (FAST_CORR): Fast H and V steering magnets for orbit feedback. 8 per sector (FH1, FH2, FV1, FV2 on A and B girders). Used in fast orbit feedback systems.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S01A:FH1",
+                "S02A:FH1",
+                "S03A:FH1",
+                "S04A:FH1",
+                "S05A:FH1",
+                "S06A:FH1",
+                "S07A:FH1",
+                "S08A:FH1",
+                "S09A:FH1",
+                "S10A:FH1",
+                "S11A:FH1",
+                "S12A:FH1",
+                "S13A:FH1",
+                "S14A:FH1",
+                "S15A:FH1",
+                "S16A:FH1",
+                "S17A:FH1",
+                "S18A:FH1",
+                "S19A:FH1",
+                "S20A:FH1",
+                "S21A:FH1",
+                "S22A:FH1",
+                "S23A:FH1",
+                "S24A:FH1",
+                "S25A:FH1",
+                "S26A:FH1",
+                "S27A:FH1",
+                "S28A:FH1",
+                "S29A:FH1",
+                "S30A:FH1",
+                "S31A:FH1",
+                "S32A:FH1",
+                "S33A:FH1",
+                "S34A:FH1",
+                "S35A:FH1",
+                "S36A:FH1",
+                "S37A:FH1",
+                "S38A:FH1",
+                "S39A:FH1",
+                "S40A:FH1",
+                "S01A:FH2",
+                "S02A:FH2",
+                "S03A:FH2",
+                "S04A:FH2",
+                "S05A:FH2",
+                "S06A:FH2",
+                "S07A:FH2",
+                "S08A:FH2",
+                "S09A:FH2",
+                "S10A:FH2",
+                "S11A:FH2",
+                "S12A:FH2",
+                "S13A:FH2",
+                "S14A:FH2",
+                "S15A:FH2",
+                "S16A:FH2",
+                "S17A:FH2",
+                "S18A:FH2",
+                "S19A:FH2",
+                "S20A:FH2",
+                "S21A:FH2",
+                "S22A:FH2",
+                "S23A:FH2",
+                "S24A:FH2",
+                "S25A:FH2",
+                "S26A:FH2",
+                "S27A:FH2",
+                "S28A:FH2",
+                "S29A:FH2",
+                "S30A:FH2",
+                "S31A:FH2",
+                "S32A:FH2",
+                "S33A:FH2",
+                "S34A:FH2",
+                "S35A:FH2",
+                "S36A:FH2",
+                "S37A:FH2",
+                "S38A:FH2",
+                "S39A:FH2",
+                "S40A:FH2",
+                "S01B:FH1",
+                "S02B:FH1",
+                "S03B:FH1",
+                "S04B:FH1",
+                "S05B:FH1",
+                "S06B:FH1",
+                "S07B:FH1",
+                "S08B:FH1",
+                "S09B:FH1",
+                "S10B:FH1",
+                "S11B:FH1",
+                "S12B:FH1",
+                "S13B:FH1",
+                "S14B:FH1",
+                "S15B:FH1",
+                "S16B:FH1",
+                "S17B:FH1",
+                "S18B:FH1",
+                "S19B:FH1",
+                "S20B:FH1",
+                "S21B:FH1",
+                "S22B:FH1",
+                "S23B:FH1",
+                "S24B:FH1",
+                "S25B:FH1",
+                "S26B:FH1",
+                "S27B:FH1",
+                "S28B:FH1",
+                "S29B:FH1",
+                "S30B:FH1",
+                "S31B:FH1",
+                "S32B:FH1",
+                "S33B:FH1",
+                "S34B:FH1",
+                "S35B:FH1",
+                "S36B:FH1",
+                "S37B:FH1",
+                "S38B:FH1",
+                "S39B:FH1",
+                "S40B:FH1",
+                "S01B:FH2",
+                "S02B:FH2",
+                "S03B:FH2",
+                "S04B:FH2",
+                "S05B:FH2",
+                "S06B:FH2",
+                "S07B:FH2",
+                "S08B:FH2",
+                "S09B:FH2",
+                "S10B:FH2",
+                "S11B:FH2",
+                "S12B:FH2",
+                "S13B:FH2",
+                "S14B:FH2",
+                "S15B:FH2",
+                "S16B:FH2",
+                "S17B:FH2",
+                "S18B:FH2",
+                "S19B:FH2",
+                "S20B:FH2",
+                "S21B:FH2",
+                "S22B:FH2",
+                "S23B:FH2",
+                "S24B:FH2",
+                "S25B:FH2",
+                "S26B:FH2",
+                "S27B:FH2",
+                "S28B:FH2",
+                "S29B:FH2",
+                "S30B:FH2",
+                "S31B:FH2",
+                "S32B:FH2",
+                "S33B:FH2",
+                "S34B:FH2",
+                "S35B:FH2",
+                "S36B:FH2",
+                "S37B:FH2",
+                "S38B:FH2",
+                "S39B:FH2",
+                "S40B:FH2",
+                "S01A:FV1",
+                "S02A:FV1",
+                "S03A:FV1",
+                "S04A:FV1",
+                "S05A:FV1",
+                "S06A:FV1",
+                "S07A:FV1",
+                "S08A:FV1",
+                "S09A:FV1",
+                "S10A:FV1",
+                "S11A:FV1",
+                "S12A:FV1",
+                "S13A:FV1",
+                "S14A:FV1",
+                "S15A:FV1",
+                "S16A:FV1",
+                "S17A:FV1",
+                "S18A:FV1",
+                "S19A:FV1",
+                "S20A:FV1",
+                "S21A:FV1",
+                "S22A:FV1",
+                "S23A:FV1",
+                "S24A:FV1",
+                "S25A:FV1",
+                "S26A:FV1",
+                "S27A:FV1",
+                "S28A:FV1",
+                "S29A:FV1",
+                "S30A:FV1",
+                "S31A:FV1",
+                "S32A:FV1",
+                "S33A:FV1",
+                "S34A:FV1",
+                "S35A:FV1",
+                "S36A:FV1",
+                "S37A:FV1",
+                "S38A:FV1",
+                "S39A:FV1",
+                "S40A:FV1",
+                "S01A:FV2",
+                "S02A:FV2",
+                "S03A:FV2",
+                "S04A:FV2",
+                "S05A:FV2",
+                "S06A:FV2",
+                "S07A:FV2",
+                "S08A:FV2",
+                "S09A:FV2",
+                "S10A:FV2",
+                "S11A:FV2",
+                "S12A:FV2",
+                "S13A:FV2",
+                "S14A:FV2",
+                "S15A:FV2",
+                "S16A:FV2",
+                "S17A:FV2",
+                "S18A:FV2",
+                "S19A:FV2",
+                "S20A:FV2",
+                "S21A:FV2",
+                "S22A:FV2",
+                "S23A:FV2",
+                "S24A:FV2",
+                "S25A:FV2",
+                "S26A:FV2",
+                "S27A:FV2",
+                "S28A:FV2",
+                "S29A:FV2",
+                "S30A:FV2",
+                "S31A:FV2",
+                "S32A:FV2",
+                "S33A:FV2",
+                "S34A:FV2",
+                "S35A:FV2",
+                "S36A:FV2",
+                "S37A:FV2",
+                "S38A:FV2",
+                "S39A:FV2",
+                "S40A:FV2",
+                "S01B:FV1",
+                "S02B:FV1",
+                "S03B:FV1",
+                "S04B:FV1",
+                "S05B:FV1",
+                "S06B:FV1",
+                "S07B:FV1",
+                "S08B:FV1",
+                "S09B:FV1",
+                "S10B:FV1",
+                "S11B:FV1",
+                "S12B:FV1",
+                "S13B:FV1",
+                "S14B:FV1",
+                "S15B:FV1",
+                "S16B:FV1",
+                "S17B:FV1",
+                "S18B:FV1",
+                "S19B:FV1",
+                "S20B:FV1",
+                "S21B:FV1",
+                "S22B:FV1",
+                "S23B:FV1",
+                "S24B:FV1",
+                "S25B:FV1",
+                "S26B:FV1",
+                "S27B:FV1",
+                "S28B:FV1",
+                "S29B:FV1",
+                "S30B:FV1",
+                "S31B:FV1",
+                "S32B:FV1",
+                "S33B:FV1",
+                "S34B:FV1",
+                "S35B:FV1",
+                "S36B:FV1",
+                "S37B:FV1",
+                "S38B:FV1",
+                "S39B:FV1",
+                "S40B:FV1",
+                "S01B:FV2",
+                "S02B:FV2",
+                "S03B:FV2",
+                "S04B:FV2",
+                "S05B:FV2",
+                "S06B:FV2",
+                "S07B:FV2",
+                "S08B:FV2",
+                "S09B:FV2",
+                "S10B:FV2",
+                "S11B:FV2",
+                "S12B:FV2",
+                "S13B:FV2",
+                "S14B:FV2",
+                "S15B:FV2",
+                "S16B:FV2",
+                "S17B:FV2",
+                "S18B:FV2",
+                "S19B:FV2",
+                "S20B:FV2",
+                "S21B:FV2",
+                "S22B:FV2",
+                "S23B:FV2",
+                "S24B:FV2",
+                "S25B:FV2",
+                "S26B:FV2",
+                "S27B:FV2",
+                "S28B:FV2",
+                "S29B:FV2",
+                "S30B:FV2",
+                "S31B:FV2",
+                "S32B:FV2",
+                "S33B:FV2",
+                "S34B:FV2",
+                "S35B:FV2",
+                "S36B:FV2",
+                "S37B:FV2",
+                "S38B:FV2",
+                "S39B:FV2",
+                "S40B:FV2"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":PS:SetCurrentC": {
+                "_description": "setpoint"
+              },
+              ":PS:SetCurrentM": {
+                "_description": "setpoint readback"
+              },
+              ":PS:MeasCurrentM": {
+                "_description": "current, current readback, internal current"
+              },
+              ":DCCT:CurrentM": {
+                "_description": "DCCT output, DCCT current, external current"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":PS:VoltageM": {
+                "_description": "Output voltage, voltage"
+              }
+            },
+            "TEMPERATURE": {
+              "_description": "Temperature measurements",
+              ":PS:CapacitorTempM": {
+                "_description": "Capacitor Temperature"
+              },
+              ":PS:HeatSinkTempM": {
+                "_description": "Heatsink Temperature"
+              },
+              ":PS:DampResTempM": {
+                "_description": "Damping Resistor Temperature"
+              },
+              ":PS:Fan1SpeedM": {
+                "_description": "Fan 1 speed"
+              },
+              ":PS:Fan2SpeedM": {
+                "_description": "Fan 2 speed"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":PS:PowerSupplyIdM": {
+                "_description": "PSID"
+              },
+              ":PS:FaultStatusM": {
+                "_description": "Faults"
+              },
+              ":PS:OnOffStatusM": {
+                "_description": "OnOffStatus"
+              }
+            },
+            "TOLERANCE": {
+              "_description": "Tolerance settings",
+              ":PS:ToleranceM": {
+                "_description": "Tolerance"
+              }
+            }
+          }
+        },
+        "CORR": {
+          "_description": "Slow Correctors (CORR): H and V steering magnets for DC orbit correction. H1, H7, V1, V7 on A/B girders, plus H2, V2 on C girder for select sectors.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S01A:H1",
+                "S02A:H1",
+                "S03A:H1",
+                "S04A:H1",
+                "S05A:H1",
+                "S06A:H1",
+                "S07A:H1",
+                "S08A:H1",
+                "S09A:H1",
+                "S10A:H1",
+                "S11A:H1",
+                "S12A:H1",
+                "S13A:H1",
+                "S14A:H1",
+                "S15A:H1",
+                "S16A:H1",
+                "S17A:H1",
+                "S18A:H1",
+                "S19A:H1",
+                "S20A:H1",
+                "S21A:H1",
+                "S22A:H1",
+                "S23A:H1",
+                "S24A:H1",
+                "S25A:H1",
+                "S26A:H1",
+                "S27A:H1",
+                "S28A:H1",
+                "S29A:H1",
+                "S30A:H1",
+                "S31A:H1",
+                "S32A:H1",
+                "S33A:H1",
+                "S34A:H1",
+                "S35A:H1",
+                "S36A:H1",
+                "S37A:H1",
+                "S38A:H1",
+                "S39A:H1",
+                "S40A:H1",
+                "S01A:H7",
+                "S02A:H7",
+                "S03A:H7",
+                "S04A:H7",
+                "S05A:H7",
+                "S06A:H7",
+                "S07A:H7",
+                "S08A:H7",
+                "S09A:H7",
+                "S10A:H7",
+                "S11A:H7",
+                "S12A:H7",
+                "S13A:H7",
+                "S14A:H7",
+                "S15A:H7",
+                "S16A:H7",
+                "S17A:H7",
+                "S18A:H7",
+                "S19A:H7",
+                "S20A:H7",
+                "S21A:H7",
+                "S22A:H7",
+                "S23A:H7",
+                "S24A:H7",
+                "S25A:H7",
+                "S26A:H7",
+                "S27A:H7",
+                "S28A:H7",
+                "S29A:H7",
+                "S30A:H7",
+                "S31A:H7",
+                "S32A:H7",
+                "S33A:H7",
+                "S34A:H7",
+                "S35A:H7",
+                "S36A:H7",
+                "S37A:H7",
+                "S38A:H7",
+                "S39A:H7",
+                "S40A:H7",
+                "S01B:H1",
+                "S02B:H1",
+                "S03B:H1",
+                "S04B:H1",
+                "S05B:H1",
+                "S06B:H1",
+                "S07B:H1",
+                "S08B:H1",
+                "S09B:H1",
+                "S10B:H1",
+                "S11B:H1",
+                "S12B:H1",
+                "S13B:H1",
+                "S14B:H1",
+                "S15B:H1",
+                "S16B:H1",
+                "S17B:H1",
+                "S18B:H1",
+                "S19B:H1",
+                "S20B:H1",
+                "S21B:H1",
+                "S22B:H1",
+                "S23B:H1",
+                "S24B:H1",
+                "S25B:H1",
+                "S26B:H1",
+                "S27B:H1",
+                "S28B:H1",
+                "S29B:H1",
+                "S30B:H1",
+                "S31B:H1",
+                "S32B:H1",
+                "S33B:H1",
+                "S34B:H1",
+                "S35B:H1",
+                "S36B:H1",
+                "S37B:H1",
+                "S38B:H1",
+                "S39B:H1",
+                "S40B:H1",
+                "S01B:H7",
+                "S02B:H7",
+                "S03B:H7",
+                "S04B:H7",
+                "S05B:H7",
+                "S06B:H7",
+                "S07B:H7",
+                "S08B:H7",
+                "S09B:H7",
+                "S10B:H7",
+                "S11B:H7",
+                "S12B:H7",
+                "S13B:H7",
+                "S14B:H7",
+                "S15B:H7",
+                "S16B:H7",
+                "S17B:H7",
+                "S18B:H7",
+                "S19B:H7",
+                "S20B:H7",
+                "S21B:H7",
+                "S22B:H7",
+                "S23B:H7",
+                "S24B:H7",
+                "S25B:H7",
+                "S26B:H7",
+                "S27B:H7",
+                "S28B:H7",
+                "S29B:H7",
+                "S30B:H7",
+                "S31B:H7",
+                "S32B:H7",
+                "S33B:H7",
+                "S34B:H7",
+                "S35B:H7",
+                "S36B:H7",
+                "S37B:H7",
+                "S38B:H7",
+                "S39B:H7",
+                "S40B:H7",
+                "S01A:V1",
+                "S02A:V1",
+                "S03A:V1",
+                "S04A:V1",
+                "S05A:V1",
+                "S06A:V1",
+                "S07A:V1",
+                "S08A:V1",
+                "S09A:V1",
+                "S10A:V1",
+                "S11A:V1",
+                "S12A:V1",
+                "S13A:V1",
+                "S14A:V1",
+                "S15A:V1",
+                "S16A:V1",
+                "S17A:V1",
+                "S18A:V1",
+                "S19A:V1",
+                "S20A:V1",
+                "S21A:V1",
+                "S22A:V1",
+                "S23A:V1",
+                "S24A:V1",
+                "S25A:V1",
+                "S26A:V1",
+                "S27A:V1",
+                "S28A:V1",
+                "S29A:V1",
+                "S30A:V1",
+                "S31A:V1",
+                "S32A:V1",
+                "S33A:V1",
+                "S34A:V1",
+                "S35A:V1",
+                "S36A:V1",
+                "S37A:V1",
+                "S38A:V1",
+                "S39A:V1",
+                "S40A:V1",
+                "S01A:V7",
+                "S02A:V7",
+                "S03A:V7",
+                "S04A:V7",
+                "S05A:V7",
+                "S06A:V7",
+                "S07A:V7",
+                "S08A:V7",
+                "S09A:V7",
+                "S10A:V7",
+                "S11A:V7",
+                "S12A:V7",
+                "S13A:V7",
+                "S14A:V7",
+                "S15A:V7",
+                "S16A:V7",
+                "S17A:V7",
+                "S18A:V7",
+                "S19A:V7",
+                "S20A:V7",
+                "S21A:V7",
+                "S22A:V7",
+                "S23A:V7",
+                "S24A:V7",
+                "S25A:V7",
+                "S26A:V7",
+                "S27A:V7",
+                "S28A:V7",
+                "S29A:V7",
+                "S30A:V7",
+                "S31A:V7",
+                "S32A:V7",
+                "S33A:V7",
+                "S34A:V7",
+                "S35A:V7",
+                "S36A:V7",
+                "S37A:V7",
+                "S38A:V7",
+                "S39A:V7",
+                "S40A:V7",
+                "S01B:V1",
+                "S02B:V1",
+                "S03B:V1",
+                "S04B:V1",
+                "S05B:V1",
+                "S06B:V1",
+                "S07B:V1",
+                "S08B:V1",
+                "S09B:V1",
+                "S10B:V1",
+                "S11B:V1",
+                "S12B:V1",
+                "S13B:V1",
+                "S14B:V1",
+                "S15B:V1",
+                "S16B:V1",
+                "S17B:V1",
+                "S18B:V1",
+                "S19B:V1",
+                "S20B:V1",
+                "S21B:V1",
+                "S22B:V1",
+                "S23B:V1",
+                "S24B:V1",
+                "S25B:V1",
+                "S26B:V1",
+                "S27B:V1",
+                "S28B:V1",
+                "S29B:V1",
+                "S30B:V1",
+                "S31B:V1",
+                "S32B:V1",
+                "S33B:V1",
+                "S34B:V1",
+                "S35B:V1",
+                "S36B:V1",
+                "S37B:V1",
+                "S38B:V1",
+                "S39B:V1",
+                "S40B:V1",
+                "S01B:V7",
+                "S02B:V7",
+                "S03B:V7",
+                "S04B:V7",
+                "S05B:V7",
+                "S06B:V7",
+                "S07B:V7",
+                "S08B:V7",
+                "S09B:V7",
+                "S10B:V7",
+                "S11B:V7",
+                "S12B:V7",
+                "S13B:V7",
+                "S14B:V7",
+                "S15B:V7",
+                "S16B:V7",
+                "S17B:V7",
+                "S18B:V7",
+                "S19B:V7",
+                "S20B:V7",
+                "S21B:V7",
+                "S22B:V7",
+                "S23B:V7",
+                "S24B:V7",
+                "S25B:V7",
+                "S26B:V7",
+                "S27B:V7",
+                "S28B:V7",
+                "S29B:V7",
+                "S30B:V7",
+                "S31B:V7",
+                "S32B:V7",
+                "S33B:V7",
+                "S34B:V7",
+                "S35B:V7",
+                "S36B:V7",
+                "S37B:V7",
+                "S38B:V7",
+                "S39B:V7",
+                "S40B:V7",
+                "S02C:H2",
+                "S03C:H2",
+                "S04C:H2",
+                "S06C:H2",
+                "S08C:H2",
+                "S11C:H2",
+                "S12C:H2",
+                "S13C:H2",
+                "S14C:H2",
+                "S15C:H2",
+                "S16C:H2",
+                "S19C:H2",
+                "S21C:H2",
+                "S22C:H2",
+                "S23C:H2",
+                "S24C:H2",
+                "S25C:H2",
+                "S26C:H2",
+                "S27C:H2",
+                "S28C:H2",
+                "S30C:H2",
+                "S31C:H2",
+                "S32C:H2",
+                "S34C:H2",
+                "S35C:H2",
+                "S02C:V2",
+                "S03C:V2",
+                "S04C:V2",
+                "S06C:V2",
+                "S08C:V2",
+                "S11C:V2",
+                "S12C:V2",
+                "S13C:V2",
+                "S14C:V2",
+                "S15C:V2",
+                "S16C:V2",
+                "S19C:V2",
+                "S21C:V2",
+                "S22C:V2",
+                "S23C:V2",
+                "S24C:V2",
+                "S25C:V2",
+                "S26C:V2",
+                "S27C:V2",
+                "S28C:V2",
+                "S30C:V2",
+                "S31C:V2",
+                "S32C:V2",
+                "S34C:V2",
+                "S35C:V2"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":PS:SetCurrentC": {
+                "_description": "setpoint"
+              },
+              ":PS:SetCurrentM": {
+                "_description": "setpoint readback"
+              },
+              ":PS:MeasCurrentM": {
+                "_description": "current, current readback, internal current"
+              },
+              ":DCCT:CurrentM": {
+                "_description": "DCCT output, DCCT current, external current"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":PS:VoltageM": {
+                "_description": "Output voltage, voltage"
+              }
+            },
+            "TEMPERATURE": {
+              "_description": "Temperature measurements",
+              ":PS:CapacitorTempM": {
+                "_description": "Capacitor Temperature"
+              },
+              ":PS:HeatSinkTempM": {
+                "_description": "Heatsink Temperature"
+              },
+              ":PS:DampResTempM": {
+                "_description": "Damping Resistor Temperature"
+              },
+              ":PS:Fan1SpeedM": {
+                "_description": "Fan 1 speed"
+              },
+              ":PS:Fan2SpeedM": {
+                "_description": "Fan 2 speed"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":PS:PowerSupplyIdM": {
+                "_description": "PSID"
+              },
+              ":PS:FaultStatusM": {
+                "_description": "Faults"
+              },
+              ":PS:OnOffStatusM": {
+                "_description": "OnOffStatus"
+              }
+            },
+            "TOLERANCE": {
+              "_description": "Tolerance settings",
+              ":PS:ToleranceM": {
+                "_description": "Tolerance"
+              }
+            }
+          }
+        },
+        "SKEW_QUAD": {
+          "_description": "Skew Quadrupoles (SKEW_QUAD): Coupling correction magnets. SQ1, SQ2 on A and B girders.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S01A:SQ1",
+                "S02A:SQ1",
+                "S03A:SQ1",
+                "S04A:SQ1",
+                "S05A:SQ1",
+                "S06A:SQ1",
+                "S07A:SQ1",
+                "S08A:SQ1",
+                "S09A:SQ1",
+                "S10A:SQ1",
+                "S11A:SQ1",
+                "S12A:SQ1",
+                "S13A:SQ1",
+                "S14A:SQ1",
+                "S15A:SQ1",
+                "S16A:SQ1",
+                "S17A:SQ1",
+                "S18A:SQ1",
+                "S19A:SQ1",
+                "S20A:SQ1",
+                "S21A:SQ1",
+                "S22A:SQ1",
+                "S23A:SQ1",
+                "S24A:SQ1",
+                "S25A:SQ1",
+                "S26A:SQ1",
+                "S27A:SQ1",
+                "S28A:SQ1",
+                "S29A:SQ1",
+                "S30A:SQ1",
+                "S31A:SQ1",
+                "S32A:SQ1",
+                "S33A:SQ1",
+                "S34A:SQ1",
+                "S35A:SQ1",
+                "S36A:SQ1",
+                "S37A:SQ1",
+                "S38A:SQ1",
+                "S39A:SQ1",
+                "S40A:SQ1",
+                "S01A:SQ2",
+                "S02A:SQ2",
+                "S03A:SQ2",
+                "S04A:SQ2",
+                "S05A:SQ2",
+                "S06A:SQ2",
+                "S07A:SQ2",
+                "S08A:SQ2",
+                "S09A:SQ2",
+                "S10A:SQ2",
+                "S11A:SQ2",
+                "S12A:SQ2",
+                "S13A:SQ2",
+                "S14A:SQ2",
+                "S15A:SQ2",
+                "S16A:SQ2",
+                "S17A:SQ2",
+                "S18A:SQ2",
+                "S19A:SQ2",
+                "S20A:SQ2",
+                "S21A:SQ2",
+                "S22A:SQ2",
+                "S23A:SQ2",
+                "S24A:SQ2",
+                "S25A:SQ2",
+                "S26A:SQ2",
+                "S27A:SQ2",
+                "S28A:SQ2",
+                "S29A:SQ2",
+                "S30A:SQ2",
+                "S31A:SQ2",
+                "S32A:SQ2",
+                "S33A:SQ2",
+                "S34A:SQ2",
+                "S35A:SQ2",
+                "S36A:SQ2",
+                "S37A:SQ2",
+                "S38A:SQ2",
+                "S39A:SQ2",
+                "S40A:SQ2",
+                "S01B:SQ1",
+                "S02B:SQ1",
+                "S03B:SQ1",
+                "S04B:SQ1",
+                "S05B:SQ1",
+                "S06B:SQ1",
+                "S07B:SQ1",
+                "S08B:SQ1",
+                "S09B:SQ1",
+                "S10B:SQ1",
+                "S11B:SQ1",
+                "S12B:SQ1",
+                "S13B:SQ1",
+                "S14B:SQ1",
+                "S15B:SQ1",
+                "S16B:SQ1",
+                "S17B:SQ1",
+                "S18B:SQ1",
+                "S19B:SQ1",
+                "S20B:SQ1",
+                "S21B:SQ1",
+                "S22B:SQ1",
+                "S23B:SQ1",
+                "S24B:SQ1",
+                "S25B:SQ1",
+                "S26B:SQ1",
+                "S27B:SQ1",
+                "S28B:SQ1",
+                "S29B:SQ1",
+                "S30B:SQ1",
+                "S31B:SQ1",
+                "S32B:SQ1",
+                "S33B:SQ1",
+                "S34B:SQ1",
+                "S35B:SQ1",
+                "S36B:SQ1",
+                "S37B:SQ1",
+                "S38B:SQ1",
+                "S39B:SQ1",
+                "S40B:SQ1",
+                "S01B:SQ2",
+                "S02B:SQ2",
+                "S03B:SQ2",
+                "S04B:SQ2",
+                "S05B:SQ2",
+                "S06B:SQ2",
+                "S07B:SQ2",
+                "S08B:SQ2",
+                "S09B:SQ2",
+                "S10B:SQ2",
+                "S11B:SQ2",
+                "S12B:SQ2",
+                "S13B:SQ2",
+                "S14B:SQ2",
+                "S15B:SQ2",
+                "S16B:SQ2",
+                "S17B:SQ2",
+                "S18B:SQ2",
+                "S19B:SQ2",
+                "S20B:SQ2",
+                "S21B:SQ2",
+                "S22B:SQ2",
+                "S23B:SQ2",
+                "S24B:SQ2",
+                "S25B:SQ2",
+                "S26B:SQ2",
+                "S27B:SQ2",
+                "S28B:SQ2",
+                "S29B:SQ2",
+                "S30B:SQ2",
+                "S31B:SQ2",
+                "S32B:SQ2",
+                "S33B:SQ2",
+                "S34B:SQ2",
+                "S35B:SQ2",
+                "S36B:SQ2",
+                "S37B:SQ2",
+                "S38B:SQ2",
+                "S39B:SQ2",
+                "S40B:SQ2"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":PS:SetCurrentC": {
+                "_description": "setpoint"
+              },
+              ":PS:SetCurrentM": {
+                "_description": "setpoint readback"
+              },
+              ":PS:MeasCurrentM": {
+                "_description": "current, current readback, internal current"
+              },
+              ":DCCT:CurrentM": {
+                "_description": "DCCT output, DCCT current, external current"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":PS:VoltageM": {
+                "_description": "Output voltage, voltage"
+              }
+            },
+            "TEMPERATURE": {
+              "_description": "Temperature measurements",
+              ":PS:CapacitorTempM": {
+                "_description": "Capacitor Temperature"
+              },
+              ":PS:HeatSinkTempM": {
+                "_description": "Heatsink Temperature"
+              },
+              ":PS:DampResTempM": {
+                "_description": "Damping Resistor Temperature"
+              },
+              ":PS:Fan1SpeedM": {
+                "_description": "Fan 1 speed"
+              },
+              ":PS:Fan2SpeedM": {
+                "_description": "Fan 2 speed"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":PS:PowerSupplyIdM": {
+                "_description": "PSID"
+              },
+              ":PS:FaultStatusM": {
+                "_description": "Faults"
+              },
+              ":PS:OnOffStatusM": {
+                "_description": "OnOffStatus"
+              }
+            },
+            "TOLERANCE": {
+              "_description": "Tolerance settings",
+              ":PS:ToleranceM": {
+                "_description": "Tolerance"
+              }
+            }
+          }
+        },
+        "DIPOLE_TRIM": {
+          "_description": "Dipole Trims (DIPOLE_TRIM): Trim coils for fine orbit and energy adjustments. M3T, M4T, Q4T, Q5T, Q8T on A/B girders.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S01A:M3T",
+                "S02A:M3T",
+                "S03A:M3T",
+                "S04A:M3T",
+                "S05A:M3T",
+                "S06A:M3T",
+                "S07A:M3T",
+                "S08A:M3T",
+                "S09A:M3T",
+                "S10A:M3T",
+                "S11A:M3T",
+                "S12A:M3T",
+                "S13A:M3T",
+                "S14A:M3T",
+                "S15A:M3T",
+                "S16A:M3T",
+                "S17A:M3T",
+                "S18A:M3T",
+                "S19A:M3T",
+                "S20A:M3T",
+                "S21A:M3T",
+                "S22A:M3T",
+                "S23A:M3T",
+                "S24A:M3T",
+                "S25A:M3T",
+                "S26A:M3T",
+                "S27A:M3T",
+                "S28A:M3T",
+                "S29A:M3T",
+                "S30A:M3T",
+                "S31A:M3T",
+                "S32A:M3T",
+                "S33A:M3T",
+                "S34A:M3T",
+                "S35A:M3T",
+                "S36A:M3T",
+                "S37A:M3T",
+                "S38A:M3T",
+                "S39A:M3T",
+                "S40A:M3T",
+                "S01A:M4T",
+                "S02A:M4T",
+                "S03A:M4T",
+                "S04A:M4T",
+                "S05A:M4T",
+                "S06A:M4T",
+                "S07A:M4T",
+                "S08A:M4T",
+                "S09A:M4T",
+                "S10A:M4T",
+                "S11A:M4T",
+                "S12A:M4T",
+                "S13A:M4T",
+                "S14A:M4T",
+                "S15A:M4T",
+                "S16A:M4T",
+                "S17A:M4T",
+                "S18A:M4T",
+                "S19A:M4T",
+                "S20A:M4T",
+                "S21A:M4T",
+                "S22A:M4T",
+                "S23A:M4T",
+                "S24A:M4T",
+                "S25A:M4T",
+                "S26A:M4T",
+                "S27A:M4T",
+                "S28A:M4T",
+                "S29A:M4T",
+                "S30A:M4T",
+                "S31A:M4T",
+                "S32A:M4T",
+                "S33A:M4T",
+                "S34A:M4T",
+                "S35A:M4T",
+                "S36A:M4T",
+                "S37A:M4T",
+                "S38A:M4T",
+                "S39A:M4T",
+                "S40A:M4T",
+                "S01A:Q4T",
+                "S02A:Q4T",
+                "S03A:Q4T",
+                "S04A:Q4T",
+                "S05A:Q4T",
+                "S06A:Q4T",
+                "S07A:Q4T",
+                "S08A:Q4T",
+                "S09A:Q4T",
+                "S10A:Q4T",
+                "S11A:Q4T",
+                "S12A:Q4T",
+                "S13A:Q4T",
+                "S14A:Q4T",
+                "S15A:Q4T",
+                "S16A:Q4T",
+                "S17A:Q4T",
+                "S18A:Q4T",
+                "S19A:Q4T",
+                "S20A:Q4T",
+                "S21A:Q4T",
+                "S22A:Q4T",
+                "S23A:Q4T",
+                "S24A:Q4T",
+                "S25A:Q4T",
+                "S26A:Q4T",
+                "S27A:Q4T",
+                "S28A:Q4T",
+                "S29A:Q4T",
+                "S30A:Q4T",
+                "S31A:Q4T",
+                "S32A:Q4T",
+                "S33A:Q4T",
+                "S34A:Q4T",
+                "S35A:Q4T",
+                "S36A:Q4T",
+                "S37A:Q4T",
+                "S38A:Q4T",
+                "S39A:Q4T",
+                "S40A:Q4T",
+                "S01A:Q5T",
+                "S02A:Q5T",
+                "S03A:Q5T",
+                "S04A:Q5T",
+                "S05A:Q5T",
+                "S06A:Q5T",
+                "S07A:Q5T",
+                "S08A:Q5T",
+                "S09A:Q5T",
+                "S10A:Q5T",
+                "S11A:Q5T",
+                "S12A:Q5T",
+                "S13A:Q5T",
+                "S14A:Q5T",
+                "S15A:Q5T",
+                "S16A:Q5T",
+                "S17A:Q5T",
+                "S18A:Q5T",
+                "S19A:Q5T",
+                "S20A:Q5T",
+                "S21A:Q5T",
+                "S22A:Q5T",
+                "S23A:Q5T",
+                "S24A:Q5T",
+                "S25A:Q5T",
+                "S26A:Q5T",
+                "S27A:Q5T",
+                "S28A:Q5T",
+                "S29A:Q5T",
+                "S30A:Q5T",
+                "S31A:Q5T",
+                "S32A:Q5T",
+                "S33A:Q5T",
+                "S34A:Q5T",
+                "S35A:Q5T",
+                "S36A:Q5T",
+                "S37A:Q5T",
+                "S38A:Q5T",
+                "S39A:Q5T",
+                "S40A:Q5T",
+                "S01A:Q8T",
+                "S02A:Q8T",
+                "S03A:Q8T",
+                "S04A:Q8T",
+                "S05A:Q8T",
+                "S06A:Q8T",
+                "S07A:Q8T",
+                "S08A:Q8T",
+                "S09A:Q8T",
+                "S10A:Q8T",
+                "S11A:Q8T",
+                "S12A:Q8T",
+                "S13A:Q8T",
+                "S14A:Q8T",
+                "S15A:Q8T",
+                "S16A:Q8T",
+                "S17A:Q8T",
+                "S18A:Q8T",
+                "S19A:Q8T",
+                "S20A:Q8T",
+                "S21A:Q8T",
+                "S22A:Q8T",
+                "S23A:Q8T",
+                "S24A:Q8T",
+                "S25A:Q8T",
+                "S26A:Q8T",
+                "S27A:Q8T",
+                "S28A:Q8T",
+                "S29A:Q8T",
+                "S30A:Q8T",
+                "S31A:Q8T",
+                "S32A:Q8T",
+                "S33A:Q8T",
+                "S34A:Q8T",
+                "S35A:Q8T",
+                "S36A:Q8T",
+                "S37A:Q8T",
+                "S38A:Q8T",
+                "S39A:Q8T",
+                "S40A:Q8T",
+                "S01B:Q8T",
+                "S02B:Q8T",
+                "S03B:Q8T",
+                "S04B:Q8T",
+                "S05B:Q8T",
+                "S06B:Q8T",
+                "S07B:Q8T",
+                "S08B:Q8T",
+                "S09B:Q8T",
+                "S10B:Q8T",
+                "S11B:Q8T",
+                "S12B:Q8T",
+                "S13B:Q8T",
+                "S14B:Q8T",
+                "S15B:Q8T",
+                "S16B:Q8T",
+                "S17B:Q8T",
+                "S18B:Q8T",
+                "S19B:Q8T",
+                "S20B:Q8T",
+                "S21B:Q8T",
+                "S22B:Q8T",
+                "S23B:Q8T",
+                "S24B:Q8T",
+                "S25B:Q8T",
+                "S26B:Q8T",
+                "S27B:Q8T",
+                "S28B:Q8T",
+                "S29B:Q8T",
+                "S30B:Q8T",
+                "S31B:Q8T",
+                "S32B:Q8T",
+                "S33B:Q8T",
+                "S34B:Q8T",
+                "S35B:Q8T",
+                "S36B:Q8T",
+                "S37B:Q8T",
+                "S38B:Q8T",
+                "S39B:Q8T",
+                "S40B:Q8T",
+                "S01B:Q5T",
+                "S02B:Q5T",
+                "S03B:Q5T",
+                "S04B:Q5T",
+                "S05B:Q5T",
+                "S06B:Q5T",
+                "S07B:Q5T",
+                "S08B:Q5T",
+                "S09B:Q5T",
+                "S10B:Q5T",
+                "S11B:Q5T",
+                "S12B:Q5T",
+                "S13B:Q5T",
+                "S14B:Q5T",
+                "S15B:Q5T",
+                "S16B:Q5T",
+                "S17B:Q5T",
+                "S18B:Q5T",
+                "S19B:Q5T",
+                "S20B:Q5T",
+                "S21B:Q5T",
+                "S22B:Q5T",
+                "S23B:Q5T",
+                "S24B:Q5T",
+                "S25B:Q5T",
+                "S26B:Q5T",
+                "S27B:Q5T",
+                "S28B:Q5T",
+                "S29B:Q5T",
+                "S30B:Q5T",
+                "S31B:Q5T",
+                "S32B:Q5T",
+                "S33B:Q5T",
+                "S34B:Q5T",
+                "S35B:Q5T",
+                "S36B:Q5T",
+                "S37B:Q5T",
+                "S38B:Q5T",
+                "S39B:Q5T",
+                "S40B:Q5T",
+                "S01B:Q4T",
+                "S02B:Q4T",
+                "S03B:Q4T",
+                "S04B:Q4T",
+                "S05B:Q4T",
+                "S06B:Q4T",
+                "S07B:Q4T",
+                "S08B:Q4T",
+                "S09B:Q4T",
+                "S10B:Q4T",
+                "S11B:Q4T",
+                "S12B:Q4T",
+                "S13B:Q4T",
+                "S14B:Q4T",
+                "S15B:Q4T",
+                "S16B:Q4T",
+                "S17B:Q4T",
+                "S18B:Q4T",
+                "S19B:Q4T",
+                "S20B:Q4T",
+                "S21B:Q4T",
+                "S22B:Q4T",
+                "S23B:Q4T",
+                "S24B:Q4T",
+                "S25B:Q4T",
+                "S26B:Q4T",
+                "S27B:Q4T",
+                "S28B:Q4T",
+                "S29B:Q4T",
+                "S30B:Q4T",
+                "S31B:Q4T",
+                "S32B:Q4T",
+                "S33B:Q4T",
+                "S34B:Q4T",
+                "S35B:Q4T",
+                "S36B:Q4T",
+                "S37B:Q4T",
+                "S38B:Q4T",
+                "S39B:Q4T",
+                "S40B:Q4T",
+                "S01B:M3T",
+                "S02B:M3T",
+                "S03B:M3T",
+                "S04B:M3T",
+                "S05B:M3T",
+                "S06B:M3T",
+                "S07B:M3T",
+                "S08B:M3T",
+                "S09B:M3T",
+                "S10B:M3T",
+                "S11B:M3T",
+                "S12B:M3T",
+                "S13B:M3T",
+                "S14B:M3T",
+                "S15B:M3T",
+                "S16B:M3T",
+                "S17B:M3T",
+                "S18B:M3T",
+                "S19B:M3T",
+                "S20B:M3T",
+                "S21B:M3T",
+                "S22B:M3T",
+                "S23B:M3T",
+                "S24B:M3T",
+                "S25B:M3T",
+                "S26B:M3T",
+                "S27B:M3T",
+                "S28B:M3T",
+                "S29B:M3T",
+                "S30B:M3T",
+                "S31B:M3T",
+                "S32B:M3T",
+                "S33B:M3T",
+                "S34B:M3T",
+                "S35B:M3T",
+                "S36B:M3T",
+                "S37B:M3T",
+                "S38B:M3T",
+                "S39B:M3T",
+                "S40B:M3T"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":PS:SetCurrentC": {
+                "_description": "setpoint"
+              },
+              ":PS:SetCurrentM": {
+                "_description": "setpoint readback"
+              },
+              ":PS:MeasCurrentM": {
+                "_description": "current, current readback, internal current"
+              },
+              ":DCCT:CurrentM": {
+                "_description": "DCCT output, DCCT current, external current"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":PS:VoltageM": {
+                "_description": "Output voltage, voltage"
+              }
+            },
+            "TEMPERATURE": {
+              "_description": "Temperature measurements",
+              ":PS:CapacitorTempM": {
+                "_description": "Capacitor Temperature"
+              },
+              ":PS:HeatSinkTempM": {
+                "_description": "Heatsink Temperature"
+              },
+              ":PS:DampResTempM": {
+                "_description": "Damping Resistor Temperature"
+              },
+              ":PS:Fan1SpeedM": {
+                "_description": "Fan 1 speed"
+              },
+              ":PS:Fan2SpeedM": {
+                "_description": "Fan 2 speed"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":PS:PowerSupplyIdM": {
+                "_description": "PSID"
+              },
+              ":PS:FaultStatusM": {
+                "_description": "Faults"
+              },
+              ":PS:OnOffStatusM": {
+                "_description": "OnOffStatus"
+              }
+            },
+            "TOLERANCE": {
+              "_description": "Tolerance settings",
+              ":PS:ToleranceM": {
+                "_description": "Tolerance"
+              }
+            }
+          }
+        },
+        "DIPOLE_CM1": {
+          "_description": "C-Girder Dipoles (DIPOLE_CM1): Sector C:M1 dipoles in select sectors.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S02C:M1",
+                "S06C:M1",
+                "S11C:M1",
+                "S12C:M1",
+                "S13C:M1",
+                "S21C:M1",
+                "S22C:M1",
+                "S23C:M1",
+                "S24C:M1",
+                "S25C:M1",
+                "S28C:M1",
+                "S31C:M1",
+                "S32C:M1",
+                "S34C:M1"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":PS:SetCurrentC": {
+                "_description": "setpoint"
+              },
+              ":PS:SetCurrentM": {
+                "_description": "setpoint readback"
+              },
+              ":PS:MeasCurrentM": {
+                "_description": "current, current readback, internal current"
+              },
+              ":DCCT:CurrentM": {
+                "_description": "DCCT output, DCCT current, external current"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":PS:VoltageM": {
+                "_description": "Output voltage, voltage"
+              }
+            },
+            "TEMPERATURE": {
+              "_description": "Temperature measurements",
+              ":PS:CapacitorTempM": {
+                "_description": "Capacitor Temperature"
+              },
+              ":PS:HeatSinkTempM": {
+                "_description": "Heatsink Temperature"
+              },
+              ":PS:DampResTempM": {
+                "_description": "Damping Resistor Temperature"
+              },
+              ":PS:Fan1SpeedM": {
+                "_description": "Fan 1 speed"
+              },
+              ":PS:Fan2SpeedM": {
+                "_description": "Fan 2 speed"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":PS:PowerSupplyIdM": {
+                "_description": "PSID"
+              },
+              ":PS:FaultStatusM": {
+                "_description": "Faults"
+              },
+              ":PS:OnOffStatusM": {
+                "_description": "OnOffStatus"
+              }
+            },
+            "TOLERANCE": {
+              "_description": "Tolerance settings",
+              ":PS:ToleranceM": {
+                "_description": "Tolerance"
+              }
+            }
+          }
+        },
+        "QUAD": {
+          "_description": "Quadrupoles (QUAD): Individual focusing magnets. Q1, Q2, Q3, Q6, Q7 on A/B girders. Control betatron tune.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S01A:Q1",
+                "S02A:Q1",
+                "S03A:Q1",
+                "S04A:Q1",
+                "S05A:Q1",
+                "S06A:Q1",
+                "S07A:Q1",
+                "S08A:Q1",
+                "S09A:Q1",
+                "S10A:Q1",
+                "S11A:Q1",
+                "S12A:Q1",
+                "S13A:Q1",
+                "S14A:Q1",
+                "S15A:Q1",
+                "S16A:Q1",
+                "S17A:Q1",
+                "S18A:Q1",
+                "S19A:Q1",
+                "S20A:Q1",
+                "S21A:Q1",
+                "S22A:Q1",
+                "S23A:Q1",
+                "S24A:Q1",
+                "S25A:Q1",
+                "S26A:Q1",
+                "S27A:Q1",
+                "S28A:Q1",
+                "S29A:Q1",
+                "S30A:Q1",
+                "S31A:Q1",
+                "S32A:Q1",
+                "S33A:Q1",
+                "S34A:Q1",
+                "S35A:Q1",
+                "S36A:Q1",
+                "S37A:Q1",
+                "S38A:Q1",
+                "S39A:Q1",
+                "S40A:Q1",
+                "S01A:Q2",
+                "S02A:Q2",
+                "S03A:Q2",
+                "S04A:Q2",
+                "S05A:Q2",
+                "S06A:Q2",
+                "S07A:Q2",
+                "S08A:Q2",
+                "S09A:Q2",
+                "S10A:Q2",
+                "S11A:Q2",
+                "S12A:Q2",
+                "S13A:Q2",
+                "S14A:Q2",
+                "S15A:Q2",
+                "S16A:Q2",
+                "S17A:Q2",
+                "S18A:Q2",
+                "S19A:Q2",
+                "S20A:Q2",
+                "S21A:Q2",
+                "S22A:Q2",
+                "S23A:Q2",
+                "S24A:Q2",
+                "S25A:Q2",
+                "S26A:Q2",
+                "S27A:Q2",
+                "S28A:Q2",
+                "S29A:Q2",
+                "S30A:Q2",
+                "S31A:Q2",
+                "S32A:Q2",
+                "S33A:Q2",
+                "S34A:Q2",
+                "S35A:Q2",
+                "S36A:Q2",
+                "S37A:Q2",
+                "S38A:Q2",
+                "S39A:Q2",
+                "S40A:Q2",
+                "S01A:Q3",
+                "S02A:Q3",
+                "S03A:Q3",
+                "S04A:Q3",
+                "S05A:Q3",
+                "S06A:Q3",
+                "S07A:Q3",
+                "S08A:Q3",
+                "S09A:Q3",
+                "S10A:Q3",
+                "S11A:Q3",
+                "S12A:Q3",
+                "S13A:Q3",
+                "S14A:Q3",
+                "S15A:Q3",
+                "S16A:Q3",
+                "S17A:Q3",
+                "S18A:Q3",
+                "S19A:Q3",
+                "S20A:Q3",
+                "S21A:Q3",
+                "S22A:Q3",
+                "S23A:Q3",
+                "S24A:Q3",
+                "S25A:Q3",
+                "S26A:Q3",
+                "S27A:Q3",
+                "S28A:Q3",
+                "S29A:Q3",
+                "S30A:Q3",
+                "S31A:Q3",
+                "S32A:Q3",
+                "S33A:Q3",
+                "S34A:Q3",
+                "S35A:Q3",
+                "S36A:Q3",
+                "S37A:Q3",
+                "S38A:Q3",
+                "S39A:Q3",
+                "S40A:Q3",
+                "S01A:Q6",
+                "S02A:Q6",
+                "S03A:Q6",
+                "S04A:Q6",
+                "S05A:Q6",
+                "S06A:Q6",
+                "S07A:Q6",
+                "S08A:Q6",
+                "S09A:Q6",
+                "S10A:Q6",
+                "S11A:Q6",
+                "S12A:Q6",
+                "S13A:Q6",
+                "S14A:Q6",
+                "S15A:Q6",
+                "S16A:Q6",
+                "S17A:Q6",
+                "S18A:Q6",
+                "S19A:Q6",
+                "S20A:Q6",
+                "S21A:Q6",
+                "S22A:Q6",
+                "S23A:Q6",
+                "S24A:Q6",
+                "S25A:Q6",
+                "S26A:Q6",
+                "S27A:Q6",
+                "S28A:Q6",
+                "S29A:Q6",
+                "S30A:Q6",
+                "S31A:Q6",
+                "S32A:Q6",
+                "S33A:Q6",
+                "S34A:Q6",
+                "S35A:Q6",
+                "S36A:Q6",
+                "S37A:Q6",
+                "S38A:Q6",
+                "S39A:Q6",
+                "S40A:Q6",
+                "S01A:Q7",
+                "S02A:Q7",
+                "S03A:Q7",
+                "S04A:Q7",
+                "S05A:Q7",
+                "S06A:Q7",
+                "S07A:Q7",
+                "S08A:Q7",
+                "S09A:Q7",
+                "S10A:Q7",
+                "S11A:Q7",
+                "S12A:Q7",
+                "S13A:Q7",
+                "S14A:Q7",
+                "S15A:Q7",
+                "S16A:Q7",
+                "S17A:Q7",
+                "S18A:Q7",
+                "S19A:Q7",
+                "S20A:Q7",
+                "S21A:Q7",
+                "S22A:Q7",
+                "S23A:Q7",
+                "S24A:Q7",
+                "S25A:Q7",
+                "S26A:Q7",
+                "S27A:Q7",
+                "S28A:Q7",
+                "S29A:Q7",
+                "S30A:Q7",
+                "S31A:Q7",
+                "S32A:Q7",
+                "S33A:Q7",
+                "S34A:Q7",
+                "S35A:Q7",
+                "S36A:Q7",
+                "S37A:Q7",
+                "S38A:Q7",
+                "S39A:Q7",
+                "S40A:Q7",
+                "S01B:Q1",
+                "S02B:Q1",
+                "S03B:Q1",
+                "S04B:Q1",
+                "S05B:Q1",
+                "S06B:Q1",
+                "S07B:Q1",
+                "S08B:Q1",
+                "S09B:Q1",
+                "S10B:Q1",
+                "S11B:Q1",
+                "S12B:Q1",
+                "S13B:Q1",
+                "S14B:Q1",
+                "S15B:Q1",
+                "S16B:Q1",
+                "S17B:Q1",
+                "S18B:Q1",
+                "S19B:Q1",
+                "S20B:Q1",
+                "S21B:Q1",
+                "S22B:Q1",
+                "S23B:Q1",
+                "S24B:Q1",
+                "S25B:Q1",
+                "S26B:Q1",
+                "S27B:Q1",
+                "S28B:Q1",
+                "S29B:Q1",
+                "S30B:Q1",
+                "S31B:Q1",
+                "S32B:Q1",
+                "S33B:Q1",
+                "S34B:Q1",
+                "S35B:Q1",
+                "S36B:Q1",
+                "S37B:Q1",
+                "S38B:Q1",
+                "S39B:Q1",
+                "S40B:Q1",
+                "S01B:Q2",
+                "S02B:Q2",
+                "S03B:Q2",
+                "S04B:Q2",
+                "S05B:Q2",
+                "S06B:Q2",
+                "S07B:Q2",
+                "S08B:Q2",
+                "S09B:Q2",
+                "S10B:Q2",
+                "S11B:Q2",
+                "S12B:Q2",
+                "S13B:Q2",
+                "S14B:Q2",
+                "S15B:Q2",
+                "S16B:Q2",
+                "S17B:Q2",
+                "S18B:Q2",
+                "S19B:Q2",
+                "S20B:Q2",
+                "S21B:Q2",
+                "S22B:Q2",
+                "S23B:Q2",
+                "S24B:Q2",
+                "S25B:Q2",
+                "S26B:Q2",
+                "S27B:Q2",
+                "S28B:Q2",
+                "S29B:Q2",
+                "S30B:Q2",
+                "S31B:Q2",
+                "S32B:Q2",
+                "S33B:Q2",
+                "S34B:Q2",
+                "S35B:Q2",
+                "S36B:Q2",
+                "S37B:Q2",
+                "S38B:Q2",
+                "S39B:Q2",
+                "S40B:Q2",
+                "S01B:Q3",
+                "S02B:Q3",
+                "S03B:Q3",
+                "S04B:Q3",
+                "S05B:Q3",
+                "S06B:Q3",
+                "S07B:Q3",
+                "S08B:Q3",
+                "S09B:Q3",
+                "S10B:Q3",
+                "S11B:Q3",
+                "S12B:Q3",
+                "S13B:Q3",
+                "S14B:Q3",
+                "S15B:Q3",
+                "S16B:Q3",
+                "S17B:Q3",
+                "S18B:Q3",
+                "S19B:Q3",
+                "S20B:Q3",
+                "S21B:Q3",
+                "S22B:Q3",
+                "S23B:Q3",
+                "S24B:Q3",
+                "S25B:Q3",
+                "S26B:Q3",
+                "S27B:Q3",
+                "S28B:Q3",
+                "S29B:Q3",
+                "S30B:Q3",
+                "S31B:Q3",
+                "S32B:Q3",
+                "S33B:Q3",
+                "S34B:Q3",
+                "S35B:Q3",
+                "S36B:Q3",
+                "S37B:Q3",
+                "S38B:Q3",
+                "S39B:Q3",
+                "S40B:Q3",
+                "S01B:Q6",
+                "S02B:Q6",
+                "S03B:Q6",
+                "S04B:Q6",
+                "S05B:Q6",
+                "S06B:Q6",
+                "S07B:Q6",
+                "S08B:Q6",
+                "S09B:Q6",
+                "S10B:Q6",
+                "S11B:Q6",
+                "S12B:Q6",
+                "S13B:Q6",
+                "S14B:Q6",
+                "S15B:Q6",
+                "S16B:Q6",
+                "S17B:Q6",
+                "S18B:Q6",
+                "S19B:Q6",
+                "S20B:Q6",
+                "S21B:Q6",
+                "S22B:Q6",
+                "S23B:Q6",
+                "S24B:Q6",
+                "S25B:Q6",
+                "S26B:Q6",
+                "S27B:Q6",
+                "S28B:Q6",
+                "S29B:Q6",
+                "S30B:Q6",
+                "S31B:Q6",
+                "S32B:Q6",
+                "S33B:Q6",
+                "S34B:Q6",
+                "S35B:Q6",
+                "S36B:Q6",
+                "S37B:Q6",
+                "S38B:Q6",
+                "S39B:Q6",
+                "S40B:Q6",
+                "S01A:Q7",
+                "S02A:Q7",
+                "S03A:Q7",
+                "S04A:Q7",
+                "S05A:Q7",
+                "S06A:Q7",
+                "S07A:Q7",
+                "S08A:Q7",
+                "S09A:Q7",
+                "S10A:Q7",
+                "S11A:Q7",
+                "S12A:Q7",
+                "S13A:Q7",
+                "S14A:Q7",
+                "S15A:Q7",
+                "S16A:Q7",
+                "S17A:Q7",
+                "S18A:Q7",
+                "S19A:Q7",
+                "S20A:Q7",
+                "S21A:Q7",
+                "S22A:Q7",
+                "S23A:Q7",
+                "S24A:Q7",
+                "S25A:Q7",
+                "S26A:Q7",
+                "S27A:Q7",
+                "S28A:Q7",
+                "S29A:Q7",
+                "S30A:Q7",
+                "S31A:Q7",
+                "S32A:Q7",
+                "S33A:Q7",
+                "S34A:Q7",
+                "S35A:Q7",
+                "S36A:Q7",
+                "S37A:Q7",
+                "S38A:Q7",
+                "S39A:Q7",
+                "S40A:Q7"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":PS:SetCurrentC": {
+                "_description": "setpoint"
+              },
+              ":PS:MeasCurrentM": {
+                "_description": "current, current readback, internal current"
+              },
+              ":DCCT:CurrentM": {
+                "_description": "DCCT output, DCCT current, external current"
+              },
+              ":PS:SlewRateC": {
+                "_description": "Slew Rate Setpoint"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":PS:VoltageM": {
+                "_description": "Output voltage, voltage"
+              }
+            },
+            "TEMPERATURE": {
+              "_description": "Temperature measurements",
+              ":PS:CapacitorTempM": {
+                "_description": "Capacitor Temperature"
+              },
+              ":PS:BuckTempM": {
+                "_description": "Buck Temperature"
+              },
+              ":TemperatureM": {
+                "_description": "Magnet Temperature"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":PS:FaultStatusM": {
+                "_description": "Faults"
+              },
+              ":PS:OnOffM": {
+                "_description": "OnOffStatus"
+              }
+            },
+            "SLEW_RATE": {
+              "_description": "Slew rate settings",
+              ":PS:SlewRateM": {
+                "_description": "Slew Rate"
+              }
+            },
+            "TOLERANCE": {
+              "_description": "Tolerance settings",
+              ":PS:ToleranceM": {
+                "_description": "Tolerance"
+              }
+            }
+          }
+        },
+        "SEXT": {
+          "_description": "Sextupoles (SEXT): Chromaticity correction magnets. S1, S2, S3 on A/B girders.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S01A:S1",
+                "S02A:S1",
+                "S03A:S1",
+                "S04A:S1",
+                "S05A:S1",
+                "S06A:S1",
+                "S07A:S1",
+                "S08A:S1",
+                "S09A:S1",
+                "S10A:S1",
+                "S11A:S1",
+                "S12A:S1",
+                "S13A:S1",
+                "S14A:S1",
+                "S15A:S1",
+                "S16A:S1",
+                "S17A:S1",
+                "S18A:S1",
+                "S19A:S1",
+                "S20A:S1",
+                "S21A:S1",
+                "S22A:S1",
+                "S23A:S1",
+                "S24A:S1",
+                "S25A:S1",
+                "S26A:S1",
+                "S27A:S1",
+                "S28A:S1",
+                "S29A:S1",
+                "S30A:S1",
+                "S31A:S1",
+                "S32A:S1",
+                "S33A:S1",
+                "S34A:S1",
+                "S35A:S1",
+                "S36A:S1",
+                "S37A:S1",
+                "S38A:S1",
+                "S39A:S1",
+                "S40A:S1",
+                "S01A:S2",
+                "S02A:S2",
+                "S03A:S2",
+                "S04A:S2",
+                "S05A:S2",
+                "S06A:S2",
+                "S07A:S2",
+                "S08A:S2",
+                "S09A:S2",
+                "S10A:S2",
+                "S11A:S2",
+                "S12A:S2",
+                "S13A:S2",
+                "S14A:S2",
+                "S15A:S2",
+                "S16A:S2",
+                "S17A:S2",
+                "S18A:S2",
+                "S19A:S2",
+                "S20A:S2",
+                "S21A:S2",
+                "S22A:S2",
+                "S23A:S2",
+                "S24A:S2",
+                "S25A:S2",
+                "S26A:S2",
+                "S27A:S2",
+                "S28A:S2",
+                "S29A:S2",
+                "S30A:S2",
+                "S31A:S2",
+                "S32A:S2",
+                "S33A:S2",
+                "S34A:S2",
+                "S35A:S2",
+                "S36A:S2",
+                "S37A:S2",
+                "S38A:S2",
+                "S39A:S2",
+                "S40A:S2",
+                "S01A:S3",
+                "S02A:S3",
+                "S03A:S3",
+                "S04A:S3",
+                "S05A:S3",
+                "S06A:S3",
+                "S07A:S3",
+                "S08A:S3",
+                "S09A:S3",
+                "S10A:S3",
+                "S11A:S3",
+                "S12A:S3",
+                "S13A:S3",
+                "S14A:S3",
+                "S15A:S3",
+                "S16A:S3",
+                "S17A:S3",
+                "S18A:S3",
+                "S19A:S3",
+                "S20A:S3",
+                "S21A:S3",
+                "S22A:S3",
+                "S23A:S3",
+                "S24A:S3",
+                "S25A:S3",
+                "S26A:S3",
+                "S27A:S3",
+                "S28A:S3",
+                "S29A:S3",
+                "S30A:S3",
+                "S31A:S3",
+                "S32A:S3",
+                "S33A:S3",
+                "S34A:S3",
+                "S35A:S3",
+                "S36A:S3",
+                "S37A:S3",
+                "S38A:S3",
+                "S39A:S3",
+                "S40A:S3",
+                "S01B:S3",
+                "S02B:S3",
+                "S03B:S3",
+                "S04B:S3",
+                "S05B:S3",
+                "S06B:S3",
+                "S07B:S3",
+                "S08B:S3",
+                "S09B:S3",
+                "S10B:S3",
+                "S11B:S3",
+                "S12B:S3",
+                "S13B:S3",
+                "S14B:S3",
+                "S15B:S3",
+                "S16B:S3",
+                "S17B:S3",
+                "S18B:S3",
+                "S19B:S3",
+                "S20B:S3",
+                "S21B:S3",
+                "S22B:S3",
+                "S23B:S3",
+                "S24B:S3",
+                "S25B:S3",
+                "S26B:S3",
+                "S27B:S3",
+                "S28B:S3",
+                "S29B:S3",
+                "S30B:S3",
+                "S31B:S3",
+                "S32B:S3",
+                "S33B:S3",
+                "S34B:S3",
+                "S35B:S3",
+                "S36B:S3",
+                "S37B:S3",
+                "S38B:S3",
+                "S39B:S3",
+                "S40B:S3",
+                "S01B:S2",
+                "S02B:S2",
+                "S03B:S2",
+                "S04B:S2",
+                "S05B:S2",
+                "S06B:S2",
+                "S07B:S2",
+                "S08B:S2",
+                "S09B:S2",
+                "S10B:S2",
+                "S11B:S2",
+                "S12B:S2",
+                "S13B:S2",
+                "S14B:S2",
+                "S15B:S2",
+                "S16B:S2",
+                "S17B:S2",
+                "S18B:S2",
+                "S19B:S2",
+                "S20B:S2",
+                "S21B:S2",
+                "S22B:S2",
+                "S23B:S2",
+                "S24B:S2",
+                "S25B:S2",
+                "S26B:S2",
+                "S27B:S2",
+                "S28B:S2",
+                "S29B:S2",
+                "S30B:S2",
+                "S31B:S2",
+                "S32B:S2",
+                "S33B:S2",
+                "S34B:S2",
+                "S35B:S2",
+                "S36B:S2",
+                "S37B:S2",
+                "S38B:S2",
+                "S39B:S2",
+                "S40B:S2",
+                "S01B:S1",
+                "S02B:S1",
+                "S03B:S1",
+                "S04B:S1",
+                "S05B:S1",
+                "S06B:S1",
+                "S07B:S1",
+                "S08B:S1",
+                "S09B:S1",
+                "S10B:S1",
+                "S11B:S1",
+                "S12B:S1",
+                "S13B:S1",
+                "S14B:S1",
+                "S15B:S1",
+                "S16B:S1",
+                "S17B:S1",
+                "S18B:S1",
+                "S19B:S1",
+                "S20B:S1",
+                "S21B:S1",
+                "S22B:S1",
+                "S23B:S1",
+                "S24B:S1",
+                "S25B:S1",
+                "S26B:S1",
+                "S27B:S1",
+                "S28B:S1",
+                "S29B:S1",
+                "S30B:S1",
+                "S31B:S1",
+                "S32B:S1",
+                "S33B:S1",
+                "S34B:S1",
+                "S35B:S1",
+                "S36B:S1",
+                "S37B:S1",
+                "S38B:S1",
+                "S39B:S1",
+                "S40B:S1"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":PS:SetCurrentC": {
+                "_description": "setpoint"
+              },
+              ":PS:MeasCurrentM": {
+                "_description": "current, current readback, internal current"
+              },
+              ":DCCT:CurrentM": {
+                "_description": "DCCT output, DCCT current, external current"
+              },
+              ":PS:SlewRateC": {
+                "_description": "Slew Rate Setpoint"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":PS:VoltageM": {
+                "_description": "Output voltage, voltage"
+              }
+            },
+            "TEMPERATURE": {
+              "_description": "Temperature measurements",
+              ":PS:CapacitorTempM": {
+                "_description": "Capacitor Temperature"
+              },
+              ":PS:BuckTempM": {
+                "_description": "Buck Temperature"
+              },
+              ":TemperatureM": {
+                "_description": "Magnet Temperature"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":PS:FaultStatusM": {
+                "_description": "Faults"
+              },
+              ":PS:OnOffM": {
+                "_description": "OnOffStatus"
+              }
+            },
+            "SLEW_RATE": {
+              "_description": "Slew rate settings",
+              ":PS:SlewRateM": {
+                "_description": "Slew Rate"
+              }
+            },
+            "TOLERANCE": {
+              "_description": "Tolerance settings",
+              ":PS:ToleranceM": {
+                "_description": "Tolerance"
+              }
+            }
+          }
+        },
+        "DIPOLE": {
+          "_description": "Sector Dipoles (DIPOLE): Main bending magnets per sector. M3, M4, Q4, Q5, Q8 on A/B girders.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S01A:M3",
+                "S02A:M3",
+                "S03A:M3",
+                "S04A:M3",
+                "S05A:M3",
+                "S06A:M3",
+                "S07A:M3",
+                "S08A:M3",
+                "S09A:M3",
+                "S10A:M3",
+                "S11A:M3",
+                "S12A:M3",
+                "S13A:M3",
+                "S14A:M3",
+                "S15A:M3",
+                "S16A:M3",
+                "S17A:M3",
+                "S18A:M3",
+                "S19A:M3",
+                "S20A:M3",
+                "S21A:M3",
+                "S22A:M3",
+                "S23A:M3",
+                "S24A:M3",
+                "S25A:M3",
+                "S26A:M3",
+                "S27A:M3",
+                "S28A:M3",
+                "S29A:M3",
+                "S30A:M3",
+                "S31A:M3",
+                "S32A:M3",
+                "S33A:M3",
+                "S34A:M3",
+                "S35A:M3",
+                "S36A:M3",
+                "S37A:M3",
+                "S38A:M3",
+                "S39A:M3",
+                "S40A:M3",
+                "S01A:M4",
+                "S02A:M4",
+                "S03A:M4",
+                "S04A:M4",
+                "S05A:M4",
+                "S06A:M4",
+                "S07A:M4",
+                "S08A:M4",
+                "S09A:M4",
+                "S10A:M4",
+                "S11A:M4",
+                "S12A:M4",
+                "S13A:M4",
+                "S14A:M4",
+                "S15A:M4",
+                "S16A:M4",
+                "S17A:M4",
+                "S18A:M4",
+                "S19A:M4",
+                "S20A:M4",
+                "S21A:M4",
+                "S22A:M4",
+                "S23A:M4",
+                "S24A:M4",
+                "S25A:M4",
+                "S26A:M4",
+                "S27A:M4",
+                "S28A:M4",
+                "S29A:M4",
+                "S30A:M4",
+                "S31A:M4",
+                "S32A:M4",
+                "S33A:M4",
+                "S34A:M4",
+                "S35A:M4",
+                "S36A:M4",
+                "S37A:M4",
+                "S38A:M4",
+                "S39A:M4",
+                "S40A:M4",
+                "S01A:Q4",
+                "S02A:Q4",
+                "S03A:Q4",
+                "S04A:Q4",
+                "S05A:Q4",
+                "S06A:Q4",
+                "S07A:Q4",
+                "S08A:Q4",
+                "S09A:Q4",
+                "S10A:Q4",
+                "S11A:Q4",
+                "S12A:Q4",
+                "S13A:Q4",
+                "S14A:Q4",
+                "S15A:Q4",
+                "S16A:Q4",
+                "S17A:Q4",
+                "S18A:Q4",
+                "S19A:Q4",
+                "S20A:Q4",
+                "S21A:Q4",
+                "S22A:Q4",
+                "S23A:Q4",
+                "S24A:Q4",
+                "S25A:Q4",
+                "S26A:Q4",
+                "S27A:Q4",
+                "S28A:Q4",
+                "S29A:Q4",
+                "S30A:Q4",
+                "S31A:Q4",
+                "S32A:Q4",
+                "S33A:Q4",
+                "S34A:Q4",
+                "S35A:Q4",
+                "S36A:Q4",
+                "S37A:Q4",
+                "S38A:Q4",
+                "S39A:Q4",
+                "S40A:Q4",
+                "S01A:Q5",
+                "S02A:Q5",
+                "S03A:Q5",
+                "S04A:Q5",
+                "S05A:Q5",
+                "S06A:Q5",
+                "S07A:Q5",
+                "S08A:Q5",
+                "S09A:Q5",
+                "S10A:Q5",
+                "S11A:Q5",
+                "S12A:Q5",
+                "S13A:Q5",
+                "S14A:Q5",
+                "S15A:Q5",
+                "S16A:Q5",
+                "S17A:Q5",
+                "S18A:Q5",
+                "S19A:Q5",
+                "S20A:Q5",
+                "S21A:Q5",
+                "S22A:Q5",
+                "S23A:Q5",
+                "S24A:Q5",
+                "S25A:Q5",
+                "S26A:Q5",
+                "S27A:Q5",
+                "S28A:Q5",
+                "S29A:Q5",
+                "S30A:Q5",
+                "S31A:Q5",
+                "S32A:Q5",
+                "S33A:Q5",
+                "S34A:Q5",
+                "S35A:Q5",
+                "S36A:Q5",
+                "S37A:Q5",
+                "S38A:Q5",
+                "S39A:Q5",
+                "S40A:Q5",
+                "S01A:Q8",
+                "S02A:Q8",
+                "S03A:Q8",
+                "S04A:Q8",
+                "S05A:Q8",
+                "S06A:Q8",
+                "S07A:Q8",
+                "S08A:Q8",
+                "S09A:Q8",
+                "S10A:Q8",
+                "S11A:Q8",
+                "S12A:Q8",
+                "S13A:Q8",
+                "S14A:Q8",
+                "S15A:Q8",
+                "S16A:Q8",
+                "S17A:Q8",
+                "S18A:Q8",
+                "S19A:Q8",
+                "S20A:Q8",
+                "S21A:Q8",
+                "S22A:Q8",
+                "S23A:Q8",
+                "S24A:Q8",
+                "S25A:Q8",
+                "S26A:Q8",
+                "S27A:Q8",
+                "S28A:Q8",
+                "S29A:Q8",
+                "S30A:Q8",
+                "S31A:Q8",
+                "S32A:Q8",
+                "S33A:Q8",
+                "S34A:Q8",
+                "S35A:Q8",
+                "S36A:Q8",
+                "S37A:Q8",
+                "S38A:Q8",
+                "S39A:Q8",
+                "S40A:Q8",
+                "S01B:Q8",
+                "S02B:Q8",
+                "S03B:Q8",
+                "S04B:Q8",
+                "S05B:Q8",
+                "S06B:Q8",
+                "S07B:Q8",
+                "S08B:Q8",
+                "S09B:Q8",
+                "S10B:Q8",
+                "S11B:Q8",
+                "S12B:Q8",
+                "S13B:Q8",
+                "S14B:Q8",
+                "S15B:Q8",
+                "S16B:Q8",
+                "S17B:Q8",
+                "S18B:Q8",
+                "S19B:Q8",
+                "S20B:Q8",
+                "S21B:Q8",
+                "S22B:Q8",
+                "S23B:Q8",
+                "S24B:Q8",
+                "S25B:Q8",
+                "S26B:Q8",
+                "S27B:Q8",
+                "S28B:Q8",
+                "S29B:Q8",
+                "S30B:Q8",
+                "S31B:Q8",
+                "S32B:Q8",
+                "S33B:Q8",
+                "S34B:Q8",
+                "S35B:Q8",
+                "S36B:Q8",
+                "S37B:Q8",
+                "S38B:Q8",
+                "S39B:Q8",
+                "S40B:Q8",
+                "S01B:Q5",
+                "S02B:Q5",
+                "S03B:Q5",
+                "S04B:Q5",
+                "S05B:Q5",
+                "S06B:Q5",
+                "S07B:Q5",
+                "S08B:Q5",
+                "S09B:Q5",
+                "S10B:Q5",
+                "S11B:Q5",
+                "S12B:Q5",
+                "S13B:Q5",
+                "S14B:Q5",
+                "S15B:Q5",
+                "S16B:Q5",
+                "S17B:Q5",
+                "S18B:Q5",
+                "S19B:Q5",
+                "S20B:Q5",
+                "S21B:Q5",
+                "S22B:Q5",
+                "S23B:Q5",
+                "S24B:Q5",
+                "S25B:Q5",
+                "S26B:Q5",
+                "S27B:Q5",
+                "S28B:Q5",
+                "S29B:Q5",
+                "S30B:Q5",
+                "S31B:Q5",
+                "S32B:Q5",
+                "S33B:Q5",
+                "S34B:Q5",
+                "S35B:Q5",
+                "S36B:Q5",
+                "S37B:Q5",
+                "S38B:Q5",
+                "S39B:Q5",
+                "S40B:Q5",
+                "S01B:Q4",
+                "S02B:Q4",
+                "S03B:Q4",
+                "S04B:Q4",
+                "S05B:Q4",
+                "S06B:Q4",
+                "S07B:Q4",
+                "S08B:Q4",
+                "S09B:Q4",
+                "S10B:Q4",
+                "S11B:Q4",
+                "S12B:Q4",
+                "S13B:Q4",
+                "S14B:Q4",
+                "S15B:Q4",
+                "S16B:Q4",
+                "S17B:Q4",
+                "S18B:Q4",
+                "S19B:Q4",
+                "S20B:Q4",
+                "S21B:Q4",
+                "S22B:Q4",
+                "S23B:Q4",
+                "S24B:Q4",
+                "S25B:Q4",
+                "S26B:Q4",
+                "S27B:Q4",
+                "S28B:Q4",
+                "S29B:Q4",
+                "S30B:Q4",
+                "S31B:Q4",
+                "S32B:Q4",
+                "S33B:Q4",
+                "S34B:Q4",
+                "S35B:Q4",
+                "S36B:Q4",
+                "S37B:Q4",
+                "S38B:Q4",
+                "S39B:Q4",
+                "S40B:Q4",
+                "S01B:M3",
+                "S02B:M3",
+                "S03B:M3",
+                "S04B:M3",
+                "S05B:M3",
+                "S06B:M3",
+                "S07B:M3",
+                "S08B:M3",
+                "S09B:M3",
+                "S10B:M3",
+                "S11B:M3",
+                "S12B:M3",
+                "S13B:M3",
+                "S14B:M3",
+                "S15B:M3",
+                "S16B:M3",
+                "S17B:M3",
+                "S18B:M3",
+                "S19B:M3",
+                "S20B:M3",
+                "S21B:M3",
+                "S22B:M3",
+                "S23B:M3",
+                "S24B:M3",
+                "S25B:M3",
+                "S26B:M3",
+                "S27B:M3",
+                "S28B:M3",
+                "S29B:M3",
+                "S30B:M3",
+                "S31B:M3",
+                "S32B:M3",
+                "S33B:M3",
+                "S34B:M3",
+                "S35B:M3",
+                "S36B:M3",
+                "S37B:M3",
+                "S38B:M3",
+                "S39B:M3",
+                "S40B:M3"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":PS:SetCurrentC": {
+                "_description": "setpoint"
+              },
+              ":PS:MeasCurrentM": {
+                "_description": "current, current readback, internal current"
+              },
+              ":DCCT:CurrentM": {
+                "_description": "DCCT output, DCCT current, external current"
+              },
+              ":PS:SlewRateC": {
+                "_description": "Slew Rate Setpoint"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":PS:VoltageM": {
+                "_description": "Output voltage, voltage"
+              }
+            },
+            "TEMPERATURE": {
+              "_description": "Temperature measurements",
+              ":PS:CapacitorTempM": {
+                "_description": "Capacitor Temperature"
+              },
+              ":PS:BuckTempM": {
+                "_description": "Buck Temperature"
+              },
+              ":TemperatureM": {
+                "_description": "Magnet Temperature"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":PS:FaultStatusM": {
+                "_description": "Faults"
+              },
+              ":PS:OnOffM": {
+                "_description": "OnOffStatus"
+              }
+            },
+            "SLEW_RATE": {
+              "_description": "Slew rate settings",
+              ":PS:SlewRateM": {
+                "_description": "Slew Rate"
+              }
+            },
+            "TOLERANCE": {
+              "_description": "Tolerance settings",
+              ":PS:ToleranceM": {
+                "_description": "Tolerance"
+              }
+            }
+          }
+        },
+        "MAIN_DIPOLE_M1": {
+          "_description": "Main 1 Dipole (M1): Primary ring-wide bending magnet supply S:M1.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S:M1"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":PS:SetCurrentC": {
+                "_description": "setpoint"
+              },
+              ":PS:MeasCurrentM": {
+                "_description": "current, current readback"
+              },
+              ":PS:SlewRateC": {
+                "_description": "Slew Rate Setpoint"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":PS:DCBusVoltM": {
+                "_description": "DC voltage"
+              },
+              ":PS:MeasVoltageM": {
+                "_description": "Output voltage, voltage"
+              },
+              ":PS:DCLinkM": {
+                "_description": "DC Link OnOff status"
+              }
+            },
+            "POWER": {
+              "_description": "Power measurements",
+              ":PS:MeasPowerM": {
+                "_description": "Output power"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":PS:OnOffM": {
+                "_description": "OnOffStatus"
+              }
+            },
+            "SLEW_RATE": {
+              "_description": "Slew rate settings",
+              ":PS:SlewRateM": {
+                "_description": "Slew Rate"
+              }
+            }
+          }
+        },
+        "MAIN_DIPOLE_M2": {
+          "_description": "Main 2 Dipole (M2): Secondary ring-wide bending magnet supply S:M2.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S:M2"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":PS:SetCurrentC": {
+                "_description": "setpoint"
+              },
+              ":PS:MeasCurrentM": {
+                "_description": "current, current readback"
+              },
+              ":PS:SlewRateC": {
+                "_description": "Slew Rate Setpoint"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":PS:DCBusVoltM": {
+                "_description": "DC voltage"
+              },
+              ":PS:MeasVoltageM": {
+                "_description": "Output voltage, voltage"
+              },
+              ":PS:DCLinkM": {
+                "_description": "DC Link OnOff status"
+              }
+            },
+            "POWER": {
+              "_description": "Power measurements",
+              ":PS:MeasPowerM": {
+                "_description": "Output power"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":PS:OnOffM": {
+                "_description": "OnOffStatus"
+              }
+            },
+            "SLEW_RATE": {
+              "_description": "Slew rate settings",
+              ":PS:SlewRateM": {
+                "_description": "Slew Rate"
+              }
+            }
+          }
+        },
+        "RAW_PS": {
+          "_description": "Raw Power Supplies (RAW_PS): Sector-pair raw DC supplies R1-R4 (pairs: 40-1, 2-3, ..., 38-39).",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S40:01:R1",
+                "S02:03:R1",
+                "S04:05:R1",
+                "S06:07:R1",
+                "S08:09:R1",
+                "S10:11:R1",
+                "S12:13:R1",
+                "S14:15:R1",
+                "S16:17:R1",
+                "S18:19:R1",
+                "S20:21:R1",
+                "S22:23:R1",
+                "S24:25:R1",
+                "S26:27:R1",
+                "S28:29:R1",
+                "S30:31:R1",
+                "S32:33:R1",
+                "S34:35:R1",
+                "S36:37:R1",
+                "S38:39:R1",
+                "S40:01:R2",
+                "S02:03:R2",
+                "S04:05:R2",
+                "S06:07:R2",
+                "S08:09:R2",
+                "S10:11:R2",
+                "S12:13:R2",
+                "S14:15:R2",
+                "S16:17:R2",
+                "S18:19:R2",
+                "S20:21:R2",
+                "S22:23:R2",
+                "S24:25:R2",
+                "S26:27:R2",
+                "S28:29:R2",
+                "S30:31:R2",
+                "S32:33:R2",
+                "S34:35:R2",
+                "S36:37:R2",
+                "S38:39:R2",
+                "S40:01:R3",
+                "S02:03:R3",
+                "S04:05:R3",
+                "S06:07:R3",
+                "S08:09:R3",
+                "S10:11:R3",
+                "S12:13:R3",
+                "S14:15:R3",
+                "S16:17:R3",
+                "S18:19:R3",
+                "S20:21:R3",
+                "S22:23:R3",
+                "S24:25:R3",
+                "S26:27:R3",
+                "S28:29:R3",
+                "S30:31:R3",
+                "S32:33:R3",
+                "S34:35:R3",
+                "S36:37:R3",
+                "S38:39:R3",
+                "S40:01:R4",
+                "S02:03:R4",
+                "S04:05:R4",
+                "S06:07:R4",
+                "S08:09:R4",
+                "S10:11:R4",
+                "S12:13:R4",
+                "S14:15:R4",
+                "S16:17:R4",
+                "S18:19:R4",
+                "S20:21:R4",
+                "S22:23:R4",
+                "S24:25:R4",
+                "S26:27:R4",
+                "S28:29:R4",
+                "S30:31:R4",
+                "S32:33:R4",
+                "S34:35:R4",
+                "S36:37:R4",
+                "S38:39:R4"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":DC_CUR_ACT": {
+                "_description": "DC Current"
+              },
+              ":AC_CUR_ACT": {
+                "_description": "AC Current"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":DC_VOLT_ACT": {
+                "_description": "DC Voltage"
+              },
+              ":AC_VOLT_ACT": {
+                "_description": "AC Voltage"
+              }
+            },
+            "CONTROL": {
+              "_description": "Control commands (on/off/reset)",
+              ":ResetSEQ": {
+                "_description": "Turn On Button"
+              },
+              ":OffBO": {
+                "_description": "Turn Off Button"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":StatusCALC": {
+                "_description": "Faults Status (0: no faults)"
+              }
+            }
+          }
+        }
+      },
+      "VAC": {
+        "_description": "Vacuum System (VAC): Ultra-high vacuum monitoring in the storage ring. Cold Cathode Gauges (CCG) and Convection Vacuum Gauges (CVG) at arc sections, insertion device straights, and C-sections. Target pressure: <1e-9 Torr. PV example: S02:CCG1:PressureM",
+        "CCG": {
+          "_description": "Cold Cathode Gauges (CCG): Inverted magnetron gauges for UHV pressure measurement. Range: 1e-11 to 1e-3 Torr. Located at arc sections (S{sector}:CCG1), insertion device straights (S{sector}ID:CCG1), and C-sections (S{sector}C:CCG1).",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S01:CCG1",
+                "S01ID:CCG1",
+                "S02:CCG1",
+                "S02ID:CCG1",
+                "S03:CCG1",
+                "S03ID:CCG1",
+                "S04:CCG1",
+                "S04ID:CCG1",
+                "S05:CCG1",
+                "S05ID:CCG1",
+                "S06:CCG1",
+                "S06ID:CCG1",
+                "S07:CCG1",
+                "S07ID:CCG1",
+                "S08:CCG1",
+                "S08ID:CCG1",
+                "S09:CCG1",
+                "S09ID:CCG1",
+                "S10:CCG1",
+                "S10ID:CCG1",
+                "S11:CCG1",
+                "S11ID:CCG1",
+                "S12:CCG1",
+                "S12ID:CCG1",
+                "S13:CCG1",
+                "S13ID:CCG1",
+                "S14:CCG1",
+                "S14ID:CCG1",
+                "S15:CCG1",
+                "S15ID:CCG1",
+                "S16:CCG1",
+                "S16ID:CCG1",
+                "S17:CCG1",
+                "S17ID:CCG1",
+                "S18:CCG1",
+                "S18ID:CCG1",
+                "S19:CCG1",
+                "S19ID:CCG1",
+                "S20:CCG1",
+                "S20ID:CCG1",
+                "S21:CCG1",
+                "S21ID:CCG1",
+                "S22:CCG1",
+                "S22ID:CCG1",
+                "S23:CCG1",
+                "S23ID:CCG1",
+                "S24:CCG1",
+                "S24ID:CCG1",
+                "S25:CCG1",
+                "S25ID:CCG1",
+                "S26:CCG1",
+                "S26ID:CCG1",
+                "S27:CCG1",
+                "S27ID:CCG1",
+                "S28:CCG1",
+                "S28ID:CCG1",
+                "S29:CCG1",
+                "S29ID:CCG1",
+                "S30:CCG1",
+                "S30ID:CCG1",
+                "S31:CCG1",
+                "S31ID:CCG1",
+                "S32:CCG1",
+                "S32ID:CCG1",
+                "S33:CCG1",
+                "S33ID:CCG1",
+                "S34:CCG1",
+                "S34ID:CCG1",
+                "S35:CCG1",
+                "S35ID:CCG1",
+                "S36:CCG1",
+                "S36C:CCG1",
+                "S37:CCG1",
+                "S37C:CCG1",
+                "S38:CCG1",
+                "S38C:CCG1",
+                "S39:CCG1",
+                "S39C:CCG1",
+                "S40:CCG1",
+                "S40C:CCG1",
+                "S39C:CCG2"
+              ]
+            },
+            "PRESSURE": {
+              "_description": "Vacuum pressure measurements",
+              ":PressureM": {
+                "_description": "Pressure (read-only): Vacuum pressure in Torr. Normal operation: <1e-9 Torr. Alarm threshold typically 1e-7 Torr."
+              }
+            }
+          }
+        },
+        "CVG": {
+          "_description": "Convection Vacuum Gauges (CVG): Convection-enhanced Pirani gauges for rough/medium vacuum monitoring. Range: atmosphere to ~1e-4 Torr. Used for pump-down monitoring and rough vacuum interlocks.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S01:CVG1",
+                "S01ID:CVG1",
+                "S02:CVG1",
+                "S02ID:CVG1",
+                "S03:CVG1",
+                "S03ID:CVG1",
+                "S04:CVG1",
+                "S04ID:CVG1",
+                "S05:CVG1",
+                "S05ID:CVG1",
+                "S06:CVG1",
+                "S06ID:CVG1",
+                "S07:CVG1",
+                "S07ID:CVG1",
+                "S08:CVG1",
+                "S08ID:CVG1",
+                "S09:CVG1",
+                "S09ID:CVG1",
+                "S10:CVG1",
+                "S10ID:CVG1",
+                "S11:CVG1",
+                "S11ID:CVG1",
+                "S12:CVG1",
+                "S12ID:CVG1",
+                "S13:CVG1",
+                "S13ID:CVG1",
+                "S14:CVG1",
+                "S14ID:CVG1",
+                "S15:CVG1",
+                "S15ID:CVG1",
+                "S16:CVG1",
+                "S16ID:CVG1",
+                "S17:CVG1",
+                "S17ID:CVG1",
+                "S18:CVG1",
+                "S18ID:CVG1",
+                "S19:CVG1",
+                "S19ID:CVG1",
+                "S20:CVG1",
+                "S20ID:CVG1",
+                "S21:CVG1",
+                "S21ID:CVG1",
+                "S22:CVG1",
+                "S22ID:CVG1",
+                "S23:CVG1",
+                "S23ID:CVG1",
+                "S24:CVG1",
+                "S24ID:CVG1",
+                "S25:CVG1",
+                "S25ID:CVG1",
+                "S26:CVG1",
+                "S26ID:CVG1",
+                "S27:CVG1",
+                "S27ID:CVG1",
+                "S28:CVG1",
+                "S28ID:CVG1",
+                "S29:CVG1",
+                "S29ID:CVG1",
+                "S30:CVG1",
+                "S30ID:CVG1",
+                "S31:CVG1",
+                "S31ID:CVG1",
+                "S32:CVG1",
+                "S32ID:CVG1",
+                "S33:CVG1",
+                "S33ID:CVG1",
+                "S34:CVG1",
+                "S34ID:CVG1",
+                "S35:CVG1",
+                "S35ID:CVG1",
+                "S36:CVG1",
+                "S36C:CVG1",
+                "S37:CVG1",
+                "S37C:CVG1",
+                "S38:CVG1",
+                "S38C:CVG1",
+                "S39:CVG1",
+                "S39C:CVG1",
+                "S40:CVG1",
+                "S40C:CVG1",
+                "S39C:CVG2"
+              ]
+            },
+            "PRESSURE": {
+              "_description": "Vacuum pressure measurements",
+              ":PressureM": {
+                "_description": "Pressure (read-only): Convection gauge vacuum pressure in Torr. Used for rough vacuum monitoring and pump-down."
+              }
+            }
+          }
+        }
+      },
+      "RF": {
+        "_description": "RF System (RF): Storage ring RF system providing beam energy replenishment. 4 klystron stations (sectors 1-4) feeding 16 superconducting cavities in sectors 36-40. Includes frequency measurement, cavity gap voltage, klystron power, and feedback systems.",
+        "FREQUENCY": {
+          "_description": "RF Frequency: SR revolution frequency and RF source measurements. Includes nominal frequencies for SR, booster injection, and booster extraction.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "A014-IETS:BTC:CFG:SRNomFreqM",
+                "A014-IETS:BTC:BInjNomFreqM",
+                "A014-IETS:BTC:BExtrNomFreqM",
+                "BRF:S:Hp53181_Ch2FreqAI",
+                "BRF:S:VVM1:Phase"
+              ]
+            },
+            "VALUE": {
+              "_description": "Frequency and phase values (read-only)",
+              "": {
+                "_description": "Direct value readback (read-only). SR nominal freq (~352.962 MHz), booster injection/extraction freq, HP53181 counter frequency readback, VVM phase."
+              }
+            }
+          }
+        },
+        "KLYSTRON_PS": {
+          "_description": "Klystron Power Supplies: High-voltage power supplies for the 4 RF klystrons. SRF:P1 (sector 1), SRF:P2 (sector 2), S3:KPS (sector 3), S4:KPS (sector 4).",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "SRF:P1",
+                "SRF:P2",
+                "S3:KPS",
+                "S4:KPS"
+              ]
+            },
+            "VOLTAGE": {
+              "_description": "Klystron beam voltage",
+              ":beamVoltageV": {
+                "_description": "Beam voltage (read-only): klystron cathode-to-collector voltage in Volts"
+              }
+            },
+            "CURRENT": {
+              "_description": "Klystron beam current",
+              ":beamCurrent": {
+                "_description": "Beam current (read-only): klystron electron beam current in Amps"
+              }
+            },
+            "STATUS": {
+              "_description": "Power supply status indicators",
+              ":highVoltageReady": {
+                "_description": "HV ready (read-only): high voltage supply ready"
+              },
+              ":modAnodeReady": {
+                "_description": "Mod anode ready (read-only): modulating anode ready"
+              },
+              ":modAnodeOnOff": {
+                "_description": "Mod anode on/off (read-only): modulating anode state"
+              },
+              ":cathodeSupplyOnOff": {
+                "_description": "Cathode supply on/off (read-only): cathode heater state"
+              },
+              ":remoteControl": {
+                "_description": "Remote control (read-only): remote/local control mode"
+              },
+              ":unitFault": {
+                "_description": "Unit fault (read-only): power supply fault status"
+              }
+            }
+          }
+        },
+        "KLYSTRON_RF": {
+          "_description": "Klystron RF: RF drive, forward/reflected power, and feedback for the 4 klystron stations.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S1:K",
+                "S2:K",
+                "S3:K",
+                "S4:K"
+              ]
+            },
+            "POWER": {
+              "_description": "RF power and waveform measurements",
+              ":WfDataPtCh5": {
+                "_description": "Waveform channel 5 (read-only): klystron forward power waveform sample"
+              },
+              ":WfDataPtCh7": {
+                "_description": "Waveform channel 7 (read-only): klystron reflected power waveform sample"
+              }
+            },
+            "STATUS": {
+              "_description": "Klystron RF status",
+              ":rfDriveStatM": {
+                "_description": "RF drive status (read-only): RF drive on/off state"
+              },
+              ":FB_EngageBI": {
+                "_description": "Feedback engaged (read-only): RF amplitude feedback loop status"
+              },
+              ":PssIntrTallyOK": {
+                "_description": "PSS interlock OK (read-only): personnel safety system interlock status"
+              },
+              ":colDissInterlockStat": {
+                "_description": "Collector dissipation interlock (read-only): collector overpower protection"
+              },
+              ":colInterlockDisSW": {
+                "_description": "Collector interlock disable switch (read-only): interlock bypass state"
+              }
+            },
+            "IQ": {
+              "_description": "IQ demodulator measurements",
+              ":iqA0C8S3": {
+                "_description": "IQ channel S3 (read-only): in-phase/quadrature measurement"
+              },
+              ":iqA0C8S2": {
+                "_description": "IQ channel S2 (read-only): in-phase/quadrature measurement"
+              }
+            }
+          }
+        },
+        "KLYSTRON_POWER": {
+          "_description": "Klystron Power Detectors: Envelope detector power measurements for klystrons 1 and 2.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "SRF:K1",
+                "SRF:K2"
+              ]
+            },
+            "POWER": {
+              "_description": "Power detector readings",
+              ":ED1:Ch1KWatt": {
+                "_description": "Envelope detector 1 Ch1 (read-only): klystron output power in kW"
+              },
+              ":WfDataPtCh5": {
+                "_description": "Waveform channel 5 (read-only): forward power sample"
+              },
+              ":WfDataPtCh7": {
+                "_description": "Waveform channel 7 (read-only): reflected power sample"
+              }
+            }
+          }
+        },
+        "CAVITY": {
+          "_description": "RF Cavities: 16 superconducting RF cavities (4 per sector in S36, S37, S38, S40). Each cavity has gap voltage, vacuum, and thermal monitoring.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "SRF:S40:C1",
+                "SRF:S40:C2",
+                "SRF:S40:C3",
+                "SRF:S40:C4",
+                "SRF:S36:C1",
+                "SRF:S36:C2",
+                "SRF:S36:C3",
+                "SRF:S36:C4",
+                "SRF:S37:C1",
+                "SRF:S37:C2",
+                "SRF:S37:C3",
+                "SRF:S37:C4",
+                "SRF:S38:C1",
+                "SRF:S38:C2",
+                "SRF:S38:C3",
+                "SRF:S38:C4"
+              ]
+            },
+            "VOLTAGE": {
+              "_description": "Cavity gap voltage",
+              ":GapVolt": {
+                "_description": "Gap voltage (read-only): accelerating voltage across cavity gap in MV"
+              }
+            },
+            "VACUUM": {
+              "_description": "Cavity vacuum pressure",
+              ":VGC.PRES": {
+                "_description": "Vacuum gauge pressure (read-only): cavity vacuum in Torr"
+              }
+            }
+          }
+        },
+        "SECTOR_RF": {
+          "_description": "Sector RF Summary: Per-sector total power, total gap voltage, and feedback system status for RF sectors S36, S37, S38, S40.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "SRF:S40",
+                "SRF:S36",
+                "SRF:S37",
+                "SRF:S38"
+              ]
+            },
+            "POWER": {
+              "_description": "Sector RF power summary",
+              ":AveragePowerM": {
+                "_description": "Average power (read-only): total sector RF power in kW"
+              },
+              ":cavTotalGapVolt": {
+                "_description": "Total gap voltage (read-only): sum of all cavity gap voltages in sector"
+              }
+            },
+            "POWER_DETECTORS": {
+              "_description": "Envelope detector power readings (forward and reflected per cavity pair)",
+              ":ED1:Ch0KWatt": {
+                "_description": "ED1 Ch0 forward power (read-only) in kW"
+              },
+              ":ED1:Ch1KWatt": {
+                "_description": "ED1 Ch1 reflected power (read-only) in kW"
+              },
+              ":ED2:Ch0KWatt": {
+                "_description": "ED2 Ch0 forward power (read-only) in kW"
+              },
+              ":ED2:Ch1KWatt": {
+                "_description": "ED2 Ch1 reflected power (read-only) in kW"
+              },
+              ":ED3:Ch0KWatt": {
+                "_description": "ED3 Ch0 forward power (read-only) in kW"
+              },
+              ":ED3:Ch1KWatt": {
+                "_description": "ED3 Ch1 reflected power (read-only) in kW"
+              },
+              ":ED4:Ch0KWatt": {
+                "_description": "ED4 Ch0 forward power (read-only) in kW"
+              },
+              ":ED4:Ch1KWatt": {
+                "_description": "ED4 Ch1 reflected power (read-only) in kW"
+              }
+            },
+            "FEEDBACK": {
+              "_description": "RF feedback loop setpoints",
+              ":FB1:pidSpCh0AI": {
+                "_description": "FB1 PID setpoint Ch0 (read-only): feedback loop 1 setpoint"
+              },
+              ":FB1:pidSpCh1AI": {
+                "_description": "FB1 PID setpoint Ch1 (read-only): feedback loop 1 setpoint"
+              },
+              ":FB2:pidSpCh0AI": {
+                "_description": "FB2 PID setpoint Ch0 (read-only): feedback loop 2 setpoint"
+              },
+              ":FB2:pidSpCh1AI": {
+                "_description": "FB2 PID setpoint Ch1 (read-only): feedback loop 2 setpoint"
+              }
+            }
+          }
+        },
+        "CAVITY_FAULTS": {
+          "_description": "Cavity RF Fault Summary: Interlock and fault status per klystron sector cavity group.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S1:C",
+                "S2:C",
+                "S3:C",
+                "S4:C"
+              ]
+            },
+            "FAULTS": {
+              "_description": "RF cavity fault summaries",
+              ":SL1RfFltSum": {
+                "_description": "Slot 1 RF fault summary (read-only): combined fault status for cavity slot 1"
+              },
+              ":SL2RfFltSum": {
+                "_description": "Slot 2 RF fault summary (read-only): combined fault status for cavity slot 2"
+              }
+            }
+          }
+        },
+        "IR_DETECTOR": {
+          "_description": "Cavity IR Detectors: Infrared thermal monitors on upstream (US) and downstream (DS) sides of each cavity. Detect cavity surface heating.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S1:C1",
+                "S1:C2",
+                "S1:C3",
+                "S1:C4",
+                "S2:C1",
+                "S2:C2",
+                "S2:C3",
+                "S2:C4",
+                "S3:C1",
+                "S3:C2",
+                "S3:C3",
+                "S3:C4",
+                "S4:C1",
+                "S4:C2",
+                "S4:C3",
+                "S4:C4"
+              ]
+            },
+            "TEMPERATURE": {
+              "_description": "IR detector temperature readings",
+              ":US:IrDetector": {
+                "_description": "Upstream IR detector (read-only): cavity upstream surface temperature"
+              },
+              ":DS:IrDetector": {
+                "_description": "Downstream IR detector (read-only): cavity downstream surface temperature"
+              }
+            }
+          }
+        },
+        "ACCESS_CONTROL": {
+          "_description": "RF Access Control and AGC: System-wide RF access control and automatic gain control.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "SRF:accessControl",
+                "SRF:accessEnableRF1",
+                "SRF:accessEnableRF2",
+                "SRF:accessEnableRF3",
+                "SRF:accessEnableRF4",
+                "SRF:AGC:FBout_sys1AI",
+                "SRF:AGC:FBout_sys2AI"
+              ]
+            },
+            "VALUE": {
+              "_description": "Access and AGC readbacks",
+              "": {
+                "_description": "Direct readback (read-only): access control state, AGC feedback output"
+              }
+            }
+          }
+        },
+        "WAVEGUIDE_SWITCH": {
+          "_description": "Waveguide Switch (WGS): Sector 6 waveguide switch system for RF power routing. Controls which cavities receive RF power.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S6:WGS"
+              ]
+            },
+            "MODE": {
+              "_description": "Waveguide switch mode settings",
+              ":modeSelect": {
+                "_description": "Mode select (read-write): waveguide routing mode selection"
+              },
+              ":mode0": {
+                "_description": "Mode 0 status (read-only)"
+              },
+              ":mode1": {
+                "_description": "Mode 1 status (read-only)"
+              },
+              ":mode2": {
+                "_description": "Mode 2 status (read-only)"
+              },
+              ":mode3": {
+                "_description": "Mode 3 status (read-only)"
+              },
+              ":mode4": {
+                "_description": "Mode 4 status (read-only)"
+              },
+              ":mode5": {
+                "_description": "Mode 5 status (read-only)"
+              },
+              ":mode6": {
+                "_description": "Mode 6 status (read-only)"
+              },
+              ":mode7": {
+                "_description": "Mode 7 status (read-only)"
+              },
+              ":mode8": {
+                "_description": "Mode 8 status (read-only)"
+              },
+              ":mode9": {
+                "_description": "Mode 9 status (read-only)"
+              },
+              ":mode10": {
+                "_description": "Mode 10 status (read-only)"
+              },
+              ":mode11": {
+                "_description": "Mode 11 status (read-only)"
+              },
+              ":mode12": {
+                "_description": "Mode 12 status (read-only)"
+              }
+            }
+          }
+        }
+      },
+      "DIAG": {
+        "_description": "Diagnostic System (DIAG): Beam measurement and monitoring instrumentation. Includes beam position monitors (BPMs) for orbit measurement, beam current monitors (DCCT), and radiation safety monitors.",
+        "BPM": {
+          "_description": "Beam Position Monitors (BPM): Measure transverse beam position at 14 locations per sector (A:P0-P6, B:P0-P6). 559 BPMs across 40 sectors. PV example: S02A:P1:x:SampledAdjustedM",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S01A:P0",
+                "S01A:P1",
+                "S01A:P2",
+                "S01A:P3",
+                "S01A:P4",
+                "S01A:P5",
+                "S01A:P6",
+                "S01B:P0",
+                "S01B:P1",
+                "S01B:P2",
+                "S01B:P3",
+                "S01B:P4",
+                "S01B:P5",
+                "S01B:P6",
+                "S02A:P0",
+                "S02A:P1",
+                "S02A:P2",
+                "S02A:P3",
+                "S02A:P4",
+                "S02A:P5",
+                "S02A:P6",
+                "S02B:P0",
+                "S02B:P1",
+                "S02B:P2",
+                "S02B:P3",
+                "S02B:P4",
+                "S02B:P5",
+                "S02B:P6",
+                "S03A:P0",
+                "S03A:P1",
+                "S03A:P2",
+                "S03A:P3",
+                "S03A:P4",
+                "S03A:P5",
+                "S03A:P6",
+                "S03B:P0",
+                "S03B:P1",
+                "S03B:P2",
+                "S03B:P3",
+                "S03B:P4",
+                "S03B:P5",
+                "S03B:P6",
+                "S04A:P0",
+                "S04A:P1",
+                "S04A:P2",
+                "S04A:P3",
+                "S04A:P4",
+                "S04A:P5",
+                "S04A:P6",
+                "S04B:P0",
+                "S04B:P1",
+                "S04B:P2",
+                "S04B:P3",
+                "S04B:P4",
+                "S04B:P5",
+                "S04B:P6",
+                "S05A:P0",
+                "S05A:P1",
+                "S05A:P2",
+                "S05A:P3",
+                "S05A:P4",
+                "S05A:P5",
+                "S05A:P6",
+                "S05B:P0",
+                "S05B:P1",
+                "S05B:P2",
+                "S05B:P3",
+                "S05B:P4",
+                "S05B:P5",
+                "S05B:P6",
+                "S06A:P0",
+                "S06A:P1",
+                "S06A:P2",
+                "S06A:P3",
+                "S06A:P4",
+                "S06A:P5",
+                "S06A:P6",
+                "S06B:P0",
+                "S06B:P1",
+                "S06B:P2",
+                "S06B:P3",
+                "S06B:P4",
+                "S06B:P5",
+                "S06B:P6",
+                "S07A:P0",
+                "S07A:P1",
+                "S07A:P2",
+                "S07A:P3",
+                "S07A:P4",
+                "S07A:P5",
+                "S07A:P6",
+                "S07B:P0",
+                "S07B:P1",
+                "S07B:P2",
+                "S07B:P3",
+                "S07B:P4",
+                "S07B:P5",
+                "S07B:P6",
+                "S08A:P0",
+                "S08A:P1",
+                "S08A:P2",
+                "S08A:P3",
+                "S08A:P4",
+                "S08A:P5",
+                "S08A:P6",
+                "S08B:P0",
+                "S08B:P1",
+                "S08B:P2",
+                "S08B:P3",
+                "S08B:P4",
+                "S08B:P5",
+                "S08B:P6",
+                "S09A:P0",
+                "S09A:P1",
+                "S09A:P2",
+                "S09A:P3",
+                "S09A:P4",
+                "S09A:P5",
+                "S09A:P6",
+                "S09B:P0",
+                "S09B:P1",
+                "S09B:P2",
+                "S09B:P3",
+                "S09B:P4",
+                "S09B:P5",
+                "S09B:P6",
+                "S10A:P0",
+                "S10A:P1",
+                "S10A:P2",
+                "S10A:P3",
+                "S10A:P4",
+                "S10A:P5",
+                "S10A:P6",
+                "S10B:P0",
+                "S10B:P1",
+                "S10B:P2",
+                "S10B:P3",
+                "S10B:P4",
+                "S10B:P5",
+                "S10B:P6",
+                "S11A:P0",
+                "S11A:P1",
+                "S11A:P2",
+                "S11A:P3",
+                "S11A:P4",
+                "S11A:P5",
+                "S11A:P6",
+                "S11B:P0",
+                "S11B:P1",
+                "S11B:P2",
+                "S11B:P3",
+                "S11B:P4",
+                "S11B:P5",
+                "S11B:P6",
+                "S12A:P0",
+                "S12A:P1",
+                "S12A:P2",
+                "S12A:P3",
+                "S12A:P4",
+                "S12A:P5",
+                "S12A:P6",
+                "S12B:P0",
+                "S12B:P1",
+                "S12B:P2",
+                "S12B:P3",
+                "S12B:P4",
+                "S12B:P5",
+                "S12B:P6",
+                "S13A:P0",
+                "S13A:P1",
+                "S13A:P2",
+                "S13A:P3",
+                "S13A:P4",
+                "S13A:P5",
+                "S13A:P6",
+                "S13B:P0",
+                "S13B:P1",
+                "S13B:P2",
+                "S13B:P3",
+                "S13B:P4",
+                "S13B:P5",
+                "S13B:P6",
+                "S14A:P0",
+                "S14A:P1",
+                "S14A:P2",
+                "S14A:P3",
+                "S14A:P4",
+                "S14A:P5",
+                "S14A:P6",
+                "S14B:P0",
+                "S14B:P1",
+                "S14B:P2",
+                "S14B:P3",
+                "S14B:P4",
+                "S14B:P5",
+                "S14B:P6",
+                "S15A:P0",
+                "S15A:P1",
+                "S15A:P2",
+                "S15A:P3",
+                "S15A:P4",
+                "S15A:P5",
+                "S15A:P6",
+                "S15B:P0",
+                "S15B:P1",
+                "S15B:P2",
+                "S15B:P3",
+                "S15B:P4",
+                "S15B:P5",
+                "S15B:P6",
+                "S16A:P0",
+                "S16A:P1",
+                "S16A:P2",
+                "S16A:P3",
+                "S16A:P4",
+                "S16A:P5",
+                "S16A:P6",
+                "S16B:P0",
+                "S16B:P1",
+                "S16B:P2",
+                "S16B:P3",
+                "S16B:P4",
+                "S16B:P5",
+                "S16B:P6",
+                "S17A:P0",
+                "S17A:P1",
+                "S17A:P2",
+                "S17A:P3",
+                "S17A:P4",
+                "S17A:P5",
+                "S17A:P6",
+                "S17B:P0",
+                "S17B:P1",
+                "S17B:P2",
+                "S17B:P3",
+                "S17B:P4",
+                "S17B:P5",
+                "S17B:P6",
+                "S18A:P0",
+                "S18A:P1",
+                "S18A:P2",
+                "S18A:P3",
+                "S18A:P4",
+                "S18A:P5",
+                "S18A:P6",
+                "S18B:P0",
+                "S18B:P1",
+                "S18B:P2",
+                "S18B:P3",
+                "S18B:P4",
+                "S18B:P5",
+                "S18B:P6",
+                "S19A:P0",
+                "S19A:P1",
+                "S19A:P2",
+                "S19A:P3",
+                "S19A:P4",
+                "S19A:P5",
+                "S19A:P6",
+                "S19B:P0",
+                "S19B:P1",
+                "S19B:P2",
+                "S19B:P3",
+                "S19B:P4",
+                "S19B:P5",
+                "S19B:P6",
+                "S20A:P0",
+                "S20A:P1",
+                "S20A:P2",
+                "S20A:P3",
+                "S20A:P4",
+                "S20A:P5",
+                "S20A:P6",
+                "S20B:P0",
+                "S20B:P1",
+                "S20B:P2",
+                "S20B:P3",
+                "S20B:P4",
+                "S20B:P5",
+                "S20B:P6",
+                "S21A:P0",
+                "S21A:P1",
+                "S21A:P2",
+                "S21A:P3",
+                "S21A:P4",
+                "S21A:P5",
+                "S21A:P6",
+                "S21B:P0",
+                "S21B:P1",
+                "S21B:P2",
+                "S21B:P3",
+                "S21B:P4",
+                "S21B:P5",
+                "S21B:P6",
+                "S22A:P0",
+                "S22A:P1",
+                "S22A:P2",
+                "S22A:P3",
+                "S22A:P4",
+                "S22A:P5",
+                "S22A:P6",
+                "S22B:P0",
+                "S22B:P1",
+                "S22B:P2",
+                "S22B:P3",
+                "S22B:P4",
+                "S22B:P5",
+                "S22B:P6",
+                "S23A:P0",
+                "S23A:P1",
+                "S23A:P2",
+                "S23A:P3",
+                "S23A:P4",
+                "S23A:P5",
+                "S23A:P6",
+                "S23B:P0",
+                "S23B:P1",
+                "S23B:P2",
+                "S23B:P3",
+                "S23B:P4",
+                "S23B:P5",
+                "S23B:P6",
+                "S24A:P0",
+                "S24A:P1",
+                "S24A:P2",
+                "S24A:P3",
+                "S24A:P4",
+                "S24A:P5",
+                "S24A:P6",
+                "S24B:P0",
+                "S24B:P1",
+                "S24B:P2",
+                "S24B:P3",
+                "S24B:P4",
+                "S24B:P5",
+                "S24B:P6",
+                "S25A:P0",
+                "S25A:P1",
+                "S25A:P2",
+                "S25A:P3",
+                "S25A:P4",
+                "S25A:P5",
+                "S25A:P6",
+                "S25B:P0",
+                "S25B:P1",
+                "S25B:P2",
+                "S25B:P3",
+                "S25B:P4",
+                "S25B:P5",
+                "S25B:P6",
+                "S26A:P0",
+                "S26A:P1",
+                "S26A:P2",
+                "S26A:P3",
+                "S26A:P4",
+                "S26A:P5",
+                "S26A:P6",
+                "S26B:P0",
+                "S26B:P1",
+                "S26B:P2",
+                "S26B:P3",
+                "S26B:P4",
+                "S26B:P5",
+                "S26B:P6",
+                "S27A:P0",
+                "S27A:P1",
+                "S27A:P2",
+                "S27A:P3",
+                "S27A:P4",
+                "S27A:P5",
+                "S27A:P6",
+                "S27B:P0",
+                "S27B:P1",
+                "S27B:P2",
+                "S27B:P3",
+                "S27B:P4",
+                "S27B:P5",
+                "S27B:P6",
+                "S28A:P0",
+                "S28A:P1",
+                "S28A:P2",
+                "S28A:P3",
+                "S28A:P4",
+                "S28A:P5",
+                "S28A:P6",
+                "S28B:P0",
+                "S28B:P1",
+                "S28B:P2",
+                "S28B:P3",
+                "S28B:P4",
+                "S28B:P5",
+                "S28B:P6",
+                "S29A:P0",
+                "S29A:P1",
+                "S29A:P2",
+                "S29A:P3",
+                "S29A:P4",
+                "S29A:P5",
+                "S29A:P6",
+                "S29B:P0",
+                "S29B:P1",
+                "S29B:P2",
+                "S29B:P3",
+                "S29B:P4",
+                "S29B:P5",
+                "S29B:P6",
+                "S30A:P0",
+                "S30A:P1",
+                "S30A:P2",
+                "S30A:P3",
+                "S30A:P4",
+                "S30A:P5",
+                "S30A:P6",
+                "S30B:P0",
+                "S30B:P1",
+                "S30B:P2",
+                "S30B:P3",
+                "S30B:P4",
+                "S30B:P5",
+                "S30B:P6",
+                "S31A:P0",
+                "S31A:P1",
+                "S31A:P2",
+                "S31A:P3",
+                "S31A:P4",
+                "S31A:P5",
+                "S31A:P6",
+                "S31B:P0",
+                "S31B:P1",
+                "S31B:P2",
+                "S31B:P3",
+                "S31B:P4",
+                "S31B:P5",
+                "S31B:P6",
+                "S32A:P0",
+                "S32A:P1",
+                "S32A:P2",
+                "S32A:P3",
+                "S32A:P4",
+                "S32A:P5",
+                "S32A:P6",
+                "S32B:P0",
+                "S32B:P1",
+                "S32B:P2",
+                "S32B:P3",
+                "S32B:P4",
+                "S32B:P5",
+                "S32B:P6",
+                "S33A:P0",
+                "S33A:P1",
+                "S33A:P2",
+                "S33A:P3",
+                "S33A:P4",
+                "S33A:P5",
+                "S33A:P6",
+                "S33B:P0",
+                "S33B:P1",
+                "S33B:P2",
+                "S33B:P3",
+                "S33B:P4",
+                "S33B:P5",
+                "S33B:P6",
+                "S34A:P0",
+                "S34A:P1",
+                "S34A:P2",
+                "S34A:P3",
+                "S34A:P4",
+                "S34A:P5",
+                "S34A:P6",
+                "S34B:P0",
+                "S34B:P1",
+                "S34B:P2",
+                "S34B:P3",
+                "S34B:P4",
+                "S34B:P5",
+                "S34B:P6",
+                "S35A:P0",
+                "S35A:P1",
+                "S35A:P2",
+                "S35A:P3",
+                "S35A:P4",
+                "S35A:P5",
+                "S35A:P6",
+                "S35B:P0",
+                "S35B:P1",
+                "S35B:P2",
+                "S35B:P3",
+                "S35B:P4",
+                "S35B:P5",
+                "S35B:P6",
+                "S36A:P0",
+                "S36A:P1",
+                "S36A:P2",
+                "S36A:P3",
+                "S36A:P4",
+                "S36A:P5",
+                "S36A:P6",
+                "S36B:P0",
+                "S36B:P1",
+                "S36B:P2",
+                "S36B:P3",
+                "S36B:P4",
+                "S36B:P5",
+                "S36B:P6",
+                "S37A:P0",
+                "S37A:P1",
+                "S37A:P2",
+                "S37A:P3",
+                "S37A:P4",
+                "S37A:P5",
+                "S37A:P6",
+                "S37B:P0",
+                "S37B:P1",
+                "S37B:P2",
+                "S37B:P3",
+                "S37B:P4",
+                "S37B:P5",
+                "S37B:P6",
+                "S38A:P0",
+                "S38A:P1",
+                "S38A:P2",
+                "S38A:P3",
+                "S38A:P4",
+                "S38A:P5",
+                "S38A:P6",
+                "S38B:P0",
+                "S38B:P1",
+                "S38B:P2",
+                "S38B:P3",
+                "S38B:P4",
+                "S38B:P5",
+                "S38B:P6",
+                "S39A:P0",
+                "S39A:P1",
+                "S39A:P2",
+                "S39A:P3",
+                "S39A:P4",
+                "S39A:P5",
+                "S39A:P6",
+                "S39B:P0",
+                "S39B:P2",
+                "S39B:P3",
+                "S39B:P4",
+                "S39B:P5",
+                "S39B:P6",
+                "S40A:P0",
+                "S40A:P1",
+                "S40A:P2",
+                "S40A:P3",
+                "S40A:P4",
+                "S40A:P5",
+                "S40A:P6",
+                "S40B:P0",
+                "S40B:P1",
+                "S40B:P2",
+                "S40B:P3",
+                "S40B:P4",
+                "S40B:P5",
+                "S40B:P6"
+              ]
+            },
+            "X_POSITION": {
+              "_description": "Horizontal (x) beam position measurements and settings",
+              ":x:SampledAdjustedM": {
+                "_description": "x adjusted position (read-only): sampled beam position with offset and gain applied"
+              },
+              ":x:LowPass1sAdjustedM": {
+                "_description": "x 1s low-pass adjusted position (read-only): 1-second filtered position"
+              },
+              ":x:LowPass8sAdjustedM": {
+                "_description": "x 8s low-pass adjusted position (read-only): 8-second filtered position"
+              },
+              ":x:LowPass64sAdjustedM": {
+                "_description": "x 64s low-pass adjusted position (read-only): 64-second filtered position"
+              },
+              ":x:SampledM": {
+                "_description": "x raw sampled position (read-only): unprocessed beam position"
+              },
+              ":x:RfSetpointC": {
+                "_description": "x RF setpoint (read-write): RF orbit setpoint"
+              },
+              ":x:SetpointM": {
+                "_description": "x setpoint (read-only): current position setpoint"
+              },
+              ":x:OffsetM": {
+                "_description": "x offset (read-only): BPM electronic/mechanical offset"
+              },
+              ":x:GainM": {
+                "_description": "x gain (read-only): BPM gain calibration factor"
+              }
+            },
+            "X_ERROR": {
+              "_description": "Horizontal (x) beam position errors (deviation from setpoint)",
+              ":x:SampledRfErrorM": {
+                "_description": "x RF sampled error (read-only): deviation from RF setpoint"
+              },
+              ":x:LowPass1sRfErrorM": {
+                "_description": "x RF 1s low-pass error (read-only): 1s filtered RF error"
+              },
+              ":x:LowPass8sRfErrorM": {
+                "_description": "x RF 8s low-pass error (read-only): 8s filtered RF error"
+              },
+              ":x:LowPass64sRfErrorM": {
+                "_description": "x RF 64s low-pass error (read-only): 64s filtered RF error"
+              },
+              ":x:SampledErrorM": {
+                "_description": "x sampled error (read-only): deviation from setpoint"
+              },
+              ":x:LowPass1sErrorM": {
+                "_description": "x 1s low-pass error (read-only): 1s filtered error"
+              },
+              ":x:LowPass8sErrorM": {
+                "_description": "x 8s low-pass error (read-only): 8s filtered error"
+              },
+              ":x:LowPass64sErrorM": {
+                "_description": "x 64s low-pass error (read-only): 64s filtered error"
+              }
+            },
+            "Y_POSITION": {
+              "_description": "Vertical (y) beam position measurements and settings",
+              ":y:SampledAdjustedM": {
+                "_description": "y adjusted position (read-only): sampled beam position with offset and gain applied"
+              },
+              ":y:LowPass1sAdjustedM": {
+                "_description": "y 1s low-pass adjusted position (read-only): 1-second filtered position"
+              },
+              ":y:LowPass8sAdjustedM": {
+                "_description": "y 8s low-pass adjusted position (read-only): 8-second filtered position"
+              },
+              ":y:LowPass64sAdjustedM": {
+                "_description": "y 64s low-pass adjusted position (read-only): 64-second filtered position"
+              },
+              ":y:SampledM": {
+                "_description": "y raw sampled position (read-only): unprocessed beam position"
+              },
+              ":y:SetpointM": {
+                "_description": "y setpoint (read-only): current position setpoint"
+              },
+              ":y:OffsetM": {
+                "_description": "y offset (read-only): BPM electronic/mechanical offset"
+              },
+              ":y:GainM": {
+                "_description": "y gain (read-only): BPM gain calibration factor"
+              }
+            },
+            "Y_ERROR": {
+              "_description": "Vertical (y) beam position errors (deviation from setpoint)",
+              ":y:SampledErrorM": {
+                "_description": "y sampled error (read-only): deviation from setpoint"
+              },
+              ":y:LowPass1sErrorM": {
+                "_description": "y 1s low-pass error (read-only): 1s filtered error"
+              },
+              ":y:LowPass8sErrorM": {
+                "_description": "y 8s low-pass error (read-only): 8s filtered error"
+              },
+              ":y:LowPass64sErrorM": {
+                "_description": "y 64s low-pass error (read-only): 64s filtered error"
+              }
+            }
+          }
+        },
+        "DCCT": {
+          "_description": "DC Current Transformer: Non-intercepting beam current monitor. Measures total circulating beam current with high accuracy.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "MAIN"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Beam Current (milliAmperes): Total circulating electron current. Typical range: 1-500 mA.",
+              "RB": {
+                "_description": "Current Readback (read-only): Standard beam current measurement."
+              }
+            },
+            "STATUS": {
+              "_description": "DCCT Operational Status: Measurement validity.",
+              "VALID": {
+                "_description": "Valid Status (read-only): DCCT measurement is valid and calibrated."
+              }
+            }
+          }
+        },
+        "NEUTRON": {
+          "_description": "Neutron Radiation Monitors: Detect neutron radiation levels around accelerator. Real-time monitoring for personnel safety.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "NEUT{:02d}",
+              "_range": [
+                1,
+                4
+              ]
+            },
+            "DOSE_RATE": {
+              "_description": "Neutron Dose Rate (mrem/hour): Neutron radiation intensity measurement.",
+              "INST": {
+                "_description": "Instantaneous (read-only): Real-time neutron dose rate."
+              },
+              "AVG_1MIN": {
+                "_description": "1-Minute Average (read-only): Neutron dose rate averaged over 1 minute."
+              },
+              "AVG_1HR": {
+                "_description": "1-Hour Average (read-only): Neutron dose rate averaged over 1 hour."
+              }
+            },
+            "STATUS": {
+              "_description": "Neutron Monitor Status: Data validity and alarm conditions.",
+              "VALID": {
+                "_description": "Valid Data (read-only): Monitor reading is valid."
+              },
+              "ALARM": {
+                "_description": "Alarm Status (read-only): Radiation level exceeds safety threshold."
+              }
+            }
+          }
+        },
+        "GAMMA": {
+          "_description": "Gamma Radiation Monitors: Detect gamma ray radiation levels around accelerator. Essential for personnel safety.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "GAMM{:02d}",
+              "_range": [
+                1,
+                4
+              ]
+            },
+            "DOSE_RATE": {
+              "_description": "Gamma Dose Rate (mrem/hour): Gamma radiation intensity measurement.",
+              "INST": {
+                "_description": "Instantaneous (read-only): Real-time gamma dose rate."
+              },
+              "AVG_1MIN": {
+                "_description": "1-Minute Average (read-only): Gamma dose rate averaged over 1 minute."
+              },
+              "AVG_1HR": {
+                "_description": "1-Hour Average (read-only): Gamma dose rate averaged over 1 hour."
+              }
+            },
+            "STATUS": {
+              "_description": "Gamma Monitor Status: Operational health and alarm state.",
+              "VALID": {
+                "_description": "Valid Data (read-only): Monitor is operational."
+              },
+              "ALARM": {
+                "_description": "Alarm Status (read-only): Gamma level exceeds safety limit."
+              }
+            }
+          }
+        },
+        "SB_BPM": {
+          "_description": "Single-Bunch BPMs (SB_BPM): Turn-by-turn single bunch position monitors. Available in sectors 1, 2, 40 (6 per sector) plus S38A:P0, S39C:P0, S40A:P0. PV pattern: S01SB-A:P1:x",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "S01SB-A:P1",
+                "S01SB-A:P3",
+                "S01SB-A:P5",
+                "S01SB-B:P1",
+                "S01SB-B:P3",
+                "S01SB-B:P5",
+                "S02SB-A:P1",
+                "S02SB-A:P3",
+                "S02SB-A:P5",
+                "S02SB-B:P1",
+                "S02SB-B:P3",
+                "S02SB-B:P5",
+                "S40SB-A:P1",
+                "S40SB-A:P3",
+                "S40SB-A:P5",
+                "S40SB-B:P1",
+                "S40SB-B:P3",
+                "S40SB-B:P5",
+                "S38SB-A:P0",
+                "S39SB-C:P0",
+                "S40SB-A:P0"
+              ]
+            },
+            "X_POSITION": {
+              "_description": "Single-bunch horizontal (x) position and settings",
+              ":x": {
+                "_description": "x single-bunch position (read-only): turn-by-turn horizontal position"
+              },
+              ":x:GainC": {
+                "_description": "x gain (read-write): single-bunch BPM gain"
+              },
+              ":x:OffsetC": {
+                "_description": "x offset (read-write): single-bunch BPM offset"
+              },
+              ":x:SetpointC": {
+                "_description": "x setpoint (read-write): single-bunch position setpoint"
+              }
+            },
+            "Y_POSITION": {
+              "_description": "Single-bunch vertical (y) position and settings",
+              ":y": {
+                "_description": "y single-bunch position (read-only): turn-by-turn vertical position"
+              },
+              ":y:GainC": {
+                "_description": "y gain (read-write): single-bunch BPM gain"
+              },
+              ":y:OffsetC": {
+                "_description": "y offset (read-write): single-bunch BPM offset"
+              },
+              ":y:SetpointC": {
+                "_description": "y setpoint (read-write): single-bunch position setpoint"
+              }
+            }
+          }
+        }
+      }
+    },
+    "BR": {
+      "_description": "Booster Ring (BR): Accelerates electron beam from 150 MeV (linac energy) to 1.9 GeV before injection into the storage ring. Compact ring with 4-fold symmetry, operates at 1-10 Hz repetition rate.",
+      "MAG": {
+        "_description": "Booster Magnet System: Ramped magnets that track the beam energy during acceleration. Dipoles define the orbit, quadrupoles maintain focusing.",
+        "DIPOLE": {
+          "_description": "Booster Dipole Magnets: Main bending magnets, ramped during acceleration cycle to increase beam energy.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "B{:02d}",
+              "_range": [
+                1,
+                8
+              ]
+            },
+            "CURRENT": {
+              "_description": "Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration.",
+              "SP": {
+                "_description": "Current Setpoint (read-write): Programmed ramp profile for acceleration."
+              },
+              "RB": {
+                "_description": "Current Readback (read-only): Measured dipole current during ramping."
+              }
+            },
+            "STATUS": {
+              "_description": "Dipole power supply status.",
+              "READY": {
+                "_description": "Ready (read-only): Power supply ready for ramping."
+              },
+              "FAULT": {
+                "_description": "Fault (read-only): Power supply fault detected."
+              }
+            }
+          }
+        },
+        "QF": {
+          "_description": "Booster Focusing Quadrupoles: Maintain beam focusing during energy ramp.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "QF{:02d}",
+              "_range": [
+                1,
+                4
+              ]
+            },
+            "CURRENT": {
+              "_description": "Quadrupole current (Amperes). Ramped during acceleration.",
+              "SP": {
+                "_description": "Setpoint (read-write): Programmed current waveform."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured current."
+              }
+            },
+            "STATUS": {
+              "_description": "Power supply status.",
+              "READY": {
+                "_description": "Ready (read-only): Power supply ready."
+              },
+              "FAULT": {
+                "_description": "Fault (read-only): Fault detected."
+              }
+            }
+          }
+        },
+        "QD": {
+          "_description": "Booster Defocusing Quadrupoles: Maintain beam focusing during energy ramp.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "QD{:02d}",
+              "_range": [
+                1,
+                4
+              ]
+            },
+            "CURRENT": {
+              "_description": "Quadrupole current (Amperes). Ramped during acceleration.",
+              "SP": {
+                "_description": "Setpoint (read-write): Programmed current waveform."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured current."
+              }
+            },
+            "STATUS": {
+              "_description": "Power supply status.",
+              "READY": {
+                "_description": "Ready (read-only): Power supply ready."
+              },
+              "FAULT": {
+                "_description": "Fault (read-only): Fault detected."
+              }
+            }
+          }
+        }
+      },
+      "DIAG": {
+        "_description": "Booster Diagnostics: Beam measurement during acceleration cycle.",
+        "BPM": {
+          "_description": "Booster BPMs: Measure beam position during acceleration. 8 BPMs for orbit measurement.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "BPM{:02d}",
+              "_range": [
+                1,
+                8
+              ]
+            },
+            "POSITION": {
+              "_description": "Beam position during booster cycle (millimeters).",
+              "X": {
+                "_description": "Horizontal Position (read-only): Beam X position."
+              },
+              "Y": {
+                "_description": "Vertical Position (read-only): Beam Y position."
+              }
+            },
+            "STATUS": {
+              "_description": "BPM status.",
+              "VALID": {
+                "_description": "Valid Data (read-only): BPM reading is valid."
+              }
+            }
+          }
+        },
+        "DCCT": {
+          "_description": "Booster Beam Current Monitor: Tracks current during acceleration cycle.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "MAIN"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Beam current (milliAmperes) during booster cycle.",
+              "RB": {
+                "_description": "Current Readback (read-only): Beam current during acceleration."
+              }
+            },
+            "STATUS": {
+              "_description": "DCCT status.",
+              "VALID": {
+                "_description": "Valid (read-only): Measurement valid."
+              }
+            }
+          }
+        }
+      }
+    },
+    "BTS": {
+      "_description": "Booster-to-Storage Ring Transfer Line (BTS): Beam transport from booster to storage ring.",
+      "MAG": {
+        "_description": "BTS Magnet System: Booster-to-Storage Ring transfer line power supplies.",
+        "BOOSTER_BTS_CORR": {
+          "_description": "Booster-to-BTS Correctors: H/V correctors in booster extraction (AH1-AH3, AV1-AV3).",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "BTS:AH1",
+                "BTS:AV1",
+                "BTS:AH2",
+                "BTS:AV2",
+                "BTS:AH3",
+                "BTS:AV3"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":PS:SetCurrentC": {
+                "_description": "setpoint"
+              },
+              ":PS:SetCurrentM": {
+                "_description": "setpoint readback"
+              },
+              ":PS:MeasCurrentM": {
+                "_description": "current, current readback, internal current"
+              },
+              ":DCCT:CurrentM": {
+                "_description": "DCCT output, DCCT current, external current"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":PS:VoltageM": {
+                "_description": "Output voltage, voltage"
+              }
+            },
+            "TEMPERATURE": {
+              "_description": "Temperature measurements",
+              ":PS:CapacitorTempM": {
+                "_description": "Capacitor Temperature"
+              },
+              ":PS:HeatSinkTempM": {
+                "_description": "Heatsink Temperature"
+              },
+              ":PS:DampResTempM": {
+                "_description": "Damping Resistor Temperature"
+              },
+              ":PS:Fan1SpeedM": {
+                "_description": "Fan 1 speed"
+              },
+              ":PS:Fan2SpeedM": {
+                "_description": "Fan 2 speed"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":PS:PowerSupplyIdM": {
+                "_description": "PSID"
+              },
+              ":PS:FaultStatusM": {
+                "_description": "Faults"
+              },
+              ":PS:OnOffStatusM": {
+                "_description": "OnOffStatus"
+              }
+            }
+          }
+        },
+        "BTS_SR_CORR": {
+          "_description": "BTS-to-SR Correctors: H/V correctors in injection section.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "BTS:BH1",
+                "BTS:BV1",
+                "BTS:BH2",
+                "BTS:BV2",
+                "BTS:BV3",
+                "BTS:BSQ1H",
+                "BTS:BSQ2V",
+                "BTS:BSQ5H",
+                "BTS:BSQ6V",
+                "BTS:CQ1H",
+                "BTS:CQ2V",
+                "BTS:CQ3H",
+                "BTS:DQ1H",
+                "BTS:DQ2V"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":PS:SetCurrentC": {
+                "_description": "setpoint"
+              },
+              ":PS:SetCurrentM": {
+                "_description": "setpoint readback"
+              },
+              ":PS:MeasCurrentM": {
+                "_description": "current, current readback, internal current"
+              },
+              ":DCCT:CurrentM": {
+                "_description": "DCCT output, DCCT current, external current"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":PS:VoltageM": {
+                "_description": "Output voltage, voltage"
+              }
+            },
+            "TEMPERATURE": {
+              "_description": "Temperature measurements",
+              ":PS:CapacitorTempM": {
+                "_description": "Capacitor Temperature"
+              },
+              ":PS:HeatSinkTempM": {
+                "_description": "Heatsink Temperature"
+              },
+              ":PS:DampResTempM": {
+                "_description": "Damping Resistor Temperature"
+              },
+              ":PS:Fan1SpeedM": {
+                "_description": "Fan 1 speed"
+              },
+              ":PS:Fan2SpeedM": {
+                "_description": "Fan 2 speed"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":PS:PowerSupplyIdM": {
+                "_description": "PSID"
+              },
+              ":PS:FaultStatusM": {
+                "_description": "Faults"
+              },
+              ":PS:OnOffStatusM": {
+                "_description": "OnOffStatus"
+              }
+            }
+          }
+        },
+        "BOOSTER_BTS_QUAD": {
+          "_description": "Booster-to-BTS Quadrupoles: Focusing quads in booster extraction (AQ1-AQ5).",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "BTS:AQ1",
+                "BTS:AQ2",
+                "BTS:AQ3",
+                "BTS:AQ4",
+                "BTS:AQ5"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":PS:SetCurrentC": {
+                "_description": "setpoint"
+              },
+              ":PS:SetCurrentM": {
+                "_description": "setpoint readback"
+              },
+              ":PS:MeasCurrentM": {
+                "_description": "current, current readback, internal current"
+              },
+              ":DCCT:CurrentM": {
+                "_description": "DCCT output, DCCT current, external current"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":PS:MeasVoltageM": {
+                "_description": "Output voltage, voltage"
+              }
+            },
+            "POWER": {
+              "_description": "Power measurements",
+              ":PS:MeasPowerM": {
+                "_description": "Output power, power"
+              }
+            },
+            "TEMPERATURE": {
+              "_description": "Temperature measurements",
+              ":PS:AmbientTempM": {
+                "_description": "Ambient Temperature"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":PS:FaultStatusM": {
+                "_description": "Faults"
+              },
+              ":PS:OnOffM": {
+                "_description": "OnOffStatus"
+              }
+            }
+          }
+        },
+        "BTS_SR_QUAD": {
+          "_description": "BTS-to-SR Quadrupoles: Focusing quads in injection (BQ1-BQ5, CQ1-CQ3, DQ1-DQ2).",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "BTS:BQ1",
+                "BTS:BQ2",
+                "BTS:BQ3",
+                "BTS:BQ4",
+                "BTS:BQ5",
+                "BTS:CQ1",
+                "BTS:CQ2",
+                "BTS:CQ3",
+                "BTS:DQ1",
+                "BTS:DQ2"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":PS:SetCurrentC": {
+                "_description": "setpoint"
+              },
+              ":PS:SetCurrentM": {
+                "_description": "setpoint readback"
+              },
+              ":PS:MeasCurrentM": {
+                "_description": "current, current readback, internal current"
+              },
+              ":DCCT:CurrentM": {
+                "_description": "DCCT output, DCCT current, external current"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":PS:MeasVoltageM": {
+                "_description": "Output voltage, voltage"
+              }
+            },
+            "POWER": {
+              "_description": "Power measurements",
+              ":PS:MeasPowerM": {
+                "_description": "Output power, power"
+              }
+            },
+            "TEMPERATURE": {
+              "_description": "Temperature measurements",
+              ":PS:AmbientTempM": {
+                "_description": "Ambient Temperature"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":PS:FaultStatusM": {
+                "_description": "Faults"
+              },
+              ":PS:OnOffM": {
+                "_description": "OnOffStatus"
+              }
+            }
+          }
+        },
+        "BTS_SR_SKEW": {
+          "_description": "BTS-to-SR Skew Quadrupoles: Coupling correction (BSQ1-BSQ6).",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "BTS:BSQ1",
+                "BTS:BSQ2",
+                "BTS:BSQ3",
+                "BTS:BSQ4",
+                "BTS:BSQ5",
+                "BTS:BSQ6"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":PS:SetCurrentC": {
+                "_description": "setpoint"
+              },
+              ":PS:SetCurrentM": {
+                "_description": "setpoint readback"
+              },
+              ":PS:MeasCurrentM": {
+                "_description": "current, current readback, internal current"
+              },
+              ":DCCT:CurrentM": {
+                "_description": "DCCT output, DCCT current, external current"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":PS:MeasVoltageM": {
+                "_description": "Output voltage, voltage"
+              }
+            },
+            "POWER": {
+              "_description": "Power measurements",
+              ":PS:MeasPowerM": {
+                "_description": "Output power, power"
+              }
+            },
+            "TEMPERATURE": {
+              "_description": "Temperature measurements",
+              ":PS:AmbientTempM": {
+                "_description": "Ambient Temperature"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":PS:FaultStatusM": {
+                "_description": "Faults"
+              },
+              ":PS:OnOffM": {
+                "_description": "OnOffStatus"
+              }
+            }
+          }
+        },
+        "BOOSTER_BTS_DIPOLE": {
+          "_description": "Booster-to-BTS Dipoles: Bending magnets (AB, BX).",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "BTS:AB",
+                "BTS:BX"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":PS:SetCurrentC": {
+                "_description": "setpoint"
+              },
+              ":PS:SetCurrentM": {
+                "_description": "setpoint readback"
+              },
+              ":PS:MeasCurrentM": {
+                "_description": "current, current readback, internal current"
+              },
+              ":DCCT:CurrentM": {
+                "_description": "DCCT output, DCCT current, external current"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":PS:MeasVoltageM": {
+                "_description": "Output voltage, voltage"
+              }
+            },
+            "POWER": {
+              "_description": "Power measurements",
+              ":PS:MeasPowerM": {
+                "_description": "Output power, power"
+              }
+            },
+            "TEMPERATURE": {
+              "_description": "Temperature measurements",
+              ":PS:AmbientTempM": {
+                "_description": "Ambient Temperature"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":PS:FaultStatusM": {
+                "_description": "Faults"
+              },
+              ":PS:OnOffM": {
+                "_description": "OnOffStatus"
+              }
+            }
+          }
+        },
+        "BTS_SR_DIPOLE": {
+          "_description": "BTS-to-SR Dipoles: Bending magnets (BB1, CB1).",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "BTS:BB1",
+                "BTS:CB1"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":PS:SetCurrentC": {
+                "_description": "setpoint"
+              },
+              ":PS:SetCurrentM": {
+                "_description": "setpoint readback"
+              },
+              ":PS:MeasCurrentM": {
+                "_description": "current, current readback, internal current"
+              },
+              ":DCCT:CurrentM": {
+                "_description": "DCCT output, DCCT current, external current"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":PS:MeasVoltageM": {
+                "_description": "Output voltage, voltage"
+              }
+            },
+            "POWER": {
+              "_description": "Power measurements",
+              ":PS:MeasPowerM": {
+                "_description": "Output power, power"
+              }
+            },
+            "TEMPERATURE": {
+              "_description": "Temperature measurements",
+              ":PS:AmbientTempM": {
+                "_description": "Ambient Temperature"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":PS:FaultStatusM": {
+                "_description": "Faults"
+              },
+              ":PS:OnOffM": {
+                "_description": "OnOffStatus"
+              }
+            }
+          }
+        },
+        "BTS_RAW_PS": {
+          "_description": "BTS Raw Power Supplies: DC supplies (DC1-DC4).",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "BTS:DC1",
+                "BTS:DC2",
+                "BTS:DC3",
+                "BTS:DC4"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Current measurements and setpoints",
+              ":PS:SetVoltageC": {
+                "_description": "voltage setpoint"
+              },
+              ":PS:MeasCurrentM": {
+                "_description": "current, internal current"
+              }
+            },
+            "VOLTAGE": {
+              "_description": "Voltage measurements and setpoints",
+              ":PS:MeasVoltageM": {
+                "_description": "voltage readback"
+              }
+            },
+            "POWER": {
+              "_description": "Power measurements",
+              ":PS:MeasPowerM": {
+                "_description": "Output power, power"
+              }
+            },
+            "TEMPERATURE": {
+              "_description": "Temperature measurements",
+              ":PS:AmbientTempM": {
+                "_description": "Ambient Temperature"
+              }
+            },
+            "STATUS": {
+              "_description": "Status and fault indicators",
+              ":PS:FaultStatusM": {
+                "_description": "Faults"
+              },
+              ":PS:OnOffM": {
+                "_description": "OnOffStatus"
+              }
+            }
+          }
+        }
+      },
+      "VAC": {
+        "_description": "BTS Vacuum System: Vacuum monitoring in the booster-to-storage ring transfer line.",
+        "CCG": {
+          "_description": "BTS Cold Cathode Gauges",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "BTS:CCG1"
+              ]
+            },
+            "PRESSURE": {
+              "_description": "Pressure measurements",
+              ":PressureM": {
+                "_description": "Pressure (read-only): BTS vacuum pressure in Torr."
+              }
+            }
+          }
+        },
+        "CVG": {
+          "_description": "BTS Convection Vacuum Gauges",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "BTS:CVG1"
+              ]
+            },
+            "PRESSURE": {
+              "_description": "Pressure measurements",
+              ":PressureM": {
+                "_description": "Pressure (read-only): BTS convection gauge pressure in Torr."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

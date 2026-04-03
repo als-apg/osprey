@@ -1,0 +1,126 @@
+/* OSPREY Web Terminal — Light Theme ("Lab Instrument Panel")
+ *
+ * Overrides color tokens ONLY. No structural tokens (spacing, fonts, radius).
+ * Applied via [data-theme="light"] on <html>.
+ */
+
+[data-theme="light"] {
+  /* Backgrounds — off-white/blue-gray, NOT pure white */
+  --bg-terminal: #fafbfd;
+  --bg-primary: #f7f9fc;
+  --bg-secondary: #eef2f7;
+  --bg-panel: #f2f5fa;
+  --bg-elevated: #e4e9f0;
+
+  /* Accent palette — deeper teal for light-bg contrast */
+  --color-accent: #0a8f8c;
+  --color-accent-light: #0d7377;
+  --color-amber: #a07040;
+  --color-amber-light: #7a5530;
+  --color-amber-hover: #c07a00;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-error: #dc2626;
+  --color-error-hover: #b91c1c;
+
+  /* Text — dark on light */
+  --text-primary: #0c1322;
+  --text-secondary: #374155;
+  --text-muted: #64748b;
+
+  /* Terminal-specific */
+  --terminal-cursor: #0a8f8c;
+  --terminal-text: #1e293b;
+  --terminal-selection: rgba(13, 115, 119, 0.2);
+
+  /* Borders — solid, not transparent */
+  --border-default: #d1d8e3;
+  --border-accent: rgba(13, 115, 119, 0.25);
+
+  /* ---- CRT Effects: fully disabled ---- */
+  --crt-scanline-opacity: 0;
+  --crt-vignette-opacity: 0;
+  --crt-glow-opacity: 0;
+  --crt-bezel-shadow: none;
+
+  /* ---- Welcome Modal ---- */
+  --welcome-bg: #f7f9fc;
+  --welcome-text: #0d7377;
+  --welcome-text-glow: none;
+  --welcome-link: #0a8f8c;
+  --welcome-link-hover: #065f5c;
+  --welcome-prompt: #0a8f8c;
+  --welcome-cursor: #0d7377;
+
+  /* ---- Accent (teal) Tints — deeper base ---- */
+  --accent-tint-04: rgba(13, 115, 119, 0.04);
+  --accent-tint-06: rgba(13, 115, 119, 0.06);
+  --accent-tint-08: rgba(13, 115, 119, 0.08);
+  --accent-tint-10: rgba(13, 115, 119, 0.10);
+  --accent-tint-12: rgba(13, 115, 119, 0.12);
+  --accent-tint-20: rgba(13, 115, 119, 0.20);
+  --accent-tint-25: rgba(13, 115, 119, 0.25);
+  --accent-tint-30: rgba(13, 115, 119, 0.30);
+
+  /* ---- Amber Tints ---- */
+  --amber-tint-04: rgba(160, 112, 64, 0.04);
+  --amber-tint-06: rgba(160, 112, 64, 0.06);
+  --amber-tint-08: rgba(160, 112, 64, 0.08);
+  --amber-tint-12: rgba(160, 112, 64, 0.12);
+  --amber-tint-15: rgba(160, 112, 64, 0.15);
+  --amber-tint-25: rgba(160, 112, 64, 0.25);
+
+  /* ---- Error (red) Tints ---- */
+  --error-tint-04: rgba(220, 38, 38, 0.04);
+  --error-tint-08: rgba(220, 38, 38, 0.08);
+  --error-tint-10: rgba(220, 38, 38, 0.10);
+  --error-tint-15: rgba(220, 38, 38, 0.15);
+  --error-tint-25: rgba(220, 38, 38, 0.25);
+  --error-tint-30: rgba(220, 38, 38, 0.30);
+  --error-tint-40: rgba(220, 38, 38, 0.40);
+
+  /* ---- Success (green) Tints ---- */
+  --success-tint-08: rgba(22, 163, 74, 0.08);
+  --success-tint-40: rgba(22, 163, 74, 0.40);
+  --success-tint-50: rgba(22, 163, 74, 0.50);
+
+  /* ---- Neutral (slate) Tints ---- */
+  --neutral-tint-03: rgba(100, 116, 139, 0.03);
+  --neutral-tint-06: rgba(100, 116, 139, 0.06);
+  --neutral-tint-08: rgba(100, 116, 139, 0.08);
+  --neutral-tint-10: rgba(100, 116, 139, 0.10);
+  --neutral-tint-12: rgba(100, 116, 139, 0.12);
+  --neutral-tint-20: rgba(100, 116, 139, 0.20);
+  --neutral-tint-35: rgba(100, 116, 139, 0.35);
+
+  /* ---- Overlays — lighter for light theme ---- */
+  --overlay-black-20: rgba(0, 0, 0, 0.06);
+  --overlay-black-30: rgba(0, 0, 0, 0.05);
+  --overlay-black-40: rgba(0, 0, 0, 0.08);
+  --overlay-black-50: rgba(0, 0, 0, 0.15);
+  --overlay-black-60: rgba(0, 0, 0, 0.10);
+  --overlay-black-70: rgba(0, 0, 0, 0.25);
+  --overlay-white-03: rgba(255, 255, 255, 0.5);
+
+  /* ---- CRT Scanline ---- */
+  --crt-scanline-bg: none;
+
+  /* ---- Shadows — directional, tight (lab-instrument precise) ---- */
+  --shadow-panel: -2px 0 8px rgba(0, 0, 0, 0.08);
+  --shadow-dropdown: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --shadow-dialog: 0 4px 16px rgba(0, 0, 0, 0.12);
+  --shadow-error-dialog: 0 4px 16px rgba(220, 38, 38, 0.1), 0 4px 16px rgba(0, 0, 0, 0.1);
+
+  /* ---- Diff Colors ---- */
+  --diff-add-bg: rgba(22, 163, 74, 0.1);
+  --diff-add-text: #16a34a;
+  --diff-del-bg: rgba(220, 38, 38, 0.1);
+  --diff-del-text: #dc2626;
+  --diff-word-del-bg:  rgba(220, 38, 38, 0.20);
+  --diff-word-del-text: #b91c1c;
+  --diff-word-add-bg:  rgba(22, 163, 74, 0.20);
+  --diff-word-add-text: #15803d;
+
+  /* ---- Accent-based system colors ---- */
+  --accent-system-tint-04: rgba(10, 143, 140, 0.04);
+}

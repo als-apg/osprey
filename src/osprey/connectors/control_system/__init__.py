@@ -5,8 +5,6 @@ from osprey.connectors.control_system.base import (
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
-    PVMetadata,  # Deprecated alias
-    PVValue,  # Deprecated alias
     WriteVerification,
 )
 
@@ -16,7 +14,4 @@ __all__ = [
     "ChannelMetadata",
     "ChannelWriteResult",
     "WriteVerification",
-    # Deprecated aliases (backward compatibility)
-    "PVValue",
-    "PVMetadata",
 ]

@@ -8,21 +8,17 @@ understand the framework's core architecture and operational model.
 This conceptual tutorial introduces the fundamental concepts and design patterns
 that will prepare you for the hands-on coding journey ahead.
 
-Building on Proven Foundations
-===============================
+.. admonition:: PLACEHOLDER: CONCEPTUAL-MAPPING
+   :class: warning
 
-Osprey doesn't reinvent the wheel. At its core, the framework is built on
-`LangGraph <https://github.com/langchain-ai/langgraph>`_, a production-ready orchestration
-framework developed by LangChain for building stateful, long-running AI agents. LangGraph
-provides the foundational capabilities that make reliable agent systems possible: durable
-execution, checkpointing, human-in-the-loop workflows, and comprehensive state management.
-
-Rather than creating yet another generic agent framework from scratch, Osprey extends LangGraph
-with specialized patterns and infrastructure specifically designed for scientific and
-high-stakes operational environments. This approach allows us to focus on solving domain-specific
-challenges—such as managing large sets of specialized tools, handling complex data flows, and
-ensuring transparent execution—while leveraging a battle-tested foundation for the core
-orchestration layer.
+   **Old content (line 12):** "Building on Proven Foundations -- Osprey is built on LangGraph,
+   a production-ready orchestration framework developed by LangChain..."
+   **New equivalent:** Needs human judgment
+   **Why this is fuzzy:** The old foundation section described LangGraph as the orchestration
+   layer. Osprey now uses Claude Code with MCP servers for orchestration, but describing
+   how Claude Code orchestrates things is out of scope for mechanical porting.
+   **Action needed:** Write a new "Building on Proven Foundations" section explaining
+   Claude Code + MCP as the orchestration foundation.
 
 How Osprey Works
 ================
@@ -59,33 +55,32 @@ types of agentic AI applications: ReAct agents and Planning agents.
       since they decompose the task into smaller, easier steps. Each step can be
       handled with more focused prompts and potentially smaller models.
 
-Osprey supports
-:doc:`both orchestration modes <../developer-guides/01_understanding-the-framework/04_orchestration-architecture>`
-and defaults to the Planning approach (switchable to ReAct in your project configuration).
-Regardless of which mode you choose, the building blocks are the same: **Capabilities** --
-modular components that encapsulate domain-specific business logic and tool integrations.
-Given a user query, the framework determines which capabilities to use, in what order, and
-with what inputs, effectively chaining them together to accomplish complex tasks.
+.. admonition:: PLACEHOLDER: CONCEPTUAL-MAPPING
+   :class: warning
 
-A critical architectural distinction of Osprey is how data flows between capabilities.
-Unlike standard ReAct agents where tool outputs are returned directly to the LLM's context
-(which works for short strings but fails when tools produce large datasets that would overflow
-the context window), Osprey uses **Contexts** - strictly typed Pydantic data classes that
-provide a structured layer for storing and communicating data between capabilities. This
-approach enables efficient handling of large outputs, maintains type safety, and allows data
-to persist across conversation turns without consuming valuable context window space.
+   **Old content (line 62):** "Osprey supports both orchestration modes and defaults to
+   the Planning approach... the building blocks are the same: Capabilities -- modular
+   components that encapsulate domain-specific business logic and tool integrations."
+   **New equivalent:** Needs human judgment
+   **Why this is fuzzy:** Capabilities are now MCP tools, not Python classes with
+   requires/provides declarations. The old text described capability chaining and
+   context-based data flow, which no longer applies.
+   **Action needed:** Describe how Osprey now exposes domain logic as MCP tools and how
+   Claude Code selects and chains them.
 
-Capabilities and contexts are the central building blocks of Osprey applications. So when designing your
-Osprey application, always think in terms of capabilities and contexts:
+.. admonition:: PLACEHOLDER: CONCEPTUAL-MAPPING
+   :class: warning
 
-- What capabilities do I need to accomplish the task?
-- What contexts would the capability need to work?
-- What contexts should the capability produce as output?
-
-Now let's look at a simple example to better understand those concepts.
+   **Old content (line 70):** "Osprey uses Contexts -- strictly typed Pydantic data classes
+   that provide a structured layer for storing and communicating data between capabilities."
+   **New equivalent:** Needs human judgment
+   **Why this is fuzzy:** The Context system (CapabilityContext, Pydantic data classes for
+   inter-capability data flow) has been removed. Data now flows through MCP tool
+   call/response cycles, but describing that mechanism requires new content.
+   **Action needed:** Explain how data flows between MCP tools in the current architecture.
 
 Mindflow to Build a Weather Assistant in Osprey
-===============================================
+================================================
 
 Assume we want to build a weather assistant that can provide weather information based on user queries.
 
@@ -100,167 +95,42 @@ experience in real life, for the weather assistant, users would typically ask qu
 - "Give me a 5-day weather forecast for Los Angeles."
 - "What about the day after tomorrow?" -- referring to previous query
 
-What capabilities are needed
-----------------------------
+.. admonition:: PLACEHOLDER: MISSING-EXAMPLE
+   :class: warning
 
-To deal with the queries above, obviously we need a capability that can fetch weather data,
-given the location and date. Let's call it `FetchWeatherCapability`.
-This capability would require the location and date as inputs, and return the weather information.
-Therefore we'll need the following contexts:
+   **Old content (line 103):** "What capabilities are needed -- FetchWeatherCapability,
+   ExtractLocationCapability, ExtractDateCapability with context classes LocationContext,
+   DateContext, WeatherContext, and RespondCapability."
+   **New equivalent:** Needs human judgment
+   **Why this is fuzzy:** The old design walkthrough was framed around BaseCapability
+   subclasses with requires/provides context declarations. The new architecture uses
+   MCP tools, so the design process and building blocks are different.
+   **Action needed:** Rewrite the weather assistant design walkthrough using MCP tools
+   instead of Capability classes and Context classes.
 
-- `LocationContext` -- to represent the location information
-- `DateContext` -- to represent the date information
-- `WeatherContext` -- to represent the weather information returned by the capability
+.. admonition:: PLACEHOLDER: CONCEPTUAL-MAPPING
+   :class: warning
 
-Beyond fetching weather data, we need a capability to present results to users. Once we have a
-`WeatherContext` with weather data, how do we communicate it back in natural language? Osprey provides
-:ref:`RespondCapability <respond-capability>` - a built-in capability that generates natural language
-responses from execution results and available contexts.
+   **Old content (line 193):** "The Osprey Design Pattern -- 1. Identify required capabilities,
+   2. Define necessary contexts, 3. Check for missing data, 4. Repeat."
+   **New equivalent:** Needs human judgment
+   **Why this is fuzzy:** The iterative design pattern was framed around capabilities and
+   contexts. The new design process likely centers on MCP tool design, but the exact
+   recommended workflow needs human authoring.
+   **Action needed:** Write a new "Osprey Design Pattern" admonition for MCP-based design.
 
-Are those capabilities sufficient? Maybe not. Thinking more carefully about what we have so far: how can we get the
-`LocationContext` and `DateContext` from user queries? It could be easy if the user query is straightforward, but
-what if the user query looks like:
+.. admonition:: PLACEHOLDER: CONCEPTUAL-MAPPING
+   :class: warning
 
-- "What's the weather like in NYC?"
-- "Will it rain tonight around Stanford university?"
-
-So we probably need another capability to extract location and date information from user queries:
-
-- `ExtractLocationCapability` -- to extract location information from user queries
-- `ExtractDateCapability` -- to extract date information from user queries
-
-The Final Design
-----------------
-
-Following this iterative thinking process, here's the complete weather assistant architecture:
-
-**Capabilities**
-
-.. grid:: 1 1 2 2
-   :gutter: 3
-
-   .. grid-item-card:: 🌍 ExtractLocationCapability
-      :class-header: bg-primary text-white
-
-      Parse location information from user queries.
-
-      **Requires:** None
-
-      **Provides:** LocationContext
-
-   .. grid-item-card:: 📅 ExtractDateCapability
-      :class-header: bg-primary text-white
-
-      Parse date information from user queries.
-
-      **Requires:** None
-
-      **Provides:** DateContext
-
-   .. grid-item-card:: ☀️ FetchWeatherCapability
-      :class-header: bg-info text-white
-
-      Call weather API to fetch weather information based on location and date.
-
-      **Requires:** LocationContext, DateContext
-
-      **Provides:** WeatherContext
-
-   .. grid-item-card:: 💬 RespondCapability
-      :class-header: bg-secondary text-white
-
-      Generate natural language responses from execution results.
-
-      **Requires:** None
-
-      **Provides:** None
-
-**Context Classes**
-
-.. list-table::
-   :header-rows: 1
-   :widths: 30 70
-
-   * - Context
-     - Purpose
-   * - ``LocationContext``
-     - Stores parsed location information (city, region)
-   * - ``DateContext``
-     - Stores parsed date/time information
-   * - ``WeatherContext``
-     - Stores weather data (temperature, conditions, etc.)
-
-.. admonition:: The Osprey Design Pattern
-   :class: tip
-
-   When designing any Osprey application, follow this iterative process:
-
-   1. **Identify required capabilities** - What domain-specific tasks need to be performed?
-   2. **Define necessary contexts** - What data does each capability need and produce?
-   3. **Check for missing data** - How will capabilities get their required contexts?
-
-      * If straightforward to extract → no additional capabilities needed
-      * If complex → create extraction/transformation capabilities
-
-   4. **Repeat** until all data dependencies are resolved
-
-   This bottom-up thinking ensures your agent has all the pieces needed to accomplish user goals.
-
-How Osprey Chains Capabilities Together
-=======================================
-
-Once you've designed your capabilities and contexts, Osprey's orchestrator automatically
-chains them together. The framework supports two orchestration modes that differ in *when*
-decisions are made, but both use the same capability and context infrastructure.
-
-.. tab-set::
-
-   .. tab-item:: Plan-First Mode (default)
-
-      The orchestrator creates a **complete plan upfront** before any execution begins.
-
-      **Query: "What's the weather in San Francisco today?"**
-
-      The orchestrator creates this plan:
-
-      1. **ExtractLocationCapability** → produces ``LocationContext(location="San Francisco")``
-      2. **ExtractDateCapability** → produces ``DateContext(date="today")``
-      3. **FetchWeatherCapability** → uses ``LocationContext`` + ``DateContext`` → produces ``WeatherContext``
-      4. **RespondCapability** → generates natural language response from ``WeatherContext``
-
-      **Key Observations:**
-
-      - Each plan is created **upfront** before execution begins
-      - Capabilities are **chained together** - the output of one becomes the input to another
-      - Predictable and efficient: a single LLM call creates the entire plan
-
-   .. tab-item:: Reactive Mode (ReAct)
-
-      The orchestrator decides **one step at a time**, observing results between steps.
-
-      **Query: "What's the weather in San Francisco today?"**
-
-      The reactive orchestrator loop:
-
-      1. **Decide** → ExtractLocationCapability → **Observe** result
-      2. **Decide** → ExtractDateCapability → **Observe** result
-      3. **Decide** → FetchWeatherCapability → **Observe** result
-      4. **Decide** → Respond to user
-
-      **Key Observations:**
-
-      - Each step is decided **after** observing previous results
-      - Adapts dynamically to intermediate outcomes and errors
-      - Better suited for exploratory or error-prone tasks
-
-      Enable with: ``execution_control.agent_control.orchestration_mode: react`` in ``config.yml``
-
-**In both modes:**
-
-- The orchestrator **selects capabilities** based on what's needed for each query
-- Capabilities are **chained together** - the output of one becomes the input to another
-- **RespondCapability** accesses available contexts to generate responses
-- Your capabilities work identically regardless of orchestration mode
+   **Old content (line 209):** "How Osprey Chains Capabilities Together -- The orchestrator
+   automatically chains them... Plan-First Mode (default) vs Reactive Mode (ReAct)...
+   orchestration_mode: react in config.yml."
+   **New equivalent:** Needs human judgment
+   **Why this is fuzzy:** The old orchestration section described LangGraph-based plan-first
+   and ReAct modes with capability chaining via contexts. Claude Code handles orchestration
+   differently, and the old config knob no longer applies.
+   **Action needed:** Describe how Claude Code orchestrates MCP tool calls, including
+   any relevant configuration options.
 
 Next Steps
 ==========
@@ -268,9 +138,9 @@ Next Steps
 Now that you understand the core concepts, you're ready to build:
 
 **Start here:** :doc:`hello-world-tutorial`
-  Implements a weather assistant using an even simpler architecture (single capability)
+  Implements a weather assistant using an even simpler architecture (single MCP tool)
   to help you get hands-on quickly. Learn the framework basics before tackling complexity.
 
 **Then scale up:** :doc:`control-assistant`
   Demonstrates the full modular architecture from this tutorial applied to a real
-  industrial control system with 8+ capabilities and production deployment.
+  industrial control system with multiple MCP tools and production deployment.

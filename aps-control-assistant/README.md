@@ -1,0 +1,649 @@
+# aps-control-assistant
+
+A production-grade control system assistant demonstrating enterprise patterns for scientific facility automation.
+
+**Based on:** ALS Accelerator Assistant deployment (arXiv:2509.17255)
+**Framework:** Osprey 0.11.5
+**Template:** control_assistant
+
+---
+
+## 🎯 Overview
+
+This application demonstrates production-validated patterns for building AI assistants for accelerator control systems. It includes:
+
+- **Natural Language Channel Finding** - Find control system channels using natural language
+- **Live Value Retrieval** - Read current channel values using pluggable connectors
+- **Historical Data Analysis** - Retrieve and analyze time-series data from archiver
+- **Comprehensive Benchmarking** - Evaluate channel finder performance
+- **Development Mode** - Works instantly with mock connectors (no hardware required)
+- **Production Ready** - Switch to real EPICS/LabVIEW/Tango systems by changing config
+
+
+**Channel Finder Mode:** Both Pipelines Enabled
+- Switch between modes via `config.yml`
+- Compare performance for your control system
+
+
+---
+
+## 🚀 Quick Start
+
+### 1. Activate Virtual Environment
+
+```bash
+# Create and activate virtual environment (if not already done)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+### 2. Install Dependencies
+
+```bash
+uv pip install -r requirements.txt
+# or
+pip install -r requirements.txt
+```
+
+### 3. Configure API Keys
+
+Create a `.env` file in the project root:
+
+```bash
+# Copy example environment file
+cp env.example .env
+
+# Edit .env and add your API keys
+CBORG_API_KEY=your_cborg_api_key_here
+# Or use other providers:
+# OPENAI_API_KEY=your_openai_key
+# ANTHROPIC_API_KEY=your_anthropic_key
+```
+
+### 4. Run the Assistant
+
+```bash
+# Start interactive chat with full Osprey framework
+osprey chat
+
+# Or use the standalone channel finder CLI
+python -m aps_control_assistant.services.channel_finder.cli
+
+# Or run benchmarks
+python -m aps_control_assistant.services.channel_finder.benchmarks.cli
+```
+
+
+### 5. Configure Claude Code Generator
+
+The Claude Code generator requires advanced configuration in `claude_generator_config.yml`:
+
+
+**⚠️ Important:** Claude Code requires Anthropic's Claude models, but your main config uses argo.
+
+The code generator will use direct Anthropic API access. You need **both**:
+- `ARGO_API_KEY` for your main orchestrator/framework
+- `ANTHROPIC_API_KEY` for the Claude Code generator
+
+Add both to your `.env` file:
+```bash
+ARGO_API_KEY=your_argo_key
+ANTHROPIC_API_KEY=your_anthropic_key  # Required for Claude Code generator
+```
+
+
+**Quality/Speed Profiles:**
+```yaml
+# In config.yml:
+execution:
+  generators:
+    claude_code:
+      profile: "fast"  # Options: fast (DEFAULT, single-phase) | robust (multi-phase)
+```
+
+- **fast**: Quick one-pass generation (~5s, ~$0.02)
+- **fast**: Single-phase direct generation (~20s, ~$0.03) - DEFAULT
+- **robust**: Maximum quality with extended workflow (~30s, ~$0.15)
+
+**Advanced Features:**
+- **Example Learning**: Add your own examples to `_agent_data/example_scripts/` for Claude to learn from
+- **Custom Workflows**: Modify the 3-phase workflow (scan → plan → generate) in `claude_generator_config.yml`
+- **Model Selection**: Use different models for each workflow phase (Haiku for speed, Sonnet for quality)
+
+See `claude_generator_config.yml` for detailed configuration options.
+
+
+---
+
+## 💻 Command Line Tools
+
+This application includes several CLI tools for different purposes:
+
+### Interactive Channel Finder CLI
+
+Query the channel finder directly without the full framework:
+
+```bash
+# Start interactive mode
+python -m aps_control_assistant.services.channel_finder.cli
+
+# Query directly from command line
+python -m aps_control_assistant.services.channel_finder.cli "beam current channel"
+
+# With custom facility configuration
+python -m aps_control_assistant.services.channel_finder.cli --facility my_facility "vacuum pressure"
+```
+
+**Features:**
+- Command history with arrow keys
+- Auto-suggestions from previous queries
+- Rich formatted output
+- Persistent query history (~/.channel_finder_history)
+- Ctrl+L to clear screen
+- Type 'exit' or 'quit' to quit
+
+### Database Tools
+
+Build and manage channel databases:
+
+```bash
+# Build database from CSV
+python -m aps_control_assistant.data.tools.build_channel_database \
+  --csv src/aps_control_assistant/data/raw/address_list.csv \
+  --output src/aps_control_assistant/data/channel_databases/custom.json \
+  --use-llm  # Optional: generate descriptive names
+
+# Validate database format
+python -m aps_control_assistant.data.tools.validate_database \
+  --database src/aps_control_assistant/data/channel_databases/in_context.json
+
+# Preview database contents
+python -m aps_control_assistant.data.tools.preview_database \
+  --database src/aps_control_assistant/data/channel_databases/in_context.json
+```
+
+### Benchmark Runner
+
+Evaluate channel finder performance:
+
+```bash
+# Run all benchmarks
+python -m aps_control_assistant.services.channel_finder.benchmarks.cli
+
+# Run subset of queries
+python -m aps_control_assistant.services.channel_finder.benchmarks.cli --queries 0:10
+
+# Override model
+python -m aps_control_assistant.services.channel_finder.benchmarks.cli --model anthropic/claude-sonnet
+
+# Show detailed logs
+python -m aps_control_assistant.services.channel_finder.benchmarks.cli --verbose
+```
+
+---
+
+## 📋 Example Queries
+
+Try these example queries to explore the assistant's capabilities:
+
+### Channel Finding
+```
+"Find the beam current channel"
+"What are all the focusing quadrupole magnet current channels?"
+"Get the vacuum pressure channels for Sector 4"
+```
+
+### Live Values
+```
+"What is the current beam current?"
+"Read all quadrupole magnet currents"
+"Show me the status of power supply channels"
+```
+
+### Historical Data
+```
+"Plot beam current over the last 24 hours"
+"Show me vacuum pressure trends for the last week"
+"Analyze magnet current stability yesterday"
+```
+
+---
+
+## 🏗️ Architecture
+
+This template follows the proven **production architecture** from the ALS Assistant with pluggable connectors:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Layer 3: Optional MCP Deployment                       │
+│  services/channel_finder/                               │
+│  - Standalone MCP server                                │
+│  - Imports from service layer                           │
+│  - Deploy via config.yml                                │
+└─────────────────────────────────────────────────────────┘
+                          ▲
+                          │ uses
+                          │
+┌─────────────────────────────────────────────────────────┐
+│  Layer 2: Osprey Capabilities                           │
+│  src/aps_control_assistant/capabilities/                   │
+│  - channel_finding.py                                   │
+│  - channel_read.py (uses ConnectorFactory)              │
+│  - archiver_retrieval.py (uses ConnectorFactory)        │
+└─────────────────────────────────────────────────────────┘
+                          ▲
+                          │ uses                 ▲
+                          │                      │
+┌──────────────────────────────┐    ┌─────────────────────┐
+│  Service Layer               │    │ Osprey Connectors   │
+│  src/aps_control_assistant/services/ │  │ (Issue #18)      │
+│  - channel_finder/           │    │ - Mock connectors   │
+└──────────────────────────────┘    │ - EPICS connectors  │
+                                    │ - Custom connectors │
+                                    └─────────────────────┘
+```
+
+### Benefits of This Architecture
+
+✅ **No Code Duplication** - Service logic lives in one place
+✅ **Flexible Deployment** - Use in Osprey OR as standalone MCP server
+✅ **Clean Testing** - Test services independently of framework
+✅ **Production-Validated** - Based on actual ALS deployment
+✅ **Pluggable Connectors** - Switch from tutorial to production by changing config
+✅ **Extensible** - Add custom connectors for any control system
+
+---
+
+## 🧪 Benchmarking
+
+The template includes a comprehensive benchmarking system to evaluate channel finder performance.
+
+### Run Benchmarks
+
+```bash
+# Run all enabled benchmarks
+python -m aps_control_assistant.services.channel_finder.benchmarks.cli
+
+# Run first 10 queries only
+python -m aps_control_assistant.services.channel_finder.benchmarks.cli --queries 0:10
+
+# Use different model
+python -m aps_control_assistant.services.channel_finder.benchmarks.cli --model anthropic/claude-sonnet
+```
+
+### Benchmark Results
+
+Results are saved to `data/benchmarks/results/` with detailed metrics:
+- Success rate
+- Average latency per query
+- Exact match vs partial match rates
+- Individual query performance
+- Model usage costs (if available)
+
+### Adding Custom Benchmarks
+
+Create a new dataset in `data/benchmarks/datasets/`:
+
+```json
+[
+  {
+    "user_query": "beam current channel",
+    "targeted_channels": ["SR:CURRENT:RB"],
+    "details": "Basic beam current query"
+  }
+]
+```
+
+Enable it in `config.yml`:
+
+```yaml
+benchmark:
+  datasets:
+    my_custom_dataset:
+      path: data/benchmarks/datasets/my_custom.json
+      enabled: true
+```
+
+---
+
+## 🔧 Configuration
+
+### Channel Finder Pipeline
+
+Edit `config.yml` to switch between pipelines:
+
+```yaml
+channel_finder:
+  pipeline_mode: hierarchical  # "in_context" or "hierarchical"
+```
+
+### Control System & Archiver Connectors
+
+Configure connectors for development (mock) or production mode:
+
+```yaml
+# Development mode (default) - works with any channel names
+control_system:
+  type: mock              # Use mock connector (uses sensible defaults)
+
+archiver:
+  type: mock_archiver     # Use mock archiver (uses sensible defaults)
+
+# Production mode - connect to real systems
+control_system:
+  type: epics             # Use EPICS connector
+  connector:
+    epics:
+      timeout: 5.0
+      gateways:
+        read_only:
+          address: cagw.your-facility.edu
+          port: 5064
+
+archiver:
+  type: epics_archiver    # Use EPICS Archiver Appliance
+  epics_archiver:
+    url: https://archiver.your-facility.edu:8443
+    timeout: 60
+```
+
+### Model Configuration
+
+Configure which models to use for different roles:
+
+```yaml
+models:
+  orchestrator:
+    provider: argo
+    model_id: claudesonnet45
+  response:
+    provider: argo
+    model_id: claudesonnet45
+  # ... configure other roles
+```
+
+---
+
+## 🔄 Adapting for Your Facility
+
+This template uses **pluggable connectors** that make migration from development to production incredibly simple - just change the configuration!
+
+### Connector Architecture
+
+The template uses the **Osprey Connector Abstraction** (Issue #18) which provides:
+- **Development Mode**: Mock connectors work with any channel names (no hardware required)
+- **Production Mode**: Real connectors (EPICS, LabVIEW, Tango, etc.) with same API
+- **Zero Code Changes**: Switch modes by editing `config.yml`
+
+### Migration to Production
+
+#### Interactive Configuration (Recommended)
+
+**Step 1:** Install production dependencies (if using EPICS):
+
+```bash
+uv pip install pyepics als-archiver-client
+# or
+pip install pyepics als-archiver-client
+```
+
+**Step 2:** Use interactive menu to switch to production mode:
+
+```bash
+osprey  # Launch interactive menu
+```
+
+Navigate: **Your Project** → `config` → `set-control-system`
+- Select: **EPICS - Production mode**
+- Confirm archiver switch: **Yes - Use EPICS Archiver Appliance**
+
+**Step 3:** Configure EPICS gateway for your facility:
+
+Navigate: **Your Project** → `config` → `set-epics-gateway`
+- Select your facility: **APS** / **ALS** / **Custom**
+
+Supported facilities:
+- **APS** (Argonne): `pvgatemain1.aps4.anl.gov:5064`
+- **ALS** (Berkeley): `cagw-alsdmz.als.lbl.gov:5064` (read), `5084` (write)
+- **Custom**: Interactive prompts for your gateway
+
+**Step 4:** Test your connection:
+
+```bash
+osprey chat
+# Try: "What is the current beam current?"
+```
+
+**That's it!** Your capabilities work unchanged - `ConnectorFactory` automatically uses the configured connector.
+
+#### Manual Configuration (Alternative)
+
+You can also edit `config.yml` directly:
+
+```yaml
+control_system:
+  type: epics  # Changed from 'mock'
+  connector:
+    epics:
+      gateways:
+        read_only:
+          address: cagw.your-facility.edu
+          port: 5064
+
+archiver:
+  type: epics_archiver  # Changed from 'mock_archiver'
+  epics_archiver:
+    url: https://archiver.your-facility.edu:8443
+```
+
+### Why This Works
+
+The capabilities use `ConnectorFactory` which automatically creates the right connector based on config:
+
+```python
+# In channel_read.py - works with ANY connector
+connector = await ConnectorFactory.create_control_system_connector()
+channel_value = await connector.read_channel(channel_address)  # Same API for all connectors
+await connector.disconnect()
+```
+
+### Advanced: Custom Connectors
+
+Need to support a different control system (LabVIEW, Tango, etc.)?
+
+**Step 1: Implement your custom connector**
+
+```python
+# In src/aps_control_assistant/connectors/my_custom_connector.py
+from osprey.connectors.control_system.base import ControlSystemConnector
+
+class MyCustomConnector(ControlSystemConnector):
+    async def connect(self, config):
+        # Your connection logic
+        pass
+
+    async def read_pv(self, pv_address, timeout=None):
+        # Your custom implementation
+        pass
+
+    async def disconnect(self):
+        # Your cleanup logic
+        pass
+    # ... implement other required methods
+```
+
+**Step 2: Register it through the registry system**
+
+```python
+# In registry.py
+from osprey.registry import ConnectorRegistration, extend_framework_registry
+
+def get_registry_config(self):
+    return extend_framework_registry(
+        connectors=[
+            ConnectorRegistration(
+                name="custom",
+                connector_type="control_system",
+                module_path="aps_control_assistant.connectors.my_custom_connector",
+                class_name="MyCustomConnector",
+                description="My custom control system connector"
+            )
+        ],
+        capabilities=[...],  # Your existing capabilities
+        context_classes=[...]  # Your existing context classes
+    )
+```
+
+**Step 3: Use it in configuration**
+
+```yaml
+control_system:
+  type: custom
+  connector:
+    custom:
+      # Your custom config
+      url: "http://your-system:8080"
+      api_key: "your-key"
+```
+
+See Osprey documentation for complete connector implementation guide.
+
+### 3. Update Channel Database
+
+Replace `data/channel_databases/hierarchical.json` with your facility's channel list.
+
+For hierarchical database, structure channels by system/device/field:
+
+```json
+{
+  "systems": {
+    "MAGNETS": {
+      "families": {
+        "DIPOLE": {
+          "devices": ["B01", "B02"],
+          "fields": ["CURRENT:SP", "CURRENT:RB"]
+        }
+      }
+    }
+  }
+}
+```
+
+### 4. Add Facility Context
+
+Create custom facility prompts in the appropriate pipeline directory:
+
+```python
+# For in-context pipeline:
+# Edit: src/aps_control_assistant/services/channel_finder/prompts/in_context/system.py
+
+# For hierarchical pipeline:
+# Edit: src/aps_control_assistant/services/channel_finder/prompts/hierarchical/system.py
+
+facility_description = """
+Your facility description here.
+Include: beam energy, main systems, naming conventions, etc.
+"""
+```
+
+The prompts are already configured in `config.yml`:
+
+```yaml
+channel_finder:
+  pipelines:
+    in_context:
+      prompts:
+        path: src/aps_control_assistant/services/channel_finder/prompts/in_context
+    hierarchical:
+      prompts:
+        path: src/aps_control_assistant/services/channel_finder/prompts/hierarchical
+```
+
+---
+
+## 📊 Production Patterns
+
+This template demonstrates enterprise patterns from the ALS deployment:
+
+### Error Handling
+- Custom error classes per capability
+- `classify_error()` with proper ErrorClassification
+- Detailed recovery suggestions
+- Retry policies for transient failures
+
+### Registry-Based Architecture
+- Declarative capability metadata (provides/requires)
+- Registry-based context types
+- Error classification and retry policies
+
+---
+
+## 🚢 Optional: MCP Server Deployment
+
+Deploy the channel finder as a standalone MCP server for use with Claude Desktop, VS Code, etc.
+
+### Enable MCP Deployment
+
+1. Edit `config.yml`:
+
+```yaml
+services:
+  channel_finder:
+    copy_src: true
+    port_host: 8051
+    port_container: 8051
+
+deployed_services:
+  - channel_finder
+```
+
+2. Deploy:
+
+```bash
+osprey deploy up
+```
+
+3. Configure Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "channel-finder": {
+      "transport": "sse",
+      "url": "http://localhost:8051/sse"
+    }
+  }
+}
+```
+
+---
+
+## 📚 Additional Resources
+
+- **Osprey Documentation**: https://als-apg.github.io/osprey/
+- **ALS Assistant Paper**: arXiv:2509.17255
+- **Channel Finder**: Embedded in `services/channel_finder/`
+- **Template Design Doc**: `CONTROL_ASSISTANT_TEMPLATE.md`
+
+---
+
+## 🤝 Contributing
+
+To adapt this template or contribute improvements:
+
+1. Service Layer (`services/`) - Pure business logic, framework-independent
+2. Capabilities (`capabilities/`) - Thin wrappers integrating services with Osprey
+3. Context Classes (`context_classes.py`) - Data structures for inter-capability communication
+4. Registry (`registry.py`) - Component registration
+
+---
+
+## 📝 License
+
+This project template is part of the Osprey Framework.
+See LICENSE for details.
+
+---
+
+**Generated by:** Osprey Framework 0.11.5
+**Template:** control_assistant

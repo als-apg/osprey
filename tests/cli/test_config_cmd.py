@@ -157,7 +157,7 @@ class TestConfigSetControlSystemCommand:
         config_file.write_text("control_system:\n  type: mock\n")
 
         with patch("osprey.cli.project_utils.resolve_config_path") as mock_resolve:
-            with patch("osprey.generators.config_updater.set_control_system_type") as mock_update:
+            with patch("osprey.utils.config_writer.set_control_system_type") as mock_update:
                 mock_resolve.return_value = str(config_file)
                 mock_update.return_value = ("new content", "preview")
 
@@ -174,7 +174,7 @@ class TestConfigSetControlSystemCommand:
         config_file.write_text("control_system:\n  type: epics\n")
 
         with patch("osprey.cli.project_utils.resolve_config_path") as mock_resolve:
-            with patch("osprey.generators.config_updater.set_control_system_type") as mock_update:
+            with patch("osprey.utils.config_writer.set_control_system_type") as mock_update:
                 mock_resolve.return_value = str(config_file)
                 mock_update.return_value = ("new content", "preview")
 
@@ -207,7 +207,7 @@ class TestConfigSetEpicsGatewayCommand:
         config_file.write_text("control_system:\n  epics: {}\n")
 
         with patch("osprey.cli.project_utils.resolve_config_path") as mock_resolve:
-            with patch("osprey.generators.config_updater.set_epics_gateway_config") as mock_update:
+            with patch("osprey.utils.config_writer.set_epics_gateway_config") as mock_update:
                 mock_resolve.return_value = str(config_file)
                 mock_update.return_value = ("new content", "preview")
 
@@ -249,7 +249,7 @@ class TestConfigSetModelsCommand:
 
         with patch("osprey.cli.project_utils.resolve_config_path") as mock_resolve:
             with patch("osprey.cli.interactive_menu.get_provider_metadata") as mock_metadata:
-                with patch("osprey.generators.config_updater.update_all_models") as mock_update:
+                with patch("osprey.utils.config_writer.update_all_models") as mock_update:
                     mock_resolve.return_value = str(config_file)
                     mock_metadata.return_value = {
                         "anthropic": {"models": ["claude-sonnet-4", "claude-haiku"]}

@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OSPREY — Activity</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-page: #050a10;
+      --bg-primary: #0a0f1a;
+      --bg-secondary: #111a2e;
+      --bg-elevated: #1a2332;
+      --text-primary: #f1f5f9;
+      --text-secondary: #8b9ab5;
+      --text-muted: #64748b;
+      --accent: #4fd1c5;
+      --accent-deep: #319795;
+      --amber: #d4a574;
+      --error: #ef4444;
+      --success: #22c55e;
+      --border: rgba(148, 163, 184, 0.12);
+      --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
+      --transition-fast: 120ms ease;
+      --transition-normal: 200ms ease;
+      --scanline-opacity: 0.03;
+    }
+
+    [data-theme="light"] {
+      --bg-page: #fafbfd;
+      --bg-primary: #f7f9fc;
+      --bg-secondary: #eef2f7;
+      --bg-elevated: #e4e9f0;
+      --text-primary: #0c1322;
+      --text-secondary: #374155;
+      --text-muted: #64748b;
+      --accent: #0a8f8c;
+      --accent-deep: #0a8f8c;
+      --amber: #a07040;
+      --error: #dc2626;
+      --success: #16a34a;
+      --border: #d1d8e3;
+      --scanline-opacity: 0;
+    }
+
+    /* Server colors — fixed across themes */
+    .srv-controls     { --srv: #d4a574; }
+    .srv-python       { --srv: #a78bfa; }
+    .srv-workspace    { --srv: #60a5fa; }
+    .srv-ariel        { --srv: #f472b6; }
+    .srv-channel-finder { --srv: #22d3ee; }
+    .srv-unknown      { --srv: #64748b; }
+
+    html { height: 100%; }
+
+    body {
+      min-height: 100%;
+      background: var(--bg-page);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.5;
+      overflow-y: auto;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px);
+      pointer-events: none;
+      z-index: 1000;
+      opacity: var(--scanline-opacity);
+    }
+
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.2); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.35); }
+
+    /* ---- Header ---- */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      background: var(--bg-primary);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    header h1 {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .refresh-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      opacity: 0;
+      transition: opacity var(--transition-fast);
+    }
+    .refresh-dot.pulse {
+      opacity: 1;
+      animation: dotPulse 600ms ease forwards;
+    }
+    @keyframes dotPulse {
+      0% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+
+    /* ---- Nav Pills ---- */
+    nav {
+      display: flex;
+      gap: 6px;
+      padding: 8px 14px;
+      background: var(--bg-primary);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .pill {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      padding: 5px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      white-space: nowrap;
+    }
+    .pill:hover {
+      color: var(--text-secondary);
+      border-color: var(--text-muted);
+    }
+    .pill.active {
+      background: var(--accent);
+      color: #050a10;
+      border-color: var(--accent);
+    }
+    [data-theme="light"] .pill.active {
+      color: #ffffff;
+    }
+
+    /* ---- Main ---- */
+    main {
+      padding: 12px 14px;
+    }
+    .view { display: none; }
+    .view.active { display: block; }
+
+    /* ---- Empty State ---- */
+    .empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 20px;
+      text-align: center;
+    }
+    .empty-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .empty-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      opacity: 0.6;
+    }
+
+    /* ---- Summary Bar ---- */
+    .summary-bar {
+      display: flex;
+      gap: 16px;
+      padding: 8px 12px;
+      background: var(--bg-secondary);
+      border-radius: 4px;
+      margin-bottom: 12px;
+      font-size: 10px;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+    }
+    .summary-bar span { text-transform: uppercase; }
+    .summary-bar .val { color: var(--text-primary); font-weight: 600; }
+
+    /* ---- Agent Cards ---- */
+    .agent-card {
+      background: var(--bg-secondary);
+      border-left: 3px solid var(--accent);
+      border-radius: 4px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: background var(--transition-fast);
+    }
+    .agent-card:hover { background: var(--bg-elevated); }
+    .agent-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      flex-wrap: wrap;
+    }
+    .agent-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .badge {
+      font-size: 9px;
+      letter-spacing: 1px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: rgba(148,163,184,0.1);
+      color: var(--text-muted);
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .badge-error {
+      background: rgba(239,68,68,0.1);
+      color: var(--error);
+    }
+    .agent-tools {
+      display: none;
+      padding: 0 12px 8px;
+    }
+    .agent-card.expanded .agent-tools { display: block; }
+    .tool-row {
+      display: flex;
+      gap: 8px;
+      padding: 4px 0;
+      font-size: 11px;
+      color: var(--text-secondary);
+      border-bottom: 1px solid rgba(148,163,184,0.06);
+      align-items: center;
+    }
+    .tool-row { cursor: pointer; }
+    .tool-row:last-child { border-bottom: none; }
+    .agent-tools .log-detail { padding-left: 55px; }
+    .tool-row.is-error {
+      background: rgba(239,68,68,0.06);
+      border-left: 2px solid var(--error);
+      padding-left: 6px;
+      margin-left: -8px;
+    }
+    .tool-time {
+      font-size: 10px;
+      color: var(--text-muted);
+      min-width: 55px;
+      flex-shrink: 0;
+    }
+    .tool-name {
+      flex: 1;
+      color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .tool-row.is-error .tool-name { color: var(--error); }
+    .server-badge {
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      color: var(--srv, var(--text-muted));
+      background: rgba(148,163,184,0.08);
+      white-space: nowrap;
+    }
+
+    /* ---- Agent Timeline ---- */
+    .agent-timeline {
+      display: none;
+      padding: 0 12px 10px;
+      border-top: 1px solid var(--border);
+      margin-top: 4px;
+    }
+    .agent-card.expanded .agent-timeline { display: block; }
+    .tl-entry {
+      position: relative;
+      padding: 6px 0 6px 16px;
+      border-left: 2px solid rgba(148,163,184,0.15);
+      margin-left: 4px;
+    }
+    .tl-entry::before {
+      content: '';
+      position: absolute;
+      left: -4px;
+      top: 12px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--text-muted);
+    }
+    .tl-entry.tl-prompt::before { background: var(--amber); }
+    .tl-entry.tl-reasoning::before { background: var(--accent); }
+    .tl-entry.tl-tool_call::before { background: #a78bfa; }
+    .tl-entry.tl-tool_result::before { background: #60a5fa; }
+    .tl-entry.tl-error::before { background: var(--error); }
+    .tl-entry.tl-thinking::before { background: #f472b6; }
+    .tl-kind {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 2px;
+    }
+    .tl-entry.tl-prompt .tl-kind { color: var(--amber); }
+    .tl-entry.tl-reasoning .tl-kind { color: var(--accent); }
+    .tl-entry.tl-tool_call .tl-kind { color: #a78bfa; }
+    .tl-entry.tl-tool_result .tl-kind { color: #60a5fa; }
+    .tl-entry.tl-thinking .tl-kind { color: #f472b6; }
+    .tl-text {
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+    .tl-text.tl-collapsed {
+      max-height: 40px;
+      overflow: hidden;
+      cursor: pointer;
+      mask-image: linear-gradient(to bottom, black 60%, transparent);
+      -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent);
+    }
+    .tl-text.tl-collapsed:hover {
+      max-height: 120px;
+      mask-image: none;
+      -webkit-mask-image: none;
+    }
+    .tl-tool-name {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 2px;
+    }
+    .tl-args {
+      font-size: 10px;
+      color: var(--text-muted);
+      background: var(--bg-secondary);
+      padding: 4px 6px;
+      border-radius: 3px;
+      max-height: 80px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .tl-loading {
+      padding: 20px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 10px;
+      letter-spacing: 1px;
+    }
+
+    /* ---- Tool Log View ---- */
+    .filter-bar {
+      display: flex;
+      gap: 8px;
+      padding: 8px 0;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .filter-bar select,
+    .filter-bar input[type="text"] {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 4px 8px;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      outline: none;
+    }
+    .filter-bar select:focus,
+    .filter-bar input[type="text"]:focus {
+      border-color: var(--accent);
+    }
+    .filter-bar label {
+      font-size: 10px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+    }
+    .filter-bar input[type="checkbox"] {
+      accent-color: var(--accent);
+    }
+    .log-headers {
+      display: flex;
+      gap: 8px;
+      padding: 4px 0;
+      font-size: 9px;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
+    }
+    .log-headers .col-time { width: 60px; flex-shrink: 0; }
+    .log-headers .col-tool { flex: 1; }
+    .log-headers .col-server { width: 70px; flex-shrink: 0; }
+    .log-headers .col-agent { width: 70px; flex-shrink: 0; }
+    .log-row {
+      display: flex;
+      gap: 8px;
+      padding: 5px 0;
+      font-size: 11px;
+      color: var(--text-secondary);
+      border-bottom: 1px solid rgba(148,163,184,0.06);
+      cursor: pointer;
+      align-items: center;
+      transition: background var(--transition-fast);
+    }
+    .log-row:hover { background: rgba(148,163,184,0.04); }
+    .log-row .col-time { width: 60px; flex-shrink: 0; font-size: 10px; color: var(--text-muted); }
+    .log-row .col-tool { flex: 1; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .log-row .col-server { width: 70px; flex-shrink: 0; }
+    .log-row .col-agent { width: 70px; flex-shrink: 0; font-size: 10px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .log-row.is-error {
+      border-left: 3px solid var(--error);
+      padding-left: 5px;
+    }
+    .log-row.is-error .col-tool { color: var(--error); }
+    .log-detail {
+      display: none;
+      padding: 8px 0 8px 68px;
+      font-size: 11px;
+    }
+    .log-detail.expanded { display: block; }
+    .log-detail pre {
+      background: var(--bg-secondary);
+      padding: 8px;
+      border-radius: 4px;
+      overflow-x: auto;
+      color: var(--text-secondary);
+      font-size: 10px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 200px;
+    }
+    .log-detail .detail-label {
+      font-size: 9px;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 4px;
+      margin-top: 8px;
+    }
+    .log-detail .detail-label:first-child { margin-top: 0; }
+
+    /* ---- Artifacts View ---- */
+    .totals-bar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 8px 12px;
+      background: var(--bg-secondary);
+      border-radius: 4px;
+      margin-bottom: 12px;
+      font-size: 10px;
+      color: var(--text-muted);
+      align-items: center;
+    }
+    .totals-bar .val { color: var(--text-primary); font-weight: 600; }
+    .cat-pill {
+      font-size: 9px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: rgba(79,209,197,0.1);
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    [data-theme="light"] .cat-pill {
+      background: rgba(10,143,140,0.1);
+    }
+    .artifact-group {
+      margin-bottom: 8px;
+    }
+    .artifact-group summary {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      cursor: pointer;
+      padding: 6px 0;
+      letter-spacing: 0.5px;
+    }
+    .artifact-entry {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      padding: 6px 8px;
+      background: var(--bg-secondary);
+      border-radius: 4px;
+      margin-bottom: 4px;
+    }
+    .artifact-icon {
+      font-size: 14px;
+      flex-shrink: 0;
+      width: 20px;
+      text-align: center;
+    }
+    .artifact-body { flex: 1; min-width: 0; }
+    .artifact-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .artifact-desc {
+      font-size: 10px;
+      color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .artifact-meta {
+      font-size: 9px;
+      color: var(--text-muted);
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 2px;
+    }
+    .artifact-channels {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-top: 3px;
+    }
+    .channel-tag {
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: rgba(79,209,197,0.08);
+      color: var(--accent);
+    }
+    [data-theme="light"] .channel-tag {
+      background: rgba(10,143,140,0.08);
+    }
+
+    /* ---- Conversation View ---- */
+    .chat-container {
+      max-height: calc(100vh - 120px);
+      overflow-y: auto;
+    }
+    .chat-msg {
+      padding: 8px 12px;
+      margin-bottom: 6px;
+      border-radius: 4px;
+      border-left: 3px solid transparent;
+    }
+    .chat-msg.user {
+      border-left-color: var(--amber);
+      background: rgba(212,165,116,0.06);
+    }
+    .chat-msg.assistant {
+      border-left-color: var(--accent);
+      background: rgba(79,209,197,0.06);
+    }
+    [data-theme="light"] .chat-msg.user { background: rgba(160,112,64,0.06); }
+    [data-theme="light"] .chat-msg.assistant { background: rgba(10,143,140,0.06); }
+    .chat-role {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .chat-msg.user .chat-role { color: var(--amber); }
+    .chat-msg.assistant .chat-role { color: var(--accent); }
+    .chat-ts {
+      font-size: 9px;
+      color: var(--text-muted);
+      font-weight: 400;
+      letter-spacing: 0;
+    }
+    .chat-content {
+      font-size: 12px;
+      color: var(--text-primary);
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.6;
+    }
+
+    /* ---- Toast ---- */
+    .toast {
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--error);
+      border-radius: 4px;
+      padding: 8px 14px;
+      font-size: 11px;
+      color: var(--error);
+      z-index: 100;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity var(--transition-normal), transform var(--transition-normal);
+      pointer-events: none;
+      max-width: 300px;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    /* ---- Responsive ---- */
+    @media (max-width: 500px) {
+      .agent-card-header { flex-direction: column; align-items: flex-start; }
+      .filter-bar { flex-direction: column; }
+      .log-headers .col-server,
+      .log-headers .col-agent,
+      .log-row .col-server,
+      .log-row .col-agent { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Activity</h1>
+  <div class="refresh-dot" id="refresh-dot"></div>
+</header>
+
+<nav id="nav">
+  <button class="pill active" data-view="agents">Agents</button>
+  <button class="pill" data-view="toollog">Tool Log</button>
+  <button class="pill" data-view="artifacts">Artifacts</button>
+  <button class="pill" data-view="conversation">Conversation</button>
+</nav>
+
+<main>
+  <section class="view active" id="view-agents"></section>
+  <section class="view" id="view-toollog"></section>
+  <section class="view" id="view-artifacts"></section>
+  <section class="view" id="view-conversation"></section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ---- Theme ----
+  const params = new URLSearchParams(location.search);
+  const theme = params.get('theme');
+  if (theme) document.documentElement.setAttribute('data-theme', theme);
+
+  window.addEventListener('message', (e) => {
+    if (!e.data) return;
+    if (e.data.type === 'osprey-theme-change' && e.data.theme) {
+      document.documentElement.setAttribute('data-theme', e.data.theme);
+    } else if (e.data.type === 'osprey-session-change') {
+      currentSessionId = e.data.session_id || null;
+      cache = { agents: null, toollog: null, artifacts: null, conversation: null };
+      refreshActive();
+    }
+  });
+
+  // ---- State ----
+  let activeView = 'agents';
+  let currentSessionId = null;
+  let cache = { agents: null, toollog: null, artifacts: null, conversation: null };
+
+  const SERVER_COLORS = {
+    controls: 'srv-controls', python: 'srv-python', workspace: 'srv-workspace',
+    ariel: 'srv-ariel', 'channel-finder': 'srv-channel-finder',
+  };
+
+  function serverClass(name) {
+    if (!name) return 'srv-unknown';
+    const lower = name.toLowerCase();
+    return SERVER_COLORS[lower] || 'srv-unknown';
+  }
+
+  // ---- API ----
+  const FETCH_TIMEOUT = 4000;
+
+  async function apiFetch(path) {
+    if (currentSessionId) {
+      const sep = path.includes('?') ? '&' : '?';
+      path = path + sep + 'session_id=' + encodeURIComponent(currentSessionId);
+    }
+    const resp = await fetch(path, { signal: AbortSignal.timeout(FETCH_TIMEOUT) });
+    if (resp.status === 404) return null;
+    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+    return resp.json();
+  }
+
+  // ---- Toast ----
+  let toastTimer = null;
+  function showToast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 4000);
+  }
+
+  // ---- Nav ----
+  document.getElementById('nav').addEventListener('click', (e) => {
+    const pill = e.target.closest('.pill');
+    if (!pill) return;
+    const view = pill.dataset.view;
+    if (view === activeView) return;
+    activeView = view;
+    document.querySelectorAll('.pill').forEach(p => p.classList.toggle('active', p.dataset.view === view));
+    document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
+    refreshActive();
+  });
+
+  // ---- Helpers ----
+  function ts(isoStr) {
+    if (!isoStr) return '';
+    try {
+      const d = new Date(isoStr);
+      return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch { return ''; }
+  }
+
+  function fmtBytes(n) {
+    if (!n || n === 0) return '0 B';
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1048576).toFixed(1) + ' MB';
+  }
+
+  function esc(s) {
+    if (!s) return '';
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function emptyState(title, sub) {
+    return `<div class="empty"><div class="empty-title">${esc(title)}</div><div class="empty-sub">${esc(sub)}</div></div>`;
+  }
+
+  const TYPE_ICONS = {
+    plot: '\u{1F4C8}', table: '\u{1F4CA}', text: '\u{1F4C4}', code: '\u{1F4BB}',
+    json: '\u{1F4CB}', csv: '\u{1F4C3}', image: '\u{1F5BC}', notebook: '\u{1F4D3}',
+    markdown: '\u{270F}', html: '\u{1F310}', log: '\u{1F4DC}',
+  };
+  function typeIcon(t) {
+    return TYPE_ICONS[(t || '').toLowerCase()] || '\u{1F4E6}';
+  }
+
+  // ---- Agents View ----
+  async function renderAgents() {
+    const el = document.getElementById('view-agents');
+    let data;
+    try {
+      data = await apiFetch('/api/session-agents');
+    } catch (err) {
+      showToast('Failed to load agents');
+      if (!cache.agents) el.innerHTML = emptyState('ERROR', 'Could not load agent data');
+      return;
+    }
+    if (!data || (!data.agents.length && data.total_events === 0)) {
+      el.innerHTML = emptyState('NO AGENTS', 'No subagent activity recorded');
+      cache.agents = null;
+      return;
+    }
+    cache.agents = data;
+
+    const agents = data.agents || [];
+    const toolsByAgent = data.tool_calls_by_agent || {};
+    const agentCount = agents.filter(a => a.agent_id && a.agent_id !== 'main').length;
+
+    let html = `<div class="summary-bar">
+      <span>Events: <span class="val">${data.total_events}</span></span>
+      <span>Agents: <span class="val">${agentCount}</span></span>
+    </div>`;
+
+    for (const agent of agents) {
+      const aid = agent.agent_id || 'main';
+      const isRoot = !agent.agent_id || agent.agent_id === 'main';
+      const name = isRoot ? 'ROOT SESSION' : (agent.agent_type || aid);
+      const borderColor = isRoot ? 'var(--accent)' : `var(--srv, var(--accent))`;
+      const srvCls = isRoot ? '' : serverClass(agent.server || agent.agent_type);
+      const tools = toolsByAgent[aid] || [];
+      const errCount = tools.filter(t => t.is_error).length;
+      const dur = agent.duration ? agent.duration : '';
+
+      html += `<div class="agent-card ${srvCls}" style="border-left-color:${isRoot ? 'var(--accent)' : `var(--srv, var(--accent))`}" data-agent="${esc(aid)}">
+        <div class="agent-card-header">
+          <span class="agent-name">${esc(name)}</span>
+          ${agent.agent_type ? `<span class="badge">${esc(agent.agent_type)}</span>` : ''}
+          ${dur ? `<span class="badge">${esc(dur)}</span>` : ''}
+          <span class="badge">${tools.length} tools</span>
+          ${errCount ? `<span class="badge badge-error">${errCount} errors</span>` : ''}
+        </div>
+        <div class="agent-tools">`;
+
+      for (let ti = 0; ti < tools.length; ti++) {
+        const tc = tools[ti];
+        const isErr = tc.is_error;
+        const tcSrv = serverClass(tc.server_name || tc.server);
+        const toolKey = `${aid}-${ti}`;
+        html += `<div class="tool-row ${isErr ? 'is-error' : ''} ${tcSrv}" data-tool-key="${toolKey}">
+          <span class="tool-time">${ts(tc.timestamp)}</span>
+          <span class="tool-name">${esc(tc.tool_name || tc.tool || '')}</span>
+          <span class="server-badge ${tcSrv}" style="color:var(--srv, var(--text-muted))">${esc(tc.server_name || tc.server || '')}</span>
+        </div>
+        <div class="log-detail" data-tool-detail="${toolKey}">
+          ${tc.arguments ? `<div class="detail-label">Arguments</div><pre>${esc(typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.arguments, null, 2))}</pre>` : ''}
+          ${tc.result_summary ? `<div class="detail-label">Result</div><pre>${esc(tc.result_summary)}</pre>` : ''}
+        </div>`;
+      }
+
+      if (!isRoot) {
+        html += `<div class="agent-timeline" data-tl-agent="${esc(aid)}">
+          <div class="tl-loading">LOADING TIMELINE…</div>
+        </div>`;
+      }
+
+      html += `</div>`;
+    }
+
+    el.innerHTML = html;
+
+    el.querySelectorAll('.agent-card').forEach(card => {
+      card.querySelector('.agent-card-header').addEventListener('click', () => {
+        const wasExpanded = card.classList.contains('expanded');
+        card.classList.toggle('expanded');
+        if (!wasExpanded) {
+          const tlEl = card.querySelector('.agent-timeline');
+          if (tlEl && !tlEl.dataset.loaded) {
+            loadAgentTimeline(tlEl, card.dataset.agent);
+          }
+        }
+      });
+    });
+
+    el.querySelectorAll('.agent-tools .tool-row').forEach(row => {
+      row.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const key = row.dataset.toolKey;
+        const detail = el.querySelector(`.log-detail[data-tool-detail="${key}"]`);
+        if (detail) detail.classList.toggle('expanded');
+      });
+    });
+  }
+
+  // ---- Agent Timeline ----
+  async function loadAgentTimeline(tlEl, agentId) {
+    tlEl.dataset.loaded = '1';
+    try {
+      const data = await apiFetch(`/api/session-agent-timeline?agent_id=${encodeURIComponent(agentId)}`);
+      if (!data || !data.timeline || !data.timeline.length) {
+        tlEl.innerHTML = '<div class="tl-loading">NO INTERNAL STATE AVAILABLE</div>';
+        return;
+      }
+      renderTimeline(tlEl, data.timeline);
+    } catch {
+      tlEl.innerHTML = '<div class="tl-loading">FAILED TO LOAD TIMELINE</div>';
+    }
+  }
+
+  function renderTimeline(container, timeline) {
+    let html = '';
+    for (const entry of timeline) {
+      const kind = entry.kind || 'unknown';
+      const errCls = entry.is_error ? ' tl-error' : '';
+      const kindLabel = kind === 'tool_call' ? entry.tool || 'tool call'
+                       : kind === 'tool_result' ? 'result'
+                       : kind;
+
+      html += `<div class="tl-entry tl-${esc(kind)}${errCls}">`;
+      html += `<div class="tl-kind">${esc(kindLabel)}</div>`;
+
+      if (kind === 'tool_call') {
+        const args = entry.arguments;
+        const argStr = args ? (typeof args === 'string' ? args : JSON.stringify(args, null, 2)) : '';
+        html += `<div class="tl-tool-name">${esc(entry.tool || '')}</div>`;
+        if (argStr) {
+          html += `<div class="tl-args">${esc(argStr)}</div>`;
+        }
+      } else {
+        const text = entry.text || '';
+        const needsCollapse = text.length > 200;
+        html += `<div class="tl-text${needsCollapse ? ' tl-collapsed' : ''}">${esc(text)}</div>`;
+      }
+
+      html += `</div>`;
+    }
+    container.innerHTML = html;
+
+    container.querySelectorAll('.tl-text.tl-collapsed').forEach(el => {
+      el.addEventListener('click', () => el.classList.toggle('tl-collapsed'));
+    });
+  }
+
+  // ---- Tool Log View ----
+  let logFilters = { agent: '', tool: '', errorsOnly: false };
+  let logData = [];
+
+  async function renderToolLog() {
+    const el = document.getElementById('view-toollog');
+    let data;
+    try {
+      const qp = new URLSearchParams();
+      if (logFilters.agent) qp.set('agent_id', logFilters.agent);
+      if (logFilters.tool) qp.set('tool', logFilters.tool);
+      if (logFilters.errorsOnly) qp.set('errors_only', 'true');
+      qp.set('last_n', '500');
+      data = await apiFetch('/api/session-log?' + qp.toString());
+    } catch (err) {
+      showToast('Failed to load tool log');
+      if (!cache.toollog) el.innerHTML = emptyState('ERROR', 'Could not load tool log');
+      return;
+    }
+    if (!data || !data.events.length) {
+      el.innerHTML = buildFilterBar() + emptyState('NO TOOL CALLS', 'No OSPREY tool calls in this session');
+      attachFilterListeners(el);
+      cache.toollog = null;
+      return;
+    }
+    cache.toollog = data;
+    logData = data.events;
+
+    const agentIds = [...new Set(logData.map(e => e.agent_id || 'main'))];
+
+    let html = buildFilterBar(agentIds);
+
+    html += `<div class="log-headers">
+      <span class="col-time">Time</span>
+      <span class="col-tool">Tool</span>
+      <span class="col-server">Server</span>
+      <span class="col-agent">Agent</span>
+    </div>`;
+
+    for (let i = 0; i < logData.length; i++) {
+      const ev = logData[i];
+      const isErr = ev.is_error;
+      const srvCls = serverClass(ev.server_name);
+      html += `<div class="log-row ${isErr ? 'is-error' : ''}" data-idx="${i}">
+        <span class="col-time">${ts(ev.timestamp)}</span>
+        <span class="col-tool">${esc(ev.tool_name || '')}</span>
+        <span class="col-server"><span class="server-badge ${srvCls}" style="color:var(--srv, var(--text-muted))">${esc(ev.server_name || '')}</span></span>
+        <span class="col-agent">${esc((ev.agent_id || 'main').slice(0, 8))}</span>
+      </div>
+      <div class="log-detail" data-detail="${i}">
+        ${ev.arguments ? `<div class="detail-label">Arguments</div><pre>${esc(typeof ev.arguments === 'string' ? ev.arguments : JSON.stringify(ev.arguments, null, 2))}</pre>` : ''}
+        ${ev.result_summary ? `<div class="detail-label">Result</div><pre>${esc(ev.result_summary)}</pre>` : ''}
+      </div>`;
+    }
+
+    el.innerHTML = html;
+    attachFilterListeners(el);
+
+    el.querySelectorAll('.log-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const idx = row.dataset.idx;
+        const detail = el.querySelector(`.log-detail[data-detail="${idx}"]`);
+        if (detail) detail.classList.toggle('expanded');
+      });
+    });
+  }
+
+  function buildFilterBar(agentIds) {
+    let opts = '<option value="">All agents</option>';
+    if (agentIds) {
+      for (const id of agentIds) {
+        const sel = logFilters.agent === id ? ' selected' : '';
+        opts += `<option value="${esc(id)}"${sel}>${esc(id.slice(0, 12))}</option>`;
+      }
+    }
+    return `<div class="filter-bar">
+      <select id="filter-agent">${opts}</select>
+      <input type="text" id="filter-tool" placeholder="Tool name..." value="${esc(logFilters.tool)}">
+      <label><input type="checkbox" id="filter-errors" ${logFilters.errorsOnly ? 'checked' : ''}> Errors only</label>
+    </div>`;
+  }
+
+  function attachFilterListeners(el) {
+    const agentSel = el.querySelector('#filter-agent');
+    const toolInput = el.querySelector('#filter-tool');
+    const errCb = el.querySelector('#filter-errors');
+    if (agentSel) agentSel.addEventListener('change', () => { logFilters.agent = agentSel.value; renderToolLog(); });
+    if (toolInput) {
+      let debounce;
+      toolInput.addEventListener('input', () => {
+        clearTimeout(debounce);
+        debounce = setTimeout(() => { logFilters.tool = toolInput.value; renderToolLog(); }, 300);
+      });
+    }
+    if (errCb) errCb.addEventListener('change', () => { logFilters.errorsOnly = errCb.checked; renderToolLog(); });
+  }
+
+  // ---- Artifacts View ----
+  async function renderArtifacts() {
+    const el = document.getElementById('view-artifacts');
+    let data;
+    try {
+      data = await apiFetch('/api/session-summary');
+    } catch (err) {
+      showToast('Failed to load artifacts');
+      if (!cache.artifacts) el.innerHTML = emptyState('ERROR', 'Could not load artifact data');
+      return;
+    }
+    if (!data || !data.entries.length) {
+      el.innerHTML = emptyState('NO ARTIFACTS', 'No data or artifacts saved yet');
+      cache.artifacts = null;
+      return;
+    }
+    cache.artifacts = data;
+
+    const totals = data.totals || {};
+    const cats = totals.categories || {};
+
+    let html = `<div class="totals-bar">
+      <span><span class="val">${totals.entry_count || 0}</span> entries</span>
+      <span><span class="val">${fmtBytes(totals.total_bytes)}</span></span>`;
+    for (const [cat, count] of Object.entries(cats)) {
+      html += `<span class="cat-pill">${esc(cat)}: ${count}</span>`;
+    }
+    html += `</div>`;
+
+    const grouped = {};
+    for (const entry of data.entries) {
+      const cat = entry.category || 'uncategorized';
+      (grouped[cat] = grouped[cat] || []).push(entry);
+    }
+
+    for (const [cat, entries] of Object.entries(grouped)) {
+      html += `<details class="artifact-group" open>
+        <summary>${esc(cat)} (${entries.length})</summary>`;
+      for (const entry of entries) {
+        const channels = entry.channels || [];
+        html += `<div class="artifact-entry">
+          <span class="artifact-icon">${typeIcon(entry.artifact_type)}</span>
+          <div class="artifact-body">
+            <div class="artifact-title">${esc(entry.title || entry.name || 'Untitled')}</div>
+            ${entry.description ? `<div class="artifact-desc">${esc(entry.description)}</div>` : ''}
+            <div class="artifact-meta">
+              <span>${fmtBytes(entry.size_bytes)}</span>
+              ${entry.timestamp ? `<span>${ts(entry.timestamp)}</span>` : ''}
+              ${entry.artifact_type ? `<span>${esc(entry.artifact_type)}</span>` : ''}
+            </div>
+            ${channels.length ? `<div class="artifact-channels">${channels.map(c => `<span class="channel-tag">${esc(c)}</span>`).join('')}</div>` : ''}
+          </div>
+        </div>`;
+      }
+      html += `</details>`;
+    }
+
+    el.innerHTML = html;
+  }
+
+  // ---- Conversation View ----
+  async function renderConversation() {
+    const el = document.getElementById('view-conversation');
+    let data;
+    try {
+      data = await apiFetch('/api/session-chat');
+    } catch (err) {
+      showToast('Failed to load conversation');
+      if (!cache.conversation) el.innerHTML = emptyState('ERROR', 'Could not load conversation');
+      return;
+    }
+    if (!data || !data.turns || !data.turns.length) {
+      el.innerHTML = emptyState('NO CONVERSATION', 'Session transcript is empty');
+      cache.conversation = null;
+      return;
+    }
+    cache.conversation = data;
+
+    let html = '<div class="chat-container">';
+    for (const turn of data.turns) {
+      const role = (turn.role || 'unknown').toLowerCase();
+      const cls = role === 'user' ? 'user' : 'assistant';
+      const content = turn.content || turn.text || '';
+      html += `<div class="chat-msg ${cls}">
+        <div class="chat-role">${esc(role.toUpperCase())} ${turn.timestamp ? `<span class="chat-ts">${ts(turn.timestamp)}</span>` : ''}</div>
+        <div class="chat-content">${esc(content)}</div>
+      </div>`;
+    }
+    html += '</div>';
+    el.innerHTML = html;
+
+    const container = el.querySelector('.chat-container');
+    if (container) container.scrollTop = container.scrollHeight;
+  }
+
+  // ---- Refresh Logic ----
+  const VIEWS = { agents: renderAgents, toollog: renderToolLog, artifacts: renderArtifacts, conversation: renderConversation };
+
+  async function refreshActive() {
+    const dot = document.getElementById('refresh-dot');
+    dot.classList.remove('pulse');
+    void dot.offsetWidth;  // reflow
+    dot.classList.add('pulse');
+    try {
+      await VIEWS[activeView]();
+    } catch (err) {
+      showToast('Refresh failed');
+    }
+  }
+
+  refreshActive();
+
+  setInterval(() => {
+    if (document.hidden) return;
+    refreshActive();
+  }, 12000);
+})();
+</script>
+
+</body>
+</html>

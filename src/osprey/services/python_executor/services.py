@@ -1,66 +1,11 @@
-"""File and Notebook Management Services for Python Executor.
+"""File and notebook management for the Python executor.
 
-This module provides the service layer for all file system operations and Jupyter
-notebook management within the Python executor service. It implements clean
-separation of concerns between domain logic and file I/O operations, providing
-robust file management with proper error handling and permission management.
-
-The module is organized around two primary service classes:
-
-**FileManager**: Handles execution folder creation, file operations, and context
-management. It provides the foundation for organizing execution artifacts and
-ensuring proper file system permissions for container-based execution.
-
-**NotebookManager**: Specializes in Jupyter notebook creation and management,
-providing comprehensive notebook generation for different stages of the execution
-workflow including debugging, audit trails, and result presentation.
-
-Key Features:
-    - **Container-Aware Permissions**: Automatic permission management to ensure
-      container users can write to execution folders
-    - **Structured Organization**: Hierarchical folder organization with date-based
-      organization and unique execution identifiers
-    - **Jupyter Integration**: Seamless URL generation for accessing notebooks
-      and execution artifacts through Jupyter interfaces
-    - **Context Management**: Comprehensive context serialization and loading
-      for cross-process communication and debugging
-    - **Audit Trails**: Complete tracking of execution attempts and artifacts
-
-The services integrate with the osprey configuration system to access
-Jupyter container settings and provide appropriate URL generation for external
-access to execution artifacts.
-
-.. note::
-   These services handle the physical file system operations while the domain
-   models in the models module provide the logical structure and data management.
-
-.. seealso::
-   :class:`osprey.services.python_executor.models.PythonExecutionContext` : Execution context model
-   :class:`osprey.services.python_executor.models.NotebookAttempt` : Notebook tracking model
-   :class:`osprey.context.ContextManager` : Osprey context management
-
-Examples:
-    Creating and managing execution folders::
-
-        >>> file_manager = FileManager(configurable)
-        >>> context = file_manager.create_execution_folder("data_analysis")
-        >>> print(f"Execution folder: {context.folder_path}")
-        >>> print(f"Jupyter URL: {context.folder_url}")
-
-    Creating notebooks for execution tracking::
-
-        >>> notebook_manager = NotebookManager(configurable)
-        >>> notebook_path = notebook_manager.create_attempt_notebook(
-        ...     context=execution_context,
-        ...     code="import pandas as pd\ndf.describe()",
-        ...     stage="execution"
-        ... )
-        >>> print(f"Notebook created: {notebook_path}")
+FileManager creates execution folders and handles file I/O.
+NotebookManager creates Jupyter notebooks for execution tracking.
 """
 
 import json
 import os
-import textwrap
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -81,68 +26,9 @@ logger = get_logger("osprey")
 
 
 class FileManager:
-    """Comprehensive file system management service for Python execution workflows.
-
-    This service provides robust file and folder operations specifically designed
-    for the Python executor service's needs. It handles execution folder creation,
-    permission management for container-based execution, context serialization,
-    and Jupyter URL generation for external access to execution artifacts.
-
-    The FileManager implements a structured approach to organizing execution
-    artifacts with date-based hierarchical organization and unique execution
-    identifiers. It automatically manages file system permissions to ensure
-    compatibility with container-based execution environments.
-
-    Key responsibilities include:
-        - Creating and organizing execution folder structures
-        - Managing file system permissions for container compatibility
-        - Serializing and loading execution context data
-        - Generating Jupyter-accessible URLs for execution artifacts
-        - Providing robust JSON serialization for complex Python objects
-
-    :param configurable: LangGraph configurable dictionary containing service configuration
-    :type configurable: Dict[str, Any]
-
-    .. note::
-       The FileManager automatically creates the base directory structure if it
-       doesn't exist and sets appropriate permissions for container access.
-
-    .. seealso::
-       :class:`PythonExecutionContext` : Execution context managed by this service
-       :class:`NotebookManager` : Notebook-specific file operations
-       :class:`osprey.context.ContextManager` : Osprey context management
-
-    Examples:
-        Basic file manager initialization and folder creation::
-
-            >>> configurable = {"agent_data_dir": "/path/to/data"}
-            >>> file_manager = FileManager(configurable)
-            >>> context = file_manager.create_execution_folder("analysis_task")
-            >>> print(f"Created folder: {context.folder_path}")
-            >>> print(f"Jupyter URL: {context.folder_url}")
-
-        Saving execution results::
-
-            >>> results = {"mean": 42.0, "std": 3.14, "count": 100}
-            >>> results_path = file_manager.save_results(results, context.folder_path)
-            >>> print(f"Results saved to: {results_path}")
-    """
+    """Manages execution folders, permissions, and Jupyter URL generation."""
 
     def __init__(self, configurable):
-        """Initialize FileManager with configuration and set up base directory structure.
-
-        Sets up the base directory for execution artifacts and ensures proper
-        directory structure exists. The base directory is organized hierarchically
-        with date-based subdirectories for efficient organization of execution
-        artifacts over time.
-
-        :param configurable: LangGraph configurable dictionary containing service settings
-        :type configurable: Dict[str, Any]
-
-        .. note::
-           The base directory defaults to '_agent_data/executed_scripts' if not
-           specified in the configurable dictionary.
-        """
         self.configurable = configurable
         # Get agent data directory from configurable, fallback to _agent_data
         agent_data_dir = self.configurable.get("agent_data_dir", "_agent_data")
@@ -593,7 +479,7 @@ class NotebookManager:
         - **Approval Integration**: Notebooks formatted for human review and approval workflows
         - **URL Generation**: Jupyter-accessible URLs for direct notebook access
 
-    :param configurable: LangGraph configurable dictionary containing service configuration
+    :param configurable: Configuration dictionary containing service configuration
     :type configurable: Dict[str, Any]
 
     .. note::
@@ -633,7 +519,7 @@ class NotebookManager:
         creates a FileManager instance for URL generation and file operations.
         This ensures consistent behavior across all file system operations.
 
-        :param configurable: LangGraph configurable dictionary containing service settings
+        :param configurable: Configuration dictionary containing service settings
         :type configurable: Dict[str, Any]
 
         .. note::
@@ -668,10 +554,6 @@ class NotebookManager:
         Returns:
             Path to created notebook
         """
-        # Ensure context.json exists (should already be there, but verify)
-        if not context.context_file_path:
-            logger.warning("Context file not found when creating notebook - this should not happen")
-
         # Generate filename
         attempt_number = context.get_next_attempt_number()
         timestamp = datetime.now().strftime("%H%M%S")
@@ -685,7 +567,6 @@ class NotebookManager:
             code=code,
             error_context=error_context,
             approval_context=approval_context,
-            context_file_path=context.context_file_path,
         )
 
         # Save notebook
@@ -730,12 +611,6 @@ class NotebookManager:
         Returns:
             Path to created notebook
         """
-        # Ensure context.json exists (should already be there, but verify)
-        if not context.context_file_path:
-            logger.warning(
-                "Context file not found when creating final notebook - this should not happen"
-            )
-
         notebook_path = context.folder_path / "notebook.ipynb"
 
         # Create notebook content
@@ -743,7 +618,6 @@ class NotebookManager:
             code=code,
             results=results,
             error_context=error_context,
-            context_file_path=context.context_file_path,
             figure_paths=figure_paths or [],
             execution_folder=context.folder_path,
         )
@@ -762,7 +636,6 @@ class NotebookManager:
         code: str,
         error_context: str | None = None,
         approval_context: str | None = None,
-        context_file_path: Path | None = None,
     ) -> nbformat.NotebookNode:
         """Create notebook content for attempt notebooks."""
         cells = []
@@ -780,21 +653,6 @@ class NotebookManager:
 
         cells.append(nbformat.v4.new_markdown_cell(header))
 
-        # Context loading if available
-        if context_file_path:
-            context_code = textwrap.dedent(
-                """
-                # Load execution context
-                from osprey.context import load_context
-                context = load_context('../context.json')
-
-                # Configure runtime utilities from context
-                from osprey.runtime import configure_from_context
-                configure_from_context(context)
-                """
-            )
-            cells.append(nbformat.v4.new_code_cell(context_code))
-
         # Main code
         cells.append(nbformat.v4.new_code_cell(code))
 
@@ -807,7 +665,6 @@ class NotebookManager:
         code: str,
         results: dict[str, Any] | None = None,
         error_context: str | None = None,
-        context_file_path: Path | None = None,
         figure_paths: list[Path] = None,
         execution_folder: Path | None = None,
     ) -> nbformat.NotebookNode:
@@ -825,21 +682,6 @@ class NotebookManager:
             )
 
         cells.append(nbformat.v4.new_markdown_cell(header))
-
-        # Context loading if available
-        if context_file_path:
-            context_code = textwrap.dedent(
-                """
-                # Load execution context
-                from osprey.context import load_context
-                context = load_context('context.json')
-
-                # Configure runtime utilities from context
-                from osprey.runtime import configure_from_context
-                configure_from_context(context)
-                """
-            )
-            cells.append(nbformat.v4.new_code_cell(context_code))
 
         # Main code
         cells.append(nbformat.v4.new_code_cell(code))

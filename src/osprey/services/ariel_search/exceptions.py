@@ -8,6 +8,8 @@ to enable appropriate recovery strategies.
 
 from enum import Enum
 
+from osprey.errors import ConfigurationError as _FrameworkConfigurationError
+
 
 class ErrorCategory(Enum):
     """Error category for recovery strategy determination.
@@ -231,7 +233,7 @@ class AdapterNotFoundError(ARIELException):
         self.available_adapters = available_adapters or []
 
 
-class ConfigurationError(ARIELException):
+class ConfigurationError(ARIELException, _FrameworkConfigurationError):
     """Invalid configuration.
 
     Raised when ARIEL configuration is invalid.

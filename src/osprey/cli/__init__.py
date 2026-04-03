@@ -7,11 +7,10 @@ Commands:
     - init: Create new projects from templates
     - config: Manage project configuration (show, export, set)
     - deploy: Manage Docker/Podman services
-    - chat: Interactive conversation interface (--tui for TUI, --web for Web Debug UI)
-    - generate: Generate capabilities and servers
-    - remove: Remove components from project
+    - claude: Claude Code integration (install skills, configure)
+    - web: Launch web terminal interface
     - health: Check system health
-
+    - channel-finder: Interactive channel search
 Architecture:
     Uses Click for command-line parsing with a group-based structure.
     Each command is implemented in its own module for maintainability.

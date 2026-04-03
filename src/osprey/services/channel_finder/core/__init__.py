@@ -2,11 +2,10 @@
 Core abstractions and shared models for Channel Finder.
 
 This module provides the base interfaces and data structures used across
-all pipeline implementations.
+channel finder components.
 """
 
 from .base_database import BaseDatabase
-from .base_pipeline import BasePipeline
 from .exceptions import (
     ChannelFinderError,
     ConfigurationError,
@@ -16,11 +15,8 @@ from .exceptions import (
     QueryProcessingError,
 )
 from .models import (
-    ChannelCorrectionOutput,
     ChannelFinderResult,
     ChannelInfo,
-    ChannelMatchOutput,
-    QuerySplitterOutput,
 )
 
 __all__ = [
@@ -32,12 +28,8 @@ __all__ = [
     "HierarchicalNavigationError",
     "QueryProcessingError",
     # Base classes
-    "BasePipeline",
     "BaseDatabase",
     # Models
-    "QuerySplitterOutput",
-    "ChannelMatchOutput",
-    "ChannelCorrectionOutput",
     "ChannelInfo",
     "ChannelFinderResult",
 ]

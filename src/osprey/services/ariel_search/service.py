@@ -86,15 +86,9 @@ class ARIELSearchService:
             Configured embedding provider instance
         """
         if self._embedder is None:
-            provider_name = self.config.embedding.provider
-            if provider_name != "ollama":
-                logger.warning(
-                    f"Embedding provider '{provider_name}' not yet supported, "
-                    f"falling back to 'ollama'"
-                )
-            from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
+            from osprey.models.embeddings import get_embedding_provider
 
-            self._embedder = OllamaEmbeddingProvider()
+            self._embedder = get_embedding_provider(self.config.embedding.provider)
         return self._embedder
 
     @staticmethod
@@ -377,22 +371,12 @@ class ARIELSearchService:
         similarity_threshold = ap.get("similarity_threshold")
         temperature = ap.get("temperature")
 
-        prompt_template = None
-        try:
-            from osprey.prompts.loader import get_framework_prompts
-
-            builder = get_framework_prompts().get_ariel_rag_prompt_builder()
-            prompt_template = builder.get_prompt_template()  # type: ignore[attr-defined]
-        except (ValueError, NotImplementedError, AttributeError):
-            pass  # Falls back to hardcoded default inside RAGPipeline
-
         pipeline = RAGPipeline(
             repository=self.repository,
             config=self.config,
             embedder_loader=self._get_embedder,
             max_context_chars=max_context_chars,
             max_chars_per_entry=max_chars_per_entry,
-            prompt_template=prompt_template,
         )
 
         start_date, end_date = request.time_range if request.time_range else (None, None)
@@ -417,50 +401,6 @@ class ARIELSearchService:
             f"{len(rag_result.entries)} in context",
             diagnostics=rag_result.diagnostics,
             pipeline_details=rag_result.pipeline_details,
-        )
-
-    async def _run_agent(self, request: ARIELSearchRequest) -> ARIELSearchResult:
-        """Run the AgentExecutor for agentic search.
-
-        Args:
-            request: Search request
-
-        Returns:
-            ARIELSearchResult
-        """
-        from osprey.services.ariel_search.agent import AgentExecutor
-
-        # Load prompt from framework prompt system
-        system_prompt = None
-        try:
-            from osprey.prompts.loader import get_framework_prompts
-
-            builder = get_framework_prompts().get_ariel_agent_prompt_builder()
-            system_prompt = builder.get_system_prompt()  # type: ignore[attr-defined]
-        except (ValueError, NotImplementedError, AttributeError):
-            pass  # Falls back to hardcoded default inside AgentExecutor
-
-        executor = AgentExecutor(
-            repository=self.repository,
-            config=self.config,
-            embedder_loader=self._get_embedder,
-            system_prompt=system_prompt,
-        )
-
-        agent_result = await executor.execute(
-            query=request.query,
-            max_results=request.max_results,
-            time_range=request.time_range,
-        )
-
-        return ARIELSearchResult(
-            entries=agent_result.entries,
-            answer=agent_result.answer,
-            sources=agent_result.sources,
-            search_modes_used=agent_result.search_modes_used,
-            reasoning=agent_result.reasoning,
-            diagnostics=agent_result.diagnostics,
-            pipeline_details=agent_result.pipeline_details,
         )
 
     async def create_entry(
@@ -546,6 +486,79 @@ class ARIELSearchService:
             source_system=source_system,
             sync_status=sync_status,
             message=f"Entry {facility_entry_id} created in {source_system}",
+        )
+
+    async def publish_entry(
+        self,
+        entry_id: str,
+        *,
+        logbook: str | None = None,
+    ) -> FacilityEntryCreateResult:
+        """Publish an existing ARIEL entry to the configured facility logbook.
+
+        Writes through to the upstream source via create_entry(), which handles
+        the adapter call, optimistic upsert, and re-ingestion. The ARIEL DB is
+        a derived view — the upstream source is always the authority.
+
+        Args:
+            entry_id: ID of the existing ARIEL entry to publish
+            logbook: Target logbook name (required by some facility APIs)
+
+        Returns:
+            FacilityEntryCreateResult with the facility-assigned entry ID
+
+        Raises:
+            KeyError: If entry_id not found in ARIEL database
+            NotImplementedError: If the adapter doesn't support writes
+        """
+        entry = await self.repository.get_entry(entry_id)
+        if entry is None:
+            raise KeyError(f"Entry {entry_id} not found")
+
+        subject = entry["raw_text"].split("\n", 1)[0].strip()
+        details = entry["raw_text"]
+
+        request = FacilityEntryCreateRequest(
+            subject=subject,
+            details=details,
+            author=entry["author"],
+            logbook=logbook,
+            tags=entry["metadata"].get("tags", []),
+        )
+
+        return await self.create_entry(request)
+
+    async def _run_agent(self, request: ARIELSearchRequest) -> ARIELSearchResult:
+        """Run the AgentExecutor for agentic search.
+
+        Args:
+            request: Search request
+
+        Returns:
+            ARIELSearchResult
+        """
+        from osprey.services.ariel_search.agent import AgentExecutor
+
+        executor = AgentExecutor(
+            repository=self.repository,
+            config=self.config,
+            embedder_loader=self._get_embedder,
+        )
+
+        agent_result = await executor.execute(
+            query=request.query,
+            max_results=request.max_results,
+            time_range=request.time_range,
+        )
+
+        return ARIELSearchResult(
+            entries=agent_result.entries,
+            answer=agent_result.answer,
+            sources=agent_result.sources,
+            search_modes_used=agent_result.search_modes_used,
+            reasoning=agent_result.reasoning,
+            diagnostics=agent_result.diagnostics,
+            pipeline_details=agent_result.pipeline_details,
         )
 
     async def health_check(self) -> tuple[bool, str]:

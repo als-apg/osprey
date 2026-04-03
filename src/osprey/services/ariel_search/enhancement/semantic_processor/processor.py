@@ -18,7 +18,7 @@ from osprey.utils.logger import get_logger
 if TYPE_CHECKING:
     from psycopg import AsyncConnection
 
-    from osprey.services.ariel_search.database.migration import BaseMigration
+    from osprey.services.ariel_search.database.migrations import BaseMigration
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
 
 logger = get_logger("ariel")
@@ -85,7 +85,13 @@ class SemanticProcessorModule(BaseEnhancementModule):
         Args:
             config: The enhancement_modules.semantic_processor config dict
         """
-        self._model_config = config.get("model", {})
+        model = config.get("model", {})
+        provider = config.get("provider")
+        if provider and model.get("model_id"):
+            from osprey.models.tiers import resolve_model_id
+
+            model = {**model, "model_id": resolve_model_id(provider, model["model_id"])}
+        self._model_config = model
         if config.get("prompt_template"):
             self._prompt_template = config["prompt_template"]
 

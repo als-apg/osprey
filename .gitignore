@@ -127,6 +127,7 @@ _autosummary/
 .claude
 _issues
 CLAUDE.md
+.mcp.json
 
 # Git worktrees
 .worktrees/
@@ -134,4 +135,7 @@ CLAUDE.md
 # Tutorials and examples
 weather-agent/
 my-control-assistant/
+my-lattice-assistant/
 my-agent/_audit/
+
+# OSPREY workspace (runtime data, not tracked — now covered by _agent_data/* above)

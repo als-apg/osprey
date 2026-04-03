@@ -58,63 +58,6 @@ ruff format --check src/ tests/
 - Write Google-style docstrings
 - Update documentation as needed
 
-## Developer Workflows
-
-We provide comprehensive workflow guides optimized for AI-assisted development:
-
-### Browsing Tasks
-
-```bash
-# List all available tasks
-osprey tasks list
-
-# Show details about a specific task
-osprey tasks show pre-merge-cleanup
-```
-
-### Essential Workflows
-
-**Before committing:**
-- `pre-merge-cleanup` - Scan for issues before commit
-- `commit-organization` - Organize atomic commits
-
-**While coding:**
-- `docstrings` - Professional docstring writing
-- `comments` - Strategic inline comments
-
-**After changes:**
-- `update-documentation` - Keep docs in sync
-
-### Using with AI Assistants
-
-For Claude Code, install tasks as skills:
-
-```bash
-osprey claude install pre-commit
-```
-
-For other AI assistants (Cursor, Copilot), copy tasks to your project:
-
-```bash
-osprey tasks copy pre-merge-cleanup
-```
-
-Then reference with `@` mentions:
-
-```
-@.ai-tasks/pre-merge-cleanup/instructions.md Scan my uncommitted changes
-```
-
-Each task includes an "AI Quick Start" section with detailed prompt guidance.
-
-### Automation
-
-Run automated pre-merge checks:
-
-```bash
-./scripts/premerge_check.sh main
-```
-
 ## Running Tests
 
 ```bash
@@ -144,4 +87,4 @@ Be respectful, welcoming, and inclusive. Focus on what's best for the community.
 
 ---
 
-For detailed guidelines, workflow files, AI-assisted development tips, and more, please visit our **[complete Contributing documentation](https://als-apg.github.io/osprey/contributing/)**.
+For detailed guidelines please visit our **[complete Contributing documentation](https://als-apg.github.io/osprey/contributing/)**.

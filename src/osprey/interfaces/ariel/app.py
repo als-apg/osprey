@@ -26,7 +26,6 @@ if TYPE_CHECKING:
 
 logger = get_logger("ariel")
 
-# Static files directory (relative to this module)
 STATIC_DIR = Path(__file__).parent / "static"
 
 
@@ -103,16 +102,13 @@ def _create_lifespan(config_path: str | Path | None = None):
         """Manage application lifecycle.
 
         Initialize ARIEL service on startup, cleanup on shutdown.
+        Gracefully degrades when the database is unavailable — the web UI,
+        draft routes, config/settings endpoints still work.
         """
-        from osprey.services.ariel_search import ARIELConfig, create_ariel_service
-
         logger.info("Starting ARIEL Web Interface...")
 
-        # Initialize the framework-only registry before any search code runs.
-        # ARIEL doesn't need an application registry (e.g. my_control_assistant/registry.py),
-        # but config.yml may reference one. Pre-creating the singleton with no registry_path
-        # prevents get_registry() from failing when the capabilities/agent/enhancement
-        # code paths try to load it.
+        # Initialize framework-only registry so ARIEL search modules can
+        # resolve connectors and services via get_service() / get_connector().
         try:
             import osprey.registry.manager as _reg_mod
 
@@ -122,31 +118,51 @@ def _create_lifespan(config_path: str | Path | None = None):
         except Exception as e:
             logger.warning(f"Registry initialization failed (non-fatal): {e}")
 
-        # Load configuration
-        config_dict = load_ariel_config(config_path)
-        config = ARIELConfig.from_dict(config_dict)
+        # Try to connect to the database; degrade gracefully if unavailable.
+        service = None
+        try:
+            from osprey.services.ariel_search import ARIELConfig, create_ariel_service
 
-        # Validate configuration
-        errors = config.validate()
-        if errors:
-            raise RuntimeError(f"Configuration errors: {errors}")
+            config_dict = load_ariel_config(config_path)
+            config = ARIELConfig.from_dict(config_dict)
 
-        # Create and store service
-        service = await create_ariel_service(config)
+            errors = config.validate()
+            if errors:
+                raise RuntimeError(f"Configuration errors: {errors}")
+
+            service = await create_ariel_service(config)
+
+            healthy, message = await service.health_check()
+            if healthy:
+                logger.info(f"ARIEL service ready: {message}")
+            else:
+                logger.warning(f"ARIEL service degraded: {message}")
+        except Exception as e:
+            logger.warning(
+                "\n"
+                "============================================================\n"
+                "  ARIEL: DATABASE NOT AVAILABLE — DEGRADED MODE\n"
+                "============================================================\n"
+                "  The database connection failed. ARIEL is running without\n"
+                "  search, browse, or entry persistence.\n"
+                "\n"
+                "  STILL WORKING: Web UI, drafts, config/settings endpoints\n"
+                "  NOT WORKING:   Search, browse, entry creation, status\n"
+                "\n"
+                "  To restore full functionality, start PostgreSQL and\n"
+                "  restart the server.\n"
+                f"\n  Error: {e}\n"
+                "============================================================"
+            )
+
         app.state.ariel_service = service
-
-        # Health check
-        healthy, message = await service.health_check()
-        if healthy:
-            logger.info(f"ARIEL service ready: {message}")
-        else:
-            logger.warning(f"ARIEL service degraded: {message}")
 
         yield
 
         # Cleanup
         logger.info("Shutting down ARIEL Web Interface...")
-        await service.__aexit__(None, None, None)
+        if service is not None:
+            await service.__aexit__(None, None, None)
 
     return lifespan
 
@@ -163,6 +179,7 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
     Returns:
         Configured FastAPI application instance.
     """
+    from osprey.interfaces.ariel.api.drafts import draft_router
     from osprey.interfaces.ariel.api.routes import router as api_router
 
     app = FastAPI(
@@ -181,23 +198,29 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Mount API routes
     app.include_router(api_router)
+    app.include_router(draft_router)
 
-    # Root route - serve index.html
     @app.get("/")
     async def root():
         """Serve main index.html."""
         return FileResponse(STATIC_DIR / "index.html")
 
-    # Health check endpoint
     @app.get("/health")
     async def health():
         """Simple health check endpoint."""
-        if hasattr(app.state, "ariel_service"):
-            healthy, message = await app.state.ariel_service.health_check()
+        service = getattr(app.state, "ariel_service", None)
+        if service is not None:
+            healthy, message = await service.health_check()
             return {"status": "healthy" if healthy else "degraded", "message": message}
-        return {"status": "starting", "message": "Service initializing"}
+        return {
+            "status": "degraded",
+            "message": "Database unavailable — drafts, UI, and settings work",
+        }
+
+    from osprey.interfaces.common_middleware import NoCacheStaticMiddleware
+
+    app.add_middleware(NoCacheStaticMiddleware)
 
     # Mount static assets
     if STATIC_DIR.exists():
@@ -224,8 +247,8 @@ def run_web(
     """
     import uvicorn
 
-    # For reload mode, we need to use string reference
     if reload:
+        # Reload mode requires a string import path (uvicorn re-imports on change)
         uvicorn.run(
             "osprey.interfaces.ariel.app:create_app",
             factory=True,
@@ -235,7 +258,6 @@ def run_web(
             log_level="info",
         )
     else:
-        # For non-reload mode, we can pass the app directly
         app = create_app(config_path)
         uvicorn.run(
             app,

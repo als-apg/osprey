@@ -6,9 +6,15 @@
 
 import { capabilitiesApi } from './api.js';
 import { initSearch, performSearch, clearSearch } from './search.js';
-import { initEntries, loadEntries, showEntry, closeEntryModal } from './entries.js';
+import { initEntries, loadEntries, showEntry, closeEntryModal, loadDraft, showImageLightbox } from './entries.js';
 import { initDashboard, loadStatus, startAutoRefresh, stopAutoRefresh } from './dashboard.js';
 import { initAdvancedOptions } from './advanced-options.js';
+import { initDrawers } from './drawer.js';
+import { initSettings, loadConfig } from './settings.js';
+import { loadFileList } from './claude-setup.js';
+
+// Theme sync is handled by the inline <script> in <head> (index.html),
+// NOT here — so it has zero import dependencies and always registers.
 
 // Current view
 let currentView = 'search';
@@ -17,27 +23,36 @@ let currentView = 'search';
  * Initialize the application.
  */
 async function init() {
-  // Fetch capabilities from backend (modes + parameters)
-  let capabilities = null;
-  try {
-    capabilities = await capabilitiesApi.get();
-  } catch (e) {
-    console.warn('Failed to fetch capabilities, using fallback:', e);
+  // Embedded mode — hide logo when loaded inside web terminal iframe
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('embedded') === 'true') {
+    document.body.classList.add('embedded');
   }
 
-  // Initialize modules
-  initSearch();
-  initEntries();
-  initDashboard();
-  initAdvancedOptions(capabilities);
+  // Initialize modules — wrapped in try/catch so navigation always works
+  // even if the backend is unavailable (degraded mode).
+  try {
+    let capabilities = null;
+    try {
+      capabilities = await capabilitiesApi.get();
+    } catch (e) {
+      console.warn('Failed to fetch capabilities, using fallback:', e);
+    }
 
-  // Set up navigation
+    initSearch();
+    initEntries();
+    initDashboard();
+    initAdvancedOptions(capabilities);
+    initDrawers();
+    initSettings();
+  } catch (e) {
+    console.error('Module initialization failed (non-fatal):', e);
+  }
+
+  // Navigation and routing must always run
   setupNavigation();
-
-  // Set up modal close handlers
   setupModals();
 
-  // Show initial view
   const hash = window.location.hash.slice(1) || 'search';
   navigateTo(hash);
 
@@ -48,6 +63,7 @@ async function init() {
     clearSearch,
     showEntry,
     closeEntryModal,
+    showImageLightbox,
     loadEntriesPage: (page) => loadEntries({ page }),
     loadStatus,
   };
@@ -71,9 +87,7 @@ function setupNavigation() {
   // Handle hash changes
   window.addEventListener('hashchange', () => {
     const hash = window.location.hash.slice(1) || 'search';
-    if (hash !== currentView) {
-      navigateTo(hash);
-    }
+    navigateTo(hash);
   });
 }
 
@@ -105,16 +119,35 @@ function setupModals() {
 }
 
 /**
- * Navigate to a view.
- * @param {string} view - View name
+ * Parse a hash string into view name and query parameters.
+ * E.g. "create?draft=abc" -> { viewName: "create", params: URLSearchParams }
+ * @param {string} hash - Hash string (without leading #)
+ * @returns {{ viewName: string, params: URLSearchParams }}
  */
-function navigateTo(view) {
-  // Update URL hash
-  window.location.hash = view;
+function parseHash(hash) {
+  const qIdx = hash.indexOf('?');
+  if (qIdx === -1) {
+    return { viewName: hash, params: new URLSearchParams() };
+  }
+  return {
+    viewName: hash.substring(0, qIdx),
+    params: new URLSearchParams(hash.substring(qIdx + 1)),
+  };
+}
 
-  // Update nav links
+/**
+ * Navigate to a view.
+ * @param {string} hash - Full hash string (view name, optionally with query params)
+ */
+function navigateTo(hash) {
+  const { viewName, params } = parseHash(hash);
+
+  // Update URL hash
+  window.location.hash = hash;
+
+  // Update nav links (match on view name only, not query params)
   document.querySelectorAll('.nav-link').forEach(link => {
-    link.classList.toggle('active', link.dataset.view === view);
+    link.classList.toggle('active', link.dataset.view === viewName);
   });
 
   // Hide all views
@@ -123,31 +156,42 @@ function navigateTo(view) {
   });
 
   // Show target view
-  const viewEl = document.getElementById(`view-${view}`);
+  const viewEl = document.getElementById(`view-${viewName}`);
   if (viewEl) {
     viewEl.classList.add('active');
   }
 
   // Handle view-specific initialization
-  if (view !== currentView) {
+  const viewChanged = viewName !== currentView;
+
+  if (viewChanged) {
     // Cleanup previous view
     if (currentView === 'status') {
       stopAutoRefresh();
     }
+  }
 
-    // Initialize new view
-    switch (view) {
-      case 'browse':
-        loadEntries();
-        break;
-      case 'status':
+  // Initialize new view (or reload draft for same-view navigation)
+  switch (viewName) {
+    case 'browse':
+      if (viewChanged) loadEntries();
+      break;
+    case 'create': {
+      const draftId = params.get('draft');
+      if (draftId) {
+        loadDraft(draftId);
+      }
+      break;
+    }
+    case 'status':
+      if (viewChanged) {
         loadStatus();
         startAutoRefresh();
-        break;
-    }
-
-    currentView = view;
+      }
+      break;
   }
+
+  currentView = viewName;
 }
 
 // Initialize when DOM is ready

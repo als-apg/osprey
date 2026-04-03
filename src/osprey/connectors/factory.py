@@ -5,11 +5,12 @@ Provides centralized factory for instantiating and configuring connectors
 based on configuration. Connectors are registered through the Osprey registry
 system for unified component management and lazy loading.
 
-Related to Issue #18 - Control System Abstraction (Layer 2 - Factory)
 """
 
+import importlib
 from typing import Any
 
+from osprey.connectors import types
 from osprey.connectors.archiver.base import ArchiverConnector
 from osprey.connectors.control_system.base import ControlSystemConnector
 from osprey.utils.logger import get_logger
@@ -105,14 +106,29 @@ class ConnectorFactory:
                 logger.warning(f"Could not load config: {e}, using defaults")
                 config = {}
 
-        connector_type = config.get("type", "epics")
+        connector_type = config.get("type", types.EPICS)
         connector_class = cls._control_system_connectors.get(connector_type)
 
         if not connector_class:
-            available = list(cls._control_system_connectors.keys())
-            raise ValueError(
-                f"Unknown control system type: '{connector_type}'. Available types: {available}"
-            )
+            if "." in connector_type:
+                module_path, class_name = connector_type.rsplit(".", 1)
+                try:
+                    module = importlib.import_module(module_path)
+                    connector_class = getattr(module, class_name)
+                except ImportError as e:
+                    raise ValueError(
+                        f"Could not import connector module '{module_path}': {e}"
+                    ) from e
+                except AttributeError as e:
+                    raise ValueError(f"Module '{module_path}' has no class '{class_name}'") from e
+                cls._control_system_connectors[connector_type] = connector_class
+            else:
+                available = list(cls._control_system_connectors.keys())
+                raise ValueError(
+                    f"Unknown control system type: '{connector_type}'. "
+                    f"Available types: {available}. "
+                    f"Use a dotted module path for custom connectors."
+                )
 
         # Create connector instance
         connector = connector_class()
@@ -165,14 +181,29 @@ class ConnectorFactory:
                 logger.warning(f"Could not load config: {e}, using defaults")
                 config = {}
 
-        connector_type = config.get("type", "epics_archiver")
+        connector_type = config.get("type", types.EPICS_ARCHIVER)
         connector_class = cls._archiver_connectors.get(connector_type)
 
         if not connector_class:
-            available = list(cls._archiver_connectors.keys())
-            raise ValueError(
-                f"Unknown archiver type: '{connector_type}'. Available types: {available}"
-            )
+            if "." in connector_type:
+                module_path, class_name = connector_type.rsplit(".", 1)
+                try:
+                    module = importlib.import_module(module_path)
+                    connector_class = getattr(module, class_name)
+                except ImportError as e:
+                    raise ValueError(
+                        f"Could not import connector module '{module_path}': {e}"
+                    ) from e
+                except AttributeError as e:
+                    raise ValueError(f"Module '{module_path}' has no class '{class_name}'") from e
+                cls._archiver_connectors[connector_type] = connector_class
+            else:
+                available = list(cls._archiver_connectors.keys())
+                raise ValueError(
+                    f"Unknown archiver type: '{connector_type}'. "
+                    f"Available types: {available}. "
+                    f"Use a dotted module path for custom connectors."
+                )
 
         # Create connector instance
         connector = connector_class()
@@ -195,3 +226,23 @@ class ConnectorFactory:
     def list_archivers(cls) -> list:
         """List available archiver connector types."""
         return list(cls._archiver_connectors.keys())
+
+
+def register_builtin_connectors() -> None:
+    """Register all built-in control system and archiver connectors.
+
+    Safe to call multiple times — skips registration if connectors are
+    already present (e.g., from ``initialize_registry()``).
+    """
+    if ConnectorFactory._control_system_connectors:
+        return  # Already registered
+
+    from osprey.connectors.archiver.epics_archiver_connector import EPICSArchiverConnector
+    from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
+    from osprey.connectors.control_system.epics_connector import EPICSConnector
+    from osprey.connectors.control_system.mock_connector import MockConnector
+
+    ConnectorFactory.register_control_system(types.MOCK, MockConnector)
+    ConnectorFactory.register_control_system(types.EPICS, EPICSConnector)
+    ConnectorFactory.register_archiver(types.MOCK_ARCHIVER, MockArchiverConnector)
+    ConnectorFactory.register_archiver(types.EPICS_ARCHIVER, EPICSArchiverConnector)

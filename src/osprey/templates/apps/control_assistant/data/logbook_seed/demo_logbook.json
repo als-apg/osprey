@@ -14,7 +14,7 @@
       "timestamp": "2024-03-15T14:00:00Z",
       "author": "M. Chen",
       "title": "Sector 7 dipole magnet temperature alarm",
-      "text": "Temperature alarm on Sector 7 dipole magnet DIP-07A reached 68 deg C (warning threshold 65 deg C, trip threshold 75 deg C). Cooling water flow was verified at 12 L/min which is within specification. Ambient temperature in the tunnel was elevated due to HVAC maintenance. Alarm cleared after HVAC restored at 15:30. Will continue monitoring.",
+      "text": "Temperature alarm on Sector 7 dipole magnet DIPOLE-07 reached 68 deg C (warning threshold 65 deg C, trip threshold 75 deg C). Cooling water flow was verified at 12 L/min which is within specification. Ambient temperature in the tunnel was elevated due to HVAC maintenance. Alarm cleared after HVAC restored at 15:30. Will continue monitoring.",
       "tags": ["magnets", "temperature", "cooling"],
       "categories": ["Equipment"]
     },
@@ -32,7 +32,7 @@
       "timestamp": "2024-03-16T10:30:00Z",
       "author": "A. Rodriguez",
       "title": "BPM calibration in Sector 2",
-      "text": "Performed beam position monitor calibration for BPM-02A through BPM-02D. Used reference orbit from 2024-02-28. Offsets updated in the control system: BPM-02A X offset changed from +0.12 mm to +0.08 mm, BPM-02B Y offset changed from -0.05 mm to -0.03 mm. Others within tolerance. Orbit distortion reduced from 0.15 mm RMS to 0.09 mm RMS after correction.",
+      "text": "Performed beam position monitor calibration for BPM-02 through BPM-05. Used reference orbit from 2024-02-28. Offsets updated in the control system: BPM-02 X offset changed from +0.12 mm to +0.08 mm, BPM-03 Y offset changed from -0.05 mm to -0.03 mm. Others within tolerance. Orbit distortion reduced from 0.15 mm RMS to 0.09 mm RMS after correction.",
       "tags": ["bpm", "calibration", "orbit"],
       "categories": ["Alignment"]
     },
@@ -41,7 +41,7 @@
       "timestamp": "2024-03-17T09:00:00Z",
       "author": "L. Johnson",
       "title": "Scheduled vacuum sector valve maintenance",
-      "text": "Performed annual maintenance on vacuum sector valve VSV-05 between Sectors 5 and 6. Replaced pneumatic actuator seals and limit switches. Valve tested: open/close cycle time 1.8 seconds (spec: < 3.0 seconds). Leak rate checked with helium detector: < 1e-10 mbar*L/s. LOTO procedure LOTO-2024-0312 applied and released.",
+      "text": "Performed annual maintenance on vacuum sector valve VALVE-05 between Sectors 5 and 6. Replaced pneumatic actuator seals and limit switches. Valve tested: open/close cycle time 1.8 seconds (spec: < 3.0 seconds). Leak rate checked with helium detector: < 1e-10 mbar*L/s. LOTO procedure LOTO-2024-0312 applied and released.",
       "tags": ["vacuum", "maintenance", "loto"],
       "categories": ["Maintenance"],
       "loto_tag": "LOTO-2024-0312"
@@ -51,7 +51,7 @@
       "timestamp": "2024-03-17T15:45:00Z",
       "author": "J. Smith",
       "title": "Injection efficiency optimization",
-      "text": "Injection efficiency was measured at 82% at start of study. Adjusted injection septum angle by -0.3 mrad and injection kicker K-01 strength by +2%. After optimization, injection efficiency improved to 94%. Transfer line steering correctors SC-TL04 and SC-TL05 were adjusted to center beam on BPM-INJ01. Stored beam lifetime stable at 8.2 hours after changes.",
+      "text": "Injection efficiency was measured at 82% at start of study. Adjusted injection septum angle by -0.3 mrad and injection kicker K-01 strength by +2%. After optimization, injection efficiency improved to 94%. Transfer line steering correctors HCM-TL04 and HCM-TL05 were adjusted to center beam on BPM-INJ-01. Stored beam lifetime stable at 8.2 hours after changes.",
       "tags": ["injection", "optimization", "beam-dynamics"],
       "categories": ["Operations"]
     },
@@ -59,8 +59,8 @@
       "id": "DEMO-007",
       "timestamp": "2024-03-18T07:30:00Z",
       "author": "T. Nakamura",
-      "title": "Power supply fault on corrector magnet SC-03B",
-      "text": "Corrector magnet power supply PS-SC-03B faulted with overcurrent error at 07:15. Current readback showed 12.5 A vs setpoint of 8.2 A before trip. Replaced DAC output module (spare part SP-DAC-014). After replacement, power supply tested at multiple setpoints: 0 A, 5 A, 8.2 A, 10 A - all within 0.1% regulation. Returned to service at 09:00.",
+      "title": "Power supply fault on corrector magnet HCM-03",
+      "text": "Corrector magnet power supply PS-HCM-03 faulted with overcurrent error at 07:15. Current readback showed 12.5 A vs setpoint of 8.2 A before trip. Replaced DAC output module (spare part SP-DAC-014). After replacement, power supply tested at multiple setpoints: 0 A, 5 A, 8.2 A, 10 A - all within 0.1% regulation. Returned to service at 09:00.",
       "tags": ["power-supply", "fault", "corrector"],
       "categories": ["Equipment"]
     },
@@ -78,7 +78,7 @@
       "timestamp": "2024-03-19T06:00:00Z",
       "author": "P. Garcia",
       "title": "Swing shift summary 2024-03-18",
-      "text": "Major events: (1) Corrector magnet PS-SC-03B repaired and returned to service. (2) Insertion device ID-07 gap scan performed for BL-07 commissioning. (3) Top-up injection running at 10-minute intervals maintaining 400 mA +/- 1 mA. Total beam dumps: 0. Beam availability: 100% for the shift.",
+      "text": "Major events: (1) Corrector magnet PS-HCM-03 repaired and returned to service. (2) Insertion device ID-07 gap scan performed for BL-07 commissioning. (3) Top-up injection running at 10-minute intervals maintaining 400 mA +/- 1 mA. Total beam dumps: 0. Beam availability: 100% for the shift.",
       "tags": ["shift-summary", "insertion-device", "top-up"],
       "categories": ["Shift Summary"]
     },
@@ -177,7 +177,7 @@
       "timestamp": "2024-03-24T15:00:00Z",
       "author": "L. Johnson",
       "title": "Electrical safety - LOTO for Sector 8 power supply work",
-      "text": "Applied LOTO procedure LOTO-2024-0318 for planned power supply replacement on quadrupole magnet QF-08C. Circuit breaker CB-PS-08C locked out. Zero energy verification completed with multimeter: 0.0 V DC measured at power supply output terminals. Capacitor bank discharge verified. Work permit issued to T. Nakamura for power supply replacement.",
+      "text": "Applied LOTO procedure LOTO-2024-0318 for planned power supply replacement on quadrupole magnet QF-08. Circuit breaker CB-PS-QF08 locked out. Zero energy verification completed with multimeter: 0.0 V DC measured at power supply output terminals. Capacitor bank discharge verified. Work permit issued to T. Nakamura for power supply replacement.",
       "tags": ["loto", "safety", "power-supply"],
       "categories": ["Safety"],
       "loto_tag": "LOTO-2024-0318"
@@ -195,8 +195,8 @@
       "id": "DEMO-022",
       "timestamp": "2024-03-25T10:30:00Z",
       "author": "J. Smith",
-      "title": "Quadrupole power supply replacement QF-08C",
-      "text": "Replaced failed quadrupole power supply PS-QF-08C under LOTO-2024-0318. Old supply showed intermittent current regulation errors (ripple: 500 ppm vs spec: < 100 ppm). New supply (serial: QPS-2024-0142) installed and tested. Regulation measured at 45 ppm. Hysteresis cycle performed: 0 to 120 A to 0 in 10 A steps. All readings within specification. LOTO released at 16:00.",
+      "title": "Quadrupole power supply replacement QF-08",
+      "text": "Replaced failed quadrupole power supply PS-QF-08 under LOTO-2024-0318. Old supply showed intermittent current regulation errors (ripple: 500 ppm vs spec: < 100 ppm). New supply (serial: QPS-2024-0142) installed and tested. Regulation measured at 45 ppm. Hysteresis cycle performed: 0 to 120 A to 0 in 10 A steps. All readings within specification. LOTO released at 16:00.",
       "tags": ["power-supply", "replacement", "quadrupole"],
       "categories": ["Equipment"],
       "loto_tag": "LOTO-2024-0318"
@@ -226,6 +226,33 @@
       "title": "Linac gun cathode replacement",
       "text": "Replaced thermionic cathode in the electron gun after 12,000 hours of operation (rated lifetime: 10,000 hours). Old cathode emission current had degraded to 1.8 A (nominal: 3.0 A for new cathode). New cathode (serial: CAT-2024-007) installed and conditioned over 6 hours. Final emission current: 3.1 A at nominal heater power. Beam energy from linac verified at 100 MeV +/- 0.1%.",
       "tags": ["linac", "cathode", "maintenance"],
+      "categories": ["Maintenance"]
+    },
+    {
+      "id": "DEMO-026",
+      "timestamp": "2024-03-28T03:20:00Z",
+      "author": "M. Chen",
+      "title": "RF cavity C1 temperature excursion — reflected power interlock trip",
+      "text": "RF cavity C1 body temperature climbed to 34.2 deg C over approximately 2 hours starting around 01:00. Normal operating temperature for the cavities is 25-28 deg C. As the cavity detuned due to thermal expansion, reflected power from C1 increased from the normal 5 kW to over 80 kW before the reflected power interlock tripped at 03:15. Forward power dropped to zero. Cavity C2 was unaffected and continued operating normally at 26.5 deg C. Beam was lost and restored at 04:30 after C1 temperature returned below 30 deg C. This is the second thermal excursion on C1 this week — a similar event occurred a few days ago and reached 34 deg C.",
+      "tags": ["rf", "temperature", "interlock", "cavity", "beam-loss"],
+      "categories": ["Operations"]
+    },
+    {
+      "id": "DEMO-027",
+      "timestamp": "2024-03-29T10:00:00Z",
+      "author": "T. Nakamura",
+      "title": "Investigation: Recurring cavity C1 thermal excursions",
+      "text": "Completed investigation into recurring thermal excursions on RF cavity C1. Analysis of archiver data over the past 7 days shows three distinct temperature excursion events where C1 body temperature exceeded 32 deg C. The thermal interlock threshold is set at 35 deg C, and the most recent event reached 34.2 deg C — dangerously close to the trip point. Each temperature excursion was accompanied by a reflected power spike (cavity detuning) and subsequent forward power trip. Cavity C2 has remained stable at 25-28 deg C throughout the same period with no excursions. Root cause identified: partial blockage in the C1 cooling water inlet manifold reducing flow by approximately 30%. The reduced cooling capacity cannot dissipate heat during sustained high-power operation. Recommended action: flush and inspect C1 cooling water manifold during next maintenance window. Until repair, operators should monitor C1 temperature closely and consider reducing forward power if temperature exceeds 32 deg C.",
+      "tags": ["rf", "temperature", "investigation", "cooling", "cavity"],
+      "categories": ["Operations"]
+    },
+    {
+      "id": "DEMO-028",
+      "timestamp": "2024-03-30T14:00:00Z",
+      "author": "L. Johnson",
+      "title": "RF cavity C1 cooling manifold repair",
+      "text": "Performed flush and inspection of RF cavity C1 cooling water inlet manifold per recommendation from T. Nakamura's investigation (see previous entry). Found calcium carbonate deposits reducing the effective pipe diameter by approximately 40% at the manifold junction. Deposits removed by chemical flush with citric acid solution over 45 minutes. Flow rate through C1 cooling loop restored from 8 L/min to nominal 12 L/min. Post-repair, C1 body temperature has stabilized at 26.5 deg C under full forward power (450 kW). Will continue monitoring for 48 hours to confirm. Cavity C2 inspected as precaution — no deposits found, flow rate nominal at 12.5 L/min.",
+      "tags": ["rf", "cooling", "maintenance", "cavity", "repair"],
       "categories": ["Maintenance"]
     }
   ]

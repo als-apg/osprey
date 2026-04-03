@@ -2,20 +2,13 @@
 
 This module provides the main CLI group that organizes all osprey
 commands under the `osprey` command namespace.
-
-Note: This will become 'osprey' in Phase 8 of the migration.
-
-Performance Note: Uses lazy imports to avoid loading heavy dependencies
-(langgraph, langchain, etc.) until a command is actually invoked.
-This keeps `osprey --help` fast.
 """
 
 import sys
 
 import click
 
-# Fix Windows console encoding to support Unicode characters (✓, ✗, ⚠️, etc.)
-# This must be done before any output that uses Unicode characters
+# Ensure UTF-8 on Windows for Unicode CLI output
 if sys.platform == "win32":
     try:
         # Reconfigure stdout and stderr to use UTF-8 encoding
@@ -36,16 +29,10 @@ if sys.platform == "win32":
         # The CLI should still work, just without fancy Unicode characters
         pass
 
-# Import version from osprey package
 try:
     from osprey import __version__
 except ImportError:
     __version__ = "0.11.5"
-
-
-# PERFORMANCE OPTIMIZATION: Lazy command loading
-# Commands are imported only when invoked, not at module load time.
-# This keeps --help fast and avoids loading heavy dependencies unnecessarily.
 
 
 class LazyGroup(click.Group):
@@ -56,41 +43,40 @@ class LazyGroup(click.Group):
         # Map command names to their module paths
         commands = {
             "init": "osprey.cli.init_cmd",
+            "build": "osprey.cli.build_cmd",
             "deploy": "osprey.cli.deploy_cmd",
-            "chat": "osprey.cli.chat_cmd",
             "config": "osprey.cli.config_cmd",
-            "export-config": "osprey.cli.export_config_cmd",  # DEPRECATED: kept for backward compat
             "health": "osprey.cli.health_cmd",
-            "generate": "osprey.cli.generate_cmd",
-            "remove": "osprey.cli.remove_cmd",
             "migrate": "osprey.cli.migrate_cmd",
-            "workflows": "osprey.cli.workflows_cmd",  # DEPRECATED: use 'tasks' instead
-            "tasks": "osprey.cli.tasks_cmd",
             "claude": "osprey.cli.claude_cmd",
             "eject": "osprey.cli.eject_cmd",
             "channel-finder": "osprey.cli.channel_finder_cmd",
             "ariel": "osprey.cli.ariel",  # ARIEL search service
+            "artifacts": "osprey.cli.artifacts_cmd",  # Artifact Gallery
+            "web": "osprey.cli.web_cmd",  # Web Terminal
+            "prompts": "osprey.cli.prompts_cmd",  # Prompt artifact overrides
+            "audit": "osprey.cli.audit_cmd",  # Safety auditor
         }
 
         if cmd_name not in commands:
             return None
 
-        # Lazy import - only loads when command is actually used
         import importlib
 
         mod = importlib.import_module(commands[cmd_name])
 
-        # Get the command function from the module
-        # Convention: module name without _cmd suffix
         if cmd_name == "config":
             cmd_func = mod.config
-        elif cmd_name == "export-config":
-            # DEPRECATED: Show warning and redirect to new command
-            cmd_func = mod.export_config
         elif cmd_name == "channel-finder":
             cmd_func = mod.channel_finder
         elif cmd_name == "ariel":
             cmd_func = mod.ariel_group
+        elif cmd_name == "artifacts":
+            cmd_func = mod.artifacts
+        elif cmd_name == "web":
+            cmd_func = mod.web
+        elif cmd_name == "prompts":
+            cmd_func = mod.prompts
         else:
             cmd_func = getattr(mod, cmd_name)
 
@@ -98,21 +84,21 @@ class LazyGroup(click.Group):
 
     def list_commands(self, ctx):
         """Return list of available commands (for --help)."""
-        # Note: 'workflows' and 'assist' are deprecated but kept in commands dict for backward compat
         return [
             "init",
+            "build",
             "config",
             "deploy",
-            "chat",
-            "generate",
-            "remove",
             "migrate",
             "health",
-            "tasks",
             "channel-finder",
             "claude",
             "eject",
             "ariel",
+            "artifacts",
+            "web",
+            "prompts",
+            "audit",
         ]
 
 
@@ -133,27 +119,16 @@ def cli(ctx):
       osprey                          Launch interactive menu
       osprey init my-project          Create new project
       osprey config                   Manage configuration (show, export, set)
-      osprey generate capability ...  Generate capability from MCP server
-      osprey generate mcp-server      Generate demo MCP server
-      osprey remove capability ...    Remove capability from project
       osprey deploy up                Start services
-      osprey chat                     Interactive conversation
+      osprey claude regen             Regenerate Claude Code artifacts
+      osprey web                      Launch web terminal
       osprey health                   Check system health
-      osprey tasks                    Browse AI assistant tasks
-      osprey claude install <task>    Install Claude Code skill
       osprey channel-finder           Interactive channel search
     """
-    # Initialize theme from config if available (best-effort, silent failure)
-    try:
-        from .styles import initialize_theme_from_config
+    from .styles import initialize_theme_from_config
 
-        initialize_theme_from_config()
-    except Exception:
-        # Silent failure - default theme will be used
-        # CLI must work even if theme loading fails
-        pass
+    initialize_theme_from_config()
 
-    # NEW: If no command provided, launch interactive menu
     if ctx.invoked_subcommand is None:
         from .interactive_menu import launch_tui
 

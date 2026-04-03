@@ -208,16 +208,16 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
-    - name: Create hello_world_weather project
+    - name: Create hello_world project
       run: |
-        uv run osprey init hello-weather-test --template hello_world_weather --provider cborg --model anthropic/claude-haiku
-        ls -la hello-weather-test/
+        uv run osprey init hello-world-test --template hello_world --provider cborg --model anthropic/claude-haiku
+        ls -la hello-world-test/
 
     - name: Deploy pipelines container
       env:
         CBORG_API_KEY: ${{ secrets.CBORG_API_KEY }}
       run: |
-        cd hello-weather-test
+        cd hello-world-test
         uv run osprey deploy up -d --dev
 
     - name: Wait for pipelines to be ready
@@ -286,7 +286,7 @@ jobs:
     - name: Cleanup
       if: always()
       run: |
-        cd hello-weather-test
+        cd hello-world-test
         uv run osprey deploy down || true
 
   all-checks-passed:

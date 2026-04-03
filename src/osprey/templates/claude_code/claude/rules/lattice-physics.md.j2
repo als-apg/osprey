@@ -1,0 +1,45 @@
+{% if template_name == "lattice_design" %}
+# Lattice Physics — AT API Reference
+
+## Loading
+- `ring = at.load_m('file.m')` — Load MATLAB lattice
+- `ring = at.load_lattice('file.mat')` — Load MAT-file
+- `len(ring)` — Element count
+- `ring.energy` — Beam energy [eV]
+- `ring.get_s_pos(range(len(ring)+1))` — s positions
+
+## Linear Optics
+- `ld0, rd, ld = at.get_optics(ring, refpts=range(len(ring)+1), get_chrom=True)`
+  - `ld.beta` — Beta functions (Nx2 array: beta_x, beta_y)
+  - `ld.dispersion` — Dispersion (Nx4 array: eta_x, eta_px, eta_y, eta_py)
+  - `rd.tune` — Tunes [nu_x, nu_y] (fractional, same as `at.get_tune`)
+  - `rd.chromaticity` — Chromaticities [xi_x, xi_y]
+- `at.get_tune(ring)` — Fractional tunes only (integer parts not included)
+- `at.get_chrom(ring)` — Chromaticities [xi_x, xi_y]
+
+### ALS Working Point
+- nu_x ≈ 14.25, nu_y ≈ 8.18 (integer parts: 14, 8)
+- `at.get_tune()` and `rd.tune` return fractional parts only (~0.25, ~0.18)
+
+## Fitting
+- `at.fit_tune(ring, 'QF', 'QD', [nux, nuy])` — Fit tunes (in-place)
+- `at.fit_chrom(ring, 'SFF', 'SDD', [xi_x, xi_y])` — Fit chromaticities (in-place)
+
+## Tracking
+- `ring.track(rin, nturns=N)` — Track 6D phase-space vector for N turns
+- `ring.track(rin, nturns=N, refpts=[0])` — Get turn-by-turn data at observation point
+- Input: rin shape (6,) or (6, nparticles); output includes NaN if particle lost
+- Survival check: `np.all(np.isfinite(rout))` — True if particle survived all turns
+
+## Element Access
+- `[e for e in ring if e.FamName == 'QF']` — Find by family
+- `ring.get_uint32_index(at.Quadrupole)` — Indices of all quadrupoles
+- `elem.K` — Quadrupole strength
+- `elem.H` — Sextupole strength
+- `elem.Length`, `elem.BendingAngle`, `elem.PassMethod`
+
+## Visualization
+Use `save_artifact(fig, "title")` to register plots in the artifact gallery.
+Works in both `execute` and sandbox tools (`create_interactive_plot`, etc.) —
+all support `at` imports.
+{% endif %}

@@ -4,7 +4,6 @@ EPICS Archiver Appliance connector using archivertools.
 Provides interface to EPICS Archiver Appliance for historical data retrieval.
 Refactored from existing archiver integration code.
 
-Related to Issue #18 - Control System Abstraction (Layer 2 - EPICS Archiver Implementation)
 """
 
 import asyncio

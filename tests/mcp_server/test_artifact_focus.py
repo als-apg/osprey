@@ -1,0 +1,60 @@
+"""Tests for the artifact_focus MCP tool."""
+
+import json
+
+import pytest
+
+from tests.mcp_server.conftest import get_tool_fn
+
+
+def _get_artifact_focus():
+    from osprey.mcp_server.workspace.tools.focus_tools import artifact_focus
+
+    return get_tool_fn(artifact_focus)
+
+
+def _get_artifact_save():
+    from osprey.mcp_server.workspace.tools.artifact_save import artifact_save
+
+    return get_tool_fn(artifact_save)
+
+
+class TestArtifactFocusTool:
+    """Tests for the artifact_focus MCP tool."""
+
+    @pytest.mark.asyncio
+    async def test_focus_unknown_artifact(self, tmp_path, monkeypatch):
+        """Focusing an unknown artifact returns a not_found error."""
+        monkeypatch.chdir(tmp_path)
+
+        fn = _get_artifact_focus()
+        result = await fn(artifact_id="nonexistent-id")
+
+        data = json.loads(result)
+        assert data["error"] is True
+        assert data["error_type"] == "not_found"
+
+    @pytest.mark.asyncio
+    async def test_focus_valid_artifact(self, tmp_path, monkeypatch):
+        """Focusing a valid artifact returns success (gallery POST is non-fatal)."""
+        monkeypatch.chdir(tmp_path)
+
+        # First save an artifact
+        save_fn = _get_artifact_save()
+        save_result = await save_fn(
+            title="Test Artifact",
+            content="# Hello",
+            content_type="markdown",
+        )
+        save_data = json.loads(save_result)
+        artifact_id = save_data["artifact_id"]
+
+        # Now focus on it
+        fn = _get_artifact_focus()
+        result = await fn(artifact_id=artifact_id)
+
+        data = json.loads(result)
+        assert data["status"] == "success"
+        assert data["artifact_id"] == artifact_id
+        assert data["title"] == "Test Artifact"
+        assert "gallery_url" in data

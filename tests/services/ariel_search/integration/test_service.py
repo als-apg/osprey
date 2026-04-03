@@ -102,29 +102,23 @@ class TestAgentIntegration:
         await pool.close()
 
     async def test_tools_are_bound_correctly(self, integration_ariel_config, repository):
-        """Tools are properly created and bound to AgentExecutor."""
+        """Descriptors are properly discovered by AgentExecutor."""
         from osprey.services.ariel_search.agent import AgentExecutor
 
-        # Create executor
         executor = AgentExecutor(
             config=integration_ariel_config,
             repository=repository,
             embedder_loader=MagicMock(),
         )
 
-        # Create tools
-        tools, _descriptors = executor._create_tools()
+        descriptors = executor._load_descriptors()
 
-        # Should have at least keyword tool (enabled in integration_ariel_config)
-        assert len(tools) >= 1
+        assert len(descriptors) >= 1
 
-        # All tools should have required attributes
-        for tool in tools:
-            assert hasattr(tool, "name")
-            assert hasattr(tool, "description")
-            assert callable(getattr(tool, "invoke", None)) or callable(
-                getattr(tool, "ainvoke", None)
-            )
+        for desc in descriptors:
+            assert hasattr(desc, "name")
+            assert hasattr(desc, "description")
+            assert callable(desc.execute)
 
     async def test_cleanup(self, migrated_pool):
         """Clean up agent test data."""

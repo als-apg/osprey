@@ -1,0 +1,11 @@
+{%- set server_blocks = [] -%}
+{%- for s in servers if s.enabled -%}
+{%- set block = {"command": s.command, "args": s.args} -%}
+{%- if s.env -%}{%- set _ = block.update({"env": s.env}) -%}{%- endif -%}
+{%- set _ = server_blocks.append('    ' ~ s.name | tojson ~ ': ' ~ block | tojson) -%}
+{%- endfor -%}
+{
+  "mcpServers": {
+{{ server_blocks | join(",\n") }}
+  }
+}

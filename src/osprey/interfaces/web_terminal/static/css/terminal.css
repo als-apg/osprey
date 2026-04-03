@@ -1,0 +1,376 @@
+/* OSPREY Web Terminal — Welcome Modal (terminal banner style) */
+
+.welcome-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--welcome-bg);
+  opacity: 1;
+  transition: opacity 0.5s ease;
+}
+
+.welcome-overlay.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* CRT scanline + vignette over the whole overlay */
+.welcome-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 0px,
+    rgba(0, 0, 0, 0.08) 2px,
+    transparent 4px
+  );
+  pointer-events: none;
+  z-index: 1;
+  opacity: var(--crt-scanline-opacity);
+}
+
+.welcome-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.6) 100%);
+  pointer-events: none;
+  z-index: 1;
+  opacity: var(--crt-vignette-opacity);
+}
+
+.welcome-terminal {
+  position: relative;
+  z-index: 2;
+  max-width: 620px;
+  width: 100%;
+  padding: 0 24px;
+}
+
+.welcome-ascii {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--welcome-text);
+  white-space: pre;
+  margin: 0;
+  text-shadow: var(--welcome-text-glow);
+  display: inline-block; /* shrink to widest line (the ═ borders) */
+}
+
+/* Each line fades in */
+.welcome-ascii .wl {
+  opacity: 0;
+  animation: lineReveal 0.08s ease forwards;
+}
+
+/* Box content lines: flex to pin right ║ border */
+.welcome-ascii .wl-box {
+  display: flex;
+  justify-content: space-between;
+  white-space: pre;
+}
+
+@keyframes lineReveal {
+  to { opacity: 1; }
+}
+
+/* Safety docs link */
+.welcome-safety-link {
+  display: block;
+  margin-top: 4px;
+  padding-left: 8ch;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--welcome-link);
+  text-decoration: none;
+  text-shadow: var(--welcome-text-glow);
+  transition: color 0.15s ease;
+}
+
+.welcome-safety-link::before {
+  content: '→ ';
+}
+
+.welcome-safety-link:hover {
+  color: var(--welcome-link-hover);
+}
+
+/* Prompt button */
+.welcome-prompt {
+  display: block;
+  margin-top: 8px;
+  padding: 0 0 0 8ch;
+  background: none;
+  border: none;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--welcome-prompt);
+  cursor: pointer;
+  text-shadow: var(--welcome-text-glow);
+  transition: color 0.15s ease;
+  letter-spacing: 0;
+}
+
+.welcome-prompt:hover {
+  color: var(--welcome-link-hover);
+}
+
+.welcome-prompt:hover .welcome-cursor {
+  background: var(--welcome-link-hover);
+}
+
+.welcome-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  background: var(--welcome-cursor);
+  vertical-align: text-bottom;
+  animation: cursorBlink 1s step-end infinite;
+}
+
+@keyframes cursorBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* OSPREY Web Terminal — Terminal Panel */
+
+/* ---- Header ---- */
+
+.header {
+  height: var(--header-height);
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.header-left {
+  flex: 0 1 40%;
+  min-width: 360px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border-right: 1px solid var(--border-default);
+}
+
+.header-right {
+  flex: 1 1 60%;
+  min-width: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+}
+
+.header-logo {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+  color: var(--color-accent-light);
+}
+
+.header-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* ---- Header Tabs ---- */
+
+.header-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+}
+
+.header-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  height: 100%;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.header-tab:hover { color: var(--text-secondary); }
+
+.header-tab.active {
+  color: var(--color-accent-light);
+  border-bottom-color: var(--color-accent-light);
+}
+
+.header-tab.disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.header-tab .tab-led {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: background var(--transition-normal);
+}
+
+.header-tab .tab-led.healthy { background: var(--color-success); }
+.header-tab .tab-led.offline { background: var(--color-error); }
+
+/* ---- Main layout ---- */
+
+.main-container {
+  display: flex;
+  height: calc(100vh - var(--header-height) - var(--status-bar-height));
+  overflow: hidden;
+}
+
+/* ---- Terminal panel ---- */
+
+.terminal-panel {
+  flex: 0 1 40%;
+  min-width: 360px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-terminal);
+  position: relative;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.session-led {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.session-led.active {
+  background: var(--color-accent-light);
+  animation: ledPulse 3s ease-in-out infinite;
+}
+
+.terminal-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.new-session-btn {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-left: auto;
+}
+
+.new-session-btn:hover {
+  color: var(--color-accent-light);
+  border-color: var(--color-accent-light);
+  background: var(--accent-tint-08);
+}
+
+.new-session-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.terminal-body {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+/* CRT scanline overlay */
+.terminal-body::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+  z-index: 1;
+  opacity: var(--crt-scanline-opacity);
+}
+
+/* Inner glow on active terminal */
+.terminal-body.active {
+  box-shadow: inset 0 0 60px rgba(79, 209, 197, 0.03);
+}
+
+/* Terminal bezel */
+.terminal-bezel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  box-shadow: var(--crt-bezel-shadow);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* xterm.js overrides */
+#terminal-container {
+  width: 100%;
+  height: 100%;
+}
+
+#terminal-container .xterm {
+  height: 100%;
+}
+
+/* ---- Animations ---- */
+
+@keyframes ledPulse {
+  0%, 100% { box-shadow: 0 0 3px currentColor; }
+  50% { box-shadow: 0 0 8px currentColor; }
+}

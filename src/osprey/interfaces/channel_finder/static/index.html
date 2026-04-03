@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OSPREY Channel Finder</title>
+
+  <!-- Theme sync: runs before CSS to prevent flash -->
+  <script>
+    (function() {
+      var p = new URLSearchParams(window.location.search);
+      var t = p.get('theme') || localStorage.getItem('osprey-theme');
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+      if (p.get('embedded') === 'true') document.body.classList.add('embedded');
+      window.addEventListener('message', function(e) {
+        if (e.data && e.data.type === 'osprey-theme-change' && e.data.theme) {
+          document.documentElement.setAttribute('data-theme', e.data.theme);
+        }
+      });
+    })();
+  </script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&family=Syne+Mono&display=swap" rel="stylesheet">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="/static/css/channel-finder.css">
+</head>
+<body>
+  <header class="app-header" id="app-header">
+    <div class="header-left">
+      <div class="app-logo">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" fill="currentColor" opacity="0.9"/>
+          <path d="M12 5a7 7 0 0 1 7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.7"/>
+          <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.45"/>
+          <path d="M12 8a4 4 0 0 0-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none" opacity="0.55"/>
+          <path d="M12 2a10 10 0 0 0-10 10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none" opacity="0.25"/>
+        </svg>
+        <span class="logo-text">CHANNEL FINDER</span>
+      </div>
+      <div class="pipeline-switcher" id="pipeline-switcher">
+        <button class="pipeline-badge" id="pipeline-badge" title="Switch pipeline"></button>
+        <div class="pipeline-dropdown" id="pipeline-dropdown"></div>
+      </div>
+      <span class="stats-badges" id="stats-badges"></span>
+    </div>
+    <nav class="header-nav" id="header-nav">
+      <a href="#explore" class="nav-link active" data-view="explore">Explore</a>
+      <a href="#feedback" class="nav-link" data-view="feedback">Feedback</a>
+    </nav>
+  </header>
+
+  <main class="app-main" id="app-main">
+    <div class="view-container" id="view-container"></div>
+  </main>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

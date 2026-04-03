@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from osprey.services.ariel_search.database.migration import model_to_table_name
+from osprey.services.ariel_search.database.migrations import model_to_table_name
 from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule
 from osprey.services.ariel_search.enhancement.text_embedding.migration import (
     TextEmbeddingMigration,
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from psycopg import AsyncConnection
 
     from osprey.models.embeddings.base import BaseEmbeddingProvider
-    from osprey.services.ariel_search.database.migration import BaseMigration
+    from osprey.services.ariel_search.database.migrations import BaseMigration
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
 
 logger = get_logger("ariel")
@@ -74,7 +74,7 @@ class TextEmbeddingModule(BaseEnhancementModule):
 
         # May fail in test environments without config.yml
         try:
-            from osprey.utils.config import get_provider_config
+            from osprey.models.config import get_provider_config
 
             self._resolved_provider_config = get_provider_config(self._provider_name)
         except FileNotFoundError:
@@ -91,18 +91,9 @@ class TextEmbeddingModule(BaseEnhancementModule):
             Configured embedding provider instance based on provider_name
         """
         if self._provider is None:
-            if self._provider_name == "ollama":
-                from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
+            from osprey.models.embeddings import get_embedding_provider
 
-                self._provider = OllamaEmbeddingProvider()
-            else:
-                logger.warning(
-                    f"Embedding provider '{self._provider_name}' not yet supported, "
-                    f"falling back to 'ollama'"
-                )
-                from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
-
-                self._provider = OllamaEmbeddingProvider()
+            self._provider = get_embedding_provider(self._provider_name)
 
         return self._provider
 
@@ -161,6 +152,7 @@ class TextEmbeddingModule(BaseEnhancementModule):
             logger.debug(f"Skipping empty entry {entry.get('entry_id')}")
             return
 
+        errors: list[str] = []
         for model_config in self._models:
             try:
                 model_name = model_config["name"]
@@ -189,13 +181,22 @@ class TextEmbeddingModule(BaseEnhancementModule):
                         embedding=embeddings[0],
                         conn=conn,
                     )
+                else:
+                    errors.append(f"{model_name}: empty embedding result")
 
             except Exception as e:
                 logger.warning(
                     f"Failed to generate embedding for entry {entry.get('entry_id')} "
                     f"with model {model_config.get('name')}: {e}"
                 )
+                errors.append(f"{model_config.get('name')}: {e}")
                 continue
+
+        if errors and len(errors) == len(self._models):
+            raise RuntimeError(
+                f"All embedding models failed for entry {entry.get('entry_id')}: "
+                + "; ".join(errors)
+            )
 
     async def _store_embedding(
         self,

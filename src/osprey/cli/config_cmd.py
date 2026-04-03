@@ -1,16 +1,4 @@
-"""Configuration management commands.
-
-This module provides the 'osprey config' command group for managing project
-configuration. All configuration-related operations are unified under this
-namespace following industry standard CLI patterns (git config, docker config, etc.).
-
-Commands:
-    - config show: Display current project configuration
-    - config export: Export framework default configuration
-    - config set-control-system: Switch between Mock/EPICS/Tango connectors
-    - config set-epics-gateway: Configure EPICS gateway settings
-    - config set-models: Configure AI provider and models for all model roles
-"""
+"""Configuration management commands (osprey config)."""
 
 import sys
 from pathlib import Path
@@ -21,6 +9,7 @@ from jinja2 import Template
 from rich.syntax import Syntax
 
 from osprey.cli.styles import Styles, console
+from osprey.connectors.types import CLI_CONTROL_SYSTEM_TYPES
 
 
 @click.group(name="config", invoke_without_command=True)
@@ -98,7 +87,6 @@ def config(ctx, project):
                 )
                 sys.exit(1)
 
-            # Launch interactive menu (shared implementation)
             handle_config_action(project_path)
 
         except KeyboardInterrupt:
@@ -153,7 +141,6 @@ def show(project: str, format: str):
     try:
         from .project_utils import resolve_config_path
 
-        # Resolve config path (returns string)
         try:
             config_path_str = resolve_config_path(project)
             config_path = Path(config_path_str)
@@ -176,11 +163,9 @@ def show(project: str, format: str):
             )
             raise click.Abort()
 
-        # Load configuration
         with open(config_path) as f:
             config_data = yaml.safe_load(f)
 
-        # Format output
         if format == "yaml":
             output_str = yaml.dump(
                 config_data, default_flow_style=False, sort_keys=False, allow_unicode=True
@@ -190,7 +175,6 @@ def show(project: str, format: str):
 
             output_str = json.dumps(config_data, indent=2, ensure_ascii=False)
 
-        # Display with syntax highlighting
         console.print(f"\n[bold]Configuration:[/bold] {config_path}\n")
         syntax = Syntax(output_str, format, theme="monokai", line_numbers=False, word_wrap=True)
         console.print(syntax)
@@ -254,14 +238,13 @@ def export(output: str, format: str):
             package_name="example_project",
             project_root="/path/to/example_project",
             hostname="localhost",
-            default_provider="cborg",
+            default_provider="anthropic",
             default_model="anthropic/claude-haiku",
         )
 
         # Parse the rendered config as YAML
         config_data = yaml.safe_load(rendered_config)
 
-        # Format output based on requested format
         if format == "yaml":
             output_str = yaml.dump(
                 config_data, default_flow_style=False, sort_keys=False, allow_unicode=True
@@ -271,7 +254,6 @@ def export(output: str, format: str):
 
             output_str = json.dumps(config_data, indent=2, ensure_ascii=False)
 
-        # Output to file or console
         if output:
             output_path = Path(output)
             # Use UTF-8 encoding explicitly to support Unicode characters on Windows
@@ -300,7 +282,8 @@ def export(output: str, format: str):
 
 @config.command(name="set-control-system")
 @click.argument(
-    "system_type", type=click.Choice(["mock", "epics", "tango", "labview"], case_sensitive=False)
+    "system_type",
+    type=click.Choice(CLI_CONTROL_SYSTEM_TYPES, case_sensitive=False),
 )
 @click.option(
     "--project",
@@ -332,7 +315,7 @@ def set_control_system(system_type: str, project: str):
       osprey config set-control-system tango
     """
     try:
-        from osprey.generators.config_updater import set_control_system_type
+        from osprey.utils.config_writer import set_control_system_type
 
         from .project_utils import resolve_config_path
 
@@ -358,7 +341,6 @@ def set_control_system(system_type: str, project: str):
             )
             raise click.Abort() from None
 
-        # Update configuration
         new_content, preview = set_control_system_type(config_path, system_type.lower())
         # Use UTF-8 encoding explicitly to support Unicode characters on Windows
         config_path.write_text(new_content, encoding="utf-8")
@@ -407,7 +389,7 @@ def set_epics_gateway(facility: str, address: str, port: int, project: str):
           --address gateway.example.com --port 5064
     """
     try:
-        from osprey.generators.config_updater import set_epics_gateway_config
+        from osprey.utils.config_writer import set_epics_gateway_config
 
         from .project_utils import resolve_config_path
 
@@ -500,12 +482,11 @@ def set_models(provider: str, model: str, project: str):
       osprey config set-models --provider cborg --model anthropic/claude-haiku
     """
     try:
-        from osprey.generators.config_updater import update_all_models
+        from osprey.utils.config_writer import update_all_models
 
         from .interactive_menu import get_provider_metadata
         from .project_utils import resolve_config_path
 
-        # Find config file
         try:
             config_path_str = resolve_config_path(project)
             config_path = Path(config_path_str)
@@ -528,7 +509,6 @@ def set_models(provider: str, model: str, project: str):
             )
             raise click.Abort() from None
 
-        # If no options provided, launch interactive mode
         if not provider or not model:
             # Import interactive menu handler
             from .interactive_menu import handle_set_models
@@ -536,7 +516,6 @@ def set_models(provider: str, model: str, project: str):
             handle_set_models(Path(config_path).parent)
             return
 
-        # Validate provider
         providers = get_provider_metadata()
         if provider not in providers:
             console.print(
@@ -549,7 +528,6 @@ def set_models(provider: str, model: str, project: str):
             )
             raise click.Abort() from None
 
-        # Validate model
         provider_info = providers[provider]
         if model not in provider_info["models"]:
             console.print(
@@ -562,13 +540,10 @@ def set_models(provider: str, model: str, project: str):
             )
             raise click.Abort() from None
 
-        # Update configuration
         new_content, preview = update_all_models(config_path, provider, model)
 
-        # Show preview
         console.print(f"\n{preview}\n")
 
-        # Write configuration
         # Use UTF-8 encoding explicitly to support Unicode characters on Windows
         config_path.write_text(new_content, encoding="utf-8")
         console.print(f"✅ All models updated to: [bold]{provider}/{model}[/bold]")

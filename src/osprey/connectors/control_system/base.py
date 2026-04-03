@@ -4,15 +4,17 @@ Abstract base class for control system connectors.
 Provides protocol-agnostic interfaces for reading/writing process variables,
 subscribing to changes, and retrieving metadata from various control systems.
 
-Related to Issue #18 - Control System Abstraction (Layer 2)
 """
 
-import warnings
+import functools
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
+
+logger = logging.getLogger("osprey.connectors.control_system")
 
 
 @dataclass
@@ -92,6 +94,102 @@ class ControlSystemConnector(ABC):
         >>> finally:
         >>>     await connector.disconnect()
     """
+
+    _limits_validator: Any = None  # Initialized by subclasses in connect()
+
+    @property
+    def _writes_enabled(self) -> bool:
+        """Check whether writes are enabled via global config.
+
+        Returns False (fail-safe) when config is unavailable.
+        """
+        try:
+            from osprey.utils.config import get_config_value
+
+            return get_config_value("control_system.writes_enabled", False)
+        except (FileNotFoundError, RuntimeError):
+            return False
+
+    def __init_subclass__(cls, **kwargs):
+        """Auto-wrap write_channel() with writes_enabled pre-check.
+
+        Any subclass that defines write_channel() gets it transparently wrapped.
+        The wrapper checks _writes_enabled before calling the original method.
+        When writes are disabled, returns ChannelWriteResult(success=False)
+        with an operator-facing error message — no exception is raised.
+
+        This fires before limits validation (intentional: fast-reject when
+        writes are disabled, avoiding unnecessary validation work).
+        """
+        super().__init_subclass__(**kwargs)
+        original = cls.__dict__.get("write_channel")
+        if original is None:
+            return
+
+        @functools.wraps(original)
+        async def _guarded(self, channel_address, value, *args, **kwargs):
+            if not self._writes_enabled:
+                return ChannelWriteResult(
+                    channel_address=channel_address,
+                    value_written=value,
+                    success=False,
+                    error_message=(
+                        f"Write to '{channel_address}' blocked: writes are disabled. "
+                        "Set control_system.writes_enabled: true in config.yml"
+                    ),
+                )
+            return await original(self, channel_address, value, *args, **kwargs)
+
+        cls.write_channel = _guarded
+
+    def _get_verification_config(
+        self, channel_address: str, value: float
+    ) -> tuple[str, float | None]:
+        """Get verification level and tolerance for a channel write.
+
+        Priority:
+        1. Per-channel config from limits database
+        2. Global config from config.yml
+        3. Fallback: callback with no tolerance
+
+        Args:
+            channel_address: Channel being written
+            value: Value being written (for percentage tolerance calculation)
+
+        Returns:
+            Tuple of (verification_level, tolerance)
+        """
+        # Try per-channel config first (if limits validator available)
+        if self._limits_validator:
+            level, tolerance = self._limits_validator.get_verification_config(
+                channel_address, value
+            )
+            if level is not None:
+                logger.debug(f"Using per-channel verification for {channel_address}: {level}")
+                return level, tolerance
+
+        # Fall back to global config (or hardcoded defaults if config unavailable)
+        try:
+            from osprey.utils.config import get_config_value
+
+            level = get_config_value("control_system.write_verification.default_level", "callback")
+
+            # Calculate tolerance for readback verification
+            tolerance = None
+            if level == "readback":
+                default_percent = get_config_value(
+                    "control_system.write_verification.default_tolerance_percent", 0.1
+                )
+                tolerance = abs(value) * default_percent / 100.0
+
+            logger.debug(f"Using global verification config for {channel_address}: {level}")
+            return level, tolerance
+        except (FileNotFoundError, KeyError, RuntimeError):
+            # Config not available - use hardcoded safe defaults
+            logger.debug(
+                f"Using hardcoded verification defaults for {channel_address} (config unavailable)"
+            )
+            return "callback", None
 
     @abstractmethod
     async def connect(self, config: dict[str, Any]) -> None:
@@ -242,125 +340,3 @@ class ControlSystemConnector(ABC):
             True if channel is valid and accessible
         """
         pass
-
-    # Deprecated method aliases for backward compatibility
-    async def read_pv(self, pv_address: str, timeout: float | None = None) -> ChannelValue:
-        """
-        Read current value of a PV/channel.
-
-        .. deprecated:: 0.9.5
-           Use :meth:`read_channel` instead. The term "PV" is EPICS-specific;
-           "channel" is control-system agnostic.
-        """
-        warnings.warn(
-            "read_pv() is deprecated and will be removed in v0.10. "
-            "Use read_channel() instead. The term 'PV' is EPICS-specific; "
-            "'channel' is control-system agnostic.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return await self.read_channel(pv_address, timeout)
-
-    async def write_pv(
-        self,
-        pv_address: str,
-        value: Any,
-        timeout: float | None = None,
-        verification_level: str = "callback",
-        tolerance: float | None = None,
-    ) -> ChannelWriteResult:
-        """
-        Write value to a PV/channel.
-
-        .. deprecated:: 0.9.5
-           Use :meth:`write_channel` instead. The term "PV" is EPICS-specific;
-           "channel" is control-system agnostic.
-        """
-        warnings.warn(
-            "write_pv() is deprecated and will be removed in v0.10. "
-            "Use write_channel() instead. The term 'PV' is EPICS-specific; "
-            "'channel' is control-system agnostic.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return await self.write_channel(pv_address, value, timeout, verification_level, tolerance)
-
-    async def read_multiple_pvs(
-        self, pv_addresses: list[str], timeout: float | None = None
-    ) -> dict[str, ChannelValue]:
-        """
-        Read multiple PVs/channels.
-
-        .. deprecated:: 0.9.5
-           Use :meth:`read_multiple_channels` instead.
-        """
-        warnings.warn(
-            "read_multiple_pvs() is deprecated and will be removed in v0.10. "
-            "Use read_multiple_channels() instead. The term 'PV' is EPICS-specific; "
-            "'channel' is control-system agnostic.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return await self.read_multiple_channels(pv_addresses, timeout)
-
-    async def validate_pv(self, pv_address: str) -> bool:
-        """
-        Check if PV/channel exists and is accessible.
-
-        .. deprecated:: 0.9.5
-           Use :meth:`validate_channel` instead.
-        """
-        warnings.warn(
-            "validate_pv() is deprecated and will be removed in v0.10. "
-            "Use validate_channel() instead. The term 'PV' is EPICS-specific; "
-            "'channel' is control-system agnostic.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return await self.validate_channel(pv_address)
-
-
-# Backward compatibility wrappers with deprecation warnings
-# Deprecated in 0.9.5, will be removed in a future version
-
-
-class PVMetadata(ChannelMetadata):
-    """
-    Deprecated alias for ChannelMetadata.
-
-    .. deprecated:: 0.9.5
-        Use :class:`ChannelMetadata` instead. The term "PV" (Process Variable) is
-        EPICS-specific; "channel" is control-system agnostic and supports any control
-        system (EPICS, Tango, LabVIEW, etc.).
-    """
-
-    def __init__(self, *args, **kwargs):
-        warnings.warn(
-            "PVMetadata is deprecated and will be removed in v0.10. "
-            "Use ChannelMetadata instead. The term 'PV' is EPICS-specific; "
-            "'channel' is control-system agnostic.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        super().__init__(*args, **kwargs)
-
-
-class PVValue(ChannelValue):
-    """
-    Deprecated alias for ChannelValue.
-
-    .. deprecated:: 0.9.5
-        Use :class:`ChannelValue` instead. The term "PV" (Process Variable) is
-        EPICS-specific; "channel" is control-system agnostic and supports any control
-        system (EPICS, Tango, LabVIEW, etc.).
-    """
-
-    def __init__(self, *args, **kwargs):
-        warnings.warn(
-            "PVValue is deprecated and will be removed in v0.10. "
-            "Use ChannelValue instead. The term 'PV' is EPICS-specific; "
-            "'channel' is control-system agnostic.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        super().__init__(*args, **kwargs)

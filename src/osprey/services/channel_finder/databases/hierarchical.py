@@ -12,89 +12,64 @@ import json
 import logging
 from typing import Any
 
-from ..core.base_database import BaseDatabase
+from ..core.base_database import BaseDatabase, DatabaseWriteError
 
 logger = logging.getLogger(__name__)
 
+_HIER_META_KEYS = frozenset(
+    {
+        "_description",
+        "_expansion",
+        "_channel_part",
+        "_is_leaf",
+        "_separator",
+    }
+)
+
 
 class HierarchicalChannelDatabase(BaseDatabase):
-    """
-    Database for hierarchical channel naming schemes.
+    """Database for hierarchical channel naming schemes.
 
-    Supports flexible hierarchy with arbitrary mixing of:
-    - Tree levels (semantic categories)
-    - Instance levels (numbered/patterned expansions)
+    Supports flexible hierarchy with arbitrary mixing of tree levels
+    (semantic categories) and instance levels (numbered/patterned expansions).
     """
 
     def __init__(self, db_path: str):
-        """
-        Initialize hierarchical database.
-
-        Args:
-            db_path: Path to hierarchical database JSON file
-        """
         super().__init__(db_path)
 
     def load_database(self):
-        """Load hierarchical database from JSON with flexible configuration."""
-        import warnings
-
+        """Load and parse the hierarchical database JSON."""
         with open(self.db_path) as f:
             data = json.load(f)
 
+        self._raw_data = data
         self.tree = data["tree"]
 
-        # Support new unified schema (preferred) or legacy three-field format (deprecated)
-        if "hierarchy" in data:
-            # NEW UNIFIED SCHEMA: Single "hierarchy" section
-            hierarchy_def = data["hierarchy"]
-
-            # Extract levels list and build derived structures
-            levels_list = hierarchy_def["levels"]
-            self.hierarchy_levels = [level["name"] for level in levels_list]
-            self.naming_pattern = hierarchy_def["naming_pattern"]
-
-            # Build hierarchy_config from levels list
-            self.hierarchy_config = {"levels": {}}
-            for level_def in levels_list:
-                self.hierarchy_config["levels"][level_def["name"]] = {
-                    "type": level_def["type"],
-                    "optional": level_def.get("optional", False),
-                }
-
-            # Validate naming_pattern references correct level names
-            self._validate_naming_pattern()
-
-        elif "hierarchy_definition" in data:
-            # LEGACY/INTERMEDIATE FORMAT: Backward compatibility for old schemas
-            self.hierarchy_levels = data["hierarchy_definition"]
-            self.naming_pattern = data["naming_pattern"]
-
-            # Load or infer hierarchy configuration
-            if "hierarchy_config" in data:
-                # Intermediate format (unpublished) - silent backward compatibility
-                self.hierarchy_config = data["hierarchy_config"]
-            else:
-                # TRULY LEGACY FORMAT: Missing hierarchy_config entirely
-                # This is the old container-based format with devices/fields/subfields
-                warnings.warn(
-                    "Legacy hierarchical database format detected (missing 'hierarchy_config' section). "
-                    "Automatic conversion applied, but explicit configuration is recommended. "
-                    "The new flexible hierarchy format was introduced in Osprey 0.9.4. "
-                    "Please update your database by:\n"
-                    "  1. Adding 'hierarchy_config' section with explicit level types\n"
-                    "  2. Migrating from nested containers (devices/fields/subfields) to DEVICE/FIELD/SUBFIELD with _expansion\n"
-                    "See data/channel_databases/hierarchical.json for the new format, "
-                    "or data/channel_databases/examples/hierarchical_legacy.json for the legacy format reference.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-                self.hierarchy_config = self._infer_legacy_config()
-        else:
+        if "hierarchy" not in data:
             raise ValueError(
-                "Invalid database format: must contain either 'hierarchy' (new unified schema) "
-                "or 'hierarchy_definition' (legacy format)"
+                "Invalid database format: must contain 'hierarchy' section with "
+                "'levels' list and 'naming_pattern'. See data/channel_databases/"
+                "hierarchical.json for the expected format."
             )
+
+        # Unified schema: single "hierarchy" section
+        hierarchy_def = data["hierarchy"]
+
+        # Extract levels list and build derived structures
+        levels_list = hierarchy_def["levels"]
+        self.hierarchy_levels = [level["name"] for level in levels_list]
+        self.naming_pattern = hierarchy_def["naming_pattern"]
+
+        # Build hierarchy_config from levels list
+        self.hierarchy_config = {"levels": {}}
+        for level_def in levels_list:
+            self.hierarchy_config["levels"][level_def["name"]] = {
+                "type": level_def["type"],
+                "optional": level_def.get("optional", False),
+            }
+
+        # Validate naming_pattern references correct level names
+        self._validate_naming_pattern()
 
         # Validate configuration
         self._validate_hierarchy_config()
@@ -104,32 +79,6 @@ class HierarchicalChannelDatabase(BaseDatabase):
 
         # Build flat channel map for validation and lookup
         self.channel_map = self._build_channel_map()
-
-    def _infer_legacy_config(self) -> dict:
-        """
-        Infer hierarchy configuration for legacy databases.
-
-        Assumes traditional accelerator pattern:
-        - First 2 levels: tree-based categories (system, family)
-        - Remaining levels: container-based instances (device, field, subfield)
-        """
-        config = {"levels": {}}
-
-        # Map legacy container keys
-        legacy_container_keys = {"device": "devices", "field": "fields", "subfield": "subfields"}
-
-        for i, level in enumerate(self.hierarchy_levels):
-            if i < 2:
-                # First two levels: tree-based categories
-                config["levels"][level] = {"type": "tree"}
-            else:
-                # Later levels: container-based (legacy style)
-                config["levels"][level] = {
-                    "type": "container",  # Legacy mode
-                    "container_key": legacy_container_keys.get(level, f"{level}s"),
-                }
-
-        return config
 
     def _validate_naming_pattern(self):
         """
@@ -1083,8 +1032,13 @@ class HierarchicalChannelDatabase(BaseDatabase):
                     # Optional level not provided - use empty string
                     values = [""]
                 else:
-                    # Required level missing - return empty list (invalid selections)
-                    return []
+                    # Required level missing - raise so the MCP tool can surface
+                    # which level is absent (silent [] confuses the agent)
+                    raise ValueError(
+                        f"Required level '{level}' is missing from selections. "
+                        f"All required levels must be provided: {pattern_levels}. "
+                        f"Received: {list(selections.keys())}"
+                    )
 
             selection_lists.append(values)
 
@@ -1523,3 +1477,615 @@ class HierarchicalChannelDatabase(BaseDatabase):
         if isinstance(value, list):
             return value[0] if value else None
         return value
+
+    # ------------------------------------------------------------------
+    # Tree Preview
+    # ------------------------------------------------------------------
+
+    def generate_tree_preview(self, max_depth: int = 3, max_children: int = 5) -> str:
+        """
+        Generate a compact text overview of the full database structure.
+
+        Shows hierarchy levels, category names, and channel counts to help
+        LLMs understand where channels live before navigating.
+
+        Args:
+            max_depth: Maximum tree depth to render (0-indexed from root)
+            max_children: Maximum children to show per node before truncating
+
+        Returns:
+            Indented text preview of the database structure
+        """
+        if not hasattr(self, "_tree_preview_cache"):
+            self._tree_preview_cache: dict[tuple[int, int], str] = {}
+
+        cache_key = (max_depth, max_children)
+        if cache_key in self._tree_preview_cache:
+            return self._tree_preview_cache[cache_key]
+
+        lines: list[str] = []
+        lines.append(f"Database Structure ({len(self.channel_map)} total channels)")
+        lines.append(f"Hierarchy: {' → '.join(self.hierarchy_levels)}")
+        lines.append(f"Naming: {self.naming_pattern}")
+        lines.append("")
+
+        self._render_tree_node(
+            node=self.tree,
+            depth=0,
+            max_depth=max_depth,
+            max_children=max_children,
+            lines=lines,
+            level_idx=0,
+        )
+
+        preview = "\n".join(lines)
+        self._tree_preview_cache[cache_key] = preview
+        return preview
+
+    def generate_subtree_preview(
+        self,
+        previous_selections: dict[str, Any],
+        max_depth: int = 2,
+        max_children: int = 5,
+    ) -> str:
+        """
+        Generate a preview from the current navigation position.
+
+        Args:
+            previous_selections: Selections made so far at previous levels
+            max_depth: Maximum depth to render below current position
+            max_children: Maximum children to show per node
+
+        Returns:
+            Indented text preview of the subtree, or empty string if position invalid
+        """
+        # Determine which level we're at
+        current_level_idx = 0
+        for i, level in enumerate(self.hierarchy_levels):
+            if level not in previous_selections:
+                current_level_idx = i
+                break
+        else:
+            current_level_idx = len(self.hierarchy_levels)
+
+        # Navigate to position
+        target_level = (
+            self.hierarchy_levels[current_level_idx]
+            if current_level_idx < len(self.hierarchy_levels)
+            else None
+        )
+        if target_level is None:
+            return ""
+
+        node = self._navigate_to_node(target_level, previous_selections)
+        if not node:
+            return ""
+
+        # Build path string
+        path_parts = [f"{k}={v}" for k, v in previous_selections.items()]
+        path_str = " → ".join(path_parts) if path_parts else "ROOT"
+
+        lines: list[str] = []
+        lines.append(f"Subtree at: {path_str}")
+        channel_count = self._count_channels(node)
+        lines.append(f"({channel_count} channels below this point)")
+        lines.append("")
+
+        self._render_tree_node(
+            node=node,
+            depth=0,
+            max_depth=max_depth,
+            max_children=max_children,
+            lines=lines,
+            level_idx=current_level_idx,
+        )
+
+        return "\n".join(lines)
+
+    def _render_tree_node(
+        self,
+        node: dict,
+        depth: int,
+        max_depth: int,
+        max_children: int,
+        lines: list[str],
+        level_idx: int,
+    ) -> None:
+        """
+        Recursively render a tree node as indented text.
+
+        Args:
+            node: Current tree node dict
+            depth: Current rendering depth (for indentation)
+            max_depth: Maximum depth to render
+            max_children: Maximum children per node
+            lines: Output line buffer
+            level_idx: Current hierarchy level index
+        """
+        if depth >= max_depth:
+            return
+
+        indent = "  " * depth
+
+        # Determine level info
+        level_name = (
+            self.hierarchy_levels[level_idx] if level_idx < len(self.hierarchy_levels) else None
+        )
+        level_config = self.hierarchy_config["levels"].get(level_name, {}) if level_name else {}
+        level_type = level_config.get("type", "tree")
+
+        if level_type == "instances":
+            # Find the instance container
+            for key, value in node.items():
+                if key.upper() == level_name.upper() and isinstance(value, dict):
+                    if "_expansion" in value:
+                        expanded = self._expand_instances(value["_expansion"])
+                        count = len(expanded)
+                        lines.append(
+                            f"{indent}[{level_name}] {count} instances "
+                            f"({expanded[0]['name']}..{expanded[-1]['name']})"
+                        )
+                        # Recurse into the container's children at next level
+                        if depth + 1 < max_depth:
+                            self._render_tree_node(
+                                node=value,
+                                depth=depth + 1,
+                                max_depth=max_depth,
+                                max_children=max_children,
+                                lines=lines,
+                                level_idx=level_idx + 1,
+                            )
+                    break
+        else:
+            # Tree level: show children
+            children = self._child_keys(node)
+            shown = children[:max_children]
+            truncated_count = len(children) - len(shown)
+
+            for child_key in shown:
+                child_node = node[child_key]
+                if not isinstance(child_node, dict):
+                    continue
+
+                channel_count = self._count_channels(child_node)
+                desc = child_node.get("_description", "")
+                desc_str = f" - {desc}" if desc else ""
+
+                # Check for inline expansion
+                if "_expansion" in child_node:
+                    exp_count = self._expansion_instance_count(child_node["_expansion"])
+                    lines.append(
+                        f"{indent}{child_key} ({channel_count} ch, {exp_count} instances){desc_str}"
+                    )
+                else:
+                    lines.append(f"{indent}{child_key} ({channel_count} ch){desc_str}")
+
+                # Recurse
+                if depth + 1 < max_depth:
+                    self._render_tree_node(
+                        node=child_node,
+                        depth=depth + 1,
+                        max_depth=max_depth,
+                        max_children=max_children,
+                        lines=lines,
+                        level_idx=level_idx + 1,
+                    )
+
+            if truncated_count > 0:
+                lines.append(f"{indent}... and {truncated_count} more")
+
+    # ------------------------------------------------------------------
+    # Serialization
+    # ------------------------------------------------------------------
+
+    def _serialize(self) -> dict:
+        """Serialize in-memory state back to JSON-compatible structure."""
+        return self._raw_data
+
+    # ------------------------------------------------------------------
+    # Write helpers
+    # ------------------------------------------------------------------
+
+    @property
+    def _level_types(self) -> dict[str, str]:
+        """Map level names to their type (tree/instances)."""
+        return {name: cfg["type"] for name, cfg in self.hierarchy_config["levels"].items()}
+
+    def _navigate_for_write(self, selections: dict[str, str]) -> dict:
+        """Navigate the hierarchical tree to a parent node for write operations.
+
+        Instance-type levels are traversed by entering the child that owns
+        an ``_expansion`` key (the selection value is ignored as a tree key).
+
+        Args:
+            selections: Mapping of level_name -> selected_value for parent path.
+
+        Returns:
+            The target subtree dict.
+
+        Raises:
+            DatabaseWriteError: If navigation path is invalid.
+        """
+        node = self.tree
+        for lvl in self.hierarchy_levels:
+            val = selections.get(lvl)
+            if val is None:
+                break
+            ltype = self._level_types.get(lvl, "tree")
+            if ltype == "instances":
+                found = False
+                for key, child in node.items():
+                    if key.startswith("_") or not isinstance(child, dict):
+                        continue
+                    if "_expansion" in child:
+                        node = child
+                        found = True
+                        break
+                if not found:
+                    raise DatabaseWriteError(
+                        f"No expansion container found at instance level '{lvl}'",
+                        "invalid_path",
+                    )
+            else:
+                if val not in node:
+                    raise DatabaseWriteError(
+                        f"Node '{val}' not found at level '{lvl}'", "not_found"
+                    )
+                node = node[val]
+                if not isinstance(node, dict):
+                    raise DatabaseWriteError(
+                        f"Node '{val}' at level '{lvl}' is not navigable",
+                        "invalid_path",
+                    )
+        return node
+
+    def _rebuild_channel_map(self) -> None:
+        """Rebuild the flat channel map from the current tree state."""
+        self.channel_map = self._build_channel_map()
+
+    @staticmethod
+    def _normalize_expansion(exp: dict) -> dict:
+        """Normalize expansion keys for the API layer.
+
+        The database engine uses underscore-prefixed keys (``_pattern``, ``_range``).
+        The API/frontend uses clean names (``pattern``, ``range``).
+        """
+        return {
+            "pattern": exp.get("_pattern") or exp.get("pattern", ""),
+            "range": exp.get("_range") or exp.get("range", [1, 1]),
+        }
+
+    @staticmethod
+    def _child_keys(node: dict) -> list[str]:
+        """Return non-metadata child keys of a hierarchical node."""
+        return [k for k in node if k not in _HIER_META_KEYS and not k.startswith("_")]
+
+    @staticmethod
+    def _expansion_instance_count(expansion: dict) -> int:
+        """Return the number of instances defined by an ``_expansion`` descriptor."""
+        r = expansion.get("_range") or expansion.get("range", [1, 1])
+        if isinstance(r, list) and len(r) >= 2:
+            return max(0, r[1] - r[0] + 1)
+        return 1
+
+    @classmethod
+    def _count_channels(cls, node: dict) -> int:
+        """Recursively count leaf channels under a node, accounting for expansion."""
+        if not isinstance(node, dict):
+            return 0
+        count = 0
+        for k, v in node.items():
+            if k.startswith("_"):
+                continue
+            if isinstance(v, dict):
+                child_count = cls._count_channels(v)
+                if "_expansion" in v:
+                    child_count *= cls._expansion_instance_count(v["_expansion"])
+                count += child_count
+            else:
+                count += 1
+        children = cls._child_keys(node)
+        if not children:
+            count += 1
+        return count
+
+    @classmethod
+    def _collect_impact(
+        cls,
+        node: dict,
+        remaining_levels: list[str],
+        level_types: dict[str, str],
+    ) -> dict[str, int]:
+        """Walk the tree and count descendants at each remaining hierarchy level."""
+        counts: dict[str, int] = {}
+        if not remaining_levels or not isinstance(node, dict):
+            return counts
+
+        current_level = remaining_levels[0]
+        rest = remaining_levels[1:]
+        ltype = level_types.get(current_level, "tree")
+
+        if ltype == "instances":
+            for _k, child in node.items():
+                if not isinstance(child, dict) or _k.startswith("_"):
+                    continue
+                if "_expansion" in child:
+                    inst_count = cls._expansion_instance_count(child["_expansion"])
+                    counts[current_level] = inst_count
+                    sub = cls._collect_impact(child, rest, level_types)
+                    for lvl, c in sub.items():
+                        counts[lvl] = c * inst_count
+                    break
+        else:
+            children = cls._child_keys(node)
+            counts[current_level] = len(children)
+            for ck in children:
+                child = node[ck]
+                if isinstance(child, dict):
+                    sub = cls._collect_impact(child, rest, level_types)
+                    for lvl, c in sub.items():
+                        counts[lvl] = counts.get(lvl, 0) + c
+
+        return counts
+
+    # ------------------------------------------------------------------
+    # Write methods
+    # ------------------------------------------------------------------
+
+    def add_node(
+        self,
+        level: str,
+        parent_selections: dict[str, str],
+        name: str,
+        description: str = "",
+        channel_part: str | None = None,
+    ) -> dict:
+        """Add a new node at a given hierarchy level.
+
+        Args:
+            level: The level name where the node will be added.
+            parent_selections: Dict of level->value for parent navigation.
+            name: Name of the new node.
+            description: Optional description.
+            channel_part: Optional channel part override.
+
+        Returns:
+            Success dict with node info.
+        """
+        parent = self._navigate_for_write(parent_selections)
+
+        if name in parent:
+            raise DatabaseWriteError(f"Node '{name}' already exists at this level", "duplicate")
+
+        new_node: dict = {}
+        if description:
+            new_node["_description"] = description
+        if channel_part:
+            new_node["_channel_part"] = channel_part
+
+        parent[name] = new_node
+
+        self._rebuild_channel_map()
+        self._persist()
+
+        return {"success": True, "name": name, "level": level}
+
+    def edit_node(
+        self,
+        level: str,
+        selections: dict[str, str],
+        old_name: str,
+        new_name: str | None = None,
+        description: str | None = None,
+    ) -> dict:
+        """Edit a node's name and/or description at a hierarchy level.
+
+        Args:
+            level: The level where the node exists.
+            selections: Parent selections (excluding the target level).
+            old_name: Current name of the node.
+            new_name: New name (None to keep current).
+            description: New description (None to leave unchanged, "" to clear).
+
+        Returns:
+            Success dict.
+        """
+        parent = self._navigate_for_write(selections)
+
+        if old_name not in parent:
+            raise DatabaseWriteError(f"Node '{old_name}' not found", "not_found")
+
+        effective_name = new_name if new_name and new_name != old_name else old_name
+
+        if effective_name != old_name:
+            if effective_name in parent:
+                raise DatabaseWriteError(f"Node '{effective_name}' already exists", "duplicate")
+            parent[effective_name] = parent.pop(old_name)
+
+        if description is not None:
+            node = parent[effective_name]
+            if isinstance(node, dict):
+                if description:
+                    node["_description"] = description
+                else:
+                    node.pop("_description", None)
+
+        self._rebuild_channel_map()
+        self._persist()
+
+        return {"success": True, "old_name": old_name, "new_name": effective_name}
+
+    def delete_node(
+        self,
+        level: str,
+        selections: dict[str, str],
+        name: str,
+    ) -> dict:
+        """Delete a node (and all descendants) at a hierarchy level.
+
+        Args:
+            level: The level where the node exists.
+            selections: Parent selections (excluding the target level).
+            name: Name of the node to delete.
+
+        Returns:
+            Success dict with affected channel count.
+        """
+        parent = self._navigate_for_write(selections)
+
+        if name not in parent:
+            raise DatabaseWriteError(f"Node '{name}' not found", "not_found")
+
+        affected = self._count_channels(parent[name])
+        del parent[name]
+
+        self._rebuild_channel_map()
+        self._persist()
+
+        return {"success": True, "name": name, "affected_channels": affected}
+
+    def get_expansion(
+        self,
+        level: str,
+        selections: dict[str, str],
+    ) -> dict:
+        """Read the current expansion config for an instance-type level.
+
+        Args:
+            level: The instance-type level name.
+            selections: Parent selections for navigation.
+
+        Returns:
+            Dict with ``expansion`` key containing the expansion config.
+        """
+        parent_selections = {}
+        for lvl in self.hierarchy_levels:
+            if lvl == level:
+                break
+            val = selections.get(lvl)
+            if val is not None:
+                parent_selections[lvl] = val
+
+        parent = self._navigate_for_write(parent_selections)
+
+        for key, child in parent.items():
+            if key.startswith("_") or not isinstance(child, dict):
+                continue
+            if "_expansion" in child:
+                return {"expansion": self._normalize_expansion(child["_expansion"])}
+
+        # Instance-type levels without a container yet get a default
+        if self._level_types.get(level) == "instances":
+            return {"expansion": {"pattern": "", "range": [1, 1]}}
+
+        raise DatabaseWriteError(
+            f"No expansion container found at level '{level}'",
+            "not_found",
+        )
+
+    def edit_expansion(
+        self,
+        level: str,
+        selections: dict[str, str],
+        pattern: str | None = None,
+        range_start: int | None = None,
+        range_end: int | None = None,
+    ) -> dict:
+        """Edit the expansion config for an instance-type level.
+
+        Args:
+            level: The instance-type level name.
+            selections: Parent selections.
+            pattern: New pattern string (None leaves unchanged).
+            range_start: New range start (None leaves unchanged).
+            range_end: New range end (None leaves unchanged).
+
+        Returns:
+            Success dict with updated expansion info.
+        """
+        parent_selections = {}
+        for lvl in self.hierarchy_levels:
+            if lvl == level:
+                break
+            val = selections.get(lvl)
+            if val is not None:
+                parent_selections[lvl] = val
+
+        parent = self._navigate_for_write(parent_selections)
+
+        # Find the child that has _expansion
+        expansion_container = None
+        for key, child in parent.items():
+            if key.startswith("_") or not isinstance(child, dict):
+                continue
+            if "_expansion" in child:
+                expansion_container = child
+                break
+
+        if expansion_container is None:
+            if self._level_types.get(level) != "instances":
+                raise DatabaseWriteError(
+                    f"No expansion container found at level '{level}'",
+                    "not_found",
+                )
+            container_key = level.upper()
+            parent[container_key] = {
+                "_expansion": {"_type": "range", "_pattern": "", "_range": [1, 1]},
+            }
+            expansion_container = parent[container_key]
+
+        expansion = expansion_container["_expansion"]
+
+        if pattern is not None:
+            expansion["_pattern"] = pattern
+            expansion.pop("pattern", None)
+        if range_start is not None and range_end is not None:
+            expansion["_range"] = [range_start, range_end]
+            expansion.pop("range", None)
+        elif range_start is not None:
+            r = expansion.get("_range") or expansion.get("range", [1, 1])
+            expansion["_range"] = [range_start, r[1] if len(r) > 1 else range_start]
+            expansion.pop("range", None)
+        elif range_end is not None:
+            r = expansion.get("_range") or expansion.get("range", [1, 1])
+            expansion["_range"] = [r[0] if r else 1, range_end]
+            expansion.pop("range", None)
+
+        if "_type" not in expansion:
+            expansion["_type"] = "range"
+
+        self._rebuild_channel_map()
+        self._persist()
+
+        return {
+            "success": True,
+            "level": level,
+            "expansion": self._normalize_expansion(expansion),
+        }
+
+    def count_descendants(
+        self,
+        level: str,
+        selections: dict[str, str],
+        name: str,
+    ) -> dict[str, int]:
+        """Compute the impact of deleting a node, broken down by hierarchy level.
+
+        Returns:
+            Dict mapping each descendant level name to its count, plus
+            ``"channels"`` for the total expanded leaf channel count.
+        """
+        parent = self._navigate_for_write(selections)
+
+        if name not in parent:
+            raise DatabaseWriteError(f"Node '{name}' not found", "not_found")
+
+        try:
+            lvl_idx = self.hierarchy_levels.index(level)
+        except ValueError:
+            lvl_idx = -1
+        remaining = self.hierarchy_levels[lvl_idx + 1 :] if lvl_idx >= 0 else self.hierarchy_levels
+
+        impact = self._collect_impact(parent[name], remaining, self._level_types)
+        impact["channels"] = self._count_channels(parent[name])
+        return impact

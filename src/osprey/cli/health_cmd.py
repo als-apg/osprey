@@ -44,7 +44,7 @@ class HealthChecker:
         self.full = full
         self.results: list[HealthCheckResult] = []
         self.cwd = project_path if project_path else Path.cwd()
-        self.config = {}  # Initialize empty config, will be populated in check_configuration()
+        self.config = {}
 
         # Load .env file early so environment variables are available for all checks
         self._load_env_file()
@@ -67,7 +67,7 @@ class HealthChecker:
 
     def check_all(self) -> bool:
         """Run all health checks and return True if all passed."""
-        console.print(f"\n{Messages.header('🏥 Osprey Framework - Health Check')}\n")
+        console.print(f"\n{Messages.header('Osprey Framework - Health Check')}\n")
 
         # Initialize registry (needed for provider checks)
         try:
@@ -87,16 +87,13 @@ class HealthChecker:
             if self.verbose:
                 console.print(f"  [dim]Could not initialize registry: {e}[/dim]")
 
-        # Phase 1: Core checks (always run)
         self.check_configuration()
         self.check_file_system()
         self.check_python_environment()
 
-        # Phase 2: Container and provider checks (always run)
         self.check_containers()
         self.check_api_providers()
 
-        # Phase 3: Full model testing (only in full mode)
         if self.full:
             self.check_model_chat_completions()
 
@@ -106,6 +103,26 @@ class HealthChecker:
         # Return overall status
         errors = sum(1 for r in self.results if r.status == "error")
         return errors == 0
+
+    def _check_timezone(self):
+        """Check if timezone is configured (not left as UTC default)."""
+        from osprey.utils.config import resolve_env_vars
+
+        tz_raw = self.config.get("system", {}).get("timezone", "UTC")
+        tz = resolve_env_vars(tz_raw) if isinstance(tz_raw, str) else tz_raw
+        if tz == "UTC":
+            self.add_result(
+                "timezone",
+                "warning",
+                "Timezone is UTC (default)",
+                "Set TZ in .env to your facility timezone (e.g., America/New_York, Europe/Berlin)",
+            )
+            console.print(
+                f"  {Messages.warning(' Timezone is UTC — set TZ in .env for your facility')}"
+            )
+        else:
+            self.add_result("timezone", "ok", f"Timezone: {tz}")
+            console.print(f"  {Messages.success(f'Timezone: {tz}')}")
 
     def check_configuration(self):
         """Check configuration file validity and structure."""
@@ -121,13 +138,12 @@ class HealthChecker:
                 f"Looking in: {self.cwd}\n"
                 "Please run this command from a project directory containing config.yml",
             )
-            console.print(f"  {Messages.error('❌ config.yml not found')}")
+            console.print(f"  {Messages.error('✗ config.yml not found')}")
             return
 
         self.add_result("config_file_exists", "ok", f"Found at {config_path}")
         console.print(f"  {Messages.success('config.yml found')}")
 
-        # Try to load and parse YAML
         try:
             import yaml
 
@@ -136,12 +152,12 @@ class HealthChecker:
 
             if config is None:
                 self.add_result("yaml_valid", "error", "Config file is empty")
-                console.print(f"  {Messages.error('❌ Config file is empty')}")
+                console.print(f"  {Messages.error('✗ Config file is empty')}")
                 return
 
             if not isinstance(config, dict):
                 self.add_result("yaml_valid", "error", "Config must be a dictionary")
-                console.print(f"  {Messages.error('❌ Invalid YAML structure')}")
+                console.print(f"  {Messages.error('✗ Invalid YAML structure')}")
                 return
 
             self.add_result("yaml_valid", "ok", "Valid YAML syntax")
@@ -156,6 +172,9 @@ class HealthChecker:
             # Check environment variables
             self._check_environment_variables(config)
 
+            # Check timezone configuration
+            self._check_timezone()
+
         except yaml.YAMLError as e:
             self.add_result("yaml_valid", "error", f"YAML parsing error: {e}")
             console.print(f"  {Messages.error(f'YAML parsing error: {e}')}")
@@ -166,37 +185,42 @@ class HealthChecker:
     def _check_config_structure(self, config: dict):
         """Check configuration structure and required sections."""
 
-        # Check required framework models (8 total)
-        required_models = [
-            "orchestrator",
-            "response",
-            "classifier",
-            "approval",
-            "task_extraction",
-            "memory",
+        # In the MCP architecture, only python_code_generator is actively consumed
+        # by live code (basic_generator.py). Other model roles are optional and
+        # application-specific.
+        recommended_models = [
             "python_code_generator",
-            "time_parsing",
         ]
 
         models = config.get("models", {})
-        missing_models = [m for m in required_models if m not in models]
 
-        if missing_models:
+        if not models:
             self.add_result(
-                "required_models",
-                "error",
-                f"Missing required models: {', '.join(missing_models)}",
-                "Framework requires 8 models: " + ", ".join(required_models),
+                "model_configs",
+                "warning",
+                "No models section in config",
+                "The models section is optional but python_code_generator is needed "
+                "for Python code execution.",
             )
-            missing_str = ", ".join(missing_models)
-            console.print(f"  {Messages.error(f'Missing required models: {missing_str}')}")
+            console.print(f"  {Messages.warning('No models configured')}")
         else:
-            self.add_result(
-                "required_models", "ok", f"All {len(required_models)} required models defined"
-            )
-            console.print(
-                f"  {Messages.success(f'All {len(required_models)} required models defined')}"
-            )
+            missing_recommended = [m for m in recommended_models if m not in models]
+            if missing_recommended:
+                missing_str = ", ".join(missing_recommended)
+                self.add_result(
+                    "recommended_models",
+                    "warning",
+                    f"Missing recommended models: {missing_str}",
+                    "python_code_generator is used by the Python execution service.",
+                )
+                console.print(f"  {Messages.warning(f'Missing recommended model: {missing_str}')}")
+            else:
+                self.add_result(
+                    "recommended_models",
+                    "ok",
+                    f"{len(models)} model(s) defined (including python_code_generator)",
+                )
+                console.print(f"  {Messages.success(f'{len(models)} model(s) defined')}")
 
         # Check model configurations
         invalid_models = []
@@ -267,7 +291,6 @@ class HealthChecker:
         """Check if environment variables referenced in config are set."""
         import re
 
-        # Find all ${VAR_NAME} patterns in config
         config_str = str(config)
         env_vars = re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", config_str)
         env_vars = list(set(env_vars))  # Remove duplicates
@@ -462,21 +485,12 @@ class HealthChecker:
             "yaml",
             "jinja2",
             "litellm",
-            "langgraph",
-            "langchain_core",
         ]
 
         missing_deps = []
         for dep in core_deps:
-            # Handle special cases
-            import_name = dep
-            if dep == "yaml":
-                import_name = "yaml"
-            elif dep == "langchain_core":
-                import_name = "langchain_core"
-
             try:
-                __import__(import_name)
+                __import__(dep)
             except ImportError:
                 missing_deps.append(dep)
 
@@ -519,7 +533,7 @@ class HealthChecker:
                     f"{runtime}_available", "error", f"{runtime.capitalize()} command failed"
                 )
                 console.print(
-                    f"  {Messages.error(f'❌ {runtime.capitalize()} not working properly')}"
+                    f"  {Messages.error(f'✗ {runtime.capitalize()} not working properly')}"
                 )
         except RuntimeError as e:
             # No runtime found
@@ -606,7 +620,6 @@ class HealthChecker:
                     console.print(f"  {Messages.warning(f' {service}: not deployed')}")
 
         except Exception as e:
-            # Don't fail the health check if container status can't be determined
             if self.verbose:
                 console.print(f"  [dim]Could not check container status: {e}[/dim]")
 
@@ -679,13 +692,6 @@ class HealthChecker:
         else:
             self.add_result(f"provider_{provider_name}", "warning", f"{provider_name}: {message}")
             console.print(f"  {Messages.warning(f' {provider_name}: {message}')}")
-
-    def _resolve_api_key(self, api_key: str) -> str:
-        """Resolve API key if it's an environment variable reference."""
-        if api_key.startswith("${") and api_key.endswith("}"):
-            var_name = api_key[2:-1]
-            return os.environ.get(var_name, "")
-        return api_key
 
     def check_model_chat_completions(self):
         """Test actual chat completions with each unique model (full mode only)."""
@@ -797,7 +803,7 @@ class HealthChecker:
                     self.add_result(
                         f"model_chat_{provider}_{model_id}", "error", f"{model_label}: {error_msg}"
                     )
-                    console.print(Messages.error("❌ Failed"))
+                    console.print(Messages.error("✗ Failed"))
                     console.print(f"     [dim]{display_msg}[/dim]")
                 return
 
@@ -813,7 +819,7 @@ class HealthChecker:
             self.add_result(
                 f"model_chat_{provider}_{model_id}", "error", f"{model_label}: {error_msg}"
             )
-            console.print(Messages.error("❌ Failed"))
+            console.print(Messages.error("✗ Failed"))
 
             # Always show error details in full mode (not just verbose)
             console.print(f"     [dim]{display_msg}[/dim]")
@@ -846,7 +852,7 @@ class HealthChecker:
             panel_content.append("Details:")
             for result in self.results:
                 if result.status in ["warning", "error"]:
-                    symbol = "⚠️ " if result.status == "warning" else "❌"
+                    symbol = "!" if result.status == "warning" else "✗"
                     panel_content.append(f"  {symbol} {result.name}: {result.message}")
                     if result.details:
                         panel_content.append(f"     {result.details}")
@@ -854,7 +860,7 @@ class HealthChecker:
         # Create and display the framed panel
         panel = Panel(
             "\n".join(panel_content),
-            title="🏥 Osprey Health Check Results",
+            title="Osprey Health Check Results",
             border_style=Styles.BORDER_DIM,
             expand=False,
             padding=(1, 2),
@@ -955,7 +961,7 @@ def health(project: str, verbose: bool, basic: bool):
         warning_count = sum(1 for r in checker.results if r.status == "warning")
 
         if error_count > 0:
-            console.print(f"\n{Messages.error('❌ Health check failed with errors')}")
+            console.print(f"\n{Messages.error('✗ Health check failed with errors')}")
             sys.exit(2)
         elif warning_count > 0:
             console.print(f"\n{Messages.warning('Health check completed with warnings')}")

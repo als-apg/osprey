@@ -1,0 +1,24 @@
+# {{ project_name }}
+
+A minimal OSPREY project with one MCP server and a mock control system.
+
+## Quick Start
+
+```bash
+claude
+```
+
+Ask the agent to read control system channels — it uses the mock connector,
+so any channel name works without real hardware.
+
+## Configuration
+
+- `config.yml` — project settings (control system type, API providers)
+- `.claude/` — Claude Code rules, hooks, and MCP server configuration
+- `CLAUDE.md` — agent behavior instructions (edit to customize)
+
+## Next Steps
+
+- Enable writes: set `writes_enabled: true` in `config.yml`
+- Connect to real hardware: change `control_system.type` from `mock` to `epics`
+- Upgrade to the full `control_assistant` template for channel finder, logbook, and archiver

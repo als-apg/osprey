@@ -14,7 +14,7 @@ Key capabilities include:
 
 .. seealso::
    :func:`get_chat_completion` : Main chat completion interface
-   :mod:`configs.config` : Provider configuration management
+   :mod:`osprey.utils.config` : Provider configuration management
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, create_model
 
-from osprey.utils.config import get_provider_config
+from osprey.models.config import get_provider_config
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -159,11 +159,10 @@ def get_chat_completion(
             base_url = provider_config.get("base_url")
         api_key = provider_config.get("api_key")
 
-    # Get provider from registry
-    from osprey.registry import get_registry
+    # Get provider from lightweight registry (no RegistryManager dependency)
+    from osprey.models.provider_registry import get_provider_registry
 
-    registry = get_registry()
-    provider_class = registry.get_provider(provider)
+    provider_class = get_provider_registry().get_provider(provider)
 
     if not provider_class:
         raise ValueError(f"Unknown provider: {provider}")
@@ -217,3 +216,15 @@ def get_chat_completion(
     )
 
     return result
+
+
+async def aget_chat_completion(**kwargs) -> str | BaseModel | list:
+    """Async wrapper — runs ``get_chat_completion`` in a thread executor.
+
+    Accepts the same keyword arguments as :func:`get_chat_completion`.
+    Useful from ``async def`` routes (FastAPI, MCP tools) that need LLM access
+    without blocking the event loop.
+    """
+    import asyncio
+
+    return await asyncio.to_thread(get_chat_completion, **kwargs)

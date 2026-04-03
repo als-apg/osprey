@@ -10,18 +10,15 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.init_cmd import init
-from osprey.cli.migrate_cmd import (
+from osprey.cli.migrate_cmd import migrate
+from osprey.cli.templates.manager import TemplateManager
+from osprey.cli.templates.manifest import MANIFEST_FILENAME, MANIFEST_SCHEMA_VERSION
+from osprey.services.migration import (
     FileCategory,
-    _calculate_file_hash,
-    _classify_file,
-    _detect_project_settings,
-    _load_manifest,
-    migrate,
-)
-from osprey.cli.templates import (
-    MANIFEST_FILENAME,
-    MANIFEST_SCHEMA_VERSION,
-    TemplateManager,
+    calculate_file_hash,
+    classify_file,
+    detect_project_settings,
+    load_manifest,
 )
 
 
@@ -42,15 +39,15 @@ class TestManifestGeneration:
     def test_manifest_schema_version(self, tmp_path):
         """Test that manifest has correct schema version."""
         manager = TemplateManager()
-        project_dir = manager.create_project("test-app", tmp_path, "minimal")
+        project_dir = manager.create_project("test-app", tmp_path, "control_assistant")
 
         # Generate manifest
         manifest = manager.generate_manifest(
             project_dir=project_dir,
             project_name="test-app",
-            template_name="minimal",
+            template_name="control_assistant",
             registry_style="extend",
-            context={"default_provider": "cborg"},
+            context={"default_provider": "anthropic"},
         )
 
         assert manifest["schema_version"] == MANIFEST_SCHEMA_VERSION
@@ -58,12 +55,12 @@ class TestManifestGeneration:
     def test_manifest_creation_fields(self, tmp_path):
         """Test that manifest has all required creation fields."""
         manager = TemplateManager()
-        project_dir = manager.create_project("test-app", tmp_path, "minimal")
+        project_dir = manager.create_project("test-app", tmp_path, "control_assistant")
 
         manifest = manager.generate_manifest(
             project_dir=project_dir,
             project_name="test-app",
-            template_name="minimal",
+            template_name="control_assistant",
             registry_style="extend",
             context={},
         )
@@ -76,7 +73,7 @@ class TestManifestGeneration:
         assert "template" in creation
         assert "registry_style" in creation
 
-        assert creation["template"] == "minimal"
+        assert creation["template"] == "control_assistant"
         assert creation["registry_style"] == "extend"
 
     def test_manifest_init_args(self, tmp_path):
@@ -88,7 +85,7 @@ class TestManifestGeneration:
             "control_assistant",
             registry_style="extend",
             context={
-                "default_provider": "cborg",
+                "default_provider": "anthropic",
                 "default_model": "claude-haiku",
                 "channel_finder_mode": "all",
             },
@@ -100,7 +97,7 @@ class TestManifestGeneration:
             template_name="control_assistant",
             registry_style="extend",
             context={
-                "default_provider": "cborg",
+                "default_provider": "anthropic",
                 "default_model": "claude-haiku",
                 "channel_finder_mode": "all",
             },
@@ -111,7 +108,7 @@ class TestManifestGeneration:
         assert args["project_name"] == "test-app"
         assert args["template"] == "control_assistant"
         assert args["registry_style"] == "extend"
-        assert args["provider"] == "cborg"
+        assert args["provider"] == "anthropic"
         assert args["model"] == "claude-haiku"
         assert args["channel_finder_mode"] == "all"
 
@@ -136,18 +133,19 @@ class TestManifestGeneration:
         assert "reproducible_command" in manifest
         cmd = manifest["reproducible_command"]
         assert "osprey init my-project" in cmd
+        # --template always included for reproducibility
         assert "--template control_assistant" in cmd
         assert "--provider openai" in cmd
 
     def test_manifest_file_checksums(self, tmp_path):
         """Test that manifest includes file checksums."""
         manager = TemplateManager()
-        project_dir = manager.create_project("test-app", tmp_path, "minimal")
+        project_dir = manager.create_project("test-app", tmp_path, "control_assistant")
 
         manifest = manager.generate_manifest(
             project_dir=project_dir,
             project_name="test-app",
-            template_name="minimal",
+            template_name="control_assistant",
             registry_style="extend",
             context={},
         )
@@ -158,7 +156,6 @@ class TestManifestGeneration:
         # Should have checksums for key files
         assert "config.yml" in checksums
         assert "README.md" in checksums
-        assert "pyproject.toml" in checksums
 
         # Checksums should be in expected format
         for path, checksum in checksums.items():
@@ -167,7 +164,7 @@ class TestManifestGeneration:
     def test_manifest_excludes_env_files(self, tmp_path):
         """Test that manifest excludes .env files from checksums."""
         manager = TemplateManager()
-        project_dir = manager.create_project("test-app", tmp_path, "minimal")
+        project_dir = manager.create_project("test-app", tmp_path, "control_assistant")
 
         # Create a .env file
         (project_dir / ".env").write_text("SECRET=value")
@@ -175,7 +172,7 @@ class TestManifestGeneration:
         manifest = manager.generate_manifest(
             project_dir=project_dir,
             project_name="test-app",
-            template_name="minimal",
+            template_name="control_assistant",
             registry_style="extend",
             context={},
         )
@@ -186,12 +183,12 @@ class TestManifestGeneration:
     def test_manifest_written_to_file(self, tmp_path):
         """Test that manifest is written to JSON file."""
         manager = TemplateManager()
-        project_dir = manager.create_project("test-app", tmp_path, "minimal")
+        project_dir = manager.create_project("test-app", tmp_path, "control_assistant")
 
         manager.generate_manifest(
             project_dir=project_dir,
             project_name="test-app",
-            template_name="minimal",
+            template_name="control_assistant",
             registry_style="extend",
             context={},
         )
@@ -211,44 +208,44 @@ class TestFileClassification:
 
     def test_classify_data_directory(self):
         """Test that data directories are classified as DATA."""
-        result = _classify_file("data/channels.json", "abc", "def", "ghi")
+        result = classify_file("data/channels.json", "abc", "def", "ghi")
         assert result == FileCategory.DATA
 
-        result = _classify_file("_agent_data/scripts/test.py", "abc", "def", "ghi")
+        result = classify_file("_agent_data/scripts/test.py", "abc", "def", "ghi")
         assert result == FileCategory.DATA
 
     def test_classify_new_file(self):
         """Test that new template files are classified as NEW."""
-        result = _classify_file("new_feature.py", None, None, "abc123")
+        result = classify_file("new_feature.py", None, None, "abc123")
         assert result == FileCategory.NEW
 
     def test_classify_removed_file(self):
         """Test that removed template files are classified as REMOVED."""
-        result = _classify_file("old_feature.py", None, "abc123", None)
+        result = classify_file("old_feature.py", None, "abc123", None)
         assert result == FileCategory.REMOVED
 
     def test_classify_auto_copy(self):
         """Test auto-copy classification (template changed, facility didn't)."""
         # facility == old_vanilla, but old_vanilla != new_vanilla
-        result = _classify_file("config.py", "abc", "abc", "def")
+        result = classify_file("config.py", "abc", "abc", "def")
         assert result == FileCategory.AUTO_COPY
 
     def test_classify_preserve(self):
         """Test preserve classification (facility changed, template didn't)."""
         # facility != old_vanilla, but old_vanilla == new_vanilla
-        result = _classify_file("config.py", "custom", "original", "original")
+        result = classify_file("config.py", "custom", "original", "original")
         assert result == FileCategory.PRESERVE
 
     def test_classify_merge(self):
         """Test merge classification (both changed)."""
         # facility != old_vanilla AND old_vanilla != new_vanilla
-        result = _classify_file("config.py", "custom", "original", "new")
+        result = classify_file("config.py", "custom", "original", "new")
         assert result == FileCategory.MERGE
 
     def test_classify_unchanged(self):
         """Test unchanged files are preserved."""
         # All hashes equal - preserve (no action needed)
-        result = _classify_file("config.py", "same", "same", "same")
+        result = classify_file("config.py", "same", "same", "same")
         assert result == FileCategory.PRESERVE
 
 
@@ -270,7 +267,7 @@ channel_finder:
 """
         (project_dir / "config.yml").write_text(config_content)
 
-        settings = _detect_project_settings(project_dir)
+        settings = detect_project_settings(project_dir)
 
         assert settings["provider"] == "openai"
         assert settings["model"] == "gpt-4"
@@ -290,7 +287,7 @@ def get_registry():
 """
         (src_dir / "registry.py").write_text(registry_content)
 
-        settings = _detect_project_settings(project_dir)
+        settings = detect_project_settings(project_dir)
 
         assert settings["registry_style"] == "extend"
         assert settings["package_name"] == "test_project"
@@ -302,7 +299,7 @@ def get_registry():
 
         (project_dir / "claude_generator_config.yml").write_text("enabled: true")
 
-        settings = _detect_project_settings(project_dir)
+        settings = detect_project_settings(project_dir)
 
         assert settings["code_generator"] == "claude_code"
 
@@ -321,14 +318,14 @@ class TestManifestLoading:
         with open(manifest_path, "w") as f:
             json.dump(manifest_data, f)
 
-        result = _load_manifest(tmp_path)
+        result = load_manifest(tmp_path)
 
         assert result is not None
         assert result["schema_version"] == "1.0.0"
 
     def test_load_missing_manifest(self, tmp_path):
         """Test loading when manifest doesn't exist."""
-        result = _load_manifest(tmp_path)
+        result = load_manifest(tmp_path)
         assert result is None
 
     def test_load_invalid_json(self, tmp_path):
@@ -336,7 +333,7 @@ class TestManifestLoading:
         manifest_path = tmp_path / MANIFEST_FILENAME
         manifest_path.write_text("not valid json {{{")
 
-        result = _load_manifest(tmp_path)
+        result = load_manifest(tmp_path)
         assert result is None
 
 
@@ -348,7 +345,7 @@ class TestFileHashing:
         test_file = tmp_path / "test.txt"
         test_file.write_text("hello world")
 
-        result = _calculate_file_hash(test_file)
+        result = calculate_file_hash(test_file)
 
         assert result is not None
         assert len(result) == 64  # SHA256 hex length
@@ -361,7 +358,7 @@ class TestFileHashing:
         file1.write_text("identical content")
         file2.write_text("identical content")
 
-        assert _calculate_file_hash(file1) == _calculate_file_hash(file2)
+        assert calculate_file_hash(file1) == calculate_file_hash(file2)
 
     def test_hash_different_content(self, tmp_path):
         """Test that different content produces different hash."""
@@ -371,11 +368,11 @@ class TestFileHashing:
         file1.write_text("content A")
         file2.write_text("content B")
 
-        assert _calculate_file_hash(file1) != _calculate_file_hash(file2)
+        assert calculate_file_hash(file1) != calculate_file_hash(file2)
 
     def test_hash_missing_file(self, tmp_path):
         """Test hashing a missing file returns None."""
-        result = _calculate_file_hash(tmp_path / "nonexistent.txt")
+        result = calculate_file_hash(tmp_path / "nonexistent.txt")
         assert result is None
 
 
@@ -449,11 +446,28 @@ def get_registry():
         """Test that migrate init --force overwrites existing manifest."""
         runner = CliRunner()
 
-        # Create project with manifest
-        result = runner.invoke(init, ["test-project", "--output-dir", str(tmp_path)])
-        assert result.exit_code == 0
-
+        # Create a project directory manually with src/ package structure
+        # (migrate init is designed for legacy projects that have src/)
         project_dir = tmp_path / "test-project"
+        src_dir = project_dir / "src" / "test_project"
+        src_dir.mkdir(parents=True)
+
+        config_content = "project_name: test-project\n"
+        (project_dir / "config.yml").write_text(config_content)
+
+        registry_content = (
+            "from osprey.registry import extend_framework_registry\n"
+            "def get_registry():\n"
+            "    return extend_framework_registry()\n"
+        )
+        (src_dir / "registry.py").write_text(registry_content)
+
+        # First migrate init creates manifest
+        result = runner.invoke(
+            migrate,
+            ["init", "--project", str(project_dir), "--version", "0.9.0"],
+        )
+        assert result.exit_code == 0
 
         # Try to init again without force
         result = runner.invoke(migrate, ["init", "--project", str(project_dir)])

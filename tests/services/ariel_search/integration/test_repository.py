@@ -362,9 +362,13 @@ class TestDatabaseErrorConditions:
             async with pool.connection() as conn:
                 await conn.execute("SELECT 1")
 
-        # Should be a connection-related error
+        # Should be a connection-related error (psycopg may raise PoolTimeout
+        # when the pool can't establish any connections within the timeout)
         error_str = str(exc_info.value).lower()
-        assert any(x in error_str for x in ["connect", "refused", "host", "port", "could not"])
+        assert any(
+            x in error_str
+            for x in ["connect", "refused", "host", "port", "could not", "pool", "timeout"]
+        )
 
     async def test_malformed_sql_raises_database_query_error(self, migrated_pool):
         """Executing malformed SQL raises DatabaseQueryError.

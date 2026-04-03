@@ -16,7 +16,7 @@ maintainers = [
     {name = "Thorsten Hellert", email = "thellert@lbl.gov"},
 ]
 keywords = [
-    "ai", "agents", "framework", "scientific-computing", "langgraph",
+    "ai", "agents", "framework", "scientific-computing",
     "epics", "accelerator-physics", "als", "berkeley", "agent-framework",
     "capability-based", "human-in-the-loop", "container-orchestration"
 ]
@@ -37,11 +37,6 @@ classifiers = [
 
 # Core runtime dependencies from requirements.txt analysis
 dependencies = [
-    # LangGraph dependencies - CRITICAL VERSION REQUIREMENTS
-    "langgraph>=0.5.2",
-    "langchain-core>=0.3.68",
-    "langgraph-sdk>=0.1.70,<0.4.0",
-
     # Core framework dependencies
     "rich>=14.0.0",
     "click>=8.1.0",
@@ -61,6 +56,7 @@ dependencies = [
     # Jupyter notebook support
     "nbformat>=5.0.0",
     "nbclient",
+    "nbconvert>=7.0.0",
 
     # AI/ML provider integrations
     "litellm>=1.56.0",  # Unified LLM provider interface (100+ providers)
@@ -86,22 +82,20 @@ dependencies = [
     "charset-normalizer>=3.4.2",
     "idna>=3.10",
     "MarkupSafe>=3.0.2",
+    "markdown>=3.5",  # Markdown-to-HTML rendering for artifact converters
 
-    # Terminal User Interface (TUI) - Textual-based full-screen interface
-    "textual>=0.70.0",
     "aiofiles>=24.1.0",  # Async file I/O for non-blocking Python executor
-
-    # LangChain integration (required for channel finder middle layer pipeline)
-    "langchain-openai>=0.3.0",
 
     # MCP server development (for building MCP servers)
     "fastmcp>=2.0.0",
-    "langchain-mcp-adapters",  # LangChain/LangGraph MCP integration
 
     # Scientific computing stack - for Python execution capability
     "scipy>=1.15.3",
     "seaborn",
     "scikit-learn",
+    "plotly>=5.0.0",
+    "bokeh>=3.0",  # Interactive dashboards (data-visualizer agent)
+    "playwright>=1.40.0",
     "ipywidgets",  # Interactive widgets for Jupyter notebooks
 
     # Natural language processing
@@ -121,12 +115,17 @@ dependencies = [
     "psycopg[binary,pool]>=3.1.0,<4.0.0",
     "psycopg-pool>=3.1.0,<4.0.0",
 
-    # ARIEL Web Interface (FastAPI server for web-based logbook search)
-    "fastapi>=0.109.0",
-    "uvicorn[standard]>=0.27.0",
-
     # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
     "aiohttp-socks>=0.8.0",
+
+    # File system monitoring for web terminal
+    "watchdog>=3.0.0",
+
+    # Async HTTP client for tuning panel reverse proxy
+    "httpx>=0.27.0",
+
+    # Lattice physics (Accelerator Toolbox for lattice dashboard)
+    "accelerator-toolbox[plot]",
 ]
 
 [project.optional-dependencies]
@@ -161,32 +160,12 @@ dev = [
     "psycopg-pool>=3.1.0,<4.0.0",  # ARIEL search integration tests
 ]
 
-# Storage backends (databases, PostgreSQL checkpointing, vector/memory storage)
-# Note: psycopg may require system PostgreSQL headers (libpq-dev) on some systems
-storage = [
-    # Database connectors
-    "pymongo",
-    "neo4j",
-    "qdrant-client",
-    # PostgreSQL checkpointing (production persistence)
-    "langgraph-checkpoint-postgres>=2.0.22,<4.0.0",
-    "psycopg[pool]>=3.1.0,<4.0.0",
-    "psycopg-pool>=3.1.0,<4.0.0",
-    "langchain-postgres>=0.0.12,<0.1.0",
-    # Memory and vector storage
-    "mem0ai>=0.1.88",
-    "vecs>=0.4.5",
-]
-
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
 # See _ISSUES/MAJOR/ARIEL/ for specification
 ariel = [
     # PostgreSQL with pgvector for vector similarity search
     "psycopg[pool]>=3.1.0,<4.0.0",
     "psycopg-pool>=3.1.0,<4.0.0",
-    # LangGraph for ReAct agent
-    "langgraph>=0.5.2",
-    "langchain-openai>=0.3.0",
 ]
 
 # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
@@ -199,9 +178,15 @@ sheets = [
     "gspread>=6.0.0",
 ]
 
+# Screen capture on Linux (X11) — not needed on macOS
+screen-capture-linux = [
+    "mss>=9.0.0",
+    "python-xlib>=0.33",
+]
+
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,storage,ariel,sheets]"
+    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux]"
 ]
 
 [project.urls]
@@ -216,10 +201,6 @@ Changelog = "https://github.com/als-apg/osprey/blob/main/CHANGELOG.md"
 [project.scripts]
 # Main CLI entry point (Click group with subcommands)
 osprey = "osprey.cli.main:cli"
-
-# Legacy entry points (maintained for backward compatibility)
-alpha-berkeley = "osprey.interfaces.cli.direct_conversation:main"
-alpha-berkeley-deploy = "osprey.deployment.container_manager:main"
 
 # Hatchling build configuration
 [tool.hatch.version]
@@ -255,13 +236,6 @@ module = [
     "numpy.*",
     "matplotlib.*",
     "pyepics.*",
-    "pymongo.*",
-    "neo4j.*",
-    "qdrant_client.*",
-    "mem0.*",
-    "langfuse.*",
-    "langgraph.*",
-    "langchain.*",
     "podman.*",
 ]
 ignore_missing_imports = true
@@ -287,6 +261,7 @@ markers = [
     "integration: Integration tests (real external services)",
     "e2e: End-to-end workflow tests - WARNING: Use 'pytest tests/e2e/' not '-m e2e' (see tests/e2e/README.md)",
     "e2e_smoke: Quick smoke tests for critical workflows",
+    "e2e_benchmark: Channel finder benchmark validation tests",
     "e2e_tutorial: Tutorial workflow validation tests",
     "slow: Tests that take significant time",
     "requires_api: Tests that require API credentials",
@@ -297,6 +272,7 @@ markers = [
     "requires_ollama: Tests that require local Ollama service",
     "asyncio: Async test marker",
     "vcr: VCR cassette recording/replay marker",
+    "e2e_services: E2E tests requiring local MCP service infrastructure (PostgreSQL, AccelPapers, etc.)",
 ]
 
 # Ruff configuration for modern Python linting
@@ -329,7 +305,6 @@ ignore = [
 "tests/documentation/test_workflow_autodoc.py" = ["E402"]  # Late imports after path manipulation
 "tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation
 "src/osprey/templates/apps/control_assistant/_agent_data/example_scripts/**/*.py" = ["E402"]  # Example scripts with late imports
-"src/osprey/templates/services/jupyter/startup_script.py" = ["F401"]  # Intentionally loaded in namespace
 "src/osprey/services/channel_finder/__init__.py" = ["E402"]  # Grouped imports with section comments
 
 [tool.ruff.lint.isort]

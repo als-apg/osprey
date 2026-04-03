@@ -6,7 +6,7 @@ enhancement module.
 
 from typing import TYPE_CHECKING
 
-from osprey.services.ariel_search.database.migration import (
+from osprey.services.ariel_search.database.migrations import (
     BaseMigration,
     MigrationSkippedError,
     model_to_table_name,

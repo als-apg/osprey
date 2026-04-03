@@ -1,0 +1,726 @@
+{
+  "hierarchy_definition": [
+    "system",
+    "family",
+    "device",
+    "field",
+    "subfield"
+  ],
+  "naming_pattern": "{system}:{family}[{device}]:{field}:{subfield}",
+  "tree": {
+    "MAG": {
+      "_description": "Magnet System (MAG): Controls beam trajectory and focusing in the storage ring. Includes dipole bending magnets, quadrupole focusing magnets, sextupole magnets for chromaticity correction, and corrector magnets for precise beam steering. All magnets are powered by regulated power supplies and are critical for maintaining stable beam orbit and beam quality.",
+      "DIPOLE": {
+        "_description": "Dipole Bending Magnets: Main bending magnets that deflect the beam in a circular path to form the storage ring. Create uniform magnetic field perpendicular to beam. Numbered sequentially around the ring (e.g., B01, B02, ...). Critical for maintaining correct beam trajectory and energy.",
+        "devices": {
+          "_type": "range",
+          "_pattern": "B{:02d}",
+          "_range": [
+            1,
+            24
+          ]
+        },
+        "fields": {
+          "CURRENT": {
+            "_description": "Magnet Excitation Current (Amperes): Current through dipole coil windings. Directly proportional to magnetic bending field via Ampere's law (B \u221d I). Typically 50-500A depending on ring energy. Tightly regulated by precision power supplies to maintain stable beam energy and trajectory.",
+            "subfields": {
+              "SP": {
+                "_description": "Current Setpoint (read-write): Commanded dipole current for desired bending field. Operators or high-level software set this to control beam energy. Power supply servo loop regulates output to match setpoint."
+              },
+              "RB": {
+                "_description": "Current Readback (read-only): Actual measured dipole current from DCCT. High-accuracy measurement (\u00b10.01%) essential for field reproducibility. Used in power supply feedback loop and archived for orbit analysis."
+              },
+              "GOLDEN": {
+                "_description": "Golden Setpoint (read-only): Reference setpoint for optimal beam operation. Stored golden values represent known good operating conditions. Read-only - used for comparison and restore operations."
+              }
+            }
+          },
+          "STATUS": {
+            "_description": "Operational Status: Power supply and magnet health indicators. Monitor readiness, operational state, and fault conditions. Critical for safe operation and automated interlocks.",
+            "subfields": {
+              "READY": {
+                "_description": "Ready Status (read-only): Power supply is ready for operation. Indicates all interlocks satisfied and system initialized."
+              },
+              "ON": {
+                "_description": "On Status (read-only): Power supply is energized and regulating. Indicates magnet is actively powered."
+              },
+              "FAULT": {
+                "_description": "Fault Status (read-only): Fault condition detected (overcurrent, overvoltage, etc.). Boolean flag - true indicates problem requiring attention."
+              }
+            }
+          }
+        }
+      },
+      "QD": {
+        "_description": "Defocusing Quadrupoles (QD): Quadrupole magnets with negative gradient. Defocus beam in horizontal plane, focus in vertical plane. Part of tune correction system. Work together with QF magnets for independent horizontal/vertical tune control. Used to adjust betatron tune to avoid resonances and optimize beam stability.",
+        "devices": {
+          "_type": "range",
+          "_pattern": "QD{:02d}",
+          "_range": [
+            1,
+            16
+          ]
+        },
+        "fields": {
+          "CURRENT": {
+            "_description": "Quadrupole Excitation Current (Amperes): Current through QD coil windings. Proportional to negative field gradient. Typically 0-200A. Adjusted for tune correction and beam optics optimization.",
+            "subfields": {
+              "SP": {
+                "_description": "Setpoint (read-write): Commanded defocusing current for tune correction."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured defocusing current."
+              },
+              "GOLDEN": {
+                "_description": "Golden Setpoint (read-only): Reference defocusing current for optimal tune."
+              }
+            }
+          },
+          "STATUS": {
+            "_description": "Operational status for defocusing quadrupole.",
+            "subfields": {
+              "READY": {
+                "_description": "Ready (read-only): Power supply ready."
+              },
+              "ON": {
+                "_description": "On (read-only): Power supply energized."
+              },
+              "FAULT": {
+                "_description": "Fault (read-only): Fault condition detected."
+              }
+            }
+          }
+        }
+      },
+      "QF": {
+        "_description": "Focusing Quadrupoles (QF): Quadrupole magnets with positive gradient. Focus beam in horizontal plane, defocus in vertical plane. Part of tune correction system. Work together with QD magnets for independent horizontal/vertical tune control. Used to adjust betatron tune to avoid resonances and optimize beam stability.",
+        "devices": {
+          "_type": "range",
+          "_pattern": "QF{:02d}",
+          "_range": [
+            1,
+            16
+          ]
+        },
+        "fields": {
+          "CURRENT": {
+            "_description": "Quadrupole Excitation Current (Amperes): Current through QF coil windings. Proportional to positive field gradient. Typically 0-200A. Adjusted for tune correction and beam optics optimization.",
+            "subfields": {
+              "SP": {
+                "_description": "Setpoint (read-write): Commanded focusing current for tune correction."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured focusing current."
+              },
+              "GOLDEN": {
+                "_description": "Golden Setpoint (read-only): Reference focusing current for optimal tune."
+              }
+            }
+          },
+          "STATUS": {
+            "_description": "Operational status for focusing quadrupole.",
+            "subfields": {
+              "READY": {
+                "_description": "Ready (read-only): Power supply ready."
+              },
+              "ON": {
+                "_description": "On (read-only): Power supply energized."
+              },
+              "FAULT": {
+                "_description": "Fault (read-only): Fault condition detected."
+              }
+            }
+          }
+        }
+      },
+      "HCM": {
+        "_description": "Horizontal Corrector Magnets (HCM): Small dipole steering magnets for fine horizontal (X) beam position adjustments. Part of the corrector magnet system along with VCM magnets. Used in closed-orbit correction algorithms to compensate for alignment errors and field imperfections. Bipolar power supplies allow positive and negative deflection.",
+        "devices": {
+          "_type": "range",
+          "_pattern": "H{:02d}",
+          "_range": [
+            1,
+            20
+          ]
+        },
+        "fields": {
+          "CURRENT": {
+            "_description": "Corrector Current (Amperes): Bipolar current for horizontal steering. Range typically \u00b110A. Used in orbit feedback systems running at 1-100 Hz.",
+            "subfields": {
+              "SP": {
+                "_description": "Setpoint (read-write): Commanded horizontal corrector current."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured horizontal corrector current."
+              },
+              "GOLDEN": {
+                "_description": "Golden Setpoint (read-only): Reference orbit correction value."
+              }
+            }
+          },
+          "STATUS": {
+            "_description": "Corrector magnet operational status.",
+            "subfields": {
+              "READY": {
+                "_description": "Ready (read-only): Corrector power supply ready."
+              },
+              "ON": {
+                "_description": "On (read-only): Corrector energized and regulating."
+              }
+            }
+          }
+        }
+      },
+      "VCM": {
+        "_description": "Vertical Corrector Magnets (VCM): Small dipole steering magnets for fine vertical (Y) beam position adjustments. Part of the corrector magnet system along with HCM magnets. Work with BPMs in feedback loops to maintain desired orbit. Essential for steering beam through insertion devices. Bipolar power supplies allow positive and negative deflection.",
+        "devices": {
+          "_type": "range",
+          "_pattern": "V{:02d}",
+          "_range": [
+            1,
+            20
+          ]
+        },
+        "fields": {
+          "CURRENT": {
+            "_description": "Corrector Current (Amperes): Bipolar current for vertical steering. Vertical orbit typically requires tighter tolerance than horizontal.",
+            "subfields": {
+              "SP": {
+                "_description": "Setpoint (read-write): Commanded vertical corrector current."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured vertical corrector current."
+              },
+              "GOLDEN": {
+                "_description": "Golden Setpoint (read-only): Reference vertical correction value."
+              }
+            }
+          },
+          "STATUS": {
+            "_description": "Corrector magnet operational status.",
+            "subfields": {
+              "READY": {
+                "_description": "Ready (read-only): Corrector power supply ready."
+              },
+              "ON": {
+                "_description": "On (read-only): Corrector energized and regulating."
+              }
+            }
+          }
+        }
+      },
+      "SF": {
+        "_description": "Focusing Sextupoles (SF): Sextupole magnets with positive polarity for chromatic correction. Produce field that varies quadratically with radius. Compensate for energy-dependent focusing from quadrupoles (chromaticity). Essential for maintaining beam stability across energy spread. 8 families distributed around ring.",
+        "devices": {
+          "_type": "range",
+          "_pattern": "SF{:02d}",
+          "_range": [
+            1,
+            12
+          ]
+        },
+        "fields": {
+          "CURRENT": {
+            "_description": "Sextupole Excitation Current (Amperes): Current through SF coil windings. Proportional to sextupole field strength (B'' ∝ I). Typically 0-150A. Set to correct horizontal chromaticity.",
+            "subfields": {
+              "SP": {
+                "_description": "Setpoint (read-write): Commanded focusing sextupole current for chromaticity correction."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured focusing sextupole current."
+              },
+              "GOLDEN": {
+                "_description": "Golden Setpoint (read-only): Reference sextupole current for optimal chromaticity."
+              }
+            }
+          },
+          "STATUS": {
+            "_description": "Operational status for focusing sextupole.",
+            "subfields": {
+              "READY": {
+                "_description": "Ready (read-only): Power supply ready."
+              },
+              "ON": {
+                "_description": "On (read-only): Power supply energized."
+              },
+              "FAULT": {
+                "_description": "Fault (read-only): Fault condition detected."
+              }
+            }
+          }
+        }
+      },
+      "SD": {
+        "_description": "Defocusing Sextupoles (SD): Sextupole magnets with negative polarity for chromatic correction. Produce field that varies quadratically with radius, opposite sign to SF. Compensate for energy-dependent defocusing from quadrupoles (chromaticity). Work together with SF sextupoles to independently control horizontal and vertical chromaticity. Typically 12 families distributed around ring.",
+        "devices": {
+          "_type": "range",
+          "_pattern": "SD{:02d}",
+          "_range": [
+            1,
+            12
+          ]
+        },
+        "fields": {
+          "CURRENT": {
+            "_description": "Sextupole Excitation Current (Amperes): Current through SD coil windings. Proportional to sextupole field strength with negative polarity. Typically 0-150A. Set to correct vertical chromaticity.",
+            "subfields": {
+              "SP": {
+                "_description": "Setpoint (read-write): Commanded defocusing sextupole current for chromaticity correction."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured defocusing sextupole current."
+              },
+              "GOLDEN": {
+                "_description": "Golden Setpoint (read-only): Reference sextupole current for optimal chromaticity."
+              }
+            }
+          },
+          "STATUS": {
+            "_description": "Operational status for defocusing sextupole.",
+            "subfields": {
+              "READY": {
+                "_description": "Ready (read-only): Power supply ready."
+              },
+              "ON": {
+                "_description": "On (read-only): Power supply energized."
+              },
+              "FAULT": {
+                "_description": "Fault (read-only): Fault condition detected."
+              }
+            }
+          }
+        }
+      }
+    },
+    "VAC": {
+      "_description": "Vacuum System (VAC): Maintains ultra-high vacuum (UHV) in the beam chamber to minimize beam-gas scattering and maximize beam lifetime. Includes ion pumps, pressure gauges, and vacuum valves. Typical operating pressure: 10^-9 to 10^-10 Torr.",
+      "ION-PUMP": {
+        "_description": "Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules. Distributed around ring at regular intervals.",
+        "devices": {
+          "_type": "range",
+          "_pattern": "SR{:02d}",
+          "_range": [
+            1,
+            6
+          ]
+        },
+        "fields": {
+          "PRESSURE": {
+            "_description": "Vacuum Pressure (Torr): Local chamber pressure calculated from pump current. Target: <1\u00d710^-9 Torr for good beam lifetime. Sudden rises indicate leaks or outgassing.",
+            "subfields": {
+              "RB": {
+                "_description": "Pressure Readback (read-only): Calculated vacuum pressure from pump current. Monitoring quantity. Used for interlock logic and vacuum health assessment."
+              }
+            }
+          },
+          "VOLTAGE": {
+            "_description": "High Voltage Supply (Volts): Operating voltage for ion pump (typically 3-7 kV). Creates electric field to ionize residual gas.",
+            "subfields": {
+              "RB": {
+                "_description": "Voltage Readback (read-only): Actual measured ion pump operating voltage. Should match setpoint. Monitored for HV system diagnostics."
+              },
+              "SP": {
+                "_description": "Voltage Setpoint (read-write): Commanded ion pump high voltage. Typically set once and rarely changed."
+              }
+            }
+          },
+          "CURRENT": {
+            "_description": "Ion Pump Current (microAmperes): Current proportional to gas pumping rate. Low current (<1 \u03bcA) indicates good vacuum. NOT a setpoint - follows pressure.",
+            "subfields": {
+              "RB": {
+                "_description": "Current Readback (read-only): Measured ion pump current. Used to infer local pressure and detect vacuum problems."
+              }
+            }
+          },
+          "STATUS": {
+            "_description": "Pump Operational Status: Health and fault monitoring.",
+            "subfields": {
+              "ON": {
+                "_description": "On Status (read-only): Pump high voltage enabled."
+              },
+              "FAULT": {
+                "_description": "Fault Status (read-only): Pump fault detected (arc, overpressure, etc.)."
+              }
+            }
+          }
+        }
+      },
+      "GAUGE": {
+        "_description": "Vacuum Pressure Gauges: Monitor vacuum pressure at critical locations. Independent measurement from ion pumps. Cold cathode or hot cathode ionization gauges.",
+        "devices": {
+          "_type": "list",
+          "_instances": [
+            "SR01A",
+            "SR01B",
+            "SR02A",
+            "SR02B",
+            "SR03A",
+            "SR03B"
+          ]
+        },
+        "fields": {
+          "PRESSURE": {
+            "_description": "Measured Pressure (Torr): Direct pressure reading from ionization gauge. True measurement (not calculated like ion pump pressure).",
+            "subfields": {
+              "RB": {
+                "_description": "Pressure Readback (read-only): Direct gauge measurement of local vacuum pressure. Used for critical locations and interlock inputs."
+              }
+            }
+          },
+          "STATUS": {
+            "_description": "Gauge Operational Status: Health and validity monitoring.",
+            "subfields": {
+              "ON": {
+                "_description": "On Status (read-only): Gauge powered and measuring."
+              },
+              "VALID": {
+                "_description": "Valid Status (read-only): Pressure reading is valid and within range."
+              }
+            }
+          }
+        }
+      },
+      "VALVE": {
+        "_description": "Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance or vacuum events.",
+        "devices": {
+          "_type": "range",
+          "_pattern": "V{:02d}",
+          "_range": [
+            1,
+            12
+          ]
+        },
+        "fields": {
+          "POSITION": {
+            "_description": "Valve Position State: Current valve position (open/closed). Limit switches indicate full open or full closed positions.",
+            "subfields": {
+              "OPEN": {
+                "_description": "Open Status (read-only): Valve fully open limit switch active."
+              },
+              "CLOSED": {
+                "_description": "Closed Status (read-only): Valve fully closed limit switch active."
+              }
+            }
+          },
+          "CONTROL": {
+            "_description": "Valve Control Commands: Commands to actuate valve. Pneumatic or motor-driven valves controlled remotely.",
+            "subfields": {
+              "OPEN": {
+                "_description": "Open Command (write): Command to open valve (write)."
+              },
+              "CLOSE": {
+                "_description": "Close Command (write): Command to close valve (write)."
+              }
+            }
+          },
+          "STATUS": {
+            "_description": "Valve Operational Status: Ready and fault monitoring.",
+            "subfields": {
+              "READY": {
+                "_description": "Ready Status (read-only): Valve controller ready."
+              },
+              "FAULT": {
+                "_description": "Fault Status (read-only): Valve fault or timeout condition."
+              }
+            }
+          }
+        }
+      }
+    },
+    "RF": {
+      "_description": "Radio Frequency System (RF): Provides energy to the circulating beam to compensate for synchrotron radiation losses. RF cavities accelerate the beam using high-power electromagnetic waves. Klystrons provide RF power amplification.",
+      "CAVITY": {
+        "_description": "RF Accelerating Cavities: Resonant structures that provide longitudinal electric field to accelerate the beam. Operating frequency precisely tuned to beam revolution frequency. Gap voltage (MV range) determines energy gain per turn.",
+        "devices": {
+          "_type": "list",
+          "_instances": [
+            "C1",
+            "C2"
+          ]
+        },
+        "fields": {
+          "POWER": {
+            "_description": "RF Power (Kilowatts): Electromagnetic power in RF transmission system. Forward power delivered to cavity, reflected power bounces back if mismatched.",
+            "subfields": {
+              "FWD": {
+                "_description": "Forward Power (read-only): RF power traveling from klystron toward cavity. Indicates RF drive strength. Typically 50-500 kW."
+              },
+              "REV": {
+                "_description": "Reflected Power (read-only): Power bouncing back from cavity. Should be <5% of forward when tuned properly."
+              },
+              "NET": {
+                "_description": "Net Power (read-only): Actual power delivered to cavity (FWD - REV). Most accurate measure of RF system performance."
+              }
+            }
+          },
+          "VOLTAGE": {
+            "_description": "Cavity Gap Voltage (Megavolts): Peak RF voltage across accelerating gap. Determines energy gain per turn. Typical: 0.5-3 MV.",
+            "subfields": {
+              "RB": {
+                "_description": "Voltage Readback (read-only): Measured cavity gap voltage from RF pickups. Should track setpoint when RF system locked."
+              },
+              "SP": {
+                "_description": "Voltage Setpoint (read-write): Commanded cavity gap voltage. Set by operators or automatic beam energy control."
+              },
+              "GOLDEN": {
+                "_description": "Golden Voltage (read-only): Reference gap voltage for nominal operation. Stored optimal operating voltage."
+              }
+            }
+          },
+          "FREQUENCY": {
+            "_description": "RF Frequency (MHz): Operating frequency of RF system. Must match harmonic of beam revolution frequency. Typically 500 MHz.",
+            "subfields": {
+              "RB": {
+                "_description": "Frequency Readback (read-only): Measured RF frequency."
+              },
+              "SP": {
+                "_description": "Frequency Setpoint (read-write): Commanded RF frequency."
+              }
+            }
+          },
+          "TEMPERATURE": {
+            "_description": "Cavity Temperature (Celsius): Body temperature of RF cavity. Cooling system maintains stable temperature for frequency stability.",
+            "subfields": {
+              "RB": {
+                "_description": "Temperature Readback (read-only): Measured cavity temperature."
+              }
+            }
+          },
+          "TUNER": {
+            "_description": "Cavity Tuner Position (Centimeters): Mechanical tuner adjusts cavity resonant frequency by changing physical dimensions. Motor-driven tuner compensates for thermal expansion and maintains frequency lock. Position readback indicates tuner displacement.",
+            "subfields": {
+              "RB": {
+                "_description": "Position Readback (read-only): Current tuner position in centimeters. Zero typically corresponds to nominal cavity dimensions. Monitored for frequency control loop."
+              },
+              "SP": {
+                "_description": "Position Setpoint (read-write): Commanded tuner position to adjust cavity resonant frequency. Operators set this to maintain frequency lock or compensate for cavity detuning."
+              }
+            }
+          },
+          "STATUS": {
+            "_description": "RF System Status: Cavity and low-level RF system health.",
+            "subfields": {
+              "READY": {
+                "_description": "Ready Status (read-only): RF system ready for operation."
+              },
+              "INTERLOCK": {
+                "_description": "Interlock Status (read-only): RF interlocks satisfied (vacuum, cooling, etc.)."
+              },
+              "FAULT": {
+                "_description": "Fault Status (read-only): RF system fault detected."
+              }
+            }
+          }
+        }
+      },
+      "KLYSTRON": {
+        "_description": "Klystron RF Amplifiers: High-power vacuum tube amplifiers that provide RF power to accelerating cavities. Convert DC power to RF power at cavity frequency. Typically 100-500 kW output power. Require high voltage power supplies.",
+        "devices": {
+          "_type": "list",
+          "_instances": [
+            "K1",
+            "K2"
+          ]
+        },
+        "fields": {
+          "POWER": {
+            "_description": "Klystron Output Power (Kilowatts): RF power produced by klystron. Delivered to cavity via waveguide transmission line.",
+            "subfields": {
+              "RB": {
+                "_description": "Power Readback (read-only): Measured klystron output power. Monitoring of amplifier performance and efficiency."
+              }
+            }
+          },
+          "VOLTAGE": {
+            "_description": "Beam Voltage (kiloVolts): High voltage accelerating electrons in klystron. Typically 50-150 kV. Determines maximum output power capability.",
+            "subfields": {
+              "RB": {
+                "_description": "Voltage Readback (read-only): Measured klystron beam voltage."
+              },
+              "SP": {
+                "_description": "Voltage Setpoint (read-write): Commanded beam voltage."
+              }
+            }
+          },
+          "STATUS": {
+            "_description": "Klystron Operational Status: Health and safety monitoring.",
+            "subfields": {
+              "ON": {
+                "_description": "On Status (read-only): Klystron high voltage on."
+              },
+              "READY": {
+                "_description": "Ready Status (read-only): Klystron ready (filament warm, interlocks OK)."
+              },
+              "FAULT": {
+                "_description": "Fault Status (read-only): Klystron fault (arc, overcurrent, body current, etc.)."
+              }
+            }
+          }
+        }
+      }
+    },
+    "DIAG": {
+      "_description": "Diagnostic System (DIAG): Beam measurement and monitoring instrumentation. Includes beam position monitors (BPMs) for orbit measurement, beam current monitors (DCCT), and radiation safety monitors (neutron and gamma detectors). Essential for beam optimization, feedback systems, and personnel safety.",
+      "BPM": {
+        "_description": "Beam Position Monitors: Measure transverse (X, Y) beam position at many locations around the ring. Use pickup electrodes to detect beam image charges. Typical resolution: 1-10 microns. Essential for orbit correction and feedback.",
+        "devices": {
+          "_type": "range",
+          "_pattern": "BPM{:02d}",
+          "_range": [
+            1,
+            20
+          ]
+        },
+        "fields": {
+          "POSITION": {
+            "_description": "Beam Position (millimeters): Measured transverse beam position. Horizontal (X) and vertical (Y) positions relative to BPM electrical center. Updated at 10 Hz to kHz rates depending on electronics.",
+            "subfields": {
+              "X": {
+                "_description": "Horizontal Position (read-only): Beam X position at this BPM location. Positive X typically defined as outward from ring center."
+              },
+              "Y": {
+                "_description": "Vertical Position (read-only): Beam Y position at this BPM location. Positive Y typically defined as upward."
+              }
+            }
+          },
+          "GOLDEN": {
+            "_description": "Golden Orbit Reference (millimeters): Stored reference orbit positions. Represents desired beam trajectory at this location. Used for orbit correction and feedback setpoints.",
+            "subfields": {
+              "X": {
+                "_description": "Golden X Position (read-only): Reference horizontal position. Orbit correction drives beam toward this position."
+              },
+              "Y": {
+                "_description": "Golden Y Position (read-only): Reference vertical position. Target for vertical orbit feedback."
+              }
+            }
+          },
+          "OFFSET": {
+            "_description": "Position Offset from Golden (millimeters): Difference between measured and golden orbit. Calculated as POSITION - GOLDEN. Used as error signal in orbit feedback loops.",
+            "subfields": {
+              "X": {
+                "_description": "Horizontal Offset (read-only): X position error from golden orbit."
+              },
+              "Y": {
+                "_description": "Vertical Offset (read-only): Y position error from golden orbit."
+              }
+            }
+          },
+          "STATUS": {
+            "_description": "BPM System Status: Data validity and connection monitoring.",
+            "subfields": {
+              "VALID": {
+                "_description": "Valid Data (read-only): BPM reading is valid (good beam intensity, no errors). False indicates BPM should not be used in feedback."
+              },
+              "CONNECTED": {
+                "_description": "Connected Status (read-only): BPM electronics responding on network. Communication health check."
+              }
+            }
+          }
+        }
+      },
+      "DCCT": {
+        "_description": "DC Current Transformer: Non-intercepting beam current monitor. Measures total circulating beam current with high accuracy. Essential for beam lifetime measurements and injection monitoring.",
+        "devices": {
+          "_type": "list",
+          "_instances": [
+            "MAIN"
+          ]
+        },
+        "fields": {
+          "CURRENT": {
+            "_description": "Beam Current (milliAmperes): Total circulating electron current. Typical range: 1-500 mA depending on operating mode. Decay indicates beam loss from gas scattering and other effects.",
+            "subfields": {
+              "RB": {
+                "_description": "Current Readback (read-only): Standard beam current measurement. Primary beam current indicator."
+              }
+            }
+          },
+          "STATUS": {
+            "_description": "DCCT Operational Status: Measurement validity.",
+            "subfields": {
+              "VALID": {
+                "_description": "Valid Status (read-only): DCCT measurement is valid and calibrated. False indicates instrument problem or no beam."
+              }
+            }
+          }
+        }
+      },
+      "NEUTRON": {
+        "_description": "Neutron Radiation Monitors: Detect neutron radiation levels around accelerator. Neutrons produced by beam loss events hitting accelerator components. Real-time monitoring for personnel safety and radiation protection. Required for regulatory compliance and machine protection interlocks.",
+        "devices": {
+          "_type": "range",
+          "_pattern": "NEUT{:02d}",
+          "_range": [
+            1,
+            4
+          ]
+        },
+        "fields": {
+          "DOSE_RATE": {
+            "_description": "Neutron Dose Rate (mrem/hour): Neutron radiation intensity measurement. Multiple averaging windows for different time scales. Critical for safety system interlocks.",
+            "subfields": {
+              "INST": {
+                "_description": "Instantaneous (read-only): Real-time neutron dose rate without averaging. Most sensitive to transient radiation events. Primary readout for operators."
+              },
+              "AVG_1MIN": {
+                "_description": "1-Minute Average (read-only): Neutron dose rate averaged over 1 minute. Reduces noise while maintaining fast response."
+              },
+              "AVG_1HR": {
+                "_description": "1-Hour Average (read-only): Neutron dose rate averaged over 1 hour. Long-term trending of radiation levels."
+              }
+            }
+          },
+          "STATUS": {
+            "_description": "Neutron Monitor Status: Data validity and alarm conditions.",
+            "subfields": {
+              "VALID": {
+                "_description": "Valid Data (read-only): Monitor reading is valid and detector functioning properly. False indicates instrument failure."
+              },
+              "ALARM": {
+                "_description": "Alarm Status (read-only): Radiation level exceeds safety threshold. Triggers safety interlocks and notifications."
+              }
+            }
+          }
+        }
+      },
+      "GAMMA": {
+        "_description": "Gamma Radiation Monitors: Detect gamma ray radiation levels around accelerator. Gammas produced by synchrotron radiation and beam loss. Distributed at strategic locations for comprehensive coverage. Essential for personnel safety and regulatory compliance.",
+        "devices": {
+          "_type": "range",
+          "_pattern": "GAMM{:02d}",
+          "_range": [
+            1,
+            4
+          ]
+        },
+        "fields": {
+          "DOSE_RATE": {
+            "_description": "Gamma Dose Rate (mrem/hour): Gamma radiation intensity measurement. Multiple time windows for operational flexibility. Monitored continuously for safety.",
+            "subfields": {
+              "INST": {
+                "_description": "Instantaneous (read-only): Real-time gamma dose rate. Immediate response to radiation transients. Primary safety indicator."
+              },
+              "AVG_1MIN": {
+                "_description": "1-Minute Average (read-only): Gamma dose rate averaged over 1 minute. Balanced between response time and noise reduction."
+              },
+              "AVG_1HR": {
+                "_description": "1-Hour Average (read-only): Gamma dose rate averaged over 1 hour. Long-term exposure tracking."
+              }
+            }
+          },
+          "STATUS": {
+            "_description": "Gamma Monitor Status: Operational health and alarm state.",
+            "subfields": {
+              "VALID": {
+                "_description": "Valid Data (read-only): Monitor is operational and data is reliable. False indicates maintenance needed."
+              },
+              "ALARM": {
+                "_description": "Alarm Status (read-only): Gamma level exceeds safety limit. May trigger access restrictions or beam abort."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Workspace**: Unify `osprey-workspace/` and `_agent_data/` into single configurable `_agent_data` directory (config key: `agent_data.base_dir`)
+
 ## [0.11.5] - 2026-03-13
 
 ### Fixed
@@ -30,6 +33,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `GoogleSheetsChannelDatabase` reads/writes channel data from a Google Sheets spreadsheet via `gspread`
   - Integrates with the `in_context` pipeline via `source: google_sheets` config option
   - Optional dependency: `pip install osprey[sheets]`
+- **Config**: `resolve_model_id()` utility to resolve tier names (haiku/sonnet/opus) to provider-specific model IDs
+- **Channel Finder**: Tree preview, hierarchy selections paths tracking, feedback store for successful runs, hint injection, and device info endpoint
+- **Hooks**: Shared `osprey_hook_log.py` utility with `OSPREY_HOOK_DEBUG` gated activity logging
+- **Transcript Reader**: Agent start/stop lifecycle events and string content handling
+- **Web Terminal**: Session diagnostics panel (Activity tab) with agent, log, summary, and chat views; local safety guidelines page
+
+### Fixed
+- **AccelPapers**: Fix double-path 404 in Typesense auto-embedding — URL was `http://localhost:11434/v1/embeddings` but Typesense appends `/v1/embeddings` itself
+- **Hooks**: Deterministic project dir resolution via `hook_input["cwd"]` (replaces inconsistent env var fallback chains)
+- **Hooks**: Dynamic `write_tools` for writes kill switch — custom MCP server write tools now blocked when `writes_enabled: false` (GP-003)
+
+### Changed
+- **Config**: Default provider changed from `cborg` (LBNL-only) to `anthropic` (universally accessible) (GP-006)
+- **Stores**: Move `ArtifactStore`, `BaseStore`, `type_registry`, `notebook_renderer` from `mcp_server/` to new `osprey.stores/` package (RF-005)
+- **Textbooks**: Replace textbooks MCP server with native file access for faster lookups
+- **Init**: Config now uses tier names (haiku/sonnet/opus) instead of provider-specific model IDs; default tier changed to haiku
+- **Services**: Services now resolve tier names to provider-specific model IDs via `resolve_model_id`
+- **AccelPapers**: Migrated search backend from SQLite FTS5 to Typesense for hybrid BM25 + vector search
+- **MCP Servers**: Consolidate all 9 MCP servers under `mcp_server/` — moved ARIEL MCP from `interfaces/ariel/mcp/` and 3 channel finder MCPs from `services/channel_finder/mcp/` (RF-005)
+- **AccelPapers**: Embedding URL, model, and API key now configurable via `ACCELPAPERS_OLLAMA_URL`, `ACCELPAPERS_EMBEDDING_MODEL`, `ACCELPAPERS_EMBEDDING_API_KEY` env vars; `--data-dir` falls back to `ACCELPAPERS_DATA_DIR`; added `--ollama-url` CLI flag
 
 ### Fixed
 - **CI**: Make E2E test failures non-blocking in gate job — E2E tests are LLM-dependent and fail due to API rate limits, not code issues

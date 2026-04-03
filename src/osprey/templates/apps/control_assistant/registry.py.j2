@@ -1,7 +1,6 @@
 """
 Component registry for {{ app_display_name }}.
 
-Registers facility-specific prompt customizations with the Osprey framework.
 Control system capabilities (channel finding, reading, writing, archiver) are
 provided natively by the framework - no application registration needed.
 """
@@ -9,7 +8,6 @@ provided natively by the framework - no application registration needed.
 from osprey.registry import (
     RegistryConfigProvider,
     extend_framework_registry,
-    FrameworkPromptProviderRegistration,
     RegistryConfig
 )
 
@@ -22,24 +20,8 @@ class {{ app_class_name }}RegistryProvider(RegistryConfigProvider):
     - Channel read (read current values from channels)
     - Channel write (write values to channels)
     - Archiver retrieval (query historical time-series data)
-
-    This registry registers facility-specific prompt customizations
-    that override the framework's generic defaults.
     """
 
     def get_registry_config(self) -> RegistryConfig:
         """Return registry configuration for {{ app_display_name }}."""
-        return extend_framework_registry(
-            framework_prompt_providers=[
-                FrameworkPromptProviderRegistration(
-                    module_path="{{ package_name }}.framework_prompts",
-                    prompt_builders={
-                        "python": "ControlSystemPythonPromptBuilder",
-                        "task_extraction": "ControlSystemTaskExtractionPromptBuilder",
-                        "channel_finder_in_context": "FacilityInContextPromptBuilder",
-                        "channel_finder_hierarchical": "FacilityHierarchicalPromptBuilder",
-                        "channel_finder_middle_layer": "FacilityMiddleLayerPromptBuilder",
-                    }
-                )
-            ]
-        )
+        return extend_framework_registry()

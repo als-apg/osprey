@@ -1,0 +1,38 @@
+
+## Channel Database Terminology
+
+### Database Profile
+
+This is a **Middle Layer (MML)** channel database — channels are organized by
+functional grouping: Systems → Families → Fields → Subfields → ChannelNames.
+Navigation follows the MML convention used in many accelerator control systems.
+
+### Terminology Mapping
+
+Operators use domain language. Map their terms to MML navigation:
+
+| Operator Language | MML Navigation |
+|---|---|
+| "beam current" | System: ring (e.g., `SR`) → Family: `DCCT` → Field: `Monitor` |
+| "BPM positions" / "beam position" | System: ring → Family: `BPM` → Field: `Monitor` → Subfield: `X` or `Y` |
+| "corrector magnets" | System: ring → Family: `HCM` (horizontal) or `VCM` (vertical) |
+| "quadrupole" / "quad" | System: ring → Family: `QF` (focusing) or `QD` (defocusing) |
+| "readback" / "monitor" | Navigate to system/family first, then select `Monitor` field |
+| "setpoint" / "control" | Navigate to system/family first, then select `Setpoint` field |
+| "storage ring" | System: `SR` (or facility-specific abbreviation) |
+| "booster" | System: `BR` (or facility-specific abbreviation) |
+| "transport line" | System: `BTS`, `LTB`, etc. (facility-specific transport abbreviations) |
+| "device number N" / "BPM 5" | Use the `devices` parameter to filter specific device instances |
+| "common name" | Call `get_common_names(system, family)` for human-friendly device names |
+
+### Middle Layer Conventions
+
+- Always start with `list_systems()` to discover available systems and their descriptions
+- System abbreviations are facility-specific (e.g., `SR`, `BR`, `BTS`) — read descriptions
+- Family names follow accelerator conventions (e.g., `BPM`, `DCCT`, `HCM`, `VCM`, `QF`, `QD`)
+- The `Monitor` field typically contains readback/measurement values
+- The `Setpoint` field typically contains control/command values
+- Subfields provide axis or component decomposition (e.g., `X`/`Y` for position monitors)
+- Use `inspect_fields()` to understand the field/subfield structure before assuming
+- When descriptions are available at any level, read them — they disambiguate similar-looking families
+- `get_common_names()` maps between device instance numbers and human-friendly identifiers
