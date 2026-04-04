@@ -1,7 +1,7 @@
 {%- set server_blocks = [] -%}
 {%- for s in servers if s.enabled -%}
 {%- if s.url -%}
-{%- set block = {"type": "streamable-http", "url": s.url} -%}
+{%- set block = {"type": "http", "url": s.url} -%}
 {%- else -%}
 {%- set block = {"command": s.command, "args": s.args} -%}
 {%- if s.env -%}{%- set _ = block.update({"env": s.env}) -%}{%- endif -%}
