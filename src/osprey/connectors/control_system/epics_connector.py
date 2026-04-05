@@ -211,7 +211,11 @@ class EPICSConnector(ControlSystemConnector):
                 f"Failed to connect to PV '{pv_address}' (timeout after {timeout}s)"
             )
 
-        value = pv.value
+        # Use pv.get() with explicit timeout instead of pv.value.
+        # pv.value uses a 1s default timeout for ca.get() which is too short
+        # when running in asyncio.to_thread() worker threads where the CA
+        # context needs extra time to receive the first value.
+        value = pv.get(timeout=timeout)
 
         # Get timestamp from EPICS (seconds since epoch)
         if pv.timestamp:
