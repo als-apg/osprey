@@ -63,7 +63,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         except ImportError as e:
             raise ImportError(
                 "archivertools is required for EPICS archiver. "
-                "Install with: pip install archivertools"
+                "Install with: pip install als-archiver-client"
             ) from e
 
         archiver_url = config.get("url")
