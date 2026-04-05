@@ -113,14 +113,20 @@ class EPICSConnector(ControlSystemConnector):
             use_name_server = gateway_config.get("use_name_server", False)
 
             # Configure EPICS environment variables
+            # Clear conflicting variables first — having both CA_ADDR_LIST and
+            # CA_NAME_SERVERS set causes TCP connection attempts that block
+            # asyncio.to_thread() worker threads.
             if use_name_server:
                 # Use CA_NAME_SERVERS (required for SSH tunnels and some gateway configurations)
                 os.environ["EPICS_CA_NAME_SERVERS"] = f"{address}:{port}"
+                os.environ.pop("EPICS_CA_ADDR_LIST", None)
+                os.environ.pop("EPICS_CA_SERVER_PORT", None)
                 logger.debug(f"Using EPICS_CA_NAME_SERVERS: {address}:{port}")
             else:
                 # Use CA_ADDR_LIST (standard gateway configuration)
                 os.environ["EPICS_CA_ADDR_LIST"] = address
                 os.environ["EPICS_CA_SERVER_PORT"] = str(port)
+                os.environ.pop("EPICS_CA_NAME_SERVERS", None)
                 logger.debug(f"Using EPICS_CA_ADDR_LIST: {address}, CA_SERVER_PORT: {port}")
 
             os.environ["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
