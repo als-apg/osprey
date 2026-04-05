@@ -6,6 +6,9 @@ description: Invalidates cached notebook HTML after NotebookEdit so the gallery 
 summary: Tracks notebook edits as workspace artifacts
 event: PostToolUse
 tools: NotebookEdit
+safety_layer: 99
+wiring: standalone
+timeout: 5
 ---
 
 ## Flow

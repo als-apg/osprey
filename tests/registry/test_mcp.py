@@ -469,15 +469,22 @@ class TestTemplateRendering:
         assert "PostToolUse" in data["hooks"]
 
     def test_render_settings_json_hooks(self, template_manager):
-        """Hook rules from controls server appear in rendered output."""
+        """Hook rules from controls server and framework hooks appear in rendered output."""
         ctx = self._full_ctx()
+        # Supply framework hook rules (data-driven from selected_hooks)
+        from osprey.cli.templates.claude_code import _build_framework_hook_rules
+
+        fw_pre, fw_post = _build_framework_hook_rules(["memory-guard", "notebook-update"])
+        ctx["framework_pre_hooks"] = fw_pre
+        ctx["framework_post_hooks"] = fw_post
+
         rendered = self._render(template_manager, "claude_code/claude/settings.json.j2", ctx)
         data = json.loads(rendered)
         pre_matchers = [r["matcher"] for r in data["hooks"]["PreToolUse"]]
-        assert "Write" in pre_matchers  # Fixed memory guard hook
+        assert "Write" in pre_matchers  # Framework standalone hook (memory-guard)
         assert "mcp__controls__channel_write" in pre_matchers
         post_matchers = [r["matcher"] for r in data["hooks"]["PostToolUse"]]
-        assert "NotebookEdit" in post_matchers  # Fixed entry
+        assert "NotebookEdit" in post_matchers  # Framework standalone hook (notebook-update)
         assert "mcp__controls__.*" in post_matchers
 
     def test_render_claude_md(self, template_manager):

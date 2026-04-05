@@ -7,6 +7,8 @@ summary: Restricts Write tool to Claude memory directory only
 event: PreToolUse
 tools: Write
 safety_layer: 0
+wiring: standalone
+timeout: 5
 ---
 
 ## Flow

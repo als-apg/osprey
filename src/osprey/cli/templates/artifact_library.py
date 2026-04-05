@@ -10,7 +10,12 @@ Built-in artifacts live under osprey/templates/claude_code/claude/:
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
+
+import yaml
+
+logger = logging.getLogger("osprey.cli.templates")
 
 # Artifact type → subdirectory name under claude_code/claude/
 _TYPE_TO_SUBDIR: dict[str, str] = {
@@ -74,6 +79,63 @@ def _hook_short_name(stem: str) -> str:
     if stem.startswith("osprey_"):
         stem = stem[len("osprey_"):]
     return stem.replace("_", "-")
+
+
+def parse_hook_frontmatter(hook_path: Path) -> dict | None:
+    """Extract YAML frontmatter from a hook file's docstring.
+
+    Hook files embed metadata in a YAML block delimited by ``---`` inside
+    the module docstring.  This function parses that block and returns the
+    metadata for hooks that declare ``wiring: standalone``.
+
+    Returns:
+        A dict with keys ``name``, ``event``, ``tools``, ``safety_layer``,
+        ``timeout``, ``wiring`` — or ``None`` for utility hooks (no
+        frontmatter), hooks without an ``event`` field, or hooks that do
+        not declare ``wiring: standalone``.
+    """
+    try:
+        text = hook_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+    # Find the first docstring block
+    start = text.find('"""')
+    if start < 0:
+        return None
+    end = text.find('"""', start + 3)
+    if end < 0:
+        return None
+    docstring = text[start + 3 : end]
+
+    # Extract content between --- delimiters
+    parts = docstring.split("---")
+    if len(parts) < 3:
+        return None
+    yaml_block = parts[1]
+
+    try:
+        meta = yaml.safe_load(yaml_block)
+    except yaml.YAMLError:
+        logger.warning("Malformed YAML frontmatter in %s", hook_path)
+        return None
+
+    if not isinstance(meta, dict):
+        return None
+
+    # Must have event + tools fields and wiring: standalone
+    if "event" not in meta:
+        return None
+    if "tools" not in meta:
+        logger.warning("Hook %s has wiring: standalone but no tools: field — skipping", hook_path)
+        return None
+    if meta.get("wiring") != "standalone":
+        return None
+
+    # Apply defaults
+    meta.setdefault("timeout", 5)
+    meta.setdefault("safety_layer", 99)
+    return meta
 
 
 def _short_name_from_path(path: Path, artifact_type: str) -> str | None:

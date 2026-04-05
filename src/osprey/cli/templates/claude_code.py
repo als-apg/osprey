@@ -69,6 +69,7 @@ def build_claude_code_context(
 
     # Derive feature flags from artifact selections
     has_lattice_physics = "lattice-physics" in artifacts.get("rules", [])
+    selected_hooks = artifacts.get("hooks", [])
 
     ctx = {
         "project_name": project_name,
@@ -83,6 +84,7 @@ def build_claude_code_context(
         "facility_name": config.get("facility_name", project_name),
         "system_timezone": config.get("system", {}).get("timezone", "UTC"),
         "has_lattice_physics": has_lattice_physics,
+        "selected_hooks": selected_hooks,
     }
 
     # Derive channel finder configuration
@@ -236,6 +238,55 @@ def output_path_to_canonical(output_path: str, registry: PromptCatalog) -> str |
     return art.canonical_name if art else None
 
 
+def _build_framework_hook_rules(
+    selected_hooks: list[str],
+) -> tuple[list[dict], list[dict]]:
+    """Build HookRule dicts for standalone framework hooks.
+
+    Resolves each selected hook name to its file path, parses frontmatter,
+    and builds wiring entries for hooks that declare ``wiring: standalone``.
+
+    Returns:
+        ``(pre_rules, post_rules)`` — same dict shape as server hook rules.
+    """
+    from osprey.cli.templates.artifact_library import parse_hook_frontmatter, resolve_artifact
+
+    pre_rules: list[tuple[int, dict]] = []  # (safety_layer, rule)
+    post_rules: list[tuple[int, dict]] = []
+
+    for hook_name in selected_hooks:
+        try:
+            hook_path = resolve_artifact("hooks", hook_name)
+        except ValueError:
+            continue
+
+        meta = parse_hook_frontmatter(hook_path)
+        if meta is None:
+            continue
+
+        rule = {
+            "matcher": meta["tools"],
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": f'python "$CLAUDE_PROJECT_DIR/.claude/hooks/{hook_path.name}"',
+                    "timeout": meta["timeout"],
+                }
+            ],
+        }
+
+        if meta["event"] == "PreToolUse":
+            pre_rules.append((meta["safety_layer"], rule))
+        elif meta["event"] == "PostToolUse":
+            post_rules.append((meta["safety_layer"], rule))
+
+    # Sort by safety_layer ascending (lower = outermost gate)
+    pre_rules.sort(key=lambda x: x[0])
+    post_rules.sort(key=lambda x: x[0])
+
+    return [r for _, r in pre_rules], [r for _, r in post_rules]
+
+
 def create_claude_code_integration(
     template_root: Path,
     jinja_env,
@@ -273,6 +324,11 @@ def create_claude_code_integration(
             style="yellow",
         )
         return
+
+    # Build framework hook rules from selected hooks' frontmatter
+    fw_pre, fw_post = _build_framework_hook_rules(ctx.get("selected_hooks", []))
+    ctx["framework_pre_hooks"] = fw_pre
+    ctx["framework_post_hooks"] = fw_post
 
     files_created = 0
 

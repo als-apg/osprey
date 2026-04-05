@@ -77,21 +77,14 @@
     ],
     "PreToolUse": [
 {%- set pre_rules = [] -%}
+{%- for rule in framework_pre_hooks | default([]) -%}
+{%- set _ = pre_rules.append(rule) -%}
+{%- endfor -%}
 {%- for s in servers if s.enabled -%}
 {%- for rule in s.hooks_pre -%}
 {%- set _ = pre_rules.append(rule) -%}
 {%- endfor -%}
 {%- endfor -%}
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_memory_guard.py\"",
-            "timeout": 5
-          }
-        ]
-      }{% if pre_rules %},{% endif %}
 {%- for rule in pre_rules %}
       {
         "matcher": "{{ rule.matcher }}",
@@ -114,6 +107,9 @@
 {%- set _ = post_rules.append(rule) -%}
 {%- endfor -%}
 {%- endfor -%}
+{%- for rule in framework_post_hooks | default([]) -%}
+{%- set _ = post_rules.append(rule) -%}
+{%- endfor -%}
 {%- for rule in post_rules %}
       {
         "matcher": "{{ rule.matcher }}",
@@ -126,18 +122,8 @@
           }{% if not loop.last %},{% endif %}
 {%- endfor %}
         ]
-      },
+      }{% if not loop.last %},{% endif %}
 {%- endfor %}
-      {
-        "matcher": "NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_notebook_update.py\"",
-            "timeout": 5
-          }
-        ]
-      }
     ]
   }
 }

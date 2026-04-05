@@ -186,6 +186,7 @@ class TemplateManager:
         # has_lattice_physics: from explicit artifacts list, or from data_bundle name (legacy)
         _artifact_rules = (artifacts or {}).get("rules", [])
         has_lattice_physics = "lattice-physics" in _artifact_rules or data_bundle == "lattice_design"
+        selected_hooks = (artifacts or {}).get("hooks", [])
 
         ctx = {
             "project_name": project_name,
@@ -203,6 +204,7 @@ class TemplateManager:
             "template_name": data_bundle,  # Make bundle name available in config.yml
             "data_bundle": data_bundle,
             "has_lattice_physics": has_lattice_physics,
+            "selected_hooks": selected_hooks,
             # Add detected environment variables
             "env": detected_env_vars,
             **(context or {}),
