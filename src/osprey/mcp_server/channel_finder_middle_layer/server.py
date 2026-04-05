@@ -46,8 +46,6 @@ def create_server() -> FastMCP:
         initialize_workspace_singletons,
         prime_config_builder,
     )
-    from osprey.utils.workspace import resolve_workspace_root
-
     prime_config_builder()
 
     from osprey.mcp_server.channel_finder_middle_layer.server_context import (
@@ -55,9 +53,7 @@ def create_server() -> FastMCP:
     )
 
     initialize_cf_ml_context()
-
-    workspace_root = resolve_workspace_root()
-    initialize_workspace_singletons(workspace_root)
+    initialize_workspace_singletons()
 
     # Import tool modules (each registers itself via @mcp.tool())
     from osprey.mcp_server.channel_finder_middle_layer.tools import (  # noqa: F401

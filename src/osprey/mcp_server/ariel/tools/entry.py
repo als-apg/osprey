@@ -21,9 +21,9 @@ logger = logging.getLogger("osprey.mcp_server.ariel.tools.entry")
 
 def _get_drafts_dir() -> Path:
     """Resolve the drafts directory at call time (not import time)."""
-    from osprey.utils.workspace import resolve_workspace_root
+    from osprey.utils.workspace import resolve_shared_data_root
 
-    return resolve_workspace_root() / "drafts"
+    return resolve_shared_data_root() / "drafts"
 
 
 async def _resolve_artifacts(artifact_ids: list[str]) -> list[str]:

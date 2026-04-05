@@ -83,6 +83,23 @@ def resolve_agent_data_root() -> Path:
     return resolved
 
 
+def resolve_shared_data_root() -> Path:
+    """Resolve the agent data root WITHOUT session-path isolation.
+
+    Use for stores whose data must be visible to long-lived daemons
+    (gallery, ARIEL) that run outside any specific session.  Logical
+    session isolation is handled at the index level via entry metadata
+    (e.g. ``ArtifactEntry.session_id``).
+    """
+    config = load_osprey_config()
+    base_dir = config.get("agent_data", {}).get("base_dir", "./_agent_data")
+    config_path = resolve_config_path()
+    project_root = config_path.parent if config_path.exists() else Path.cwd()
+    resolved = (project_root / base_dir).resolve()
+    logger.debug("Shared data root resolved to %s", resolved)
+    return resolved
+
+
 # Backward-compatible alias
 resolve_workspace_root = resolve_agent_data_root
 

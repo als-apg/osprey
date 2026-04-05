@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from osprey.mcp_server.http import notify_panel_focus
 from osprey.mcp_server.session import gather_session_metadata
 from osprey.models.tiers import VALID_TIERS
-from osprey.utils.workspace import resolve_workspace_root
+from osprey.utils.workspace import resolve_shared_data_root
 
 logger = logging.getLogger("osprey.interfaces.artifacts.logbook")
 
@@ -509,7 +509,7 @@ async def submit(req: SubmitRequest):
     """Submit the composed entry as an ARIEL draft."""
     try:
         draft_id = f"draft-{uuid.uuid4().hex[:12]}"
-        drafts_dir = resolve_workspace_root() / "drafts"
+        drafts_dir = resolve_shared_data_root() / "drafts"
         drafts_dir.mkdir(parents=True, exist_ok=True)
 
         draft_data: dict[str, Any] = {

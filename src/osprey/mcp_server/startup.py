@@ -4,7 +4,6 @@ import logging
 import sys
 import time
 from contextlib import contextmanager
-from pathlib import Path
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -107,12 +106,18 @@ def prime_config_builder() -> None:
             logger.warning("ConfigBuilder priming failed (non-fatal): %s", exc)
 
 
-def initialize_workspace_singletons(workspace_root: Path) -> None:
-    """Initialize ArtifactStore singleton for a workspace."""
+def initialize_workspace_singletons() -> None:
+    """Initialize ArtifactStore singleton with the shared (session-independent) root.
+
+    Artifacts are shared across sessions — the gallery daemon needs a single
+    stable directory.  Session isolation is handled by the ``session_id`` field
+    on each :class:`~osprey.stores.artifact_store.ArtifactEntry`.
+    """
     from osprey.stores.artifact_store import initialize_artifact_store
+    from osprey.utils.workspace import resolve_shared_data_root
 
     with startup_timer("workspace_singletons"):
-        initialize_artifact_store(workspace_root=workspace_root)
+        initialize_artifact_store(workspace_root=resolve_shared_data_root())
 
 
 def run_mcp_server(server_module: str) -> None:
