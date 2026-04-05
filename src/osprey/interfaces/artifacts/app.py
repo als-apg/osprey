@@ -198,13 +198,11 @@ _MARKDOWN_PAGE_TEMPLATE = """\
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{title}</title>
-<link rel="stylesheet"
-  href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-light.min.css">
-<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
-<link rel="stylesheet"
-  href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
-<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<link rel="stylesheet" href="/static/css/vendor/atom-one-light.min.css">
+<script src="/static/js/vendor/highlight.min.js"></script>
+<script src="/static/js/vendor/marked.min.js"></script>
+<link rel="stylesheet" href="/static/css/vendor/katex.min.css">
+<script src="/static/js/vendor/katex.min.js"></script>
 <style>
 body {{
   margin: 0; padding: 24px 32px;
