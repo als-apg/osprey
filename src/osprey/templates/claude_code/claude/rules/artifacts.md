@@ -43,7 +43,7 @@ Register existing files or inline content without running Python:
 
 - `file_path` — register a screenshot, CSV, or any file already on disk
 - `content` + `content_type` — pass markdown/HTML/text/JSON directly
-- `category` — optional gallery category for grouping (e.g., `"diagnostic_report"`)
+- `category` — optional gallery category for grouping. See the type registry for valid categories.
 
 ## Notebook Artifacts
 

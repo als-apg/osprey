@@ -47,8 +47,7 @@ async def artifact_save(
         content: Inline string content (markdown, HTML, text, or JSON).
         content_type: Type of inline content — "markdown", "html", "text",
                       or "json". Ignored when file_path is provided.
-        category: Optional category for gallery grouping (e.g.,
-                  "diagnostic_report", "visualization"). See the type
+        category: Optional category for gallery grouping. See the type
                   registry for valid categories.
 
     Returns:
