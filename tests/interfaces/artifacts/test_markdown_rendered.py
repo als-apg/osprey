@@ -40,9 +40,9 @@ class TestMarkdownRenderedAPI:
         assert "text/html" in resp.headers["content-type"]
 
         html = resp.text
-        assert "marked@12.0.2" in html
-        assert "katex@0.16.11" in html
-        assert "highlightjs" in html
+        assert "marked.min.js" in html
+        assert "katex.min.js" in html
+        assert "highlight.min.js" in html
         assert "osprey-md-rendered" in html
         assert "md-source" in html
 

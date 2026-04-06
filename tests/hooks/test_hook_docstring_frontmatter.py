@@ -154,9 +154,10 @@ class TestErrorGuidanceHook:
 
 
 class TestNotebookUpdateHook:
-    def test_no_safety_layer(self):
+    def test_safety_layer_is_99(self):
+        """Notebook update is standalone-wired with lowest priority (99)."""
         fields, _ = _parse_front_matter(_load_docstring("osprey_notebook_update.py"))
-        assert fields.get("safety_layer") is None
+        assert fields.get("safety_layer") == 99
 
     def test_event_is_post_tool_use(self):
         fields, _ = _parse_front_matter(_load_docstring("osprey_notebook_update.py"))

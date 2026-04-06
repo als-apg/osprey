@@ -49,7 +49,10 @@ class TestBuildClaudeCodeContext:
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
         ctx = claude_code.build_claude_code_context(
-            manager.template_root, manager.jinja_env, project_dir, config,
+            manager.template_root,
+            manager.jinja_env,
+            project_dir,
+            config,
             project_root_override="/app/als-assistant",
         )
 
@@ -472,7 +475,7 @@ class TestDisableServers:
         mcp_data = json.loads((project_dir / ".mcp.json").read_text())
         assert "remote-api" in mcp_data["mcpServers"]
         entry = mcp_data["mcpServers"]["remote-api"]
-        assert entry == {"type": "sse", "url": "http://remote:8001/sse"}
+        assert entry == {"type": "http", "url": "http://remote:8001/sse"}
 
         # Permissions should be in settings.json
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -486,9 +489,7 @@ class TestDisableServers:
             output_dir=tmp_path,
             data_bundle="control_assistant",
         )
-        manager.generate_manifest(
-            project_dir, "override-test", "control_assistant", "extend", {}
-        )
+        manager.generate_manifest(project_dir, "override-test", "control_assistant", "extend", {})
 
         result = manager.regenerate_claude_code(
             project_dir, project_root_override="/app/als-assistant"

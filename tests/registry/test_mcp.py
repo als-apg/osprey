@@ -426,7 +426,7 @@ class TestTemplateRendering:
         assert "channel-finder" in data["mcpServers"]
 
     def test_render_mcp_json_url_server(self, template_manager):
-        """URL/SSE servers render as {type: sse, url: ...} entries."""
+        """URL servers render as {type: http, url: ...} entries."""
         ctx = self._full_ctx(
             _claude_code_config={
                 "servers": {
@@ -440,7 +440,7 @@ class TestTemplateRendering:
         data = json.loads(rendered)
         assert "remote-api" in data["mcpServers"]
         remote = data["mcpServers"]["remote-api"]
-        assert remote == {"type": "sse", "url": "http://remote:8001/sse"}
+        assert remote == {"type": "http", "url": "http://remote:8001/sse"}
         # Framework servers still have command/args, no type
         controls = data["mcpServers"]["controls"]
         assert "command" in controls

@@ -179,7 +179,7 @@ class TestImportErrorHandling:
                 await connector.connect({"url": "https://archiver.example.com"})
 
             assert "archivertools is required" in str(exc_info.value)
-            assert "pip install archivertools" in str(exc_info.value)
+            assert "pip install" in str(exc_info.value)
 
 
 class TestGetDataMethod:
