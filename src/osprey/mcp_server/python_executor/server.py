@@ -35,7 +35,10 @@ def create_server() -> FastMCP:
 
     # Import tool modules (each registers itself via @mcp.tool())
     with startup_timer("tool_imports"):
-        from osprey.mcp_server.python_executor.tools import python_execute  # noqa: F401
+        from osprey.mcp_server.python_executor.tools import (  # noqa: F401
+            python_execute,
+            python_execute_file,
+        )
 
     logger.info("Python Executor MCP server initialised with all tools registered")
     return mcp
