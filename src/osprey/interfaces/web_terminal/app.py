@@ -35,13 +35,15 @@ logger = __import__("logging").getLogger(__name__)
 def _launch_artifact_server(app: FastAPI) -> None:
     """Auto-launch the artifact gallery server if configured."""
     try:
+        import os
+
         from osprey.infrastructure.server_launcher import ensure_artifact_server
         from osprey.utils.workspace import load_osprey_config
 
         config = load_osprey_config()
         art_config = config.get("artifact_server", {})
         host = art_config.get("host", "127.0.0.1")
-        port = art_config.get("port", 8086)
+        port = int(os.environ.get("OSPREY_ARTIFACT_SERVER_PORT", art_config.get("port", 8086)))
 
         app.state.artifact_server_url = f"http://{host}:{port}"
         ensure_artifact_server()
