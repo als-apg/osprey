@@ -384,6 +384,20 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     )
 
     store = ArtifactStore(workspace_root=workspace_root)
+
+    # Prime config and load custom artifact categories (if available)
+    try:
+        config_path = (workspace_root or Path("_agent_data")) / "config.yml"
+        if config_path.exists():
+            from osprey.utils.config import get_config_builder
+
+            get_config_builder(config_path=str(config_path), set_as_default=True)
+            from osprey.stores.type_registry import load_categories_from_config
+
+            load_categories_from_config()
+    except Exception:
+        pass  # Config may not be available in all contexts
+
     broadcaster = _SSEBroadcaster()
 
     index_watcher = StoreIndexWatcher(
@@ -738,7 +752,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     app.add_middleware(NoCacheStaticMiddleware)
 
-    # Mount static assets
+    # Mount shared fonts before /static (Starlette matches in declaration order)
+    SHARED_FONTS_DIR = Path(__file__).parent.parent / "shared_fonts"
+    if SHARED_FONTS_DIR.exists():
+        app.mount("/static/fonts", StaticFiles(directory=SHARED_FONTS_DIR), name="shared-fonts")
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

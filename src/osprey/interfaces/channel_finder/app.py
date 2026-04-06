@@ -206,6 +206,10 @@ def create_app(project_cwd: str | None = None) -> FastAPI:
     # Pending review API
     app.include_router(pending_review_api.router, prefix="/api")
 
+    # Mount shared fonts before /static (Starlette matches in declaration order)
+    SHARED_FONTS_DIR = Path(__file__).parent.parent / "shared_fonts"
+    if SHARED_FONTS_DIR.exists():
+        app.mount("/static/fonts", StaticFiles(directory=SHARED_FONTS_DIR), name="shared-fonts")
     # Static files (must come last so it doesn't shadow API routes)
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

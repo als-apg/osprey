@@ -222,7 +222,10 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
 
     app.add_middleware(NoCacheStaticMiddleware)
 
-    # Mount static assets
+    # Mount shared fonts before /static (Starlette matches in declaration order)
+    SHARED_FONTS_DIR = Path(__file__).parent.parent / "shared_fonts"
+    if SHARED_FONTS_DIR.exists():
+        app.mount("/static/fonts", StaticFiles(directory=SHARED_FONTS_DIR), name="shared-fonts")
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
