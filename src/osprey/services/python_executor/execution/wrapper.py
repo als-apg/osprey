@@ -342,7 +342,7 @@ print(f"Container working directory: {{Path.cwd()}}")
         return textwrap.dedent(
             """
             # Inject save_artifact() for subprocess/container execution
-            def save_artifact(obj, title="Untitled", description="", artifact_type=None):
+            def save_artifact(obj, title="Untitled", description="", artifact_type=None, category=""):
                 \"\"\"Save an object as a gallery artifact.
 
                 Supported types:
@@ -358,6 +358,7 @@ print(f"Container working directory: {{Path.cwd()}}")
                     title: Human-readable title shown in the gallery.
                     description: Optional longer description.
                     artifact_type: Override the auto-detected type.
+                    category: Optional category key for gallery grouping.
                 \"\"\"
                 import json as _json
                 import uuid as _uuid
@@ -467,7 +468,7 @@ print(f"Container working directory: {{Path.cwd()}}")
                 else:
                     manifest = []
 
-                manifest.append({
+                entry = {
                     "id": art_id,
                     "filename": filename,
                     "title": title,
@@ -475,7 +476,10 @@ print(f"Container working directory: {{Path.cwd()}}")
                     "artifact_type": final_type,
                     "mime_type": mime_type,
                     "size_bytes": len(content),
-                })
+                }
+                if category:
+                    entry["category"] = category
+                manifest.append(entry)
                 manifest_path.write_text(_json.dumps(manifest, indent=2))
 
                 print(f"Artifact saved: {title} ({final_type}, {len(content)} bytes)")

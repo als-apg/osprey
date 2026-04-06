@@ -301,15 +301,16 @@ def _collect_artifacts(execution_folder: Path) -> list[dict]:
     for entry in manifest:
         file_path = execution_folder / "artifacts" / entry["filename"]
         if file_path.exists():
-            artifacts.append(
-                {
-                    "path": file_path,
-                    "title": entry.get("title", "Untitled"),
-                    "description": entry.get("description", ""),
-                    "artifact_type": entry.get("artifact_type", "file"),
-                    "mime_type": entry.get("mime_type", "application/octet-stream"),
-                }
-            )
+            art = {
+                "path": file_path,
+                "title": entry.get("title", "Untitled"),
+                "description": entry.get("description", ""),
+                "artifact_type": entry.get("artifact_type", "file"),
+                "mime_type": entry.get("mime_type", "application/octet-stream"),
+            }
+            if entry.get("category"):
+                art["category"] = entry["category"]
+            artifacts.append(art)
         else:
             logger.debug("Artifact file missing: %s", file_path)
 

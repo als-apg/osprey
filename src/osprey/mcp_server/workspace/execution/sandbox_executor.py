@@ -307,7 +307,7 @@ _execution_dir.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------------
 # save_artifact() injection
 # ---------------------------------------------------------------------------
-def save_artifact(obj, title="Untitled", description="", artifact_type=None):
+def save_artifact(obj, title="Untitled", description="", artifact_type=None, category=""):
     """Save an object as a gallery artifact.
 
     Supported types:
@@ -323,6 +323,7 @@ def save_artifact(obj, title="Untitled", description="", artifact_type=None):
         title: Human-readable title shown in the gallery.
         description: Optional longer description.
         artifact_type: Override the auto-detected type.
+        category: Optional category key for gallery grouping.
     """
     import json as _json
     import uuid as _uuid
@@ -444,7 +445,7 @@ def save_artifact(obj, title="Untitled", description="", artifact_type=None):
     else:
         manifest = []
 
-    manifest.append({{
+    entry = {{
         "id": art_id,
         "filename": filename,
         "title": title,
@@ -452,7 +453,10 @@ def save_artifact(obj, title="Untitled", description="", artifact_type=None):
         "artifact_type": final_type,
         "mime_type": mime_type,
         "size_bytes": len(content),
-    }})
+    }}
+    if category:
+        entry["category"] = category
+    manifest.append(entry)
     manifest_path.write_text(_json.dumps(manifest, indent=2))
 
     print(f"Artifact saved: {{title}} ({{final_type}}, {{len(content)}} bytes)")
@@ -569,15 +573,16 @@ def _collect_artifacts(execution_folder: Path) -> list[dict]:
     for entry in manifest:
         file_path = execution_folder / "artifacts" / entry["filename"]
         if file_path.exists():
-            artifacts.append(
-                {
-                    "path": file_path,
-                    "title": entry.get("title", "Untitled"),
-                    "description": entry.get("description", ""),
-                    "artifact_type": entry.get("artifact_type", "file"),
-                    "mime_type": entry.get("mime_type", "application/octet-stream"),
-                }
-            )
+            art = {
+                "path": file_path,
+                "title": entry.get("title", "Untitled"),
+                "description": entry.get("description", ""),
+                "artifact_type": entry.get("artifact_type", "file"),
+                "mime_type": entry.get("mime_type", "application/octet-stream"),
+            }
+            if entry.get("category"):
+                art["category"] = entry["category"]
+            artifacts.append(art)
         else:
             logger.debug("Artifact file missing: %s", file_path)
 

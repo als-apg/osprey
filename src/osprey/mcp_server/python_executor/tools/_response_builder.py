@@ -78,6 +78,7 @@ async def build_execution_response(
                 description=art["description"],
                 mime_type=art["mime_type"],
                 tool_source=tool_source,
+                category=art.get("category", ""),
             )
             artifact_ids.append(art_entry.id)
         except Exception:
