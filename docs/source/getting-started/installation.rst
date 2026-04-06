@@ -201,7 +201,9 @@ OSPREY is installed and ready to use. Here's what to do next:
 
    If you're setting up OSPREY for a specific detector, beamline, or accelerator
    subsystem, the **build interview** walks you through a guided conversation that
-   generates a ready-to-build project profile tailored to your system.
+   generates a ready-to-build project profile tailored to your system. It also
+   handles **migration from existing OSPREY projects** — point it at your old
+   project directory and it will scan, classify, and extract everything reusable.
 
    **Install the interview skill**
 
@@ -220,8 +222,8 @@ OSPREY is installed and ready to use. Here's what to do next:
 
    .. code-block:: bash
 
-      mkdir -p ~/my-detector-project
-      cd ~/my-detector-project
+      mkdir -p ~/my-osprey-project
+      cd ~/my-osprey-project
       claude
 
    In the Claude Code session, type:
@@ -233,11 +235,13 @@ OSPREY is installed and ready to use. Here's what to do next:
    Claude will walk you through:
 
    1. What system you work with and what you need the AI for
-   2. Your EPICS PV names (if you have them — it's OK if you don't yet)
-   3. Whether you need read-only or write access
-   4. How to connect (simulated data is recommended for starting out)
-   5. Whether you'd like a custom monitoring panel in the web dashboard
-   6. A review step that checks for anything missing
+   2. Whether you're starting fresh or **migrating from an existing OSPREY project**
+      (if migrating, just point it to the directory and it will scan and reuse what it can)
+   3. Your EPICS PV names (if you have them — it's OK if you don't yet)
+   4. Whether you need read-only or write access
+   5. How to connect (simulated data is recommended for starting out)
+   6. Whether you'd like a custom monitoring panel in the web dashboard
+   7. A review step that checks for anything missing
 
    The whole interview takes about 10--15 minutes.
 
@@ -245,6 +249,7 @@ OSPREY is installed and ready to use. Here's what to do next:
 
    - If you're not sure about a question, say "I'm not sure" — it'll pick a safe default
    - If you have a spreadsheet of PV names handy, that's helpful but not required
+   - If you're migrating, have the path to your existing project directory ready
    - You can always re-run the interview later to adjust things
 
    **Build your project**
@@ -269,6 +274,12 @@ OSPREY is installed and ready to use. Here's what to do next:
    .. code-block:: bash
 
       uv run osprey web
+
+   **Send feedback**
+
+   After you've tested your project, you can send feedback to the OSPREY team by
+   starting a Claude Code session and typing ``/build-interview feedback``. It takes
+   about 30 seconds and helps us improve the process.
 
    See :doc:`/how-to/build-profiles` for the full build profile reference.
 
