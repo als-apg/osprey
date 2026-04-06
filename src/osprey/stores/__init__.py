@@ -31,6 +31,8 @@ from osprey.stores.type_registry import (
     get_artifact_types,
     get_categories,
     get_tool_types,
+    load_categories_from_config,
+    register_category,
     registry_to_api_dict,
     valid_category_keys,
 )
@@ -47,7 +49,9 @@ __all__ = [
     "get_or_render_html",
     "get_tool_types",
     "initialize_artifact_store",
+    "load_categories_from_config",
     "register_artifact_listener",
+    "register_category",
     "registry_to_api_dict",
     "render_notebook_to_html",
     "reset_artifact_store",

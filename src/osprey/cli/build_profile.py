@@ -143,8 +143,7 @@ def _resolve_extends(
     base_path = (profile_path.parent / extends_value).resolve()
     if not base_path.exists():
         raise BuildProfileError(
-            f"Extended profile not found: {extends_value} "
-            f"(resolved to {base_path})"
+            f"Extended profile not found: {extends_value} (resolved to {base_path})"
         )
 
     try:
@@ -153,9 +152,7 @@ def _resolve_extends(
         raise BuildProfileError(f"Invalid YAML in {base_path}: {e}") from e
 
     if not isinstance(base_raw, dict):
-        raise BuildProfileError(
-            f"Extended profile must be a YAML mapping: {base_path}"
-        )
+        raise BuildProfileError(f"Extended profile must be a YAML mapping: {base_path}")
 
     # Recurse: the base may itself extend another profile
     base_raw = _resolve_extends(base_raw, base_path, chain)
@@ -180,7 +177,9 @@ class BuildProfile:
     env: EnvConfig = field(default_factory=EnvConfig)
     dependencies: list[str] = field(default_factory=list)
     requires_osprey_version: str | None = None  # PEP 440 specifier, e.g. ">=0.12.0"
-    osprey_install: str = "local"  # "local" | "pip" | PEP 508 spec (e.g. "osprey-framework==0.11.5")
+    osprey_install: str = (
+        "local"  # "local" | "pip" | PEP 508 spec (e.g. "osprey-framework==0.11.5")
+    )
     python_env: str = "project"  # "project" | "build" | absolute path to Python executable
     hooks: list[str] = field(default_factory=list)
     rules: list[str] = field(default_factory=list)
@@ -188,6 +187,7 @@ class BuildProfile:
     agents: list[str] = field(default_factory=list)
     output_styles: list[str] = field(default_factory=list)
     web_panels: list[str] = field(default_factory=list)
+    categories: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
@@ -235,9 +235,7 @@ class BuildProfile:
                 if not tmpl_path.is_dir():
                     errors.append(f"Service '{name}' template dir not found: {tmpl_path}")
                 elif not (tmpl_path / "docker-compose.yml.j2").exists():
-                    errors.append(
-                        f"Service '{name}' template dir missing docker-compose.yml.j2"
-                    )
+                    errors.append(f"Service '{name}' template dir missing docker-compose.yml.j2")
 
         # Validate lifecycle steps
         for phase_name in ("pre_build", "post_build", "validate"):
@@ -286,6 +284,19 @@ class BuildProfile:
                     f"Invalid requires_osprey_version specifier: "
                     f"'{self.requires_osprey_version}' (must be PEP 440, e.g. '>=0.12.0')"
                 )
+
+        # Validate custom category definitions
+        import re
+
+        _hex_re = re.compile(r"^#[0-9a-fA-F]{6}$")
+        for cat_key, cat_spec in self.categories.items():
+            if not isinstance(cat_spec, dict):
+                errors.append(f"Category '{cat_key}' must be a mapping with label and color")
+                continue
+            if "label" not in cat_spec or not isinstance(cat_spec.get("label"), str):
+                errors.append(f"Category '{cat_key}' missing or invalid 'label'")
+            if "color" not in cat_spec or not _hex_re.match(str(cat_spec.get("color", ""))):
+                errors.append(f"Category '{cat_key}' missing or invalid 'color' (must be #RRGGBB)")
 
         if errors:
             raise BuildProfileError(
@@ -339,9 +350,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
                 f"MCP server '{name}' has both 'command' and 'url' — use one or the other"
             )
         if not url and not command:
-            raise BuildProfileError(
-                f"MCP server '{name}' must have either 'command' or 'url'"
-            )
+            raise BuildProfileError(f"MCP server '{name}' must have either 'command' or 'url'")
         mcp_servers[name] = McpServerDef(
             command=command,
             args=sdef.get("args", []),
@@ -400,4 +409,5 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         agents=raw.get("agents", []),
         output_styles=raw.get("output_styles", []),
         web_panels=raw.get("web_panels", []),
+        categories=raw.get("categories", {}),
     )

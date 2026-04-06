@@ -11,7 +11,6 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import os
 import shlex
 import shutil
@@ -43,8 +42,12 @@ logger = get_logger("build")
 )
 @click.option("--force", "-f", is_flag=True, help="Force overwrite if project directory exists")
 @click.option("--stream", "-s", is_flag=True, help="Stream lifecycle step output in real-time")
-@click.option("--skip-lifecycle", is_flag=True, help="Skip pre_build, post_build, and validate phases")
-@click.option("--skip-deps", is_flag=True, help="Skip venv creation and dependency installation (CI mode)")
+@click.option(
+    "--skip-lifecycle", is_flag=True, help="Skip pre_build, post_build, and validate phases"
+)
+@click.option(
+    "--skip-deps", is_flag=True, help="Skip venv creation and dependency installation (CI mode)"
+)
 @click.option(
     "--runtime-root",
     type=click.Path(),
@@ -109,9 +112,7 @@ def build(
             logger.info(
                 "  ✓ Validated %d artifact(s): %s",
                 total,
-                ", ".join(
-                    f"{len(v)} {k}" for k, v in artifacts.items()
-                ),
+                ", ".join(f"{len(v)} {k}" for k, v in artifacts.items()),
             )
 
         # 1d. Check OSPREY version requirement
@@ -126,13 +127,15 @@ def build(
             if current not in spec:
                 logger.error(
                     "  ✗ OSPREY %s does not satisfy requires_osprey_version: %s",
-                    __version__, build_profile.requires_osprey_version,
+                    __version__,
+                    build_profile.requires_osprey_version,
                 )
                 logger.info("     Upgrade OSPREY or run: osprey --version")
                 raise click.Abort()
             logger.info(
                 "  ✓ OSPREY %s satisfies %s",
-                __version__, build_profile.requires_osprey_version,
+                __version__,
+                build_profile.requires_osprey_version,
             )
 
         # 2. Resolve output path
@@ -155,7 +158,10 @@ def build(
         # 4. Run pre_build lifecycle commands
         if build_profile.lifecycle.pre_build and not skip_lifecycle:
             _run_lifecycle_phase(
-                "pre_build", build_profile.lifecycle.pre_build, profile_dir, project_path,
+                "pre_build",
+                build_profile.lifecycle.pre_build,
+                profile_dir,
+                project_path,
                 stream=stream,
             )
 
@@ -188,6 +194,7 @@ def build(
             resolved_python_env = str(project_path / ".venv" / "bin" / "python")
         elif python_env == "build":
             import sys
+
             resolved_python_env = sys.executable
         else:
             resolved_python_env = python_env
@@ -222,9 +229,7 @@ def build(
 
         # 10. Inject profile-defined services (facility containers)
         if build_profile.services:
-            psvc_count = _inject_profile_services(
-                profile_dir, project_path, build_profile.services
-            )
+            psvc_count = _inject_profile_services(profile_dir, project_path, build_profile.services)
             logger.info("  ✓ Injected %d profile service(s) for deploy", psvc_count)
 
         # 11. Copy overlay files
@@ -240,7 +245,17 @@ def build(
         # 12. Persist profile MCP servers to config.yml
         if build_profile.mcp_servers:
             _persist_mcp_servers(project_path, build_profile.mcp_servers)
-            logger.info("  ✓ Persisted %d MCP server(s) to config.yml", len(build_profile.mcp_servers))
+            logger.info(
+                "  ✓ Persisted %d MCP server(s) to config.yml", len(build_profile.mcp_servers)
+            )
+
+        # 12b. Persist custom artifact categories to config.yml
+        if build_profile.categories:
+            _persist_categories(project_path, build_profile.categories)
+            logger.info(
+                "  ✓ Persisted %d custom category/ies to config.yml",
+                len(build_profile.categories),
+            )
 
         # 13. Copy profile .env file (if provided)
         if build_profile.env.file:
@@ -272,7 +287,8 @@ def build(
         # Profile MCP servers are now in config.yml (step 12), so regen
         # picks them up alongside framework servers.
         manager.regenerate_claude_code(
-            project_path, project_root_override=runtime_root,
+            project_path,
+            project_root_override=runtime_root,
         )
         logger.info("  ✓ Re-rendered Claude Code artifacts")
 
@@ -282,7 +298,10 @@ def build(
         # 18. Run post_build lifecycle commands
         if build_profile.lifecycle.post_build and not skip_lifecycle:
             _run_lifecycle_phase(
-                "post_build", build_profile.lifecycle.post_build, project_path, project_path,
+                "post_build",
+                build_profile.lifecycle.post_build,
+                project_path,
+                project_path,
                 stream=stream,
             )
 
@@ -434,7 +453,9 @@ def _run_lifecycle_phase(
     mcp_servers_dir = project_path / "_mcp_servers"
     if mcp_servers_dir.is_dir():
         existing = sub_env.get("PYTHONPATH", "")
-        sub_env["PYTHONPATH"] = f"{mcp_servers_dir}{os.pathsep}{existing}" if existing else str(mcp_servers_dir)
+        sub_env["PYTHONPATH"] = (
+            f"{mcp_servers_dir}{os.pathsep}{existing}" if existing else str(mcp_servers_dir)
+        )
         logger.info("Prepended _mcp_servers to lifecycle PYTHONPATH: %s", mcp_servers_dir)
 
     logger.info("  Running %s commands...", phase_name)
@@ -540,8 +561,16 @@ def _run_lifecycle_phase(
             msg = f"Lifecycle {phase_name} step '{step.name}' timed out ({elapsed:.0f}s)"
             # Show partial output captured before timeout (quiet mode only;
             # stream mode already printed output in real-time).
-            _out = e.stdout.decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
-            _err = e.stderr.decode(errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
+            _out = (
+                e.stdout.decode(errors="replace")
+                if isinstance(e.stdout, bytes)
+                else (e.stdout or "")
+            )
+            _err = (
+                e.stderr.decode(errors="replace")
+                if isinstance(e.stderr, bytes)
+                else (e.stderr or "")
+            )
             partial = _out + _err
             if partial.strip():
                 tail = "\n".join(partial.strip().splitlines()[-20:])
@@ -614,12 +643,16 @@ def _create_project_venv(project_path: Path, profile: Any) -> None:
     if uv_path:
         result = subprocess.run(
             [uv_path, "venv", str(venv_path), "--python", sys.executable, "--quiet"],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
     else:
         result = subprocess.run(
             [sys.executable, "-m", "venv", str(venv_path)],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
     if result.returncode != 0:
         output = (result.stdout + result.stderr).strip()
@@ -648,8 +681,15 @@ def _create_project_venv(project_path: Path, profile: Any) -> None:
     if uv_path:
         cmd = [uv_path, "pip", "install", "--quiet", "-p", str(venv_python), *all_deps]
     else:
-        cmd = [str(venv_python), "-m", "pip", "install",
-               "--quiet", "--disable-pip-version-check", *all_deps]
+        cmd = [
+            str(venv_python),
+            "-m",
+            "pip",
+            "install",
+            "--quiet",
+            "--disable-pip-version-check",
+            *all_deps,
+        ]
 
     from rich.live import Live
     from rich.spinner import Spinner
@@ -683,26 +723,52 @@ def _create_project_venv(project_path: Path, profile: Any) -> None:
         # Install osprey (no transitive deps) + profile deps
         if uv_path:
             cmd_nodeps = [
-                uv_path, "pip", "install", "--quiet",
-                "-p", str(venv_python),
-                "--no-deps", osprey_spec,
+                uv_path,
+                "pip",
+                "install",
+                "--quiet",
+                "-p",
+                str(venv_python),
+                "--no-deps",
+                osprey_spec,
             ]
-            cmd_profile = [
-                uv_path, "pip", "install", "--quiet",
-                "-p", str(venv_python),
-                *list(profile.dependencies or []),
-            ] if profile.dependencies else None
+            cmd_profile = (
+                [
+                    uv_path,
+                    "pip",
+                    "install",
+                    "--quiet",
+                    "-p",
+                    str(venv_python),
+                    *list(profile.dependencies or []),
+                ]
+                if profile.dependencies
+                else None
+            )
         else:
             cmd_nodeps = [
-                str(venv_python), "-m", "pip", "install",
-                "--quiet", "--disable-pip-version-check",
-                "--no-deps", osprey_spec,
+                str(venv_python),
+                "-m",
+                "pip",
+                "install",
+                "--quiet",
+                "--disable-pip-version-check",
+                "--no-deps",
+                osprey_spec,
             ]
-            cmd_profile = [
-                str(venv_python), "-m", "pip", "install",
-                "--quiet", "--disable-pip-version-check",
-                *list(profile.dependencies or []),
-            ] if profile.dependencies else None
+            cmd_profile = (
+                [
+                    str(venv_python),
+                    "-m",
+                    "pip",
+                    "install",
+                    "--quiet",
+                    "--disable-pip-version-check",
+                    *list(profile.dependencies or []),
+                ]
+                if profile.dependencies
+                else None
+            )
 
         spinner = Spinner("dots", text="  Installing osprey (--no-deps)...")
         with Live(spinner, transient=True):
@@ -998,6 +1064,7 @@ def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> Non
     are preserved as-is — resolution happens during regen.
     """
     from osprey.utils.config_writer import _load, _save
+
     from .build_profile import McpServerDef
 
     config_path = project_path / "config.yml"
@@ -1006,10 +1073,12 @@ def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> Non
     # Ensure claude_code.servers section exists
     if "claude_code" not in data:
         from ruamel.yaml import CommentedMap
+
         data["claude_code"] = CommentedMap()
     cc = data["claude_code"]
     if "servers" not in cc:
         from ruamel.yaml import CommentedMap
+
         cc["servers"] = CommentedMap()
     servers_section = cc["servers"]
 
@@ -1031,6 +1100,30 @@ def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> Non
             spec["permissions"] = dict(server.permissions)
 
         servers_section[name] = spec
+
+    _save(config_path, data)
+
+
+def _persist_categories(project_path: Path, categories: dict[str, dict[str, str]]) -> None:
+    """Persist custom artifact categories into config.yml's ``categories`` section."""
+    from osprey.utils.config_writer import _load, _save
+
+    config_path = project_path / "config.yml"
+    data = _load(config_path)
+
+    if "categories" not in data:
+        from ruamel.yaml import CommentedMap
+
+        data["categories"] = CommentedMap()
+    cat_section = data["categories"]
+
+    for key, spec in categories.items():
+        from ruamel.yaml import CommentedMap
+
+        entry = CommentedMap()
+        entry["label"] = spec["label"]
+        entry["color"] = spec["color"]
+        cat_section[key] = entry
 
     _save(config_path, data)
 

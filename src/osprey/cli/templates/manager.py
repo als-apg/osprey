@@ -182,10 +182,19 @@ class TemplateManager:
         # Detect environment variables from the system
         detected_env_vars = scaffolding.detect_environment_variables()
 
+        # Fall back to example profile artifacts when none are explicitly provided,
+        # matching the regen fallback in build_claude_code_context().
+        if not artifacts:
+            tmpl_manifest = manifest.load_template_manifest(self.template_root, data_bundle)
+            if tmpl_manifest:
+                artifacts = tmpl_manifest.get("artifacts", {})
+
         # Derive feature flags from artifact selections.
         # has_lattice_physics: from explicit artifacts list, or from data_bundle name (legacy)
         _artifact_rules = (artifacts or {}).get("rules", [])
-        has_lattice_physics = "lattice-physics" in _artifact_rules or data_bundle == "lattice_design"
+        has_lattice_physics = (
+            "lattice-physics" in _artifact_rules or data_bundle == "lattice_design"
+        )
         selected_hooks = (artifacts or {}).get("hooks", [])
 
         ctx = {
@@ -424,7 +433,10 @@ class TemplateManager:
             Dict with 'changed', 'unchanged', and 'backup_dir' keys
         """
         return claude_code.regenerate_claude_code(
-            self.template_root, self.jinja_env, project_dir, dry_run,
+            self.template_root,
+            self.jinja_env,
+            project_dir,
+            dry_run,
             project_root_override=project_root_override,
         )
 

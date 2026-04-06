@@ -11,6 +11,8 @@ from osprey.stores.type_registry import (
     TOOL_TYPES,
     get_artifact_types,
     get_tool_types,
+    load_categories_from_config,
+    register_category,
     registry_to_api_dict,
     valid_category_keys,
 )
@@ -103,3 +105,95 @@ class TestBugFixes:
     def test_channel_list_not_in_categories(self):
         """Phantom type — no producer ever existed."""
         assert "channel_list" not in CATEGORIES
+
+
+class TestRegisterCategory:
+    """Tests for the runtime register_category() API."""
+
+    def setup_method(self):
+        """Snapshot CATEGORIES so we can restore after mutation."""
+        self._snapshot = dict(CATEGORIES)
+
+    def teardown_method(self):
+        """Restore CATEGORIES to pre-test state."""
+        CATEGORIES.clear()
+        CATEGORIES.update(self._snapshot)
+
+    def test_register_new_category(self):
+        register_category("beam_diag", "Beam Diagnostics", "#f59e0b")
+        assert "beam_diag" in CATEGORIES
+        assert "beam_diag" in valid_category_keys()
+        td = CATEGORIES["beam_diag"]
+        assert td.key == "beam_diag"
+        assert td.label == "Beam Diagnostics"
+        assert td.color == "#f59e0b"
+
+    def test_override_existing_category(self):
+        original = CATEGORIES["archiver_data"]
+        register_category("archiver_data", "EPICS Archiver", "#1e40af")
+        td = CATEGORIES["archiver_data"]
+        assert td.label == "EPICS Archiver"
+        assert td.color == "#1e40af"
+        assert td.label != original.label
+
+    def test_invalid_color_raises(self):
+        with pytest.raises(ValueError, match="must be #RRGGBB"):
+            register_category("bad", "Bad", "red")
+
+    def test_empty_key_raises(self):
+        with pytest.raises(ValueError, match="non-empty"):
+            register_category("", "Label", "#aabbcc")
+
+    def test_empty_label_raises(self):
+        with pytest.raises(ValueError, match="non-empty"):
+            register_category("key", "", "#aabbcc")
+
+
+class TestLoadCategoriesFromConfig:
+    """Tests for load_categories_from_config()."""
+
+    def setup_method(self):
+        self._snapshot = dict(CATEGORIES)
+
+    def teardown_method(self):
+        CATEGORIES.clear()
+        CATEGORIES.update(self._snapshot)
+
+    def test_loads_from_config(self, monkeypatch):
+        """Config with a custom category registers it."""
+
+        class _FakeConfigBuilder:
+            def get(self, key, default=None):
+                if key == "categories":
+                    return {
+                        "vacuum_status": {
+                            "label": "Vacuum Status",
+                            "color": "#ef4444",
+                        }
+                    }
+                return default
+
+        monkeypatch.setattr(
+            "osprey.utils.config.get_config_builder",
+            lambda **kw: _FakeConfigBuilder(),
+        )
+
+        count = load_categories_from_config()
+        assert count == 1
+        assert "vacuum_status" in CATEGORIES
+        assert CATEGORIES["vacuum_status"].label == "Vacuum Status"
+
+    def test_no_config_returns_zero(self, monkeypatch):
+        """When config has no categories key, returns 0."""
+
+        class _EmptyConfigBuilder:
+            def get(self, key, default=None):
+                return default
+
+        monkeypatch.setattr(
+            "osprey.utils.config.get_config_builder",
+            lambda **kw: _EmptyConfigBuilder(),
+        )
+
+        count = load_categories_from_config()
+        assert count == 0

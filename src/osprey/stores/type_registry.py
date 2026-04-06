@@ -12,8 +12,14 @@ stores display metadata (label + color).
 
 from __future__ import annotations
 
+import logging
+import re
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+_HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
 @dataclass(frozen=True)
@@ -118,3 +124,51 @@ def registry_to_api_dict() -> dict[str, Any]:
         "tool_types": {k: _typedef_to_dict(v) for k, v in TOOL_TYPES.items()},
         "categories": {k: _typedef_to_dict(v) for k, v in CATEGORIES.items()},
     }
+
+
+def register_category(key: str, label: str, color: str) -> None:
+    """Register or override a category definition at runtime.
+
+    Args:
+        key: Category key (e.g. ``"beam_diagnostics"``).
+        label: Display label (e.g. ``"Beam Diagnostics"``).
+        color: Hex badge colour (e.g. ``"#f59e0b"``).
+
+    Raises:
+        ValueError: If *key* or *label* is empty, or *color* is not ``#RRGGBB``.
+    """
+    if not key:
+        raise ValueError("Category key must be non-empty")
+    if not label:
+        raise ValueError("Category label must be non-empty")
+    if not _HEX_COLOR_RE.match(color):
+        raise ValueError(f"Category color must be #RRGGBB hex (got {color!r})")
+    CATEGORIES[key] = TypeDef(key, label, color)
+    logger.info("Registered custom category: %s (%s)", key, label)
+
+
+def load_categories_from_config() -> int:
+    """Load custom categories from the ``categories`` section of config.yml.
+
+    Returns:
+        Number of categories successfully loaded.
+    """
+    from osprey.utils.config import get_config_builder
+
+    cb = get_config_builder()
+    entries: dict[str, Any] = cb.get("categories", {})
+    if not isinstance(entries, dict):
+        return 0
+
+    loaded = 0
+    for key, spec in entries.items():
+        try:
+            register_category(
+                key=key,
+                label=spec["label"],
+                color=spec["color"],
+            )
+            loaded += 1
+        except Exception as exc:
+            logger.warning("Skipping malformed category %r: %s", key, exc)
+    return loaded

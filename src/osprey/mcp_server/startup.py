@@ -102,6 +102,14 @@ def prime_config_builder() -> None:
             with startup_timer("config_builder"):
                 get_config_builder(config_path=osprey_config, set_as_default=True)
             logger.info("Main ConfigBuilder primed from OSPREY_CONFIG: %s", osprey_config)
+            try:
+                from osprey.stores.type_registry import load_categories_from_config
+
+                n = load_categories_from_config()
+                if n:
+                    logger.info("Loaded %d custom category/ies from config", n)
+            except Exception as exc:
+                logger.warning("Custom category loading failed (non-fatal): %s", exc)
         except Exception as exc:
             logger.warning("ConfigBuilder priming failed (non-fatal): %s", exc)
 
