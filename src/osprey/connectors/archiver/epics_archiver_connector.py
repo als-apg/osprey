@@ -1,5 +1,5 @@
 """
-EPICS Archiver Appliance connector using archivertools.
+EPICS Archiver Appliance connector using direct HTTP calls.
 
 Provides interface to EPICS Archiver Appliance for historical data retrieval.
 Refactored from existing archiver integration code.
@@ -7,10 +7,11 @@ Refactored from existing archiver integration code.
 """
 
 import asyncio
-import os
-import sys
+import json
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime
-from io import StringIO
 from typing import Any
 
 import pandas as pd
@@ -23,10 +24,10 @@ logger = get_logger("epics_archiver_connector")
 
 class EPICSArchiverConnector(ArchiverConnector):
     """
-    EPICS Archiver Appliance connector using archivertools.
+    EPICS Archiver Appliance connector using direct HTTP calls.
 
     Provides access to historical PV data from EPICS Archiver Appliance
-    via the archivertools Python library.
+    via direct HTTP requests using Python stdlib.
 
     Example:
         >>> config = {
@@ -44,11 +45,11 @@ class EPICSArchiverConnector(ArchiverConnector):
 
     def __init__(self):
         self._connected = False
-        self._archiver_client = None
+        self._url = None
 
     async def connect(self, config: dict[str, Any]) -> None:
         """
-        Initialize archiver client.
+        Initialize archiver connection.
 
         Args:
             config: Configuration with keys:
@@ -56,61 +57,21 @@ class EPICSArchiverConnector(ArchiverConnector):
                 - timeout: Default timeout in seconds (default: 60)
 
         Raises:
-            ImportError: If archivertools is not installed
             ValueError: If URL is not provided
         """
-        try:
-            from archivertools import ArchiverClient
-
-            self._ArchiverClient = ArchiverClient
-        except ImportError as e:
-            raise ImportError(
-                "archivertools is required for EPICS archiver. "
-                "Install with: pip install als-archiver-client"
-            ) from e
-
         archiver_url = config.get("url")
         if not archiver_url:
             raise ValueError("archiver URL is required for EPICS archiver")
 
-        try:
-            self._archiver_client = self._create_client(archiver_url)
-        except Exception as e:
-            raise ConnectionError(f"ArchiverClient initialization failed: {e}") from e
-
+        self._url = archiver_url
         self._timeout = config.get("timeout", 60)
         self._connected = True
 
         logger.debug(f"EPICS Archiver connector initialized: {archiver_url}")
 
-    def _create_client(self, archiver_url: str) -> Any:
-        """Create ArchiverClient with ICMP ping suppressed and stdout protected.
-
-        archivertools' DataDownloader.__init__ runs os.system("ping -c 1 <host>")
-        for a connectivity check. This causes two problems in MCP server contexts:
-
-        1. ICMP may be blocked in containers while the archiver HTTP port is open,
-           causing a permanent ConnectionError even though the archiver works fine.
-        2. Both the ping output and print() calls go to stdout, corrupting the
-           JSON-RPC protocol on MCP stdio transport.
-
-        We suppress the subprocess call (returning success) and redirect stdout
-        during construction, then let actual HTTP data fetches validate connectivity.
-        """
-        # Save originals — restored in finally block even on exception
-        original_system = os.system  # noqa: S605 — suppressing, not calling
-        original_stdout = sys.stdout
-        os.system = lambda cmd: 0  # noqa: S605,ARG005 — bypass ICMP ping
-        sys.stdout = StringIO()  # Capture print() from DataDownloader
-        try:
-            return self._ArchiverClient(archiver_url=archiver_url)
-        finally:
-            os.system = original_system
-            sys.stdout = original_stdout
-
     async def disconnect(self) -> None:
         """Cleanup archiver connection."""
-        self._archiver_client = None
+        self._url = None
         self._connected = False
         logger.debug("EPICS Archiver connector disconnected")
 
@@ -143,7 +104,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         """
         timeout = timeout or self._timeout
 
-        if not self._archiver_client:
+        if not self._connected:
             raise RuntimeError("Archiver not connected")
 
         # Validate inputs
