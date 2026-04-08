@@ -7,7 +7,10 @@ Refactored from existing archiver integration code.
 """
 
 import asyncio
+import os
+import sys
 from datetime import datetime
+from io import StringIO
 from typing import Any
 
 import pandas as pd
@@ -71,7 +74,7 @@ class EPICSArchiverConnector(ArchiverConnector):
             raise ValueError("archiver URL is required for EPICS archiver")
 
         try:
-            self._archiver_client = self._ArchiverClient(archiver_url=archiver_url)
+            self._archiver_client = self._create_client(archiver_url)
         except Exception as e:
             raise ConnectionError(f"ArchiverClient initialization failed: {e}") from e
 
@@ -79,6 +82,31 @@ class EPICSArchiverConnector(ArchiverConnector):
         self._connected = True
 
         logger.debug(f"EPICS Archiver connector initialized: {archiver_url}")
+
+    def _create_client(self, archiver_url: str) -> Any:
+        """Create ArchiverClient with ICMP ping suppressed and stdout protected.
+
+        archivertools' DataDownloader.__init__ runs os.system("ping -c 1 <host>")
+        for a connectivity check. This causes two problems in MCP server contexts:
+
+        1. ICMP may be blocked in containers while the archiver HTTP port is open,
+           causing a permanent ConnectionError even though the archiver works fine.
+        2. Both the ping output and print() calls go to stdout, corrupting the
+           JSON-RPC protocol on MCP stdio transport.
+
+        We suppress the subprocess call (returning success) and redirect stdout
+        during construction, then let actual HTTP data fetches validate connectivity.
+        """
+        # Save originals — restored in finally block even on exception
+        original_system = os.system  # noqa: S605 — suppressing, not calling
+        original_stdout = sys.stdout
+        os.system = lambda cmd: 0  # noqa: S605,ARG005 — bypass ICMP ping
+        sys.stdout = StringIO()  # Capture print() from DataDownloader
+        try:
+            return self._ArchiverClient(archiver_url=archiver_url)
+        finally:
+            os.system = original_system
+            sys.stdout = original_stdout
 
     async def disconnect(self) -> None:
         """Cleanup archiver connection."""
