@@ -115,7 +115,7 @@ class EPICSArchiverConnector(ArchiverConnector):
             raise ValueError(f"Waveform PVs not supported: {pv}")
 
         timestamps = pd.to_datetime(
-            [dp["secs"] for dp in data_points], unit="s"
+            [dp["secs"] for dp in data_points], unit="s", utc=True
         ) + pd.to_timedelta([dp["nanos"] for dp in data_points], unit="ns")
         values = [dp["val"] for dp in data_points]
 
@@ -184,6 +184,9 @@ class EPICSArchiverConnector(ArchiverConnector):
                 # Align multi-PV series to a common precision_ms grid via ffill
                 resolution = f"{max(1, precision_ms)}ms"
                 grid = pd.date_range(start=start_date, end=end_date, freq=resolution)
+                # Archiver timestamps are always UTC; ensure the grid matches
+                if grid.tz is None:
+                    grid = grid.tz_localize("UTC")
                 aligned = {}
                 for pv, series in series_dict.items():
                     if series.empty:
