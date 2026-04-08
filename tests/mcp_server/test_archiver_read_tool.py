@@ -237,6 +237,55 @@ async def test_archiver_read_connection_error(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
+async def test_archiver_read_nan_channel_data(tmp_path, monkeypatch):
+    """Channels with all-NaN values produce None stats, not NaN (JSON-safe)."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("archiver:\n  type: mock\n")
+    initialize_server_context()
+
+    # One channel with real data, one with all NaN (e.g. archiver returned
+    # timestamps but no values for that channel)
+    mock_df = _make_archiver_df(
+        {
+            "SR:CURRENT:RB": [500.0, 500.1],
+            "SR:MISSING:RB": [float("nan"), float("nan")],
+        }
+    )
+    mock_connector = AsyncMock()
+    mock_connector.get_data.return_value = mock_df
+
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
+        new_callable=AsyncMock,
+        return_value=mock_connector,
+    ):
+        fn = _get_archiver_read()
+        result = await fn(
+            channels=["SR:CURRENT:RB", "SR:MISSING:RB"],
+            start_time="2024-01-15T10:00:00",
+        )
+
+    data = json.loads(result)
+    assert data["status"] == "success"
+
+    # The good channel should have real stats
+    good = data["summary"]["per_channel"]["SR:CURRENT:RB"]
+    assert good["min"] == 500.0
+    assert good["max"] == 500.1
+    assert good["mean"] is not None
+
+    # The NaN channel should have None stats (not NaN, which breaks JSON)
+    bad = data["summary"]["per_channel"]["SR:MISSING:RB"]
+    assert bad["points"] == 0
+    assert bad["min"] is None
+    assert bad["max"] is None
+    assert bad["mean"] is None
+
+    # The result must be fully JSON-serializable without allow_nan
+    json.dumps(data, allow_nan=False)  # Would raise if NaN slipped through
+
+
+@pytest.mark.unit
 async def test_archiver_read_empty_channels(tmp_path, monkeypatch):
     """Empty channel list returns validation error."""
     monkeypatch.chdir(tmp_path)

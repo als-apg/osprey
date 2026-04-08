@@ -2,6 +2,7 @@
 
 import json
 import logging
+import math
 from datetime import UTC, datetime, timedelta
 
 from osprey.mcp_server.control_system.error_handling import ToolError, connector_error_handler
@@ -122,15 +123,21 @@ async def archiver_read(
                 "dataframe": records,
             }
 
+            def _safe_stat(value: float) -> float | None:
+                """Convert NaN to None for JSON-safe serialization."""
+                v = float(value)
+                return None if math.isnan(v) else v
+
             per_channel = {}
             for ch in channels:
                 if ch in df.columns:
                     col = df[ch]
+                    mean = _safe_stat(col.mean())
                     per_channel[ch] = {
                         "points": int(col.count()),
-                        "min": float(col.min()),
-                        "max": float(col.max()),
-                        "mean": round(float(col.mean()), 6),
+                        "min": _safe_stat(col.min()),
+                        "max": _safe_stat(col.max()),
+                        "mean": round(mean, 6) if mean is not None else None,
                     }
 
             summary = {
@@ -165,7 +172,9 @@ async def archiver_read(
                 "example_row": {
                     "timestamp": str(df.index[0]) if len(df) > 0 else None,
                     "values": (
-                        {ch: float(df[ch].iloc[0]) for ch in df.columns} if len(df) > 0 else {}
+                        {ch: _safe_stat(df[ch].iloc[0]) for ch in df.columns}
+                        if len(df) > 0
+                        else {}
                     ),
                 },
                 "row_count": len(df),
