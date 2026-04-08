@@ -14,31 +14,24 @@ from osprey.connectors.factory import ConnectorFactory
 
 @pytest.fixture
 def mock_archiver_client():
-    """
-    Create a mock ArchiverClient that returns synthetic DataFrames.
-
-    The real archivertools library (als-archiver-client) returns DataFrames with:
-    - Columns: [secs, nanos, PV1, PV2, ...]
-    - Index: Default RangeIndex (0, 1, 2, ...)
-
-    See: https://github.com/andrea-pollastro/als-archiver-client
-
-    Note: The current connector implementation assumes the DataFrame has a
-    time-based index and calls pd.to_datetime(data.index). This mock returns
-    a DataFrame with a DatetimeIndex to match what the connector expects,
-    though this may not match the real library's exact format.
-    """
+    """Create a mock ArchiverClient that returns synthetic DataFrames."""
     mock_client = MagicMock()
 
     def mock_match_data(pv_list, precision, start, end, verbose):
-        # Generate timestamps as the real library does (secs/nanos columns)
-        # but return with DatetimeIndex since the connector expects that
         timestamps = pd.date_range(start=start, end=end, periods=100)
         data = {pv: [float(i) for i in range(100)] for pv in pv_list}
         return pd.DataFrame(data, index=timestamps)
 
     mock_client.match_data = MagicMock(side_effect=mock_match_data)
     return mock_client
+
+
+@pytest.fixture
+def mock_archivertools_module(mock_archiver_client):
+    """Create a mock archivertools module."""
+    mock_module = MagicMock()
+    mock_module.ArchiverClient = MagicMock(return_value=mock_archiver_client)
+    return mock_module
 
 
 @pytest.fixture
@@ -71,80 +64,66 @@ def mock_archiver_client_realistic():
     return mock_client
 
 
-@pytest.fixture
-def mock_archivertools_module(mock_archiver_client):
-    """Create a mock archivertools module."""
-    mock_module = MagicMock()
-    mock_module.ArchiverClient = MagicMock(return_value=mock_archiver_client)
-    return mock_module
-
-
 class TestConnectDisconnectLifecycle:
     """Tests for connect/disconnect lifecycle."""
 
     @pytest.mark.asyncio
-    async def test_connect_success(self, mock_archivertools_module):
-        """Test that connect succeeds with valid config."""
-        with patch.dict("sys.modules", {"archivertools": mock_archivertools_module}):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+    async def test_connect_stores_url(self):
+        """Test that connect stores URL from config."""
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com"})
 
-            assert connector._connected is True
-            assert connector._archiver_client is not None
+        assert connector._connected is True
+        assert connector._url == "https://archiver.example.com"
 
-            await connector.disconnect()
+        await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_connect_default_timeout(self, mock_archivertools_module):
+    async def test_connect_default_timeout(self):
         """Test that default timeout of 60s is used when not specified."""
-        with patch.dict("sys.modules", {"archivertools": mock_archivertools_module}):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com"})
 
-            assert connector._timeout == 60
+        assert connector._timeout == 60
 
-            await connector.disconnect()
+        await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_connect_custom_timeout(self, mock_archivertools_module):
+    async def test_connect_custom_timeout(self):
         """Test that custom timeout is used when specified."""
-        with patch.dict("sys.modules", {"archivertools": mock_archivertools_module}):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com", "timeout": 120})
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com", "timeout": 120})
 
-            assert connector._timeout == 120
+        assert connector._timeout == 120
 
-            await connector.disconnect()
+        await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_connect_missing_url_raises_value_error(self, mock_archivertools_module):
+    async def test_connect_missing_url_raises_value_error(self):
         """Test that connect raises ValueError when URL is missing."""
-        with patch.dict("sys.modules", {"archivertools": mock_archivertools_module}):
-            connector = EPICSArchiverConnector()
+        connector = EPICSArchiverConnector()
 
-            with pytest.raises(ValueError, match="archiver URL is required"):
-                await connector.connect({})
+        with pytest.raises(ValueError, match="archiver URL is required"):
+            await connector.connect({})
 
     @pytest.mark.asyncio
-    async def test_connect_empty_url_raises_value_error(self, mock_archivertools_module):
+    async def test_connect_empty_url_raises_value_error(self):
         """Test that connect raises ValueError when URL is empty string."""
-        with patch.dict("sys.modules", {"archivertools": mock_archivertools_module}):
-            connector = EPICSArchiverConnector()
+        connector = EPICSArchiverConnector()
 
-            with pytest.raises(ValueError, match="archiver URL is required"):
-                await connector.connect({"url": ""})
+        with pytest.raises(ValueError, match="archiver URL is required"):
+            await connector.connect({"url": ""})
 
     @pytest.mark.asyncio
-    async def test_disconnect_clears_state(self, mock_archivertools_module):
+    async def test_disconnect_clears_state(self):
         """Test that disconnect clears connection state."""
-        with patch.dict("sys.modules", {"archivertools": mock_archivertools_module}):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com"})
 
-            await connector.disconnect()
+        await connector.disconnect()
 
-            assert connector._connected is False
-            assert connector._archiver_client is None
+        assert connector._connected is False
+        assert connector._url is None
 
     @pytest.mark.asyncio
     async def test_disconnect_when_not_connected(self):
@@ -154,7 +133,7 @@ class TestConnectDisconnectLifecycle:
         await connector.disconnect()
 
         assert connector._connected is False
-        assert connector._archiver_client is None
+        assert connector._url is None
 
 
 class TestImportErrorHandling:
@@ -676,30 +655,28 @@ class TestFactoryIntegration:
         ConnectorFactory._archiver_connectors.clear()
 
     @pytest.mark.asyncio
-    async def test_factory_creates_epics_archiver_connector(self, mock_archivertools_module):
+    async def test_factory_creates_and_connects_epics_archiver_connector(self):
         """Test that factory creates and connects EPICSArchiverConnector."""
-        with patch.dict("sys.modules", {"archivertools": mock_archivertools_module}):
-            config = {
-                "type": "epics_archiver",
-                "epics_archiver": {"url": "https://archiver.example.com", "timeout": 30},
-            }
+        config = {
+            "type": "epics_archiver",
+            "epics_archiver": {"url": "https://archiver.example.com", "timeout": 30},
+        }
 
-            connector = await ConnectorFactory.create_archiver_connector(config)
+        connector = await ConnectorFactory.create_archiver_connector(config)
 
-            assert isinstance(connector, EPICSArchiverConnector)
-            assert connector._connected is True
-            assert connector._timeout == 30
+        assert isinstance(connector, EPICSArchiverConnector)
+        assert connector._connected is True
+        assert connector._timeout == 30
 
-            await connector.disconnect()
+        await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_factory_with_missing_url_raises_error(self, mock_archivertools_module):
+    async def test_factory_with_missing_url_raises_error(self):
         """Test that factory propagates ValueError for missing URL."""
-        with patch.dict("sys.modules", {"archivertools": mock_archivertools_module}):
-            config = {
-                "type": "epics_archiver",
-                "epics_archiver": {},  # Missing URL
-            }
+        config = {
+            "type": "epics_archiver",
+            "epics_archiver": {},  # Missing URL
+        }
 
-            with pytest.raises(ValueError, match="archiver URL is required"):
-                await ConnectorFactory.create_archiver_connector(config)
+        with pytest.raises(ValueError, match="archiver URL is required"):
+            await ConnectorFactory.create_archiver_connector(config)
