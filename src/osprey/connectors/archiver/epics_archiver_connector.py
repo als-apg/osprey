@@ -213,8 +213,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         """
         Get archiving metadata for a PV.
 
-        Note: archivertools doesn't expose metadata API directly,
-        so this returns basic information.
+        Returns basic information without querying the archiver metadata API.
 
         Args:
             pv_name: Name of the process variable
