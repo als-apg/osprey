@@ -148,7 +148,7 @@ class EPICSArchiverConnector(ArchiverConnector):
             ConnectionError: If archiver cannot be reached
             ValueError: If data format is unexpected
         """
-        timeout = timeout or self._timeout
+        timeout = timeout if timeout is not None else self._timeout
 
         if not self._connected:
             raise RuntimeError("Archiver not connected")
@@ -159,31 +159,39 @@ class EPICSArchiverConnector(ArchiverConnector):
         if not isinstance(end_date, datetime):
             raise TypeError(f"end_date must be a datetime object, got {type(end_date)}")
 
-        def fetch_data():
-            """Synchronous data fetch function."""
-            return self._archiver_client.match_data(
-                pv_list=pv_list, precision=precision_ms, start=start_date, end=end_date, verbose=0
-            )
+        start_str = start_date.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        end_str = end_date.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+        # Apply server-side downsampling when precision is set
+        if precision_ms > 0:
+            n_secs = max(1, precision_ms // 1000)
+            effective_pvs = [f"lastSample_{n_secs}({pv})" for pv in pv_list]
+        else:
+            effective_pvs = list(pv_list)
+
+        def fetch_all():
+            series_dict = {}
+            for pv, effective_pv in zip(pv_list, effective_pvs):
+                series_dict[pv] = self._fetch_single_pv(effective_pv, start_str, end_str)
+            return series_dict
 
         try:
-            # Use asyncio.wait_for for timeout, asyncio.to_thread for async execution
-            data = await asyncio.wait_for(asyncio.to_thread(fetch_data), timeout=timeout)
+            series_dict = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=timeout)
 
-            if not isinstance(data, pd.DataFrame):
-                raise ValueError(f"Unexpected data format: {type(data)}")
-
-            # archivertools returns DataFrame with columns [secs, nanos, PV1, PV2, ...]
-            # Convert secs/nanos to DatetimeIndex and drop those columns
-            if "secs" in data.columns and "nanos" in data.columns:
-                # Combine seconds and nanoseconds into datetime
-                timestamps = pd.to_datetime(data["secs"], unit="s") + pd.to_timedelta(
-                    data["nanos"], unit="ns"
-                )
-                data = data.drop(columns=["secs", "nanos"])
-                data.index = timestamps
-            elif not isinstance(data.index, pd.DatetimeIndex):
-                # Fallback: try to convert existing index to datetime
-                data.index = pd.to_datetime(data.index)
+            if len(pv_list) == 1:
+                data = pd.DataFrame(series_dict)
+            else:
+                # Align multi-PV series to a common precision_ms grid via ffill
+                resolution = f"{max(1, precision_ms)}ms"
+                grid = pd.date_range(start=start_date, end=end_date, freq=resolution)
+                aligned = {}
+                for pv, series in series_dict.items():
+                    if series.empty:
+                        aligned[pv] = pd.Series(index=grid, dtype=float, name=pv)
+                    else:
+                        reindexed = series.reindex(series.index.union(grid)).ffill()
+                        aligned[pv] = reindexed.reindex(grid)
+                data = pd.DataFrame(aligned)
 
             logger.debug(f"Retrieved archiver data: {len(data)} points for {len(pv_list)} PVs")
             return data
