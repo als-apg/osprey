@@ -75,6 +75,52 @@ class EPICSArchiverConnector(ArchiverConnector):
         self._connected = False
         logger.debug("EPICS Archiver connector disconnected")
 
+    def _fetch_single_pv(self, pv: str, start_str: str, end_str: str) -> pd.Series:
+        """
+        Fetch archived data for a single PV via direct HTTP.
+
+        Args:
+            pv: PV name (may include processing operators, e.g. mean_60(SR:DCCT))
+            start_str: ISO 8601 UTC start time string
+            end_str: ISO 8601 UTC end time string
+
+        Returns:
+            pd.Series with DatetimeIndex; empty Series if no data
+
+        Raises:
+            ValueError: If PV has array-valued samples (waveform PV)
+            ConnectionError: If the HTTP request fails
+        """
+        params = urllib.parse.urlencode(
+            {"pv": pv, "from": start_str, "to": end_str, "fetchLatestMetadata": "true"}
+        )
+        url = f"{self._url}/retrieval/data/getData.json?{params}"
+        req = urllib.request.Request(url, method="GET")
+
+        try:
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                payload = json.loads(resp.read().decode())
+        except urllib.error.URLError as e:
+            raise ConnectionError(f"Cannot connect to archiver at {self._url}: {e}") from e
+
+        # Empty response: [] or [{"meta": ..., "data": []}]
+        if not payload:
+            return pd.Series(dtype=float, name=pv)
+        data_points = payload[0].get("data", [])
+        if not data_points:
+            return pd.Series(dtype=float, name=pv)
+
+        # Check for waveform PV (array-valued val)
+        if isinstance(data_points[0].get("val"), list):
+            raise ValueError(f"Waveform PVs not supported: {pv}")
+
+        timestamps = pd.to_datetime(
+            [dp["secs"] for dp in data_points], unit="s"
+        ) + pd.to_timedelta([dp["nanos"] for dp in data_points], unit="ns")
+        values = [dp["val"] for dp in data_points]
+
+        return pd.Series(values, index=timestamps, name=pv)
+
     async def get_data(
         self,
         pv_list: list[str],
