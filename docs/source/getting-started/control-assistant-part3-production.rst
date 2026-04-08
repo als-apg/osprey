@@ -183,8 +183,6 @@ and configure in ``config.yml``.
        url: https://archiver.your-facility.edu:8443
        timeout: 60
 
-Install: ``uv add als-archiver-client``
-
 7.4: Connect Your Facility Logbook
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

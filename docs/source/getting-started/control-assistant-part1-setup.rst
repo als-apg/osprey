@@ -218,7 +218,6 @@ The framework provides a **connector abstraction** that enables development with
       **Production Requirements:**
 
       - Install ``pyepics``: ``uv add pyepics``
-      - Install ``archivertools``: ``uv add archivertools``
       - Configure gateway addresses for your facility
 
 Your MCP tools use the ``ConnectorFactory`` API, which means the same tools work in both modes. No changes needed when migrating from tutorial to production -- just update the config. See :doc:`Add a Connector </how-to/add-connector>` for implementing custom connectors.
