@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from osprey.stores.base_store import BaseStore
+from osprey.stores.base_store import BaseStore, _sanitize_for_json
 
 logger = logging.getLogger("osprey.stores.artifact_store")
 
@@ -63,7 +63,7 @@ class ArtifactEntry:
     session_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return _sanitize_for_json(asdict(self))
 
     def to_tool_response(self, gallery_url: str | None = None) -> dict[str, Any]:
         """Compact response returned to Claude after artifact creation.

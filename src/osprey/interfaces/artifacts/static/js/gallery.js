@@ -331,6 +331,25 @@
 
   // ---- API ----
 
+  function showErrorBanner(msg) {
+    var banner = document.getElementById("error-banner");
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.id = "error-banner";
+      banner.style.cssText =
+        "position:fixed;top:0;left:0;right:0;z-index:9999;padding:12px 20px;" +
+        "background:var(--color-error);color:#fff;font-size:14px;text-align:center;";
+      document.body.prepend(banner);
+    }
+    banner.textContent = msg;
+    banner.style.display = "block";
+  }
+
+  function hideErrorBanner() {
+    var banner = document.getElementById("error-banner");
+    if (banner) banner.style.display = "none";
+  }
+
   async function fetchArtifacts() {
     try {
       let url = "/api/artifacts";
@@ -338,6 +357,13 @@
         url += "?session_id=" + encodeURIComponent(currentSessionId);
       }
       const resp = await fetch(url);
+      if (!resp.ok) {
+        const errText = await resp.text();
+        showErrorBanner("API error (" + resp.status + "): " + errText);
+        updateHealth(false);
+        return;
+      }
+      hideErrorBanner();
       const data = await resp.json();
       artifacts = data.artifacts || [];
       updateHealth(true);
@@ -346,6 +372,7 @@
       renderSidebar();
     } catch (err) {
       console.error("Failed to fetch artifacts:", err);
+      showErrorBanner("Failed to fetch artifacts: " + err.message);
       updateHealth(false);
     }
   }
