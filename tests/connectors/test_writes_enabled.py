@@ -38,6 +38,9 @@ class _StubConnector(ControlSystemConnector):
     ) -> ChannelWriteResult:
         raise NotImplementedError
 
+    async def write_multiple_channels(self, operations, **kwargs):
+        raise NotImplementedError
+
     async def read_multiple_channels(
         self, channel_addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
@@ -56,6 +59,47 @@ class _StubConnector(ControlSystemConnector):
 
     async def validate_channel(self, channel_address: str) -> bool:
         raise NotImplementedError
+
+
+class _WritableStub(ControlSystemConnector):
+    """Concrete subclass with working write methods for pass-through tests."""
+
+    async def connect(self, config):
+        pass
+
+    async def disconnect(self):
+        pass
+
+    async def read_channel(self, addr, timeout=None):
+        raise NotImplementedError
+
+    async def write_channel(self, channel_address, value, **kwargs):
+        return ChannelWriteResult(
+            channel_address=channel_address,
+            value_written=value,
+            success=True,
+        )
+
+    async def write_multiple_channels(self, operations, **kwargs):
+        return [
+            ChannelWriteResult(channel_address=addr, value_written=val, success=True)
+            for addr, val in operations
+        ]
+
+    async def read_multiple_channels(self, addrs, timeout=None):
+        return {}
+
+    async def subscribe(self, addr, cb):
+        return "sub"
+
+    async def unsubscribe(self, sub_id):
+        pass
+
+    async def get_metadata(self, addr):
+        raise NotImplementedError
+
+    async def validate_channel(self, addr):
+        return True
 
 
 class TestInitSubclassWrapping:
@@ -82,40 +126,6 @@ class TestInitSubclassWrapping:
     @pytest.mark.asyncio
     async def test_write_passes_through_when_enabled(self):
         """With _writes_enabled=True, the original write_channel is called."""
-
-        # Need a subclass with a working write_channel
-        class _WritableStub(ControlSystemConnector):
-            async def connect(self, config):
-                pass
-
-            async def disconnect(self):
-                pass
-
-            async def read_channel(self, addr, timeout=None):
-                raise NotImplementedError
-
-            async def write_channel(self, channel_address, value, **kwargs):
-                return ChannelWriteResult(
-                    channel_address=channel_address,
-                    value_written=value,
-                    success=True,
-                )
-
-            async def read_multiple_channels(self, addrs, timeout=None):
-                return {}
-
-            async def subscribe(self, addr, cb):
-                return "sub"
-
-            async def unsubscribe(self, sub_id):
-                pass
-
-            async def get_metadata(self, addr):
-                raise NotImplementedError
-
-            async def validate_channel(self, addr):
-                return True
-
         connector = _WritableStub()
         with patch("osprey.utils.config.get_config_value", return_value=True):
             result = await connector.write_channel("TEST:PV", 42.0)
@@ -131,22 +141,41 @@ class TestInitSubclassWrapping:
         assert "MY:SPECIAL:PV" in result.error_message
         assert "control_system.writes_enabled" in result.error_message
 
+    @pytest.mark.asyncio
+    async def test_write_multiple_blocked_when_disabled(self):
+        """With _writes_enabled=False, write_multiple returns failures."""
+        connector = _StubConnector()
+        ops = [("PV:A", 1.0), ("PV:B", 2.0)]
+        with patch("osprey.utils.config.get_config_value", return_value=False):
+            results = await connector.write_multiple_channels(ops)
+        assert len(results) == 2
+        assert all(not r.success for r in results)
+        assert "PV:A" in results[0].error_message
+        assert "PV:B" in results[1].error_message
+        assert "writes are disabled" in results[0].error_message
+
+    @pytest.mark.asyncio
+    async def test_write_multiple_passes_through_when_enabled(self):
+        """With _writes_enabled=True, the original write_multiple_channels is called."""
+        connector = _WritableStub()
+        ops = [("PV:A", 1.0), ("PV:B", 2.0)]
+        with patch("osprey.utils.config.get_config_value", return_value=True):
+            results = await connector.write_multiple_channels(ops)
+        assert len(results) == 2
+        assert all(r.success for r in results)
+
 
 class TestWritesEnabledProperty:
     """Tests for the _writes_enabled base-class property."""
 
     def test_returns_false_when_config_says_false(self):
         connector = _StubConnector()
-        with patch(
-            "osprey.utils.config.get_config_value", return_value=False
-        ):
+        with patch("osprey.utils.config.get_config_value", return_value=False):
             assert connector._writes_enabled is False
 
     def test_returns_true_when_config_says_true(self):
         connector = _StubConnector()
-        with patch(
-            "osprey.utils.config.get_config_value", return_value=True
-        ):
+        with patch("osprey.utils.config.get_config_value", return_value=True):
             assert connector._writes_enabled is True
 
     def test_returns_false_on_file_not_found(self):
