@@ -1046,7 +1046,7 @@
     if (_plotlyLoading) return _plotlyLoading;
     _plotlyLoading = new Promise((resolve, reject) => {
       const script = document.createElement("script");
-      script.src = "https://cdn.plot.ly/plotly-2.35.2.min.js";
+      script.src = "/static/js/vendor/plotly.min.js";
       script.onload = () => { _plotlyLoaded = true; resolve(); };
       script.onerror = () => reject(new Error("Failed to load Plotly"));
       document.head.appendChild(script);

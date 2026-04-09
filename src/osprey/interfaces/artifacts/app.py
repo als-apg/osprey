@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -312,6 +313,18 @@ def _build_markdown_page(md_source: str, title: str) -> str:
         title=title.replace("&", "&amp;").replace("<", "&lt;"),
         md_json=md_json,
     )
+
+
+_CDN_PLOTLY_RE = re.compile(
+    r'(src=["\'])https://cdn\.plot\.ly/plotly[^"\']*\.min\.js(["\'])'
+)
+
+
+def _rewrite_plotly_cdn(html_bytes: bytes) -> bytes:
+    """Replace CDN Plotly URLs with the local bundled copy."""
+    html = html_bytes.decode("utf-8", errors="replace")
+    html = _CDN_PLOTLY_RE.sub(r"\1/static/js/vendor/plotly.min.js\2", html)
+    return html.encode("utf-8")
 
 
 def _inject_html_snippet(html_bytes: bytes, snippet: str) -> bytes:
@@ -660,8 +673,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 content_disposition_type="inline",
             )
 
-        # HTML types may need responsive snippet injection
+        # HTML types may need responsive snippet injection + CDN rewriting
         content = filepath.read_bytes()
+        content = _rewrite_plotly_cdn(content)
         content = _inject_html_snippet(content, snippet)
         return Response(
             content=content,
