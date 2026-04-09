@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from osprey.interfaces.common_middleware import NoCacheStaticMiddleware
+from osprey.interfaces.common_middleware import ExceptionLoggingMiddleware, NoCacheStaticMiddleware
 from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster, WorkspaceWatcher
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
@@ -358,6 +358,7 @@ def create_app(
     )
 
     app.add_middleware(NoCacheStaticMiddleware)
+    app.add_middleware(ExceptionLoggingMiddleware)
 
     app.include_router(router)
 

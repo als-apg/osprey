@@ -748,9 +748,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     app.include_router(logbook_router)
 
-    from osprey.interfaces.common_middleware import NoCacheStaticMiddleware
+    from osprey.interfaces.common_middleware import ExceptionLoggingMiddleware, NoCacheStaticMiddleware
 
     app.add_middleware(NoCacheStaticMiddleware)
+    app.add_middleware(ExceptionLoggingMiddleware)
 
     # Mount shared fonts before /static (Starlette matches in declaration order)
     SHARED_FONTS_DIR = Path(__file__).parent.parent / "shared_fonts"

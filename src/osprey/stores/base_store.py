@@ -26,6 +26,17 @@ INDEX_VERSION = 1
 T = TypeVar("T")
 
 
+def _sanitize_for_json(obj: Any) -> Any:
+    """Replace float('nan') and float('inf') with None, recursively."""
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_for_json(v) for v in obj]
+    if isinstance(obj, float) and (obj != obj or obj == float("inf") or obj == float("-inf")):
+        return None
+    return obj
+
+
 class BaseStore(Generic[T]):
     """Abstract base for a file-backed, JSON-indexed store.
 
@@ -135,7 +146,7 @@ class BaseStore(Generic[T]):
         self._ensure_dirs()
         index_data = self._build_index_data()
         with open(self._index_file, "w") as f:
-            json.dump(index_data, f, indent=2, default=str)
+            json.dump(_sanitize_for_json(index_data), f, indent=2, default=str)
         self._index_mtime = self._index_file.stat().st_mtime
 
     def _build_index_data(self) -> dict:
