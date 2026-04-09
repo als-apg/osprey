@@ -62,7 +62,7 @@ def _launch_ariel_server(app: FastAPI) -> None:
         config = load_osprey_config()
         ariel_web = config.get("ariel", {}).get("web", {})
         host = ariel_web.get("host", "127.0.0.1")
-        port = ariel_web.get("port", 8085)
+        port = int(os.environ.get("OSPREY_ARIEL_PORT", ariel_web.get("port", 8085)))
 
         app.state.ariel_server_url = f"http://{host}:{port}"
         ensure_ariel_server()
@@ -81,7 +81,7 @@ def _launch_tuning_server(app: FastAPI) -> None:
         config = load_osprey_config()
         tuning_web = config.get("tuning", {}).get("web", {})
         host = tuning_web.get("host", "127.0.0.1")
-        port = tuning_web.get("port", 8090)
+        port = int(os.environ.get("OSPREY_TUNING_PORT", tuning_web.get("port", 8090)))
 
         app.state.tuning_server_url = f"http://{host}:{port}"
         ensure_tuning_server()
@@ -103,7 +103,7 @@ def _launch_channel_finder_server(app: FastAPI) -> None:
             return
         cf_web = cf.get("web", {})
         host = cf_web.get("host", "127.0.0.1")
-        port = cf_web.get("port", 8092)
+        port = int(os.environ.get("OSPREY_CHANNEL_FINDER_PORT", cf_web.get("port", 8092)))
 
         app.state.channel_finder_server_url = f"http://{host}:{port}"
         ensure_channel_finder_server()
@@ -124,7 +124,7 @@ def _launch_lattice_dashboard_server(app: FastAPI) -> None:
         if not ld:
             return
         host = ld.get("host", "127.0.0.1")
-        port = ld.get("port", 8097)
+        port = int(os.environ.get("OSPREY_LATTICE_DASHBOARD_PORT", ld.get("port", 8097)))
 
         app.state.lattice_dashboard_server_url = f"http://{host}:{port}"
         ensure_lattice_dashboard_server()
