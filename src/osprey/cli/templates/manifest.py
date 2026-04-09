@@ -34,6 +34,7 @@ REGEN_TRACKED_FILES = [
     "CLAUDE.md",
     ".mcp.json",
     ".claude/settings.json",
+    ".claude/statusline.py",
     ".claude/rules/safety.md",
     ".claude/rules/error-handling.md",
     ".claude/rules/artifacts.md",
@@ -164,7 +165,7 @@ def load_template_manifest(
 def resolve_manifest_outputs(manifest: dict) -> set[str]:
     """Resolve a template manifest to the set of output paths that should be generated.
 
-    Config artifacts (CLAUDE.md, .mcp.json, .claude/settings.json) are always included.
+    Config artifacts (CLAUDE.md, .mcp.json, .claude/settings.json, .claude/statusline.py) are always included.
     For each manifest entry, prefix-matching is used against the prompt registry to
     handle multi-file artifacts (e.g. session-report -> SKILL.md + reference.md).
 
@@ -174,7 +175,7 @@ def resolve_manifest_outputs(manifest: dict) -> set[str]:
     Returns:
         Set of output paths (relative to project root) that the manifest allows.
     """
-    result = {"CLAUDE.md", ".mcp.json", ".claude/settings.json"}
+    result = {"CLAUDE.md", ".mcp.json", ".claude/settings.json", ".claude/statusline.py"}
 
     registry = PromptCatalog.default()
     all_artifacts = registry.all_artifacts()
