@@ -111,36 +111,59 @@ class ControlSystemConnector(ABC):
             return False
 
     def __init_subclass__(cls, **kwargs):
-        """Auto-wrap write_channel() with writes_enabled pre-check.
+        """Auto-wrap write methods with writes_enabled pre-check.
 
-        Any subclass that defines write_channel() gets it transparently wrapped.
-        The wrapper checks _writes_enabled before calling the original method.
-        When writes are disabled, returns ChannelWriteResult(success=False)
-        with an operator-facing error message — no exception is raised.
+        Any subclass that defines ``write_channel()`` or
+        ``write_multiple_channels()`` gets them transparently wrapped.
+        The wrapper checks ``_writes_enabled`` before calling the original
+        method.  When writes are disabled, returns failure results with an
+        operator-facing error message — no exception is raised.
 
         This fires before limits validation (intentional: fast-reject when
         writes are disabled, avoiding unnecessary validation work).
         """
         super().__init_subclass__(**kwargs)
-        original = cls.__dict__.get("write_channel")
-        if original is None:
-            return
 
-        @functools.wraps(original)
-        async def _guarded(self, channel_address, value, *args, **kwargs):
-            if not self._writes_enabled:
-                return ChannelWriteResult(
-                    channel_address=channel_address,
-                    value_written=value,
-                    success=False,
-                    error_message=(
-                        f"Write to '{channel_address}' blocked: writes are disabled. "
-                        "Set control_system.writes_enabled: true in config.yml"
-                    ),
-                )
-            return await original(self, channel_address, value, *args, **kwargs)
+        original_write = cls.__dict__.get("write_channel")
+        if original_write is not None:
 
-        cls.write_channel = _guarded
+            @functools.wraps(original_write)
+            async def _guarded_write(self, channel_address, value, *args, **kwargs):
+                if not self._writes_enabled:
+                    return ChannelWriteResult(
+                        channel_address=channel_address,
+                        value_written=value,
+                        success=False,
+                        error_message=(
+                            f"Write to '{channel_address}' blocked: writes are disabled. "
+                            "Set control_system.writes_enabled: true in config.yml"
+                        ),
+                    )
+                return await original_write(self, channel_address, value, *args, **kwargs)
+
+            cls.write_channel = _guarded_write
+
+        original_multi = cls.__dict__.get("write_multiple_channels")
+        if original_multi is not None:
+
+            @functools.wraps(original_multi)
+            async def _guarded_multi(self, operations, *args, **kwargs):
+                if not self._writes_enabled:
+                    return [
+                        ChannelWriteResult(
+                            channel_address=addr,
+                            value_written=val,
+                            success=False,
+                            error_message=(
+                                f"Write to '{addr}' blocked: writes are disabled. "
+                                "Set control_system.writes_enabled: true in config.yml"
+                            ),
+                        )
+                        for addr, val in operations
+                    ]
+                return await original_multi(self, operations, *args, **kwargs)
+
+            cls.write_multiple_channels = _guarded_multi
 
     def _get_verification_config(
         self, channel_address: str, value: float
