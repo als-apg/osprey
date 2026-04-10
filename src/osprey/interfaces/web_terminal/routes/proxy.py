@@ -8,11 +8,12 @@ server and rewrites root-absolute paths in HTML/JS/CSS responses.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 
 import httpx
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
 
 logger = logging.getLogger(__name__)
@@ -212,3 +213,66 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
 async def proxy_panel_root(panel_id: str, request: Request):
     """Proxy the root path of a companion panel (no trailing path segment)."""
     return await proxy_panel(panel_id, "", request)
+
+
+@router.websocket("/panel/{panel_id}/{path:path}")
+async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
+    """Forward a WebSocket connection to the companion panel server."""
+    backend_url = _resolve_panel_url(websocket, panel_id)
+    if not backend_url:
+        await websocket.close(code=4004, reason=f"Panel '{panel_id}' not available")
+        return
+
+    # Convert http(s) backend URL to ws(s)
+    ws_url = backend_url.rstrip("/").replace("http://", "ws://").replace("https://", "wss://")
+    target = f"{ws_url}/{path}"
+
+    try:
+        import websockets
+    except ImportError:
+        logger.error("websockets package not installed — cannot proxy WebSocket")
+        await websocket.close(code=4500, reason="WebSocket proxy unavailable")
+        return
+
+    await websocket.accept()
+
+    try:
+        async with websockets.connect(target) as upstream:
+
+            async def client_to_upstream():
+                try:
+                    while True:
+                        data = await websocket.receive_text()
+                        await upstream.send(data)
+                except WebSocketDisconnect:
+                    pass
+
+            async def upstream_to_client():
+                try:
+                    async for msg in upstream:
+                        if isinstance(msg, str):
+                            await websocket.send_text(msg)
+                        else:
+                            await websocket.send_bytes(msg)
+                except websockets.ConnectionClosed:
+                    pass
+
+            # Run both directions concurrently; when either side closes,
+            # cancel the other.
+            done, pending = await asyncio.wait(
+                [
+                    asyncio.create_task(client_to_upstream()),
+                    asyncio.create_task(upstream_to_client()),
+                ],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+
+    except Exception as exc:
+        logger.warning("WebSocket proxy error for panel %s: %s", panel_id, exc)
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
