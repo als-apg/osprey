@@ -127,6 +127,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
         for k, v in request.headers.items()
         if k.lower() not in _HOP_BY_HOP and k.lower() != "host"
     }
+    fwd_headers["x-forwarded-prefix"] = f"/panel/{panel_id}"
 
     try:
         body = await request.body()

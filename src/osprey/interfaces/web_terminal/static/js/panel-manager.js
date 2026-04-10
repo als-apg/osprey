@@ -416,6 +416,7 @@ function createIframe(panelId) {
   const embedUrl = new URL(targetUrl, window.location.origin);
   embedUrl.searchParams.set('embedded', 'true');
   embedUrl.searchParams.set('theme', getTheme());
+  embedUrl.searchParams.set('basePath', state.url);
   if (state.project) {
     embedUrl.hash = `#/sessions?project=${encodeURIComponent(state.project)}`;
   }
