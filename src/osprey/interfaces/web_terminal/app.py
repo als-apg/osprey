@@ -174,6 +174,7 @@ def _load_panel_config() -> tuple[set[str], list[dict]]:
                     "label": spec.get("label", panel_id.upper()),
                     "url": spec.get("url", ""),
                     "healthEndpoint": spec.get("health_endpoint"),
+                    "path": spec.get("path", "/"),
                 }
             )
 

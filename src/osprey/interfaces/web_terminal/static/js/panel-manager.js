@@ -91,6 +91,7 @@ export async function initPanelManager(panelId) {
           configEndpoint: null,
           healthEndpoint: cp.healthEndpoint,  // null = skip health polling
           statusBarId: null,
+          path: cp.path || '/',             // subpath for iframe (e.g. "/panel/")
         });
       }
     }
@@ -404,8 +405,13 @@ function createIframe(panelId) {
   const iframe = document.createElement('iframe');
   iframe.className = 'panel-iframe';
   iframe.dataset.panelId = panelId;
-  // Use pendingUrl (from navigatePanel) if available, otherwise base URL
-  const targetUrl = state.pendingUrl || state.url;
+  // Use pendingUrl (from navigatePanel) if available, otherwise base URL.
+  // For custom panels with a subpath (e.g. path: "/panel/"), append it so
+  // the iframe loads the UI root rather than the API root.
+  const panel = PANELS.find(p => p.id === panelId);
+  const panelPath = panel?.path && panel.path !== '/' ? panel.path : '';
+  const baseUrl = state.pendingUrl || (state.url + panelPath);
+  const targetUrl = baseUrl;
   state.pendingUrl = null;
   const embedUrl = new URL(targetUrl, window.location.origin);
   embedUrl.searchParams.set('embedded', 'true');
