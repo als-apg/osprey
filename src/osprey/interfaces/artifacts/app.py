@@ -323,7 +323,7 @@ _CDN_PLOTLY_RE = re.compile(
 def _rewrite_plotly_cdn(html_bytes: bytes) -> bytes:
     """Replace CDN Plotly URLs with the local bundled copy."""
     html = html_bytes.decode("utf-8", errors="replace")
-    html = _CDN_PLOTLY_RE.sub(r"\1/static/js/vendor/plotly.min.js\2", html)
+    html = _CDN_PLOTLY_RE.sub(r"\1/static/js/vendor/plotly-3.3.1.min.js\2", html)
     return html.encode("utf-8")
 
 
@@ -673,7 +673,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 content_disposition_type="inline",
             )
 
-        # HTML types may need responsive snippet injection + CDN rewriting
+        # HTML types may need responsive snippet injection + CDN rewriting.
+        # For plot_html, prepend the local Plotly script (no CDN dependency).
+        if entry.artifact_type == "plot_html":
+            snippet = '<script src="/static/js/vendor/plotly-3.3.1.min.js"></script>\n' + snippet
         content = filepath.read_bytes()
         content = _rewrite_plotly_cdn(content)
         content = _inject_html_snippet(content, snippet)
