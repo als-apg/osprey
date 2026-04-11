@@ -674,11 +674,14 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             )
 
         # HTML types may need responsive snippet injection + CDN rewriting.
-        # For plot_html, prepend the local Plotly script (no CDN dependency).
-        if entry.artifact_type == "plot_html":
-            snippet = '<script src="/static/js/vendor/plotly-3.3.1.min.js"></script>\n' + snippet
         content = filepath.read_bytes()
-        content = _rewrite_plotly_cdn(content)
+        if entry.artifact_type == "plot_html":
+            # Plotly HTML generated with include_plotlyjs=False has no JS.
+            # Inject the local copy before the responsive snippet.
+            snippet = '<script src="/static/js/vendor/plotly-3.3.1.min.js"></script>\n' + snippet
+        else:
+            # Other HTML types may still contain CDN Plotly URLs (safety net).
+            content = _rewrite_plotly_cdn(content)
         content = _inject_html_snippet(content, snippet)
         return Response(
             content=content,

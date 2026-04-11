@@ -32,7 +32,7 @@ from bokeh.models import (
     ColorBar, LinearColorMapper, Range1d, Legend, LegendItem,
 )
 from bokeh.palettes import Spectral6, Category10, Viridis256
-from bokeh.resources import INLINE as CDN
+from bokeh.resources import INLINE
 """
 
 

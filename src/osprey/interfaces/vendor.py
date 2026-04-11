@@ -101,23 +101,24 @@ def verify_all(base_dir: Path | None = None) -> tuple[list[str], list[str]]:
 
     for asset in manifest.get("assets", []):
         for target in asset["targets"]:
-            dest = base_dir / target / asset["filename"]
+            rel = str(Path(target) / asset["filename"])
+            dest = base_dir / rel
             if not dest.exists():
-                problems.append(f"MISSING: {target}{asset['filename']}")
+                problems.append(f"MISSING: {rel}")
             elif _sha256(dest) != asset["sha256"]:
-                problems.append(f"CHECKSUM MISMATCH: {target}{asset['filename']}")
+                problems.append(f"CHECKSUM MISMATCH: {rel}")
             else:
                 ok.append(str(dest))
 
     for bundle in manifest.get("font_bundles", []):
-        target = bundle["target"]
-        target_dir = base_dir / target
+        target_dir = base_dir / bundle["target"]
         for filename, sha256 in bundle["files"].items():
+            rel = str(Path(bundle["target"]) / filename)
             dest = target_dir / filename
             if not dest.exists():
-                problems.append(f"MISSING: {target}{filename}")
+                problems.append(f"MISSING: {rel}")
             elif _sha256(dest) != sha256:
-                problems.append(f"CHECKSUM MISMATCH: {target}{filename}")
+                problems.append(f"CHECKSUM MISMATCH: {rel}")
             else:
                 ok.append(str(dest))
 
