@@ -78,7 +78,7 @@
       "name": "xterm.css",
       "filename": "xterm.min.css",
       "version": "5.5.0",
-      "url": "https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css",
+      "url": "https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css",
       "sha256": "f7f724aea2bb620a6482bfb8e4bdecfae1152b0c7facef55fbda61f3b6cfedb2",
       "targets": [
         "web_terminal/static/vendor/"
