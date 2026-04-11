@@ -680,9 +680,11 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         # own code paths use, and the CDN is unreachable in offline deployments.
         content = _rewrite_plotly_cdn(content)
         if entry.artifact_type == "plot_html":
-            # Ensure the local Plotly bundle is available (covers the
-            # include_plotlyjs=False case where no script tag exists at all).
-            snippet = '<script src="/static/js/vendor/plotly-3.3.1.min.js"></script>\n' + snippet
+            # Only inject the local Plotly bundle if the HTML doesn't already
+            # have one (e.g. include_plotlyjs=False). Avoid duplicates — the
+            # 4.8MB file takes ~1s through the reverse proxy per load.
+            if b"plotly-3.3.1.min.js" not in content:
+                snippet = '<script src="/static/js/vendor/plotly-3.3.1.min.js"></script>\n' + snippet
         content = _inject_html_snippet(content, snippet)
         return Response(
             content=content,

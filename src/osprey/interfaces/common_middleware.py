@@ -10,16 +10,19 @@ logger = logging.getLogger("osprey.interfaces.middleware")
 
 
 class NoCacheStaticMiddleware(BaseHTTPMiddleware):
-    """Prevent browsers from caching static assets and API responses.
+    """Control browser caching for static assets and API responses.
 
-    Avoids stale code/config after updates by setting Cache-Control headers
-    on all responses for paths under /static/ and /api/.
+    Vendor assets (versioned filenames like plotly-3.3.1.min.js) are cached
+    aggressively — they never change without a filename bump.  All other
+    static/API paths are uncached to avoid stale code after updates.
     """
 
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         path = request.url.path
-        if path.startswith("/static/") or path.startswith("/api/"):
+        if "/vendor/" in path and path.startswith("/static/"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif path.startswith("/static/") or path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return response
 
