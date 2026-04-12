@@ -72,3 +72,43 @@ class TestProxyForwardedPrefix:
         _app, client = app_and_client
         resp = client.get("/panel/nonexistent/anything")
         assert resp.status_code == 404
+
+    def test_vendor_js_skips_rewriting(self, app_and_client):
+        """Vendor JS files are passed through without path rewriting."""
+        app, client = app_and_client
+
+        js_body = 'var x = "/static/js/foo.js";'
+
+        async def fake_request(*, method, url, headers, content):
+            return httpx.Response(
+                status_code=200,
+                text=js_body,
+                headers={"content-type": "application/javascript"},
+            )
+
+        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
+
+        resp = client.get("/panel/my-dash/static/js/vendor/plotly-3.3.1.min.js")
+        assert resp.status_code == 200
+        # Vendor path — body must NOT be rewritten
+        assert resp.text == js_body
+
+    def test_non_vendor_js_is_rewritten(self, app_and_client):
+        """Non-vendor JS files still get path rewriting."""
+        app, client = app_and_client
+
+        js_body = 'var x = "/static/js/foo.js";'
+
+        async def fake_request(*, method, url, headers, content):
+            return httpx.Response(
+                status_code=200,
+                text=js_body,
+                headers={"content-type": "application/javascript"},
+            )
+
+        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
+
+        resp = client.get("/panel/my-dash/static/js/gallery.js")
+        assert resp.status_code == 200
+        # Non-vendor path — body MUST be rewritten
+        assert "/panel/my-dash/static/js/foo.js" in resp.text

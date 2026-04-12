@@ -187,8 +187,9 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
     content_type = resp.headers.get("content-type", "")
     base_type = content_type.split(";")[0].strip().lower()
 
-    # Rewrite root-absolute paths in HTML/JS/CSS.
-    if base_type in _REWRITABLE_TYPES:
+    # Rewrite root-absolute paths in HTML/JS/CSS — skip vendor assets
+    # (large, immutable, no OSPREY paths to rewrite).
+    if base_type in _REWRITABLE_TYPES and "/vendor/" not in path:
         text = resp.text
         text = _rewrite_content(text, panel_id)
         return Response(
