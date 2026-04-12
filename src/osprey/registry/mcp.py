@@ -178,6 +178,8 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "lattice_set_param",
             "lattice_refresh",
             "lattice_set_baseline",
+            "list_panels",
+            "switch_panel",
         ],
         permissions_ask=["setup_patch"],
         hooks_pre=[
