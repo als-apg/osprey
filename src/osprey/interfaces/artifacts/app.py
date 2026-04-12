@@ -319,11 +319,22 @@ _CDN_PLOTLY_RE = re.compile(
     r'(src=["\'])https://cdn\.plot\.ly/plotly[^"\']*\.min\.js(["\'])'
 )
 
+# Strip SRI attributes — the local copy may differ from the CDN version.
+_SRI_ATTR_RE = re.compile(r'\s+(?:integrity|crossorigin)=["\'][^"\']*["\']')
+
 
 def _rewrite_plotly_cdn(html_bytes: bytes) -> bytes:
-    """Replace CDN Plotly URLs with the local bundled copy."""
+    """Replace CDN Plotly URLs with the local bundled copy.
+
+    Also strips ``integrity`` and ``crossorigin`` attributes from the
+    same ``<script>`` tag, since the local file may be a different
+    version than the CDN URL and SRI would block execution.
+    """
     html = html_bytes.decode("utf-8", errors="replace")
+    if "cdn.plot.ly/plotly" not in html:
+        return html_bytes
     html = _CDN_PLOTLY_RE.sub(r"\1/static/js/vendor/plotly-3.3.1.min.js\2", html)
+    html = _SRI_ATTR_RE.sub("", html)
     return html.encode("utf-8")
 
 
