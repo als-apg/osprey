@@ -61,15 +61,16 @@ async def list_panels() -> str:
 async def switch_panel(panel_id: str, url: str | None = None) -> str:
     """Switch the Web Terminal to show a specific panel tab.
 
-    Use this after producing content relevant to a particular panel
-    (e.g. switch to 'ariel' after creating a logbook draft, or to
-    'artifacts' after saving an artifact).
+    Use this when the user asks to open, show, or switch to a panel.
+    Also useful after producing content relevant to a particular panel.
 
-    Call list_panels first if you are unsure which panels are available.
+    IMPORTANT: Always call list_panels first to discover the actual panel
+    IDs available in this deployment.  Do NOT guess panel IDs — they
+    vary between deployments and include custom panels.
 
     Args:
-        panel_id: Panel identifier (e.g. 'artifacts', 'ariel', 'tuning',
-            'channel-finder', 'lattice', or a custom panel id).
+        panel_id: Panel identifier returned by list_panels (e.g.
+            'artifacts', 'events', 'ariel', 'tuning', etc.).
         url: Optional URL to navigate the panel iframe to.
 
     Returns:

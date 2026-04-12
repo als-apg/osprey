@@ -142,16 +142,16 @@ export async function initPanelManager(panelId) {
   }
 
   // Listen for panel_focus events via SSE (uses raw EventSource to avoid
-  // conflicts with the module-level sseState in api.js)
+  // conflicts with the module-level sseState in api.js).
+  // These events originate from explicit switch_panel MCP tool calls —
+  // always honor them since the user asked the agent to switch.
   const es = new EventSource('/api/files/events');
   es.onmessage = (e) => {
     try {
       const data = JSON.parse(e.data);
       if (data.type === 'panel_focus' && data.panel) {
         if (data.url) navigatePanel(data.panel, data.url);
-        if (!userSelectedTab) {
-          activateTab(data.panel);
-        }
+        activateTab(data.panel);
       }
     } catch { /* ignore parse errors */ }
   };
