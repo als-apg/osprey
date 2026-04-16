@@ -115,6 +115,12 @@ def build(
                 ", ".join(f"{len(v)} {k}" for k, v in artifacts.items()),
             )
 
+        # web_panels is validated at manifest load time (warn-only) — not file-backed,
+        # so it bypasses validate_artifacts. Flow it into the template context via the
+        # same dict the manager consumes.
+        if build_profile.web_panels:
+            artifacts["web_panels"] = list(build_profile.web_panels)
+
         # 1d. Check OSPREY version requirement
         if build_profile.requires_osprey_version:
             from packaging.specifiers import SpecifierSet

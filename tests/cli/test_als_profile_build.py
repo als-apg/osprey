@@ -58,6 +58,11 @@ def _build_from_profile(profile_path: Path, project_name: str, tmp_path: Path) -
     if artifacts:
         validate_artifacts(artifacts)  # Raises ValueError on unknown names
 
+    # web_panels is validated separately (manifest warn-only, not file-backed).
+    # Append after validate_artifacts so it reaches the template ctx.
+    if build_profile.web_panels:
+        artifacts["web_panels"] = list(build_profile.web_panels)
+
     # Build context from profile fields (mirrors build_cmd.py step 6)
     context: dict[str, str] = {}
     if build_profile.provider:

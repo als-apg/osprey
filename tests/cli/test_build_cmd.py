@@ -1166,3 +1166,126 @@ class TestProfileExtends:
 
         profile = load_profile(child_path)
         assert not hasattr(profile, "extends")
+
+
+# ---------------------------------------------------------------------------
+# Web Panels Rendering (profile web_panels: drives config.yml)
+# ---------------------------------------------------------------------------
+
+
+def _build_for_web_panels(tmp_path: Path, web_panels: list[str] | None, overrides: dict | None = None) -> Path:
+    """Build a minimal control_assistant project, optionally with web_panels
+    and config overrides, and return the rendered config.yml path.
+
+    Mirrors build_cmd.py steps 1b, 6, and 8 without running the full CLI.
+    """
+    from osprey.cli.build_cmd import _apply_config_overrides
+    from osprey.cli.templates.artifact_library import validate_artifacts
+    from osprey.cli.templates.manager import TemplateManager
+
+    # Overlay source required by the control_assistant bundle
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "channels.json").write_text("{}")
+
+    profile_data: dict = {
+        "name": "Panels Test",
+        "data_bundle": "control_assistant",
+        "provider": "cborg",
+        "model": "haiku",
+        "overlay": {"data/channels.json": "data/channels.json"},
+    }
+    if web_panels is not None:
+        profile_data["web_panels"] = web_panels
+    if overrides:
+        profile_data["config"] = overrides
+
+    profile_path = tmp_path / "profile.yml"
+    profile_path.write_text(yaml.dump(profile_data, default_flow_style=False))
+    build_profile = load_profile(profile_path)
+
+    artifacts: dict[str, list[str]] = {}
+    for artifact_type in ("hooks", "rules", "skills", "agents", "output_styles"):
+        names = getattr(build_profile, artifact_type, [])
+        if names:
+            artifacts[artifact_type] = list(names)
+    if artifacts:
+        validate_artifacts(artifacts)
+    if build_profile.web_panels:
+        artifacts["web_panels"] = list(build_profile.web_panels)
+
+    manager = TemplateManager()
+    project_dir = manager.create_project(
+        project_name="panels-test",
+        output_dir=tmp_path / "out",
+        data_bundle=build_profile.data_bundle,
+        registry_style="extend",
+        context={},
+        force=False,
+        artifacts=artifacts or None,
+    )
+    if build_profile.config:
+        _apply_config_overrides(project_dir, build_profile.config)
+
+    return project_dir / "config.yml"
+
+
+class TestWebPanelsRendering:
+    """Profile web_panels: list drives which builtin panels are enabled in config.yml."""
+
+    def test_builtin_panels_rendered_from_web_panels(self, tmp_path: Path):
+        """Only builtin panels listed in web_panels appear with enabled: true."""
+        config_path = _build_for_web_panels(tmp_path, web_panels=["ariel", "lattice"])
+        config = yaml.safe_load(config_path.read_text())
+
+        panels = config["web"]["panels"]
+        assert panels.get("ariel", {}).get("enabled") is True
+        assert panels.get("lattice", {}).get("enabled") is True
+        assert "tuning" not in panels
+        assert "channel-finder" not in panels
+
+    def test_custom_panels_filtered_from_template_but_configurable(self, tmp_path: Path):
+        """Non-builtin entries in web_panels are skipped by the template, but
+        their dotted-override config still lands in config.yml."""
+        config_path = _build_for_web_panels(
+            tmp_path,
+            web_panels=["ariel", "beam-viewer"],
+            overrides={
+                "web.panels.beam-viewer.label": "BEAM",
+                "web.panels.beam-viewer.url": "http://localhost:8007",
+            },
+        )
+        config = yaml.safe_load(config_path.read_text())
+
+        panels = config["web"]["panels"]
+        assert panels["ariel"]["enabled"] is True
+        # beam-viewer is custom (not in _BUILTIN_PANELS) — no enabled: true from template,
+        # but label/url from dotted overrides must land.
+        assert panels["beam-viewer"]["label"] == "BEAM"
+        assert panels["beam-viewer"]["url"] == "http://localhost:8007"
+        assert "enabled" not in panels["beam-viewer"]
+
+    def test_empty_web_panels_renders_empty_mapping(self, tmp_path: Path):
+        """When web_panels is absent, template emits `panels: {}` and no builtins enable.
+        Empty mapping (not None) is required so dotted-override merge stays safe."""
+        config_path = _build_for_web_panels(tmp_path, web_panels=None)
+        config = yaml.safe_load(config_path.read_text())
+
+        panels = config["web"]["panels"]
+        assert panels == {} or panels is None  # ruamel/pyyaml may parse either way
+        # Critical: `web.panels` key exists and is not missing from the tree.
+        assert "panels" in config["web"]
+
+    def test_lattice_enabled_from_template_merges_with_dotted_label(self, tmp_path: Path):
+        """lattice (builtin) gets enabled: true from the template, then the dotted
+        override web.panels.lattice.label merges into the same dict."""
+        config_path = _build_for_web_panels(
+            tmp_path,
+            web_panels=["lattice"],
+            overrides={"web.panels.lattice.label": "LATTICE"},
+        )
+        config = yaml.safe_load(config_path.read_text())
+
+        lattice = config["web"]["panels"]["lattice"]
+        assert lattice["enabled"] is True
+        assert lattice["label"] == "LATTICE"

@@ -196,6 +196,7 @@ class TemplateManager:
             "lattice-physics" in _artifact_rules or data_bundle == "lattice_design"
         )
         selected_hooks = (artifacts or {}).get("hooks", [])
+        selected_web_panels = (artifacts or {}).get("web_panels", [])
 
         ctx = {
             "project_name": project_name,
@@ -214,6 +215,7 @@ class TemplateManager:
             "data_bundle": data_bundle,
             "has_lattice_physics": has_lattice_physics,
             "selected_hooks": selected_hooks,
+            "selected_web_panels": selected_web_panels,
             # Add detected environment variables
             "env": detected_env_vars,
             **(context or {}),
