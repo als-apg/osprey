@@ -237,15 +237,10 @@ function connectSSE() {
 function handleSSEEvent(data) {
   switch (data.type) {
     case 'state_updated':
-      if (data.summary) updateSummaryStats(data.summary);
-      if (data.families) {
-        updateSliders(data.families);
-        // Enable action buttons once a lattice is loaded
-        const hasLattice = Object.keys(data.families).length > 0;
-        document.getElementById('btn-refresh').disabled = !hasLattice;
-        document.getElementById('btn-verify').disabled = !hasLattice;
-        document.getElementById('btn-baseline').disabled = !hasLattice;
-      }
+      // Signal-only: fetch authoritative state so the banner, buttons,
+      // sliders, summary, and ready figures all stay in sync without
+      // the broadcast carrying every field.
+      fetchState();
       break;
 
     case 'figure_status':

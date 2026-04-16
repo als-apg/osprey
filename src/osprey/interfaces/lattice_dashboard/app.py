@@ -257,13 +257,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             logger.exception("Failed to initialize lattice")
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        broadcaster.broadcast(
-            {
-                "type": "state_updated",
-                "summary": result.get("summary", {}),
-                "families": result.get("families", {}),
-            }
-        )
+        broadcaster.broadcast({"type": "state_updated"})
 
         # Auto-refresh fast figures after init
         compute.refresh_fast()
@@ -280,13 +274,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             )
 
         result = state.set_param(body.family, body.value)
-        broadcaster.broadcast(
-            {
-                "type": "state_updated",
-                "summary": result.get("summary", {}),
-                "families": result.get("families", {}),
-            }
-        )
+        broadcaster.broadcast({"type": "state_updated"})
         return result
 
     # ── Refresh API ───────────────────────────────────────
