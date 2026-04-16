@@ -24,16 +24,16 @@
   <!-- Fonts (self-hosted, no external CDN) -->
   <link rel="stylesheet" href="/static/fonts/fonts.css">
 
-  <!-- highlight.js (syntax highlighting for code blocks) — vendored v11.9.0 -->
-  <link id="hljs-theme" rel="stylesheet" href="/static/css/vendor/atom-one-dark.min.css">
-  <script src="/static/js/vendor/highlight.min.js"></script>
+  <!-- highlight.js (syntax highlighting for code blocks) -->
+  <link id="hljs-theme" rel="stylesheet" href="{{ vendor_url('highlight.js atom-one-dark theme', '/static/css/vendor/atom-one-dark.min.css') }}">
+  <script src="{{ vendor_url('highlight.js', '/static/js/vendor/highlight.min.js') }}"></script>
 
-  <!-- marked.js (markdown rendering) — vendored v12.0.2 -->
-  <script src="/static/js/vendor/marked.min.js"></script>
+  <!-- marked.js (markdown rendering) -->
+  <script src="{{ vendor_url('marked', '/static/js/vendor/marked.min.js') }}"></script>
 
-  <!-- KaTeX (math/equation rendering for markdown artifacts) — vendored v0.16.11 -->
-  <link rel="stylesheet" href="/static/css/vendor/katex.min.css">
-  <script defer src="/static/js/vendor/katex.min.js"></script>
+  <!-- KaTeX (math/equation rendering for markdown artifacts) -->
+  <link rel="stylesheet" href="{{ vendor_url('KaTeX CSS', '/static/css/vendor/katex.min.css') }}">
+  <script defer src="{{ vendor_url('KaTeX JS', '/static/js/vendor/katex.min.js') }}"></script>
 
   <!-- Stylesheet -->
   <link rel="stylesheet" href="/static/css/gallery.css">

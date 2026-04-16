@@ -21,10 +21,10 @@ from typing import Any
 
 import numpy as np
 import plotly.graph_objects as go
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
@@ -43,10 +43,14 @@ from osprey.interfaces.lattice_dashboard.workers.optics import build_figure as b
 from osprey.interfaces.lattice_dashboard.workers.resonance import (
     build_figure as build_resonance,
 )
+from osprey.interfaces.vendor import vendor_url
 
 logger = logging.getLogger("osprey.lattice_dashboard")
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+templates = Jinja2Templates(directory=str(STATIC_DIR))
+templates.env.globals["vendor_url"] = vendor_url
 
 
 # ── Figure adapters ──────────────────────────────────────
@@ -397,8 +401,8 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     # ── Static files / SPA ────────────────────────────────
 
     @app.get("/")
-    async def root() -> FileResponse:
-        return FileResponse(STATIC_DIR / "index.html")
+    async def root(request: Request):
+        return templates.TemplateResponse(request, "index.html", {})
 
     # Mount shared fonts before /static (Starlette matches in declaration order)
     SHARED_FONTS_DIR = Path(__file__).parent.parent / "shared_fonts"

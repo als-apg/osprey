@@ -7,7 +7,7 @@
   <!-- Fonts (self-hosted, no external CDN) -->
   <link rel="stylesheet" href="/static/fonts/fonts.css">
   <link rel="stylesheet" href="/static/dashboard.css">
-  <script src="/static/vendor/plotly-3.3.1.min.js"></script>
+  <script src="{{ vendor_url('Plotly.js', '/static/vendor/plotly-3.3.1.min.js') }}"></script>
   <!-- Theme sync: set initial theme + listen for live changes from parent Web Terminal.
        This MUST be inline (not in a module) so it runs before CSS loads and has zero
        import dependencies that could prevent the listener from registering. -->

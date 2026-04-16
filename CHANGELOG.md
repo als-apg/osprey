@@ -9,9 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Connectors**: Add `write_multiple_channels()` to `ControlSystemConnector` base class for batch write support. Default implementation writes sequentially; custom connectors can override for atomic batch semantics (e.g., disabling lattice recalculation in simulators). MCP `channel_write` tool and `osprey.runtime.write_channels()` now dispatch to this method for multi-channel writes.
+- **Vendor**: `osprey vendor fetch --insecure` (or `OSPREY_VENDOR_INSECURE=1`) skips TLS cert verification — safe because every download is verified against its manifest SHA256. Unblocks installs behind corporate proxies (e.g. Squid) that intercept TLS with a self-signed CA. SSL errors now surface a clear hint pointing at this flag and at `SSL_CERT_FILE`.
 
 ### Changed
+- **Vendor assets default to CDN**: Web interfaces now load xterm.js, Plotly, highlight.js, KaTeX, and marked directly from `cdn.jsdelivr.net` / `cdn.plot.ly`. Fresh `uv sync` just works — no `osprey vendor fetch` needed. Set `OSPREY_OFFLINE=1` (or `offline: true` in `config.yml`) to use locally bundled assets, as required for firewalled deployments like the LBL control room; then run `osprey vendor fetch` to populate `static/vendor/`. Previously the interfaces hard-coded `/static/vendor/...` paths and silently rendered blank pages when the dirs were empty.
 - **Workspace**: Unify `osprey-workspace/` and `_agent_data/` into single configurable `_agent_data` directory (config key: `agent_data.base_dir`)
+
+### Fixed
+- **Web Terminal**: In offline mode, `osprey web` fails fast with a clear error pointing at `osprey vendor fetch` when `static/vendor/` is empty or corrupt, instead of silently serving a blank page. In default CDN mode the preflight check is skipped.
 
 ## [0.11.5] - 2026-03-13
 
