@@ -112,3 +112,32 @@ class TestProxyForwardedPrefix:
         assert resp.status_code == 200
         # Non-vendor path — body MUST be rewritten
         assert "/panel/my-dash/static/js/foo.js" in resp.text
+
+    def test_dashboard_prefix_is_rewritten(self, app_and_client):
+        """Root-absolute /dashboard/* paths get prefixed so iframe-embedded
+        dashboards (e.g. the event dispatcher) reach their own origin through
+        the panel proxy rather than escaping to the web-terminal root."""
+        app, client = app_and_client
+
+        html_body = (
+            '<script>'
+            'fetch("/dashboard/triggers");'
+            "fetch('/dashboard/runs');"
+            'new EventSource("/dashboard/stream/abc");'
+            '</script>'
+        )
+
+        async def fake_request(*, method, url, headers, content):
+            return httpx.Response(
+                status_code=200,
+                text=html_body,
+                headers={"content-type": "text/html"},
+            )
+
+        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
+
+        resp = client.get("/panel/my-dash/dashboard")
+        assert resp.status_code == 200
+        assert '"/panel/my-dash/dashboard/triggers"' in resp.text
+        assert "'/panel/my-dash/dashboard/runs'" in resp.text
+        assert '"/panel/my-dash/dashboard/stream/abc"' in resp.text
