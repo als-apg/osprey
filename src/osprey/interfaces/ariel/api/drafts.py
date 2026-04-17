@@ -18,7 +18,16 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-DRAFTS_DIR = Path.cwd() / "_agent_data" / "drafts"
+from osprey.utils.workspace import resolve_shared_data_root
+
+
+# DRAFTS_DIR is resolved lazily so OSPREY_CONFIG changes (via site_config)
+# are respected at access time, not import time. Tests that
+# monkeypatch.setattr the attribute still take precedence via __dict__.
+def __getattr__(name: str) -> Any:
+    if name == "DRAFTS_DIR":
+        return resolve_shared_data_root() / "drafts"
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 draft_router = APIRouter(prefix="/api")
 
