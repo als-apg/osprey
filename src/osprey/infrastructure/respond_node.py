@@ -244,6 +244,10 @@ def _gather_information(state: AgentState, logger=None) -> ResponseContext:
     current_step = StateManager.get_current_step(state)
     relevant_context = context_manager.get_summaries(current_step)
 
+    # If the step had no inputs and returned nothing, fall back to all available context
+    if not relevant_context:
+        relevant_context = context_manager.get_summaries(None)
+
     # Determine response mode and prepare appropriate data
     response_mode = _determine_response_mode(state, current_step)
 

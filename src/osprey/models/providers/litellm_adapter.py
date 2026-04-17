@@ -29,6 +29,54 @@ from pydantic import BaseModel
 
 from osprey.utils.logger import get_logger
 
+
+def _fix_schema_additional_properties(schema: dict) -> dict:
+    """Make ``additionalProperties`` Bedrock-compatible throughout a JSON schema.
+
+    Bedrock rejects ``additionalProperties`` set to a schema object (e.g.
+    ``{"type": "string"}`` that Pydantic emits for ``dict[str, str]``).  It only
+    accepts the value ``false``.
+
+    Strategy:
+    - **Structured objects** (have ``properties``): set ``additionalProperties: false``.
+    - **Dict / map types** (``type: object`` *without* ``properties``, where
+      ``additionalProperties`` carries a value-type schema): *remove*
+      ``additionalProperties`` entirely so Bedrock sees a plain ``{"type": "object"}``
+      and the LLM is still free to populate keys.
+    """
+    if not isinstance(schema, dict):
+        return schema
+
+    # Process $defs (Pydantic v2 style)
+    if "$defs" in schema:
+        for key in schema["$defs"]:
+            schema["$defs"][key] = _fix_schema_additional_properties(schema["$defs"][key])
+
+    # Structured objects with named properties → lock down
+    if "properties" in schema:
+        schema["additionalProperties"] = False
+    elif schema.get("type") == "object" and isinstance(schema.get("additionalProperties"), dict):
+        # Pure dict/map type (no named properties, value schema in additionalProperties)
+        # Remove the unsupported schema object; {"type": "object"} is sufficient
+        del schema["additionalProperties"]
+
+    # Recurse into property definitions
+    if "properties" in schema:
+        for key in schema["properties"]:
+            schema["properties"][key] = _fix_schema_additional_properties(schema["properties"][key])
+
+    # Recurse into array items
+    if "items" in schema:
+        schema["items"] = _fix_schema_additional_properties(schema["items"])
+
+    # Recurse into combinators
+    for combinator in ("allOf", "anyOf", "oneOf"):
+        if combinator in schema:
+            schema[combinator] = [_fix_schema_additional_properties(s) for s in schema[combinator]]
+
+    return schema
+
+
 if TYPE_CHECKING:
     from .base import BaseProvider
 
@@ -297,6 +345,7 @@ def _handle_structured_output(
         )
 
     schema = output_format.model_json_schema()
+    schema = _fix_schema_additional_properties(schema)
 
     # Check if model supports native structured outputs using LiteLLM's detection
     supports_native = _supports_native_structured_output(litellm_model, provider)
