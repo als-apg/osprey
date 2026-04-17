@@ -131,6 +131,19 @@ async def artifact_save(
                 ["Check the file path exists.", "Use an absolute path or path relative to CWD."],
             )
         )
+    except PermissionError as exc:
+        logger.exception("artifact_save permission denied")
+        return json.dumps(
+            make_error(
+                "permission_denied",
+                f"Cannot write artifact: {exc}",
+                [
+                    "The process does not have write access to the artifact directory.",
+                    "Check ownership of _agent_data/artifacts/ — all writers must share a UID or be in a group with write permission.",
+                    "If running via dispatch sidecar, confirm supervisord.conf and the interactive web process run as the same user.",
+                ],
+            )
+        )
     except Exception as exc:
         logger.exception("artifact_save failed")
         return json.dumps(
