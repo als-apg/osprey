@@ -45,6 +45,9 @@ except ImportError:
     ClaudeSDKError = Exception  # type: ignore[assignment,misc]
     CLIConnectionError = Exception  # type: ignore[assignment,misc]
 
+from osprey.interfaces.web_terminal.sdk_context import build_system_prompt
+from osprey.utils.config import get_facility_timezone
+
 # Pattern for MCP tool name prefixes: mcp__<server>__<tool>
 _MCP_PREFIX_RE = re.compile(r"^mcp__[^_]+__")
 
@@ -213,6 +216,7 @@ class OperatorSession:
             logger.warning("Operator session: %s (cwd=%s)", warning, self._cwd)
 
         options = ClaudeAgentOptions(
+            system_prompt=build_system_prompt(get_facility_timezone()),
             cwd=self._cwd,
             env=self._env,
             setting_sources=["project"],

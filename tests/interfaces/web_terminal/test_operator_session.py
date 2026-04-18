@@ -298,6 +298,14 @@ class TestOperatorSession:
                 "osprey.interfaces.web_terminal.operator_session.validate_project_directory",
                 return_value=[],
             ),
+            patch(
+                "osprey.interfaces.web_terminal.operator_session.build_system_prompt",
+                return_value={"type": "preset", "preset": "claude_code"},
+            ),
+            patch(
+                "osprey.interfaces.web_terminal.operator_session.get_facility_timezone",
+                return_value=None,
+            ),
         ):
             await session.start()
 
@@ -325,6 +333,14 @@ class TestOperatorSession:
             patch(
                 "osprey.interfaces.web_terminal.operator_session.ClaudeSDKClient",
                 return_value=mock_client,
+            ),
+            patch(
+                "osprey.interfaces.web_terminal.operator_session.build_system_prompt",
+                return_value={"type": "preset", "preset": "claude_code"},
+            ),
+            patch(
+                "osprey.interfaces.web_terminal.operator_session.get_facility_timezone",
+                return_value=None,
             ),
         ):
             await session.start()
@@ -371,6 +387,14 @@ class TestOperatorSession:
             patch(
                 "osprey.interfaces.web_terminal.operator_session.TextBlock",
                 FakeTextBlock,
+            ),
+            patch(
+                "osprey.interfaces.web_terminal.operator_session.build_system_prompt",
+                return_value={"type": "preset", "preset": "claude_code"},
+            ),
+            patch(
+                "osprey.interfaces.web_terminal.operator_session.get_facility_timezone",
+                return_value=None,
             ),
         ):
             await session.start()
