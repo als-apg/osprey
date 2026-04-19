@@ -32,6 +32,13 @@ _REWRITE_PREFIXES = (
     "/ws/",
     "/assets/",
     "/dashboard/",
+    # Event dispatcher endpoints. Without these, the dashboard served through
+    # /panel/events/* would call `/webhook/...` at the browser origin (the web
+    # terminal) instead of going through this proxy — the dispatcher never
+    # sees the request and the user gets a 404.
+    "/webhook/",
+    "/retry/",
+    "/trigger/",
 )
 
 # Content types eligible for path rewriting.
