@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Web Terminal**: In offline mode, `osprey web` fails fast with a clear error pointing at `osprey vendor fetch` when `static/vendor/` is empty or corrupt, instead of silently serving a blank page. In default CDN mode the preflight check is skipped.
+- **Claude Code / CBORG**: Pin CBORG model IDs to specific versions (`claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-7`) in the resolver fallback and in `api.providers.cborg.models` templates. Unversioned aliases like `anthropic/claude-opus` disabled Claude Code's capability detection, causing it to send the legacy `thinking.type.enabled` schema which Vertex-backed Opus 4.7 rejects with HTTP 400.
 
 ## [0.11.5] - 2026-03-13
 
