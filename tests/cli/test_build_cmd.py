@@ -1222,7 +1222,7 @@ def _build_for_web_panels(tmp_path: Path, web_panels: list[str] | None, override
         registry_style="extend",
         context={},
         force=False,
-        artifacts=artifacts or None,
+        artifacts=artifacts,
     )
     if build_profile.config:
         _apply_config_overrides(project_dir, build_profile.config)

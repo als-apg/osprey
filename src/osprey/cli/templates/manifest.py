@@ -115,7 +115,7 @@ def load_template_manifest(
                 .read_text(encoding="utf-8")
             )
             profile_data = yaml.safe_load(profile_text) or {}
-            artifact_keys = ("hooks", "rules", "skills", "agents", "output_styles")
+            artifact_keys = ("hooks", "rules", "skills", "agents", "output_styles", "web_panels")
             artifacts = {k: profile_data.get(k, []) for k in artifact_keys if k in profile_data}
             if artifacts:
                 return {"artifacts": artifacts}

@@ -639,6 +639,45 @@ class TestTemplateManifest:
         mf = manifest.load_template_manifest(manager.template_root, "nonexistent_template")
         assert mf is None
 
+    def test_load_manifest_example_profile_fallback_includes_web_panels(self):
+        """Example-profile fallback must surface web_panels in the artifacts dict.
+
+        `osprey init` relies on this fallback (control_assistant has no manifest.yml).
+        If web_panels is dropped, config.yml renders `panels: {}` and the web
+        terminal shows only the universal panels — the exact bug reported when
+        ARIEL / channel-finder / tuning panels went missing.
+        """
+        manager = TemplateManager()
+        mf = manifest.load_template_manifest(manager.template_root, "control_assistant")
+        assert mf is not None
+        artifacts = mf.get("artifacts", {})
+        # The example profile declares these panels; they must round-trip through
+        # the fallback so create_project() → Jinja → config.yml wires them up.
+        assert "web_panels" in artifacts, (
+            "web_panels stripped by example-profile fallback — `osprey init` will "
+            "render `panels: {}` and no built-in panels will appear."
+        )
+        assert set(artifacts["web_panels"]) >= {"ariel", "channel-finder", "tuning"}
+
+    def test_init_style_create_project_enables_builtin_panels(self, tmp_path):
+        """create_project() without explicit artifacts (the `osprey init` path)
+        must render the builtin panels block from the example profile."""
+        import yaml as _yaml
+
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="init-panels-test",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            registry_style="extend",
+            context={},
+        )
+        config = _yaml.safe_load((project_dir / "config.yml").read_text())
+        panels = config["web"]["panels"]
+        assert panels, "web.panels block is empty — no builtin panels were enabled"
+        assert panels.get("ariel", {}).get("enabled") is True
+        assert panels.get("channel-finder", {}).get("enabled") is True
+
     def test_resolve_manifest_outputs_includes_config_artifacts(self):
         """Resolved outputs always contain config artifacts."""
         mf = {"artifacts": {"hooks": ["approval"], "rules": ["safety"], "skills": [], "agents": []}}
