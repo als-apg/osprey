@@ -60,7 +60,7 @@ class HealthChecker:
 
             dotenv_path = self.cwd / ".env"
             if dotenv_path.exists():
-                load_dotenv(dotenv_path, override=False)  # Don't override existing env vars
+                load_dotenv(dotenv_path, override=True)  # .env file is source of truth for API keys
         except ImportError:
             # python-dotenv not available, skip loading
             pass

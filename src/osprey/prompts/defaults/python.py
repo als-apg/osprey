@@ -62,8 +62,10 @@ class DefaultPythonPromptBuilder(FrameworkPromptBuilder):
             4. Add brief comments explaining complex logic
             5. STAY FOCUSED: Implement exactly what's requested - avoid over-engineering simple tasks
             6. Use provided context data when available (accessible via 'context' object)
-            7. IMPORTANT: Store computed results in a dictionary variable named 'results' for automatic saving
+            7. IMPORTANT: Store computed results in a dictionary variable named 'results' for automatic saving.
             8. Generate ONLY the Python code, without markdown code blocks or additional explanation
+            9. Ensure any datetime objects or strings in the results dictionary include timezone information. When ARCHIVER_DATA is available, use `context.ARCHIVER_DATA.<key>.timezone_name` as the timezone label (not `strftime('%Z')`). For example: `results = {'start_time': f"{start_time.strftime('%Y-%m-%d %H:%M:%S')} {context.ARCHIVER_DATA.<key>.timezone_name}"}`.
+            10. When generating plots that involve datetimes with timezone information, display timestamps using the timezone label from `context.ARCHIVER_DATA.<key>.timezone_name` (where <key> is the actual context key like `archiver_data` or `current_data`). This may involve setting configuration parameters like `rcParams['timezone']` for matplotlib.
             """
         ).strip()
 

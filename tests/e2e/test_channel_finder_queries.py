@@ -369,8 +369,12 @@ async def _run_channel_finder_query(project, query: str) -> dict:
         # Service gets config from the initialized Osprey config system
         service = ChannelFinderService()
 
-        # Run the query
-        result = await service.find_channels(query)
+        # Run the query with elevated retry budget so rate-limit
+        # Retry-After headers (e.g. CBORG's 60s) are respected.
+        from osprey.models import retry_budget_override
+
+        with retry_budget_override(90.0):
+            result = await service.find_channels(query)
 
         # Extract channel names from result
         if hasattr(result, "channels"):

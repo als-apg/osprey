@@ -291,6 +291,7 @@ class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
                     "NEVER make up, estimate, or fabricate any data - only use what is actually retrieved",
                     "Explain data limitations or warnings, but note that truncation messages like '(truncated)' or 'Max depth reached' typically indicate successful data processing rather than limitations",
                     "Be specific about time ranges and data sources",
+                    "TIMEZONE HANDLING: All datetimes will be represented using the system's local timezone as captured in TIME_RANGE.timezone_name regardless of the timezone name listed in the user requested.  Timezone abbreviations (EST, EDT, PST, etc.) and numeric UTC offsets (e.g. -05:00, UTC-05:00) are different representations of the same moment — do NOT treat them as a discrepancy. For example, '09:00 EST' and '09:00 UTC-05:00' are identical. If retrieved time range data shows a timezone_name field (e.g. 'EST' or 'PST'), use that as the authoritative human-readable label not the name given in the initial request.",
                 ]
             )
 

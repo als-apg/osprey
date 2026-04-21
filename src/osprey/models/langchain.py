@@ -43,6 +43,7 @@ Example:
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -60,20 +61,21 @@ logger = get_logger("langchain")
 # Cumulative sleep tracked per request (keyed by id(options) which is stable
 # across retries within a single request() call).
 _retry_cumulative: dict[int, float] = {}
-_RETRY_BUDGET = 5.0
+_retry_budget = 5.0  # Mutable — read dynamically by patched methods
 
 
-def _patch_openai_retry_budget(budget: float = _RETRY_BUDGET) -> None:
-    """Cap total retry wait time per request to ``budget`` seconds.
+def _patch_openai_retry_budget() -> None:
+    """Cap total retry wait time per request to ``_retry_budget`` seconds.
 
     Two-layer approach:
     1. ``_should_retry``: skip retries where the Retry-After header alone
        exceeds the budget (e.g. CBORG 429 with Retry-After: 60 → skip immediately).
     2. ``_calculate_retry_timeout``: track cumulative sleep and cap the
-       remaining wait so the total never exceeds ``budget``.
+       remaining wait so the total never exceeds ``_retry_budget``.
 
-    This preserves fast recovery for transient 5xx errors (0.5-1s backoff)
-    while preventing long blocking on rate limits or other time-costly retries.
+    Closures read ``_retry_budget`` from module scope on every call, so
+    :func:`retry_budget_override` can temporarily raise the limit for
+    benchmarks without repatching.
     """
     try:
         from openai._base_client import AsyncAPIClient, SyncAPIClient
@@ -88,7 +90,7 @@ def _patch_openai_retry_budget(budget: float = _RETRY_BUDGET) -> None:
             return False
         # If Retry-After alone exceeds budget, skip retry entirely
         retry_after = self._parse_retry_after_header(response.headers)
-        if retry_after is not None and retry_after > budget:
+        if retry_after is not None and retry_after > _retry_budget:
             return False
         return True
 
@@ -96,7 +98,7 @@ def _patch_openai_retry_budget(budget: float = _RETRY_BUDGET) -> None:
         timeout = orig_calc_timeout(self, remaining_retries, options, response_headers)
         key = id(options)  # Same input_options object across retries
         cumulative = _retry_cumulative.get(key, 0.0)
-        remaining = max(0, budget - cumulative)
+        remaining = max(0, _retry_budget - cumulative)
         if remaining <= 0:
             _retry_cumulative.pop(key, None)
             return 0  # Budget exhausted
@@ -114,6 +116,24 @@ def _patch_openai_retry_budget(budget: float = _RETRY_BUDGET) -> None:
 
 
 _patch_openai_retry_budget()
+
+
+@contextmanager
+def retry_budget_override(budget: float):
+    """Temporarily override the OpenAI retry budget.
+
+    Use this in benchmarks or batch jobs where waiting for rate-limit
+    retry-after headers (e.g. 60s) is acceptable.
+
+    :param budget: Maximum cumulative retry sleep per request, in seconds.
+    """
+    global _retry_budget
+    original = _retry_budget
+    _retry_budget = budget
+    try:
+        yield
+    finally:
+        _retry_budget = original
 
 
 # =============================================================================

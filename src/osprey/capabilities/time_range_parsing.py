@@ -29,8 +29,10 @@ rules to ensure reliable parsing across diverse user expressions while maintaini
 type safety through Pydantic models and comprehensive error handling.
 
 .. note::
-   All datetime objects are created with timezone awareness using UTC as the
-   reference timezone to avoid confusion and ensure consistent behavior.
+   All datetime objects are timezone-aware and use UTC as the reference timezone.
+   This ensures consistent behavior across different system environments and user
+   locations. Consuming capabilities can convert to local timezones when needed
+   for display using the .astimezone() method or the to_timezone() helper method.
 
 .. warning::
    The capability performs strict validation to prevent future dates and
@@ -43,10 +45,10 @@ type safety through Pydantic models and comprehensive error handling.
 """
 
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from osprey.base.capability import BaseCapability
 from osprey.base.decorators import capability_node
@@ -81,14 +83,15 @@ class TimeRangeContext(CapabilityContext):
     information, enabling precise temporal calculations and consistent behavior
     across different system environments.
 
-    :param start_date: Parsed start datetime with timezone information
+    :param start_date: Parsed start datetime with timezone information (local timezone)
     :type start_date: datetime
-    :param end_date: Parsed end datetime with timezone information
+    :param end_date: Parsed end datetime with timezone information (local timezone)
     :type end_date: datetime
 
     .. note::
-       Datetime objects provide full functionality including arithmetic operations
-       (end_date - start_date), comparisons, and flexible formatting options.
+       Datetime objects are timezone-aware and provide full functionality including
+       arithmetic operations (end_date - start_date), comparisons, and flexible formatting
+       options. Use the to_timezone() method to convert to other timezones for display.
 
     .. warning::
        The context validates that start_date < end_date during initialization
@@ -102,6 +105,14 @@ class TimeRangeContext(CapabilityContext):
 
     start_date: datetime  # Start date as datetime object
     end_date: datetime  # End date as datetime object
+    timezone_name: str = ""  # Human readable timezone name (EST, PST, etc.) - auto-derived
+
+    @model_validator(mode="after")
+    def derive_timezone_name(self) -> "TimeRangeContext":
+        """Derive timezone_name from start_date after validate_datetime has run."""
+        if not self.timezone_name:
+            self.timezone_name = self.start_date.tzname() or ""
+        return self
 
     # Class constants for compatibility
     CONTEXT_TYPE: ClassVar[str] = "TIME_RANGE"
@@ -127,18 +138,24 @@ class TimeRangeContext(CapabilityContext):
         .. note::
            Emphasizes the full datetime functionality available including arithmetic,
            comparison operations, and flexible formatting capabilities.
+
+        .. important::
+           All datetime objects are timezone-aware. If you need to display
+           times in a different timezone, use .astimezone() to convert:
+           local_time = utc_time.astimezone(ZoneInfo("America/Los_Angeles"))
         """
-        start_str = self.start_date.strftime("%Y-%m-%d %H:%M:%S")
-        end_str = self.end_date.strftime("%Y-%m-%d %H:%M:%S")
+        start_str = self.start_date.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+        end_str = self.end_date.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
         duration = self.end_date - self.start_date
 
         return {
             "start_date": start_str,
             "end_date": end_str,
             "duration": str(duration),
+            "timezone_name": self.timezone_name,
             "data_structure": "Two datetime objects: start_date and end_date with full datetime functionality",
-            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.start_date and context.{self.CONTEXT_TYPE}.{key}.end_date",
-            "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.start_date gives datetime object, use .strftime('%Y-%m-%d %H:%M:%S') for string format",
+            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.start_date, context.{self.CONTEXT_TYPE}.{key}.end_date, and context.{self.CONTEXT_TYPE}.{key}.timezone_name",
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.start_date gives datetime object, use .strftime('%Y-%m-%d %H:%M:%S %Z') for string format; use .timezone_name for the human-readable timezone abbreviation (e.g. 'EST')",
             "datetime_features": "Direct arithmetic: end_date - start_date, comparison: start_date > other_date, formatting: start_date.strftime(format)",
         }
 
@@ -161,8 +178,9 @@ class TimeRangeContext(CapabilityContext):
         duration = self.end_date - self.start_date
         return {
             "type": "Time Range",
-            "start_time": self.start_date.strftime("%Y-%m-%d %H:%M:%S"),
-            "end_time": self.end_date.strftime("%Y-%m-%d %H:%M:%S"),
+            "start_time": self.start_date.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z"),
+            "end_time": self.end_date.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z"),
+            "timezone_name": self.timezone_name,
             "duration": str(duration),
         }
 
@@ -189,31 +207,42 @@ class TimeRangeContext(CapabilityContext):
         """
         # Allow strings (ISO format) that Pydantic will convert to datetime
         if isinstance(v, str):
+            v = v.strip()
             try:
                 # Try parsing ISO format strings with timezone info
                 if v.endswith("Z"):
                     # UTC timezone indicator
-                    return datetime.fromisoformat(v.replace("Z", "+00:00"))
+                    out = datetime.fromisoformat(v.replace("Z", "+00:00")).astimezone()
+                elif v.endswith(" UTC"):
+                    # UTC timezone indicator
+                    out = datetime.fromisoformat(v.replace(" UTC", "+00:00")).astimezone()
+                elif v.endswith(" utc"):
+                    # UTC timezone indicator
+                    out = datetime.fromisoformat(v.replace(" utc", "+00:00")).astimezone()
                 elif "+" in v[-6:] or "-" in v[-6:]:
                     # Has timezone offset
-                    return datetime.fromisoformat(v)
+                    out = datetime.fromisoformat(v).astimezone()
                 else:
-                    # No timezone, assume local
-                    return datetime.fromisoformat(v)
+                    # No timezone info — assume local timezone
+                    out = datetime.fromisoformat(v).astimezone()
             except ValueError:
                 try:
-                    # Fallback: try without timezone
-                    return datetime.strptime(v, "%Y-%m-%d %H:%M:%S")
+                    # Fallback: try parsing without timezone but assume it's the local timezone
+                    out = datetime.strptime(v, "%Y-%m-%d %H:%M:%S").astimezone()
                 except ValueError as e:
                     raise ValueError(
                         f"Invalid datetime string: {v}. Expected ISO format. Error: {e}"
                     ) from e
         elif isinstance(v, datetime):
-            return v
+            # Force datetimes into local timezone.  If no timezone info, this is a reasonable default.  If timezone
+            # exists, then this will ensure a consistent timezone.
+            out = v.astimezone()
         else:
             raise ValueError(
                 f"TimeRangeContext requires datetime objects or ISO datetime strings, got {type(v)}"
             )
+
+        return out
 
 
 # ========================================================
@@ -304,9 +333,9 @@ class TimeRangeOutput(BaseModel):
     This model enables reliable parsing validation and provides clear feedback
     about parsing success or failure for appropriate error handling.
 
-    :param start_date: Parsed start datetime with timezone information
+    :param start_date: Parsed start datetime with timezone information (local timezone)
     :type start_date: datetime
-    :param end_date: Parsed end datetime with timezone information
+    :param end_date: Parsed end datetime with timezone information (local timezone)
     :type end_date: datetime
     :param found: Whether valid time range was successfully identified and parsed
     :type found: bool
@@ -314,6 +343,7 @@ class TimeRangeOutput(BaseModel):
     .. note::
        The found flag enables the capability to distinguish between parsing
        failures and queries that legitimately contain no time references.
+       All datetime objects are timezone-aware and use UTC.
 
     .. seealso::
        :func:`_get_time_parsing_system_prompt` : System prompt generator that guides LLM output
@@ -323,14 +353,29 @@ class TimeRangeOutput(BaseModel):
     """
 
     start_date: datetime = Field(
-        description="Start date and time as datetime object in YYYY-MM-DD HH:MM:SS format"
+        description="Start date and time as datetime object in YYYY-MM-DD HH:MM:SS Z format"
     )
     end_date: datetime = Field(
-        description="End date and time as datetime object in YYYY-MM-DD HH:MM:SS format"
+        description="End date and time as datetime object in YYYY-MM-DD HH:MM:SS Z format"
     )
     found: bool = Field(
         description="True if a valid time range was found in the query, False otherwise"
     )
+
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def normalize_datetime_string(cls, v):
+        """Convert timezone abbreviations that fromisoformat() cannot parse.
+
+        Pydantic V2's datetime parser rejects strings like '2026-03-03 15:00:00 UTC'
+        because 'UTC' is not a valid ISO 8601 offset. This validator normalizes
+        common abbreviations to their +HH:MM equivalents before Pydantic parses them.
+        """
+        if isinstance(v, str):
+            v = v.strip()
+            if v.endswith(" UTC") or v.endswith(" utc"):
+                v = v[:-4] + "+00:00"
+        return v
 
 
 # ========================================================
@@ -386,8 +431,10 @@ class TimeRangeParsingCapability(BaseCapability):
     @capability_node decorator for error handling, retry policies, and streaming.
 
     .. note::
-       Uses UTC timezone as reference for all datetime calculations to ensure
-       consistent behavior across different system environments.
+       Uses UTC timezone for all datetime calculations to ensure consistent behavior
+       across different system environments. All returned datetime objects are
+       timezone-aware (UTC). Consuming capabilities should convert to local timezones
+       only when displaying to users.
 
     .. warning::
        Performs strict validation to prevent invalid ranges and future dates
@@ -417,7 +464,7 @@ class TimeRangeParsingCapability(BaseCapability):
 
         The execution process follows this sophisticated pattern:
         1. **Context Extraction**: Retrieves task objective and current execution step
-        2. **Prompt Engineering**: Creates detailed system prompt with current time context
+        2. **Prompt Engineering**: Creates detailed system prompt with current time
         3. **LLM Analysis**: Performs structured parsing using Pydantic output models
         4. **Validation**: Comprehensive validation including range and future date checks
         5. **Context Creation**: Generates rich TimeRangeContext with datetime objects
@@ -517,10 +564,10 @@ class TimeRangeParsingCapability(BaseCapability):
             )
 
         # VALIDATION: Check for future years (likely LLM error)
-        current_year = datetime.now().year
+        current_year = datetime.now(UTC).year
         if (
-            response_data.start_date.year > current_year
-            or response_data.end_date.year > current_year
+            response_data.start_date.astimezone(UTC).year > current_year
+            or response_data.end_date.astimezone(UTC).year > current_year
         ):
             logger.error(
                 f"⚠️ LLM returned FUTURE year: start={response_data.start_date}, end={response_data.end_date}, current_year={current_year}"
@@ -538,8 +585,8 @@ class TimeRangeParsingCapability(BaseCapability):
         )
 
         # Display parsed result with structured formatting
-        start_str = time_context.start_date.strftime("%Y-%m-%d %H:%M:%S")
-        end_str = time_context.end_date.strftime("%Y-%m-%d %H:%M:%S")
+        start_str = time_context.start_date.strftime("%Y-%m-%d %H:%M:%S %Z")
+        end_str = time_context.end_date.strftime("%Y-%m-%d %H:%M:%S %Z")
         logger.info("[bold]Parsed time range:[/bold]")
         logger.info(f"  Start: [cyan]{start_str}[/cyan]")
         logger.info(f"  End:   [cyan]{end_str}[/cyan]")

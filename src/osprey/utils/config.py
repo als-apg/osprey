@@ -108,7 +108,7 @@ class ConfigBuilder:
 
             dotenv_path = Path.cwd() / ".env"
             if dotenv_path.exists():
-                load_dotenv(dotenv_path, override=False)  # Don't override existing env vars
+                load_dotenv(dotenv_path, override=True)  # .env file is source of truth for API keys
                 logger.debug(f"Loaded .env file from {dotenv_path}")
             else:
                 logger.debug(f"No .env file found at {dotenv_path}")

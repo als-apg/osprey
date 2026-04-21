@@ -297,8 +297,25 @@ def _gather_information(state: AgentState, logger=None) -> ResponseContext:
                     f"Including chat history ({len(messages)} messages) for context-dependent task"
                 )
 
+    # If a parsed time range is present, append the authoritative timezone name to the
+    # task description so it appears at the top of the prompt before any context data.
+    # This prevents the LLM from conflating the user's requested timezone abbreviation
+    # (e.g. EDT) with the system-local representation stored in retrieved data (e.g. EST).
+    current_task = state.get("task_current_task", "General information request")
+    timezone_name = next(
+        (ctx.get("timezone_name") for ctx in relevant_context if ctx.get("timezone_name")),
+        None,
+    )
+    if timezone_name:
+        current_task += (
+            f" [NOTE: All retrieved times are in the system local timezone ({timezone_name}). "
+            f"Use this timezone name when labeling times, NOT the timezone name used in the original request. "
+            f"This may differ in name from the timezone in the user's request but represents "
+            f"the same moment in time — do not flag this as a discrepancy.]"
+        )
+
     return ResponseContext(
-        current_task=state.get("task_current_task", "General information request"),
+        current_task=current_task,
         execution_history=execution_history,
         relevant_context=relevant_context,
         is_killed=state.get("control_is_killed", False),
@@ -307,7 +324,7 @@ def _gather_information(state: AgentState, logger=None) -> ResponseContext:
         total_steps_executed=StateManager.get_current_step_index(state),
         execution_start_time=state.get("execution_start_time"),
         reclassification_count=state.get("control_reclassification_count", 0),
-        current_date=datetime.now().strftime("%Y-%m-%d"),
+        current_date=datetime.now().astimezone().strftime("%Y-%m-%d %z"),
         figures_available=figures_available,
         commands_available=commands_available,
         notebooks_available=notebooks_available,

@@ -5,7 +5,7 @@ Default prompts for time range parsing capability.
 """
 
 import textwrap
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from osprey.base import (
     ClassifierActions,
@@ -60,10 +60,11 @@ class DefaultTimeRangeParsingPromptBuilder(FrameworkPromptBuilder):
             """\
             CRITICAL REQUIREMENTS:
             - start_date and end_date must be valid datetime values in ISO format
-            - Use format 'YYYY-MM-DD HH:MM:SS'
+            - If the user's query specifies timezones, use format 'YYYY-MM-DD HH:MM:SS zzz'.  If no timezone were specified use format 'YYYY-MM-DD HH:MM:SS'
             - Return as datetime objects, not strings with extra text or descriptions
             - **CRITICAL**: start_date MUST be BEFORE end_date (start < end)
             - **CRITICAL**: Anchor ALL date calculations to the current datetime provided below — do NOT use your training data to infer what "now" is
+            - **CRITICAL**: All datetimes, if they include timezone information, MUST be in UTC.  All datetimes, if they do not include timezone information, must be in the original naive timezone of the user's request.  Downstream application code will ensure that all datetimes use the client system's local timezone.
             - For historical data requests, end_date should typically be close to current time
 
             Instructions:
@@ -93,8 +94,11 @@ class DefaultTimeRangeParsingPromptBuilder(FrameworkPromptBuilder):
             3. Verify: start_date < end_date
 
             Respond with a JSON object containing start_date, end_date, and found.
-            The start_date and end_date fields should be datetime values in YYYY-MM-DD HH:MM:SS format
-            that will be automatically converted to Python datetime objects."""
+            The start_date and end_date fields should be datetime values in "YYYY-MM-DD HH:MM:SS zzz" format
+            if timezones were given in the user's prompt or in "YYYY-MM-DD HH:MM:SS" if not timezones were
+            given.  start_date and end_date fields will be automatically converted to Python datetime objects.
+            Make sure that all timezones, if used, are UTC.  Application code will convert this to a local timezone
+            for later use and display purposes."""
         )
 
     def build_dynamic_context(self, **kwargs) -> str | None:
@@ -107,7 +111,10 @@ class DefaultTimeRangeParsingPromptBuilder(FrameworkPromptBuilder):
         Keyword Args:
             user_query: The user's natural language query containing time references.
         """
-        now = datetime.now(UTC)
+        # The prompt says to put everything into UTC if a user includes a timezone, otherwise keep it naive and assume
+        # it's localtime.  These first set of examples with relative time requests don't include timezone information,
+        # so we keep the examples naive.
+        now = datetime.now()
         current_time_str = now.strftime("%Y-%m-%d %H:%M:%S")
         current_weekday = now.strftime("%A")
 
@@ -146,6 +153,18 @@ class DefaultTimeRangeParsingPromptBuilder(FrameworkPromptBuilder):
             - "last 24 hours" → start_date: "{twenty_four_hours_ago}", end_date: "{current_time_str}"
             - "past 24 hours" → start_date: "{twenty_four_hours_ago}", end_date: "{current_time_str}"
             - "past 2 weeks" → start_date: "{two_weeks_ago}", end_date: "{current_time_str}" """)
+        )
+
+        # These examples showcase how to handle requests with timezones.  Always return answers in UTC.
+        sections.append(
+            textwrap.dedent("""\
+            EXAMPLES of users requests optionally containing timezones with exact format expected:
+            - "from 2026-01-15 01:35 EST to 2026-01-16 02:40 EST" → start_date: "2026-01-15 06:35:00 UTC", end_date: "2026-01-16 07:40:00 UTC"
+            - "between 2025-07-01 21:35 PST and 2025-09-05 12:23 MST" → start_date: "2025-07-02 05:35:00 UTC", end_date: "2025-09-05 19:23:00 UTC"
+            - "from 2026-01-15 01:35 to 2026-01-16 02:40" → start_date: "2026-01-15 01:35:00", end_date: "2026-01-16 02:40:00"
+            - "between 2025-07-01 21:35 and 2025-09-05 12:23" → start_date: "2025-07-01 21:35:00", end_date: "2025-09-05 12:23:00"
+            - "2020-12-25 11PM EST - 2025-09-05 12:23:55 EDT" → start_date: "2020-12-26 04:00:00 UTC", end_date: "2025-09-05 16:23:55 UTC"
+            - "2021-12-20 21:35 - 2025-09-05 10 AM" → start_date: "2021-12-20 21:35:00", end_date: "2025-09-05 10:00:00" """)
         )
 
         # User query

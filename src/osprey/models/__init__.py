@@ -35,6 +35,7 @@ from .langchain import (  # noqa: E402
     get_langchain_model,
     get_langchain_model_from_name,
     list_supported_providers,
+    retry_budget_override,
 )
 from .logging import set_api_call_context  # noqa: E402
 from .messages import ChatCompletionRequest, ChatMessage  # noqa: E402
@@ -46,6 +47,7 @@ __all__ = [
     "get_langchain_model",
     "get_langchain_model_from_name",
     "list_supported_providers",
+    "retry_budget_override",
     "set_api_call_context",
     "SUPPORTED_PROVIDERS",
 ]

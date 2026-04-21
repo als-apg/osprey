@@ -452,7 +452,7 @@ class TestGatherInformation:
 
             # Mock datetime.now()
             mock_now = Mock()
-            mock_now.strftime.return_value = "2025-12-23"
+            mock_now.astimezone.return_value.strftime.return_value = "2025-12-23"
             mock_dt.now.return_value = mock_now
 
             context = _gather_information(state)

@@ -17,6 +17,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from osprey.cli.styles import Messages, Styles, console
+from osprey.models import retry_budget_override
 from osprey.services.channel_finder.benchmarks.runner import BenchmarkRunner
 from osprey.services.channel_finder.utils.config import get_config
 
@@ -196,7 +197,10 @@ async def run_benchmarks(
         start_time = datetime.now()
 
         # Run all enabled datasets (filtered by config overrides above)
-        await runner.run_all_enabled_benchmarks()
+        # Override retry budget to 90s so rate-limit Retry-After headers
+        # (e.g. CBORG's 60s) are respected instead of skipped.
+        with retry_budget_override(90.0):
+            await runner.run_all_enabled_benchmarks()
 
         elapsed = (datetime.now() - start_time).total_seconds()
 

@@ -60,6 +60,9 @@ class ArchiverDataContext(CapabilityContext):
         str, list[float]
     ]  # Channel name -> time series values (aligned with timestamps)
     available_channels: list[str]  # List of available channel names for intuitive filtering
+    timezone_name: str = (
+        ""  # Human-readable timezone name (e.g. "EST", "PST") copied from TIME_RANGE
+    )
 
     def get_access_details(self, key: str) -> dict[str, Any]:
         """Rich description of the archiver data structure."""
@@ -78,20 +81,21 @@ class ArchiverDataContext(CapabilityContext):
         duration = end_time - start_time
 
         return {
-            "total_points": total_points,
+            "data_description": f"Data set contains {total_points} total points for {len(self.available_channels)} channels (field not in ArchiverDataContext class).",
             "precision_ms": self.precision_ms,
-            "channel_count": len(self.available_channels),
             "available_channels": self.available_channels,
-            "time_info": f"Data spans from {start_time} to {end_time} (duration: {duration})",
-            "data_structure": "4 attributes: timestamps (list of datetime objects), precision_ms (int), time_series_data (dict of channel_name -> list of float values), available_channels (list of channel names)",
+            "time_info": f"Data spans from {start_time.strftime('%Y-%m-%d %H:%M:%S %Z')} to {end_time.strftime('%Y-%m-%d %H:%M:%S %Z')} (duration: {duration})",
+            "timezone_name": self.timezone_name or "",
+            "data_structure": "5 attributes: timestamps (list of datetime objects), precision_ms (int), time_series_data (dict of channel_name -> list of float values), available_channels (list of channel names), timezone_name (str, human-readable timezone label e.g. 'EST')",
             "CRITICAL_ACCESS_PATTERNS": {
                 "get_channel_names": f"channel_names = context.{self.CONTEXT_TYPE}.{key}.available_channels",
                 "get_channel_data": f"data = context.{self.CONTEXT_TYPE}.{key}.time_series_data['CHANNEL_NAME']",
                 "get_timestamps": f"timestamps = context.{self.CONTEXT_TYPE}.{key}.timestamps",
                 "get_single_value": f"value = context.{self.CONTEXT_TYPE}.{key}.time_series_data['CHANNEL_NAME'][index]",
                 "get_time_at_index": f"time = context.{self.CONTEXT_TYPE}.{key}.timestamps[index]",
+                "get_timezone_name": f"tz = context.{self.CONTEXT_TYPE}.{key}.timezone_name  # use for labeling times",
             },
-            "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.time_series_data['{example_channel}'][0] gives {example_value}, context.{self.CONTEXT_TYPE}.{key}.timestamps[0] gives datetime object",
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.time_series_data['{example_channel}'][0] gives {example_value}, context.{self.CONTEXT_TYPE}.{key}.timestamps[0] gives datetime object, context.{self.CONTEXT_TYPE}.{key}.timezone_name gives '{self.timezone_name or 'EST'}'",
             "datetime_features": "Full datetime functionality: arithmetic, comparison, formatting with .strftime(), timezone operations",
         }
 
@@ -311,6 +315,7 @@ class ArchiverRetrievalCapability(BaseCapability):
                 precision_ms=precision_ms,
                 time_series_data=time_series_data,
                 available_channels=list(time_series_data.keys()),
+                timezone_name=getattr(time_range_context, "timezone_name", ""),
             )
 
             # Log archiver data info with safe timestamp access

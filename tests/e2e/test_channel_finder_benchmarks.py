@@ -264,11 +264,15 @@ async def _run_benchmark(project, pipeline_mode: str):
         initialize_registry(config_path=str(project.config_path))
 
         # Import the benchmark runner from the native framework service
+        # Create runner and run benchmark
+        # Override retry budget to 90s so rate-limit Retry-After headers
+        # (e.g. CBORG's 60s) are respected instead of skipped.
+        from osprey.models import retry_budget_override
         from osprey.services.channel_finder.benchmarks.runner import BenchmarkRunner
 
-        # Create runner and run benchmark
         runner = BenchmarkRunner()
-        await runner.run_all_enabled_benchmarks()
+        with retry_budget_override(90.0):
+            await runner.run_all_enabled_benchmarks()
 
         # Find the latest results file
         results_dir = project.project_dir / f"src/{package_name}/data/benchmarks/results"
