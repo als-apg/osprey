@@ -30,7 +30,7 @@ from pydantic import BaseModel
 from osprey.utils.logger import get_logger
 
 
-def _fix_schema_additional_properties(schema: dict) -> dict:
+def _fix_schema_additional_properties(schema: Any) -> Any:
     """Make ``additionalProperties`` Bedrock-compatible throughout a JSON schema.
 
     Bedrock rejects ``additionalProperties`` set to a schema object (e.g.
