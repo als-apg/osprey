@@ -26,14 +26,14 @@ Documentation Structure
       :class-header: sd-bg-primary sd-text-white
 
       Install Osprey, create your first project, and deploy a control assistant
-      with Claude Code and MCP servers.
+      with a coding agent and MCP servers.
 
    .. grid-item-card:: Architecture
       :link: architecture/index
       :link-type: doc
       :class-header: sd-bg-info sd-text-white
 
-      Core concepts: Claude Code orchestration, MCP servers, connectors,
+      Core concepts: agentic orchestration, MCP servers, connectors,
       human-in-the-loop safety, and the runtime API.
 
    .. grid-item-card:: How-To Guides
