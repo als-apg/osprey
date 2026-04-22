@@ -22,6 +22,7 @@ Provider Integration:
 import json
 import os
 import warnings
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 import litellm
@@ -410,14 +411,17 @@ def _handle_structured_output(
         original_schema
     )
 
-    schema = original_schema
-    if uses_bedrock_schema_rules and not schema_has_bedrock_incompatible_maps:
-        schema = _fix_schema_additional_properties(schema)
-
     # Check if model supports native structured outputs using LiteLLM's detection
     supports_native = _supports_native_structured_output(litellm_model, provider)
-    if uses_bedrock_schema_rules and schema_has_bedrock_incompatible_maps:
-        supports_native = False
+
+    # Bedrock rejects certain additionalProperties shapes; either patch the schema or
+    # fall back to prompt-based output if the schema can't be safely fixed
+    schema = original_schema
+    if uses_bedrock_schema_rules:
+        if schema_has_bedrock_incompatible_maps:
+            supports_native = False  # can't fix these, fall back
+        else:
+            schema = _fix_schema_additional_properties(deepcopy(original_schema))
 
     if supports_native:
         # Use LiteLLM's native structured output support
