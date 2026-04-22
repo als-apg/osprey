@@ -246,6 +246,9 @@ def _gather_information(state: AgentState, logger=None) -> ResponseContext:
 
     # If the step had no inputs and returned nothing, fall back to all available context
     if not relevant_context:
+        logger and logger.warning(
+            "No context found for step %s; falling back to full context", current_step
+        )
         relevant_context = context_manager.get_summaries(None)
 
     # Determine response mode and prepare appropriate data
