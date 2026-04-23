@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Web Terminal**: In offline mode, `osprey web` fails fast with a clear error pointing at `osprey vendor fetch` when `static/vendor/` is empty or corrupt, instead of silently serving a blank page. In default CDN mode the preflight check is skipped.
 - **Claude Code / CBORG**: Pin CBORG model IDs to specific versions (`claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-7`) in the resolver fallback and in `api.providers.cborg.models` templates. Unversioned aliases like `anthropic/claude-opus` disabled Claude Code's capability detection, causing it to send the legacy `thinking.type.enabled` schema which Vertex-backed Opus 4.7 rejects with HTTP 400.
 
+### Removed (BREAKING)
+- **`osprey migrate` command removed.** The legacy config-migration workflow is retired; users on older configs should run `osprey init` fresh or hand-edit.
+- **`lattice_design` template removed.** `osprey init --template lattice_design` and `data_bundle: lattice_design` in build profiles are no longer valid. Build profiles now strictly accept `{hello_world, control_assistant}`.
+- **Interactive init wizard removed.** `osprey init --interactive` and the main-menu "Create new project" action no longer exist. Use `osprey init <name> --template <hello_world|control_assistant>`.
+
 ## [0.11.5] - 2026-03-13
 
 ### Fixed

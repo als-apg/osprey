@@ -19,20 +19,6 @@ from typing import Any
 
 import yaml
 
-# Re-export from init_wizard (backward compatibility)
-from osprey.cli.init_wizard import (  # noqa: F401
-    configure_api_key,
-    get_api_key_name,
-    get_default_name_for_template,
-    run_interactive_init,
-    run_interactive_profile_wizard,
-    select_channel_finder_mode,
-    select_template,
-    show_api_key_help,
-    show_manual_config_instructions,
-    write_env_file,
-)
-
 # Re-export from menu_display (backward compatibility)
 from osprey.cli.menu_display import (  # noqa: F401
     handle_help_action,
@@ -406,8 +392,6 @@ def get_project_menu_choices(exit_action: str = "exit") -> list[Choice]:
         Choice("[>] health      - Run system health check", value="health"),
         Choice("[>] config      - Configuration settings", value="config"),
         Choice("[>] registry    - Show registry contents", value="registry"),
-        Choice("─" * 60, value=None, disabled=True),
-        Choice("[+] init        - Create new project", value="init_interactive"),
         Choice("[?] help        - Show all commands", value="help"),
     ]
 
@@ -463,7 +447,6 @@ def show_main_menu() -> str | None:
         # Standard menu options
         choices.extend(
             [
-                Choice("[+] Create new project (interactive)", value="init_interactive"),
                 Choice("[?] Help", value="help"),
                 Choice("[x] Exit", value="exit"),
             ]
@@ -668,11 +651,7 @@ def navigation_loop():
                 continue
 
         # Handle string actions (standard commands)
-        if action == "init_interactive":
-            next_action = run_interactive_init()
-            if next_action == "exit":
-                break
-        elif action == "deploy":
+        if action == "deploy":
             handle_deploy_action()
         elif action == "health":
             handle_health_action()

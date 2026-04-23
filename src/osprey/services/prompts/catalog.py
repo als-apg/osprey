@@ -233,38 +233,6 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             output_path=".claude/skills/migrate-legacy/SKILL.md",
             description="Interactive migration from legacy LangGraph-based OSPREY projects",
         ),
-        # ── Reference scripts (lattice_design) ─────────────────────
-        PromptArtifact(
-            canonical_name="skills/lattice-evaluation/ref-analyze-working-point",
-            template_path="claude/skills/lattice-evaluation/references/analyze_working_point.py",
-            output_path=".claude/skills/lattice-evaluation/references/analyze_working_point.py",
-            description="Reference implementation for working point analysis",
-        ),
-        PromptArtifact(
-            canonical_name="skills/lattice-evaluation/ref-resonance-diagram",
-            template_path="claude/skills/lattice-evaluation/references/resonance_diagram.py",
-            output_path=".claude/skills/lattice-evaluation/references/resonance_diagram.py",
-            description="Reference implementation for resonance diagram",
-        ),
-        PromptArtifact(
-            canonical_name="skills/lattice-evaluation/ref-dynamic-aperture",
-            template_path="claude/skills/lattice-evaluation/references/dynamic_aperture.py",
-            output_path=".claude/skills/lattice-evaluation/references/dynamic_aperture.py",
-            description="Reference implementation for dynamic aperture",
-        ),
-        PromptArtifact(
-            canonical_name="skills/lattice-evaluation/ref-frequency-map",
-            template_path="claude/skills/lattice-evaluation/references/frequency_map.py",
-            output_path=".claude/skills/lattice-evaluation/references/frequency_map.py",
-            description="Reference implementation for frequency map analysis",
-        ),
-        # ── Rules (lattice_design) ────────────────────────────────
-        PromptArtifact(
-            canonical_name="rules/lattice-physics",
-            template_path="claude/rules/lattice-physics.md.j2",
-            output_path=".claude/rules/lattice-physics.md",
-            description="AT API reference card (lattice_design only)",
-        ),
         # ── Output Styles ────────────────────────────────────────────
         PromptArtifact(
             canonical_name="output-styles/control-operator",

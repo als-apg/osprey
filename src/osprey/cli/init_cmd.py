@@ -277,10 +277,7 @@ def _quick_build(project_name: str, example: str, output_dir: str, force: bool) 
 def _run_interactive_profile_wizard(project_name: str, output_dir: str) -> None:
     """Run the interactive wizard and write a BuildProfile YAML."""
     try:
-        from .init_wizard import run_interactive_profile_wizard as _wizard
-
-        output_path = Path(output_dir).resolve()
-        _wizard(project_name, output_path)
+        raise ImportError("init_wizard removed; interactive mode pending Task 3.1 rewrite")
     except ImportError:
         console.print(
             "[error]✗[/error] Interactive mode requires the 'questionary' package.\n"

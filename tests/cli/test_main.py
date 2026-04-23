@@ -62,7 +62,6 @@ class TestLazyGroup:
             "init",
             "config",
             "deploy",
-            "migrate",
             "health",
             "channel-finder",
             "claude",

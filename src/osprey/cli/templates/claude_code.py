@@ -68,7 +68,6 @@ def build_claude_code_context(
             artifacts = tmpl_manifest.get("artifacts", {})
 
     # Derive feature flags from artifact selections
-    has_lattice_physics = "lattice-physics" in artifacts.get("rules", [])
     selected_hooks = artifacts.get("hooks", [])
 
     ctx = {
@@ -83,7 +82,6 @@ def build_claude_code_context(
         "data_bundle": data_bundle,
         "facility_name": config.get("facility_name", project_name),
         "system_timezone": config.get("system", {}).get("timezone", "UTC"),
-        "has_lattice_physics": has_lattice_physics,
         "selected_hooks": selected_hooks,
     }
 
@@ -403,7 +401,7 @@ def create_claude_code_integration(
                 # Clean up empty rendered files (template-conditional content)
                 if dst_file.exists() and not dst_file.read_text(encoding="utf-8").strip():
                     dst_file.unlink()
-                    # Remove empty parent dir (e.g., .claude/skills/load-lattice/)
+                    # Remove empty parent dir (e.g., .claude/skills/some-skill/)
                     if dst_file.parent != project_dir and not any(dst_file.parent.iterdir()):
                         dst_file.parent.rmdir()
                     continue

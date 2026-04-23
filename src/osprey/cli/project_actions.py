@@ -34,7 +34,6 @@ def handle_project_selection(project_path: Path):
     Args:
         project_path: Path to the selected project directory
     """
-    from osprey.cli.init_wizard import run_interactive_init
     from osprey.cli.interactive_menu import get_project_info, get_project_menu_choices
     from osprey.cli.menu_display import handle_help_action, show_banner
 
@@ -76,20 +75,6 @@ def handle_project_selection(project_path: Path):
             from osprey.cli.registry_cmd import handle_registry_action
 
             handle_registry_action(project_path=project_path)
-        elif action == "init_interactive":
-            # Save current directory before init flow
-            original_dir = Path.cwd()
-            try:
-                # Init can run from anywhere, but we restore directory after
-                next_action = run_interactive_init()
-                if next_action == "exit":
-                    # User chose to exit after init, return to main menu instead
-                    return
-            finally:
-                try:
-                    os.chdir(original_dir)
-                except (OSError, PermissionError):
-                    pass
         elif action == "help":
             handle_help_action()
 

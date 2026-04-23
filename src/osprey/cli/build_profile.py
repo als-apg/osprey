@@ -196,17 +196,12 @@ class BuildProfile:
         if not self.name:
             errors.append("Profile 'name' is required")
 
-        # Validate data_bundle names a valid bundle directory
-        from importlib.resources import files
-
-        bundles_path = Path(str(files("osprey").joinpath("templates/apps")))
-        if not (bundles_path / self.data_bundle).is_dir():
-            valid = sorted(
-                p.name for p in bundles_path.iterdir() if p.is_dir() and not p.name.startswith("_")
-            )
+        # Validate data_bundle is one of the supported bundles
+        valid_bundles = {"hello_world", "control_assistant"}
+        if self.data_bundle not in valid_bundles:
             errors.append(
-                f"data_bundle '{self.data_bundle}' not found in templates/apps"
-                f" (valid: {', '.join(valid)})"
+                f"data_bundle '{self.data_bundle}' is not supported"
+                f" (valid: {', '.join(sorted(valid_bundles))})"
             )
 
         # Validate overlay source paths exist

@@ -520,76 +520,6 @@ class TestBuildClaudeCodeContextHierarchy:
         assert "Call `get_options()` at the first level to discover" not in agent_prompt
 
 
-class TestLatticeSkillIsolation:
-    """Test that lattice-specific skills/rules only appear for lattice_design."""
-
-    LATTICE_SKILLS = [
-        # lattice-evaluation skill was replaced by the lattice dashboard panel
-    ]
-
-    def test_control_assistant_has_no_lattice_skills(self, tmp_path):
-        """control_assistant projects must not contain lattice skill directories."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="ctrl-test",
-            output_dir=tmp_path,
-            data_bundle="control_assistant",
-        )
-
-        skills_dir = project_dir / ".claude" / "skills"
-        for skill_name in self.LATTICE_SKILLS:
-            skill_dir = skills_dir / skill_name
-            assert not skill_dir.exists(), (
-                f"Lattice skill '{skill_name}' should not exist in control_assistant project"
-            )
-
-    def test_control_assistant_has_no_lattice_rule(self, tmp_path):
-        """control_assistant projects must not contain lattice-physics rule."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="ctrl-rule-test",
-            output_dir=tmp_path,
-            data_bundle="control_assistant",
-        )
-
-        rule_file = project_dir / ".claude" / "rules" / "lattice-physics.md"
-        assert not rule_file.exists(), (
-            "lattice-physics.md rule should not exist in control_assistant project"
-        )
-
-    def test_lattice_design_has_all_skills(self, tmp_path):
-        """lattice_design projects must contain all lattice skills with content."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="lat-test",
-            output_dir=tmp_path,
-            data_bundle="lattice_design",
-        )
-
-        skills_dir = project_dir / ".claude" / "skills"
-        for skill_name in self.LATTICE_SKILLS:
-            skill_file = skills_dir / skill_name / "SKILL.md"
-            assert skill_file.exists(), (
-                f"Lattice skill '{skill_name}/SKILL.md' should exist in lattice_design project"
-            )
-            content = skill_file.read_text(encoding="utf-8").strip()
-            assert len(content) > 0, f"Lattice skill '{skill_name}/SKILL.md' should not be empty"
-
-    def test_lattice_design_has_lattice_rule(self, tmp_path):
-        """lattice_design projects must contain lattice-physics rule with content."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="lat-rule-test",
-            output_dir=tmp_path,
-            data_bundle="lattice_design",
-        )
-
-        rule_file = project_dir / ".claude" / "rules" / "lattice-physics.md"
-        assert rule_file.exists(), "lattice-physics.md rule should exist in lattice_design project"
-        content = rule_file.read_text(encoding="utf-8").strip()
-        assert len(content) > 0, "lattice-physics.md rule should not be empty"
-
-
 class TestTemplateManifest:
     """Test template manifest loading, resolution, and filtering."""
 
@@ -613,25 +543,6 @@ class TestTemplateManifest:
         assert "output_styles" in profile
         assert "approval" in profile["hooks"]
         assert "channel-finder" in profile["agents"]
-
-    def test_lattice_design_example_profile_has_expected_artifacts(self):
-        """Lattice design example profile declares lattice-specific entries."""
-        import importlib.resources
-
-        import yaml
-
-        profile_text = (
-            importlib.resources.files("osprey.profiles.examples")
-            .joinpath("lattice-design.yml")
-            .read_text(encoding="utf-8")
-        )
-        profile = yaml.safe_load(profile_text)
-
-        assert "lattice-physics" in profile["rules"]
-        # Should NOT have control-system-specific entries
-        assert "limits" not in profile.get("hooks", [])
-        assert "cf-feedback-capture" not in profile.get("hooks", [])
-        assert "control-system-safety" not in profile.get("rules", [])
 
     def test_load_manifest_nonexistent_template(self):
         """Returns None for unknown template."""
@@ -701,62 +612,6 @@ class TestTemplateManifest:
 
         assert ".claude/skills/session-report/SKILL.md" in outputs
         assert ".claude/skills/session-report/reference.md" in outputs
-
-    def test_lattice_init_no_control_artifacts(self, tmp_path):
-        """Lattice project must not contain control-system-specific artifacts."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="lat-manifest-test",
-            output_dir=tmp_path,
-            data_bundle="lattice_design",
-        )
-
-        # These should NOT exist
-        assert not (project_dir / ".claude" / "hooks" / "osprey_limits.py").exists()
-        assert not (project_dir / ".claude" / "hooks" / "osprey_cf_feedback_capture.py").exists()
-        assert not (project_dir / ".claude" / "rules" / "control-system-safety.md").exists()
-
-    def test_lattice_init_has_lattice_artifacts(self, tmp_path):
-        """Lattice project must have lattice-physics rule and reference scripts."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="lat-artifacts-test",
-            output_dir=tmp_path,
-            data_bundle="lattice_design",
-        )
-
-        # Lattice-physics rule
-        rule = project_dir / ".claude" / "rules" / "lattice-physics.md"
-        assert rule.exists()
-        assert len(rule.read_text(encoding="utf-8").strip()) > 0
-
-        # lattice-evaluation SKILL.md was replaced by the dashboard panel
-        # but the 4 reference scripts should still be deployed
-        refs_dir = project_dir / ".claude" / "skills" / "lattice-evaluation" / "references"
-        for ref_name in [
-            "analyze_working_point.py",
-            "resonance_diagram.py",
-            "dynamic_aperture.py",
-            "frequency_map.py",
-        ]:
-            ref_file = refs_dir / ref_name
-            assert ref_file.exists(), f"Missing reference script: {ref_name}"
-            assert len(ref_file.read_text(encoding="utf-8").strip()) > 0
-
-    def test_lattice_init_agents(self, tmp_path):
-        """Lattice project must have expected agents."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="lat-agents-test",
-            output_dir=tmp_path,
-            data_bundle="lattice_design",
-        )
-
-        agents_dir = project_dir / ".claude" / "agents"
-        agent_files = sorted(f.name for f in agents_dir.iterdir() if f.suffix == ".md")
-        assert agent_files == [
-            "data-visualizer.md",
-        ]
 
     def test_control_assistant_has_all_hooks(self, tmp_path):
         """Control assistant project must have all 8 hook files."""
