@@ -687,9 +687,18 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         # For binary files (images), use FileResponse for proper streaming
         snippet = _RESPONSIVE_SNIPPETS.get(entry.artifact_type)
         if not snippet:
+            # Text artifacts (e.g. .tex with application/x-tex) wouldn't render
+            # inline in an iframe with their original non-browser MIME type —
+            # browsers trigger a download instead. Serve as text/plain so the
+            # gallery preview iframe shows the source.
+            media_type = (
+                "text/plain; charset=utf-8"
+                if entry.artifact_type == "text"
+                else entry.mime_type
+            )
             return FileResponse(
                 filepath,
-                media_type=entry.mime_type,
+                media_type=media_type,
                 filename=entry.filename,
                 content_disposition_type="inline",
             )
