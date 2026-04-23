@@ -156,6 +156,9 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
                     url=target,
                     headers=fwd_headers,
                     content=body if body else None,
+                    # SSE streams idle between events — disable the read
+                    # timeout so quiet periods don't kill the connection.
+                    timeout=httpx.Timeout(None, connect=5.0),
                 ),
                 stream=True,
             )
