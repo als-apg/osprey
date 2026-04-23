@@ -22,12 +22,121 @@ Provider Integration:
 import json
 import os
 import warnings
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 import litellm
 from pydantic import BaseModel
 
 from osprey.utils.logger import get_logger
+
+
+def _fix_schema_additional_properties(schema: Any) -> Any:
+    """Make ``additionalProperties`` Bedrock-compatible throughout a JSON schema.
+
+    Bedrock rejects ``additionalProperties`` set to a schema object (e.g.
+    ``{"type": "string"}`` that Pydantic emits for ``dict[str, str]``).  It only
+    accepts the value ``false``.
+
+    Strategy:
+    - **Structured objects** (have ``properties``): set ``additionalProperties: false``.
+    - **Dict / map types** (``type: object`` *without* ``properties``, where
+      ``additionalProperties`` carries a value-type schema): *remove*
+      ``additionalProperties`` entirely so Bedrock sees a plain ``{"type": "object"}``
+      and the LLM is still free to populate keys.
+    """
+    if not isinstance(schema, dict):
+        return schema
+
+    # Process $defs (Pydantic v2 style)
+    if "$defs" in schema:
+        for key in schema["$defs"]:
+            schema["$defs"][key] = _fix_schema_additional_properties(schema["$defs"][key])
+
+    # Structured objects with named properties → lock down
+    if "properties" in schema:
+        schema["additionalProperties"] = False
+    elif schema.get("type") == "object" and isinstance(schema.get("additionalProperties"), dict):
+        # Pure dict/map type (no named properties, value schema in additionalProperties)
+        # Remove the unsupported schema object; {"type": "object"} is sufficient
+        del schema["additionalProperties"]
+
+    # Recurse into property definitions
+    if "properties" in schema:
+        for key in schema["properties"]:
+            schema["properties"][key] = _fix_schema_additional_properties(schema["properties"][key])
+
+    # Recurse into array items
+    if "items" in schema:
+        schema["items"] = _fix_schema_additional_properties(schema["items"])
+
+    # Recurse into combinators
+    for combinator in ("allOf", "anyOf", "oneOf"):
+        if combinator in schema:
+            schema[combinator] = [_fix_schema_additional_properties(s) for s in schema[combinator]]
+
+    return schema
+
+
+def _uses_bedrock_schema_rules(provider: str, model_id: str, litellm_model: str) -> bool:
+    """Return whether structured outputs must satisfy Bedrock JSON schema rules.
+
+    Some providers proxy to upstream Bedrock-hosted Claude models and surface
+    Bedrock's stricter JSON schema validation, even when the local provider is
+    not literally named ``bedrock``.
+    """
+    if provider == "bedrock" or litellm_model.startswith("bedrock/"):
+        return True
+
+    # AmSC Claude model groups surface Bedrock schema validation errors.
+    if provider == "amsc" and "claude" in model_id.lower():
+        return True
+
+    return False
+
+
+def _schema_has_map_like_additional_properties(schema: Any) -> bool:
+    """Return whether a schema contains ``additionalProperties`` with a schema object.
+
+    Bedrock rejects these map-like shapes (for example ``dict[str, str]``).
+    We use this to fall back to prompt-based structured output instead of
+    weakening the schema into an unconstrained ``object``.
+    """
+    if not isinstance(schema, dict):
+        return False
+
+    if (
+        schema.get("type") == "object"
+        and "properties" not in schema
+        and isinstance(schema.get("additionalProperties"), dict)
+    ):
+        return True
+
+    if any(
+        _schema_has_map_like_additional_properties(schema[key])
+        for key in ("items", "additionalProperties")
+        if key in schema
+    ):
+        return True
+
+    if "properties" in schema and any(
+        _schema_has_map_like_additional_properties(value) for value in schema["properties"].values()
+    ):
+        return True
+
+    if "$defs" in schema and any(
+        _schema_has_map_like_additional_properties(value) for value in schema["$defs"].values()
+    ):
+        return True
+
+    for combinator in ("allOf", "anyOf", "oneOf"):
+        if combinator in schema and any(
+            _schema_has_map_like_additional_properties(value) for value in schema[combinator]
+        ):
+            return True
+
+    return False
+
 
 if TYPE_CHECKING:
     from .base import BaseProvider
@@ -296,10 +405,23 @@ def _handle_structured_output(
             is_typed_dict_output=is_typed_dict_output,
         )
 
-    schema = output_format.model_json_schema()
+    original_schema = output_format.model_json_schema()
+    uses_bedrock_schema_rules = _uses_bedrock_schema_rules(provider, model_id, litellm_model)
+    schema_has_bedrock_incompatible_maps = _schema_has_map_like_additional_properties(
+        original_schema
+    )
 
     # Check if model supports native structured outputs using LiteLLM's detection
     supports_native = _supports_native_structured_output(litellm_model, provider)
+
+    # Bedrock rejects certain additionalProperties shapes; either patch the schema or
+    # fall back to prompt-based output if the schema can't be safely fixed
+    schema = original_schema
+    if uses_bedrock_schema_rules:
+        if schema_has_bedrock_incompatible_maps:
+            supports_native = False  # can't fix these, fall back
+        else:
+            schema = _fix_schema_additional_properties(deepcopy(original_schema))
 
     if supports_native:
         # Use LiteLLM's native structured output support
