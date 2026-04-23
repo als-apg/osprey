@@ -191,11 +191,6 @@ class TemplateManager:
                 artifacts = tmpl_manifest.get("artifacts", {})
 
         # Derive feature flags from artifact selections.
-        # has_lattice_physics: from explicit artifacts list, or from data_bundle name (legacy)
-        _artifact_rules = (artifacts or {}).get("rules", [])
-        has_lattice_physics = (
-            "lattice-physics" in _artifact_rules or data_bundle == "lattice_design"
-        )
         selected_hooks = (artifacts or {}).get("hooks", [])
         selected_web_panels = (artifacts or {}).get("web_panels", [])
 
@@ -214,7 +209,6 @@ class TemplateManager:
             "default_model": "haiku",
             "template_name": data_bundle,  # Make bundle name available in config.yml
             "data_bundle": data_bundle,
-            "has_lattice_physics": has_lattice_physics,
             "selected_hooks": selected_hooks,
             "selected_web_panels": selected_web_panels,
             # Add detected environment variables

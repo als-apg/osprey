@@ -1240,13 +1240,12 @@ class TestWebPanelsRendering:
 
     def test_builtin_panels_rendered_from_web_panels(self, tmp_path: Path):
         """Only builtin panels listed in web_panels appear with enabled: true."""
-        config_path = _build_for_web_panels(tmp_path, web_panels=["ariel", "lattice"])
+        config_path = _build_for_web_panels(tmp_path, web_panels=["ariel", "tuning"])
         config = yaml.safe_load(config_path.read_text())
 
         panels = config["web"]["panels"]
         assert panels.get("ariel", {}).get("enabled") is True
-        assert panels.get("lattice", {}).get("enabled") is True
-        assert "tuning" not in panels
+        assert panels.get("tuning", {}).get("enabled") is True
         assert "channel-finder" not in panels
 
     def test_custom_panels_filtered_from_template_but_configurable(self, tmp_path: Path):
@@ -1281,16 +1280,16 @@ class TestWebPanelsRendering:
         # Critical: `web.panels` key exists and is not missing from the tree.
         assert "panels" in config["web"]
 
-    def test_lattice_enabled_from_template_merges_with_dotted_label(self, tmp_path: Path):
-        """lattice (builtin) gets enabled: true from the template, then the dotted
-        override web.panels.lattice.label merges into the same dict."""
+    def test_builtin_enabled_from_template_merges_with_dotted_label(self, tmp_path: Path):
+        """A builtin panel gets enabled: true from the template, then the dotted
+        override web.panels.<id>.label merges into the same dict."""
         config_path = _build_for_web_panels(
             tmp_path,
-            web_panels=["lattice"],
-            overrides={"web.panels.lattice.label": "LATTICE"},
+            web_panels=["tuning"],
+            overrides={"web.panels.tuning.label": "TUNING"},
         )
         config = yaml.safe_load(config_path.read_text())
 
-        lattice = config["web"]["panels"]["lattice"]
-        assert lattice["enabled"] is True
-        assert lattice["label"] == "LATTICE"
+        tuning = config["web"]["panels"]["tuning"]
+        assert tuning["enabled"] is True
+        assert tuning["label"] == "TUNING"

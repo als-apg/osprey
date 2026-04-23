@@ -98,69 +98,6 @@ class TestCLIIntegration:
         assert "cd test-project" in result.output
         assert "claude" in result.output
 
-    def test_init_command_with_channel_finder_mode(self, tmp_path):
-        """Test init command with --channel-finder-mode option."""
-        runner = CliRunner()
-
-        result = runner.invoke(
-            init,
-            [
-                "cf-app",
-                "--template",
-                "control_assistant",
-                "--channel-finder-mode",
-                "in_context",
-                "--output-dir",
-                str(tmp_path),
-            ],
-        )
-
-        assert result.exit_code == 0
-
-        # Check manifest has the option
-        import json
-
-        manifest_path = tmp_path / "cf-app" / ".osprey-manifest.json"
-        manifest = json.loads(manifest_path.read_text())
-        assert manifest["init_args"]["channel_finder_mode"] == "in_context"
-        assert "--channel-finder-mode in_context" in manifest["reproducible_command"]
-
-    def test_init_command_reproducible_command_complete(self, tmp_path):
-        """Test that reproducible_command includes all options."""
-        runner = CliRunner()
-
-        result = runner.invoke(
-            init,
-            [
-                "full-app",
-                "--template",
-                "control_assistant",
-                "--provider",
-                "anthropic",
-                "--model",
-                "haiku",
-                "--channel-finder-mode",
-                "hierarchical",
-                "--output-dir",
-                str(tmp_path),
-            ],
-        )
-
-        assert result.exit_code == 0
-
-        import json
-
-        manifest_path = tmp_path / "full-app" / ".osprey-manifest.json"
-        manifest = json.loads(manifest_path.read_text())
-
-        cmd = manifest["reproducible_command"]
-        # --template always included for reproducibility
-        assert "--template control_assistant" in cmd
-        assert "--provider anthropic" in cmd
-        assert "--model haiku" in cmd
-        assert "--channel-finder-mode hierarchical" in cmd
-
-
 class TestGitIsolation:
     """Test that osprey init creates a self-contained git repo."""
 

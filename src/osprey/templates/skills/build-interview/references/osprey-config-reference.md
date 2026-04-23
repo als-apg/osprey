@@ -716,5 +716,5 @@ osprey init --example control-assistant my-profile.yml
 osprey build project-name my-profile.yml
 ```
 
-Valid data bundles: `hello_world`, `control_assistant`, `lattice_design`
+Valid data bundles: `hello_world`, `control_assistant`
 Valid model tiers: `haiku`, `sonnet`, `opus`

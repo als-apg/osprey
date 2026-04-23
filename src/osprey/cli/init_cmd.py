@@ -3,10 +3,6 @@
 This module provides the 'osprey init' command which creates new
 projects from templates with Claude Code integration (MCP servers,
 hooks, and rules).
-
-New workflow: init generates a BuildProfile YAML, which is then
-consumed by 'osprey build' to assemble a project. Use --quick to
-combine both steps.
 """
 
 from pathlib import Path
@@ -18,28 +14,14 @@ from .styles import Messages, Styles, console
 from .templates.manager import TemplateManager
 
 
-def _get_examples_dir() -> Path:
-    """Return the path to bundled example profiles."""
-    from importlib.resources import files
-
-    return Path(str(files("osprey").joinpath("profiles/examples")))
-
-
-def _list_examples() -> list[str]:
-    """Return sorted list of bundled example profile names (without .yml)."""
-    examples_dir = _get_examples_dir()
-    if not examples_dir.exists():
-        return []
-    return sorted(p.stem for p in examples_dir.glob("*.yml"))
-
-
 @click.command()
 @click.argument("project_name")
 @click.option(
     "--template",
     "-t",
+    type=click.Choice(["hello_world", "control_assistant"], case_sensitive=False),
     default="control_assistant",
-    help="Application template to use (hello_world, control_assistant, lattice_design)",
+    help="Application template to use (hello_world, control_assistant)",
 )
 @click.option(
     "--output-dir",
@@ -51,62 +33,11 @@ def _list_examples() -> list[str]:
 @click.option(
     "--force", "-f", is_flag=True, help="Force overwrite if project directory already exists"
 )
-@click.option(
-    "--provider",
-    type=click.Choice(
-        ["anthropic", "openai", "google", "cborg", "ollama", "amsc", "als-apg"],
-        case_sensitive=False,
-    ),
-    default=None,
-    help="AI provider to configure (anthropic, openai, google, cborg, ollama, amsc, als-apg)",
-)
-@click.option(
-    "--model",
-    type=click.Choice(["haiku", "sonnet", "opus"], case_sensitive=False),
-    default=None,
-    help="Model tier to use (haiku, sonnet, opus)",
-)
-@click.option(
-    "--channel-finder-mode",
-    type=click.Choice(["in_context", "hierarchical", "middle_layer", "all"], case_sensitive=False),
-    default=None,
-    help="Channel finder pipeline mode (control_assistant template only)",
-)
-@click.option(
-    "--example",
-    "-e",
-    default=None,
-    metavar="NAME",
-    help="Copy a bundled example profile to <project_name>.yml instead of creating a project",
-)
-@click.option(
-    "--list-examples",
-    is_flag=True,
-    help="List available bundled example profiles and exit",
-)
-@click.option(
-    "--interactive",
-    is_flag=True,
-    help="Run the interactive wizard to generate a BuildProfile YAML",
-)
-@click.option(
-    "--quick",
-    default=None,
-    metavar="EXAMPLE",
-    help="Copy EXAMPLE profile and immediately run 'osprey build' on it",
-)
 def init(
     project_name: str,
     template: str,
     output_dir: str,
     force: bool,
-    provider: str,
-    model: str,
-    channel_finder_mode: str,
-    example: str,
-    list_examples: bool,
-    interactive: bool,
-    quick: str,
 ):
     """Create a new project.
 
@@ -114,23 +45,6 @@ def init(
     hooks, and rules.
 
     PROJECT_NAME: Name of your project (e.g., my-assistant, beamline-agent)
-
-    New profile-based workflow:
-
-    \b
-      # Copy an example profile to customise
-      $ osprey init my-project --example control-assistant
-
-      # List available examples
-      $ osprey init . --list-examples
-
-      # Copy example and build immediately
-      $ osprey init my-project --quick control-assistant
-
-      # Run interactive wizard to generate a profile
-      $ osprey init my-project --interactive
-
-    Legacy direct-creation workflow:
 
     \b
       # Create project with default control_assistant template
@@ -141,162 +55,7 @@ def init(
 
       # Force overwrite if directory exists
       $ osprey init my-assistant --force
-
-      # Create with specific AI provider and model
-      $ osprey init my-assistant --provider cborg --model anthropic/claude-haiku
     """
-    # --- Flag: --list-examples ---
-    if list_examples:
-        examples = _list_examples()
-        if not examples:
-            console.print("No bundled example profiles found.", style=Styles.WARNING)
-        else:
-            console.print("[bold]Available example profiles:[/bold]")
-            for name in examples:
-                console.print(f"  • {name}")
-            console.print(
-                f"\nUse: [accent]osprey init <project> --example <name>[/accent] to copy one."
-            )
-        return
-
-    # --- Flag: --example ---
-    if example is not None:
-        _copy_example_profile(project_name, example, output_dir, force)
-        return
-
-    # --- Flag: --quick ---
-    if quick is not None:
-        _quick_build(project_name, quick, output_dir, force)
-        return
-
-    # --- Flag: --interactive ---
-    if interactive:
-        _run_interactive_profile_wizard(project_name, output_dir)
-        return
-
-    # --- Legacy direct-creation workflow ---
-    _create_project_direct(
-        project_name=project_name,
-        template=template,
-        output_dir=output_dir,
-        force=force,
-        provider=provider,
-        model=model,
-        channel_finder_mode=channel_finder_mode,
-    )
-
-
-def _copy_example_profile(
-    project_name: str, example: str, output_dir: str, force: bool
-) -> None:
-    """Copy a bundled example profile to <project_name>.yml."""
-    examples_dir = _get_examples_dir()
-    src = examples_dir / f"{example}.yml"
-    if not src.exists():
-        available = _list_examples()
-        console.print(
-            f"[error]✗[/error] Example '{example}' not found.\n"
-            f"Available: {', '.join(available) if available else 'none'}",
-            style=Styles.ERROR,
-        )
-        raise click.Abort()
-
-    output_path = Path(output_dir).resolve()
-    dst = output_path / f"{project_name}.yml"
-
-    if dst.exists() and not force:
-        console.print(
-            f"[error]✗[/error] '{dst}' already exists. Use --force to overwrite.",
-            style=Styles.ERROR,
-        )
-        raise click.Abort()
-
-    import shutil
-
-    shutil.copy(src, dst)
-    console.print(f"[success]✓[/success] Copied example profile to [bold]{dst}[/bold]")
-    console.print(
-        f"\nEdit [accent]{dst.name}[/accent] then run:\n"
-        f"  [accent]osprey build {project_name} {dst.name}[/accent]"
-    )
-
-
-def _quick_build(project_name: str, example: str, output_dir: str, force: bool) -> None:
-    """Copy an example profile and immediately run osprey build."""
-    import tempfile
-
-    examples_dir = _get_examples_dir()
-    src = examples_dir / f"{example}.yml"
-    if not src.exists():
-        available = _list_examples()
-        console.print(
-            f"[error]✗[/error] Example '{example}' not found.\n"
-            f"Available: {', '.join(available) if available else 'none'}",
-            style=Styles.ERROR,
-        )
-        raise click.Abort()
-
-    output_path = Path(output_dir).resolve()
-
-    # Write a temporary profile with the project name injected
-    import yaml as _yaml
-
-    raw = _yaml.safe_load(src.read_text(encoding="utf-8")) or {}
-    raw["name"] = project_name
-
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".yml", dir=output_path, delete=False, encoding="utf-8"
-    ) as tmp:
-        _yaml.dump(raw, tmp, default_flow_style=False, allow_unicode=True)
-        tmp_path = Path(tmp.name)
-
-    console.print(
-        f"[success]✓[/success] Generated profile from example '{example}'"
-    )
-    console.print(f"  Building [accent]{project_name}[/accent] ...")
-
-    try:
-        from .build_cmd import build
-
-        ctx = click.get_current_context()
-        force_flag = ["--force"] if force else []
-        ctx.invoke(
-            build,
-            project_name=project_name,
-            profile=str(tmp_path),
-            output_dir=str(output_path),
-            force=force,
-            stream=False,
-            skip_lifecycle=False,
-            skip_deps=False,
-        )
-    finally:
-        tmp_path.unlink(missing_ok=True)
-
-
-def _run_interactive_profile_wizard(project_name: str, output_dir: str) -> None:
-    """Run the interactive wizard and write a BuildProfile YAML."""
-    try:
-        raise ImportError("init_wizard removed; interactive mode pending Task 3.1 rewrite")
-    except ImportError:
-        console.print(
-            "[error]✗[/error] Interactive mode requires the 'questionary' package.\n"
-            f"Install with: [accent]uv add questionary[/accent]",
-            style=Styles.ERROR,
-        )
-        raise click.Abort()
-
-
-def _create_project_direct(
-    project_name: str,
-    template: str,
-    output_dir: str,
-    force: bool,
-    provider: str | None,
-    model: str | None,
-    channel_finder_mode: str | None,
-) -> None:
-    """Legacy direct project creation path (original init behavior)."""
     console.print(f"Creating project: [header]{project_name}[/header]")
 
     try:
@@ -346,34 +105,23 @@ def _create_project_direct(
 
         _clear_claude_code_project_state(project_path)
 
-        context = {}
-        if provider:
-            context["default_provider"] = provider
-        if model:
-            context["default_model"] = model
-        if channel_finder_mode:
-            context["channel_finder_mode"] = channel_finder_mode
-
         project_path = manager.create_project(
             project_name=project_name,
             output_dir=output_path,
             template_name=template,
             registry_style="extend",
-            context=context,
+            context={},
         )
 
-        manifest_context = {
-            "default_provider": context.get("default_provider", "anthropic"),
-            "default_model": context.get("default_model", "haiku"),
-        }
-        if channel_finder_mode:
-            manifest_context["channel_finder_mode"] = channel_finder_mode
         manager.generate_manifest(
             project_dir=project_path,
             project_name=project_name,
             template_name=template,
             registry_style="extend",
-            context=manifest_context,
+            context={
+                "default_provider": "anthropic",
+                "default_model": "haiku",
+            },
         )
 
         console.print("  ✓ Creating project configuration...", style=Styles.SUCCESS)
@@ -385,6 +133,7 @@ def _create_project_direct(
 
         # Check if project is inside an existing git repo
         inside_existing_repo = False
+        parent_root: Path | None = None
         try:
             result = subprocess.run(
                 ["git", "rev-parse", "--show-toplevel"],
@@ -449,18 +198,6 @@ def _create_project_direct(
 
         console.print(f"\n✓ Project created successfully at: [bold]{project_path}[/bold]")
 
-        # Show provider/model configuration status
-        if provider or model:
-            if provider:
-                console.print(
-                    f"  ✓ Configured AI provider: [accent]{provider}[/accent]",
-                    style=Styles.SUCCESS,
-                )
-            if model:
-                console.print(
-                    f"  ✓ Configured model: [accent]{model}[/accent]", style=Styles.SUCCESS
-                )
-
         # Show next steps (Claude Code focused)
         console.print("\n[bold]Next steps:[/bold]")
         console.print(f"  1. {Messages.command(f'cd {project_name}')}")
@@ -478,18 +215,11 @@ def _create_project_direct(
             " project-local settings only.[/dim]"
         )
 
-        if provider:
-            from osprey.cli.claude_code_resolver import CLAUDE_CODE_PROVIDERS
-
-            prov_def = CLAUDE_CODE_PROVIDERS.get(provider, {})
-            if prov_def:
-                console.print(f"\n[bold]Shell setup for '{provider}':[/bold]")
-                console.print(
-                    f"  ✓ Required in ~/.zshrc:  "
-                    f"[accent]export {prov_def['auth_secret_env']}=<your-key>[/accent]"
-                )
-                console.print("  ✗ Remove from ~/.zshrc:  any ANTHROPIC_* exports")
-                console.print("  → Launch with:           [accent]osprey claude chat[/accent]")
+        # Recommend installing the build-interview skill for production work
+        console.print(
+            "\n[success]Next:[/success] install the build-interview skill for production work:"
+        )
+        console.print("  [accent]uv run osprey skills install build-interview[/accent]")
 
     except ValueError as e:
         console.print(f"✗ Error: {e}", style=Styles.ERROR)

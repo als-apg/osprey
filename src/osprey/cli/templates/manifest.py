@@ -59,13 +59,6 @@ REGEN_TRACKED_FILES = [
     ".claude/skills/demo-gallery/SKILL.md",
     ".claude/rules/timezone.md",
     ".claude/output-styles/control-operator.md",
-    # lattice_design skills and rules (render empty for other templates)
-    ".claude/skills/load-lattice/SKILL.md",
-    ".claude/skills/compute-optics/SKILL.md",
-    ".claude/skills/fit-tune/SKILL.md",
-    ".claude/skills/fit-chromaticity/SKILL.md",
-    ".claude/skills/compare-optics/SKILL.md",
-    ".claude/rules/lattice-physics.md",
 ]
 
 
@@ -154,7 +147,7 @@ def load_template_manifest(
                 )
 
     # Validate web_panels entries
-    valid_panel_ids = {"ariel", "channel-finder", "tuning", "lattice"}
+    valid_panel_ids = {"ariel", "channel-finder", "tuning"}
     for panel_id in manifest.get("web_panels", []):
         if panel_id not in valid_panel_ids:
             logger.warning("Unknown web_panel '%s' in template '%s'", panel_id, template_name)

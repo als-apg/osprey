@@ -587,7 +587,7 @@ claude_code:
 # Domain-specific panels are listed here — remove or disable as needed.
 
 web:
-{%- set _BUILTIN_PANELS = ["ariel", "channel-finder", "tuning", "lattice"] %}
+{%- set _BUILTIN_PANELS = ["ariel", "channel-finder", "tuning"] %}
 {%- set _enabled_builtin_panels = selected_web_panels | select("in", _BUILTIN_PANELS) | list %}
 {%- if _enabled_builtin_panels %}
   panels:
