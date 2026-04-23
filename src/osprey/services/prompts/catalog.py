@@ -55,6 +55,12 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             output_path=".claude/settings.json",
             description="Claude Code permissions & hooks",
         ),
+        PromptArtifact(
+            canonical_name="statusline",
+            template_path="claude/statusline.py",
+            output_path=".claude/statusline.py",
+            description="OSPREY statusline script",
+        ),
         # ── Agents ───────────────────────────────────────────────────
         PromptArtifact(
             canonical_name="agents/channel-finder",
