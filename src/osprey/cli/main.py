@@ -56,6 +56,7 @@ class LazyGroup(click.Group):
             "web": "osprey.cli.web_cmd",  # Web Terminal
             "prompts": "osprey.cli.prompts_cmd",  # Prompt artifact overrides
             "audit": "osprey.cli.audit_cmd",  # Safety auditor
+            "skills": "osprey.cli.skills_cmd",  # Bundled skill management
             "vendor": "osprey.cli.vendor_cmd",  # Vendor asset management
         }
 
@@ -100,6 +101,7 @@ class LazyGroup(click.Group):
             "web",
             "prompts",
             "audit",
+            "skills",
             "vendor",
         ]
 
