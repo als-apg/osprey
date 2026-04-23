@@ -212,7 +212,7 @@ OSPREY is installed and ready to use. Here's what to do next:
    .. code-block:: bash
 
       mkdir -p ~/.claude/skills
-      cp -r ~/osprey/tools/build-interview ~/.claude/skills/build-interview
+      cp -r ~/osprey/src/osprey/templates/skills/build-interview ~/.claude/skills/build-interview
 
    This makes the ``/build-interview`` command available in any Claude Code session.
 
