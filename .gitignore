@@ -124,9 +124,9 @@ _autosummary/
 *.pid
 
 # Development services and applications (keep locally but not in git)
-.claude
+/.claude
 _issues
-CLAUDE.md
+/CLAUDE.md
 .mcp.json
 
 # Git worktrees
