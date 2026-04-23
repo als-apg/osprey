@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`lattice_design` template removed.** `osprey init --template lattice_design` and `data_bundle: lattice_design` in build profiles are no longer valid. Build profiles now strictly accept `{hello_world, control_assistant}`.
 - **Interactive init wizard removed.** `osprey init --interactive` and the main-menu "Create new project" action no longer exist. Use `osprey init <name> --template <hello_world|control_assistant>`.
 - **`osprey init` CLI surface narrowed.** The `--provider`, `--model`, `--channel-finder-mode`, and `--example`/`--examples` flags are removed. `osprey init` now accepts only `-t/--template`, `-o/--output-dir`, and `-f/--force`. Configure providers/models/channel-finder modes via the generated `config.yml` or a build profile instead.
+- **`osprey config set-models` command removed.** The CLI subcommand, its interactive-menu entry, and the underlying `get_provider_metadata` / `select_provider` / `select_model` / `update_all_models` / `get_all_model_configs` helpers are gone — LangGraph-era cruft tied to the old post-init model-swap workflow that had drifted broken (querying an empty provider list). To change provider/model, edit the generated `config.yml` directly or re-run `osprey init` with a different template/profile.
 
 ## [0.11.5] - 2026-03-13
 

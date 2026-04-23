@@ -78,14 +78,10 @@ Manage project configuration. Interactive menu if no subcommand is given.
 ``osprey config set-epics-gateway [--facility als|aps|custom] [--address] [--port]``
    Configure EPICS gateway using facility presets or custom values.
 
-``osprey config set-models [--provider PROVIDER] [--model MODEL] [--project PATH]``
-   Configure AI provider and models for all roles. Interactive if no options.
-
 .. code-block:: bash
 
    osprey config show
    osprey config set-control-system epics
-   osprey config set-models --provider anthropic --model claude-sonnet-4
 
 osprey build
 ============
