@@ -147,9 +147,7 @@ class TestProfileLoading:
             yaml.dump(
                 {
                     "name": "Test",
-                    "mcp_servers": {
-                        "bad": {"command": "npx", "url": "http://host:8001/sse"}
-                    },
+                    "mcp_servers": {"bad": {"command": "npx", "url": "http://host:8001/sse"}},
                 }
             )
         )
@@ -1178,7 +1176,9 @@ class TestProfileExtends:
 # ---------------------------------------------------------------------------
 
 
-def _build_for_web_panels(tmp_path: Path, web_panels: list[str] | None, overrides: dict | None = None) -> Path:
+def _build_for_web_panels(
+    tmp_path: Path, web_panels: list[str] | None, overrides: dict | None = None
+) -> Path:
     """Build a minimal control_assistant project, optionally with web_panels
     and config overrides, and return the rendered config.yml path.
 

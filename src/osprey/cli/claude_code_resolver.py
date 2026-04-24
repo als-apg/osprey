@@ -16,6 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from osprey.models.tiers import VALID_TIERS
+
 CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
     "anthropic": {
         "auth_env_var": "ANTHROPIC_API_KEY",  # Claude Code env var that receives the key
@@ -65,8 +67,6 @@ AGENT_DEFAULT_TIERS: dict[str, str] = {
     "logbook-deep-research": "opus",
     "data-visualizer": "sonnet",
 }
-
-from osprey.models.tiers import VALID_TIERS
 
 # Env vars that settings.json controls — scrubbed from shell before launch
 # so runtime-injected provider vars are authoritative.

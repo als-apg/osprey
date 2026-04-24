@@ -381,9 +381,7 @@ async def lattice_update_settings(settings: dict) -> str:
         JSON with the applied (post-validation) settings dict.
     """
     try:
-        result = await _dashboard_request(
-            "PUT", "/api/settings", json_body={"settings": settings}
-        )
+        result = await _dashboard_request("PUT", "/api/settings", json_body={"settings": settings})
         return json.dumps(result, default=str)
     except httpx.HTTPStatusError as exc:
         return json.dumps(

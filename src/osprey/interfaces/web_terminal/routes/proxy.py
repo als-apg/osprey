@@ -50,18 +50,20 @@ _REWRITABLE_TYPES = {
 }
 
 # Hop-by-hop headers that must not be forwarded.
-_HOP_BY_HOP = frozenset({
-    "connection",
-    "keep-alive",
-    "proxy-authenticate",
-    "proxy-authorization",
-    "te",
-    "trailers",
-    "transfer-encoding",
-    "upgrade",
-    "content-encoding",
-    "content-length",
-})
+_HOP_BY_HOP = frozenset(
+    {
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailers",
+        "transfer-encoding",
+        "upgrade",
+        "content-encoding",
+        "content-length",
+    }
+)
 
 # Panel ID → app.state attribute name
 _PANEL_STATE_MAP = {
@@ -171,9 +173,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
                     await upstream.aclose()
 
             resp_headers = {
-                k: v
-                for k, v in upstream.headers.items()
-                if k.lower() not in _HOP_BY_HOP
+                k: v for k, v in upstream.headers.items() if k.lower() not in _HOP_BY_HOP
             }
             return StreamingResponse(
                 _stream(),
@@ -197,11 +197,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
         )
 
     # Filter response headers.
-    resp_headers = {
-        k: v
-        for k, v in resp.headers.items()
-        if k.lower() not in _HOP_BY_HOP
-    }
+    resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in _HOP_BY_HOP}
 
     content_type = resp.headers.get("content-type", "")
     base_type = content_type.split(";")[0].strip().lower()

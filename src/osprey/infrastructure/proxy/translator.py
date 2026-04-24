@@ -8,7 +8,6 @@ from __future__ import annotations
 import json
 import random
 import string
-import time
 
 
 def _gen_id(prefix: str = "msg_") -> str:
@@ -117,14 +116,14 @@ def _convert_user_message(content) -> list[dict]:
         for tr in tool_results:
             tr_content = tr.get("content", "")
             if isinstance(tr_content, list):
-                tr_content = "\n".join(
-                    b.get("text", "") for b in tr_content if isinstance(b, dict)
-                )
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tr.get("tool_use_id", ""),
-                "content": str(tr_content),
-            })
+                tr_content = "\n".join(b.get("text", "") for b in tr_content if isinstance(b, dict))
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tr.get("tool_use_id", ""),
+                    "content": str(tr_content),
+                }
+            )
 
         if text_parts:
             messages.append({"role": "user", "content": "\n".join(text_parts)})
@@ -148,14 +147,16 @@ def _convert_assistant_message(content) -> list[dict]:
                 if btype == "text":
                     text_parts.append(block.get("text", ""))
                 elif btype == "tool_use":
-                    tool_calls.append({
-                        "id": block.get("id", _gen_id("call_")),
-                        "type": "function",
-                        "function": {
-                            "name": block.get("name", ""),
-                            "arguments": json.dumps(block.get("input", {})),
-                        },
-                    })
+                    tool_calls.append(
+                        {
+                            "id": block.get("id", _gen_id("call_")),
+                            "type": "function",
+                            "function": {
+                                "name": block.get("name", ""),
+                                "arguments": json.dumps(block.get("input", {})),
+                            },
+                        }
+                    )
                 elif btype == "thinking":
                     # Strip thinking blocks — not supported by OpenAI
                     pass
@@ -176,14 +177,16 @@ def _convert_tools_to_openai(anthropic_tools: list[dict] | None) -> list[dict] |
 
     openai_tools = []
     for tool in anthropic_tools:
-        openai_tools.append({
-            "type": "function",
-            "function": {
-                "name": tool.get("name", ""),
-                "description": tool.get("description", ""),
-                "parameters": tool.get("input_schema", {}),
-            },
-        })
+        openai_tools.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.get("name", ""),
+                    "description": tool.get("description", ""),
+                    "parameters": tool.get("input_schema", {}),
+                },
+            }
+        )
     return openai_tools
 
 
@@ -218,12 +221,14 @@ def openai_to_anthropic_response(openai_resp: dict, model: str) -> dict:
             input_data = json.loads(func.get("arguments", "{}"))
         except json.JSONDecodeError:
             input_data = {"raw": func.get("arguments", "")}
-        content_blocks.append({
-            "type": "tool_use",
-            "id": tc.get("id", _gen_id("toolu_")),
-            "name": func.get("name", ""),
-            "input": input_data,
-        })
+        content_blocks.append(
+            {
+                "type": "tool_use",
+                "id": tc.get("id", _gen_id("toolu_")),
+                "name": func.get("name", ""),
+                "input": input_data,
+            }
+        )
 
     usage = openai_resp.get("usage", {})
 
@@ -251,19 +256,22 @@ def format_sse(event: str, data: dict) -> str:
 
 
 def make_message_start(model: str, msg_id: str) -> str:
-    return format_sse("message_start", {
-        "type": "message_start",
-        "message": {
-            "id": msg_id,
-            "type": "message",
-            "role": "assistant",
-            "content": [],
-            "model": model,
-            "stop_reason": None,
-            "stop_sequence": None,
-            "usage": {"input_tokens": 0, "output_tokens": 0},
+    return format_sse(
+        "message_start",
+        {
+            "type": "message_start",
+            "message": {
+                "id": msg_id,
+                "type": "message",
+                "role": "assistant",
+                "content": [],
+                "model": model,
+                "stop_reason": None,
+                "stop_sequence": None,
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            },
         },
-    })
+    )
 
 
 def make_content_block_start(index: int, block_type: str, **kwargs) -> str:
@@ -274,42 +282,57 @@ def make_content_block_start(index: int, block_type: str, **kwargs) -> str:
         block["id"] = kwargs.get("tool_id", _gen_id("toolu_"))
         block["name"] = kwargs.get("tool_name", "")
         block["input"] = {}
-    return format_sse("content_block_start", {
-        "type": "content_block_start",
-        "index": index,
-        "content_block": block,
-    })
+    return format_sse(
+        "content_block_start",
+        {
+            "type": "content_block_start",
+            "index": index,
+            "content_block": block,
+        },
+    )
 
 
 def make_text_delta(index: int, text: str) -> str:
-    return format_sse("content_block_delta", {
-        "type": "content_block_delta",
-        "index": index,
-        "delta": {"type": "text_delta", "text": text},
-    })
+    return format_sse(
+        "content_block_delta",
+        {
+            "type": "content_block_delta",
+            "index": index,
+            "delta": {"type": "text_delta", "text": text},
+        },
+    )
 
 
 def make_tool_input_delta(index: int, json_fragment: str) -> str:
-    return format_sse("content_block_delta", {
-        "type": "content_block_delta",
-        "index": index,
-        "delta": {"type": "input_json_delta", "partial_json": json_fragment},
-    })
+    return format_sse(
+        "content_block_delta",
+        {
+            "type": "content_block_delta",
+            "index": index,
+            "delta": {"type": "input_json_delta", "partial_json": json_fragment},
+        },
+    )
 
 
 def make_content_block_stop(index: int) -> str:
-    return format_sse("content_block_stop", {
-        "type": "content_block_stop",
-        "index": index,
-    })
+    return format_sse(
+        "content_block_stop",
+        {
+            "type": "content_block_stop",
+            "index": index,
+        },
+    )
 
 
 def make_message_delta(stop_reason: str, output_tokens: int = 0) -> str:
-    return format_sse("message_delta", {
-        "type": "message_delta",
-        "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-        "usage": {"output_tokens": output_tokens},
-    })
+    return format_sse(
+        "message_delta",
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": stop_reason, "stop_sequence": None},
+            "usage": {"output_tokens": output_tokens},
+        },
+    )
 
 
 def make_message_stop() -> str:

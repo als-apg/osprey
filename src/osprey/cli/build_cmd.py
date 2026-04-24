@@ -498,8 +498,8 @@ def _run_lifecycle_phase(
                 )
                 assert proc.stdout is not None  # noqa: S101
 
-                def _drain_stdout() -> None:
-                    for line in proc.stdout:  # type: ignore[union-attr]
+                def _drain_stdout(stdout=proc.stdout) -> None:
+                    for line in stdout:
                         print(f"    {line}", end="", flush=True)
 
                 reader = threading.Thread(target=_drain_stdout, daemon=True)
@@ -584,7 +584,7 @@ def _run_lifecycle_phase(
             if abort_on_failure:
                 logger.error("  ✗ %s", msg)
                 _format_junit_summary(project_path / "check_results.xml")
-                raise BuildProfileError(msg)
+                raise BuildProfileError(msg) from None
             else:
                 logger.warning("  ! %s", msg)
             _format_junit_summary(project_path / "check_results.xml")

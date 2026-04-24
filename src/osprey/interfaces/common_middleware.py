@@ -34,7 +34,9 @@ class ExceptionLoggingMiddleware(BaseHTTPMiddleware):
         try:
             return await call_next(request)
         except Exception as exc:
-            logger.error("Unhandled exception on %s %s", request.method, request.url.path, exc_info=True)
+            logger.error(
+                "Unhandled exception on %s %s", request.method, request.url.path, exc_info=True
+            )
             return JSONResponse(
                 status_code=500,
                 content={"error": str(exc), "path": request.url.path},

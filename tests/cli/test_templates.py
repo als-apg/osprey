@@ -98,6 +98,7 @@ class TestCLIIntegration:
         assert "cd test-project" in result.output
         assert "claude" in result.output
 
+
 class TestGitIsolation:
     """Test that osprey init creates a self-contained git repo."""
 

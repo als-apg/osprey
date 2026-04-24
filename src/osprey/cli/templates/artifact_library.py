@@ -57,8 +57,7 @@ def _artifact_dir(artifact_type: str) -> Path:
     subdir = _TYPE_TO_SUBDIR.get(artifact_type)
     if subdir is None:
         raise ValueError(
-            f"Unknown artifact type '{artifact_type}'. "
-            f"Valid types: {', '.join(ARTIFACT_TYPES)}"
+            f"Unknown artifact type '{artifact_type}'. Valid types: {', '.join(ARTIFACT_TYPES)}"
         )
     return _claude_code_root() / "claude" / subdir
 
@@ -77,7 +76,7 @@ def _hook_short_name(stem: str) -> str:
         osprey_writes_check → writes-check
     """
     if stem.startswith("osprey_"):
-        stem = stem[len("osprey_"):]
+        stem = stem[len("osprey_") :]
     return stem.replace("_", "-")
 
 
@@ -272,7 +271,7 @@ def _suggest(name: str, candidates: list[str]) -> str | None:
         # Simple Levenshtein distance
         if a == b:
             return 0
-        la, lb = len(a), len(b)
+        lb = len(b)
         prev = list(range(lb + 1))
         for i, ca in enumerate(a):
             curr = [i + 1] + [0] * lb

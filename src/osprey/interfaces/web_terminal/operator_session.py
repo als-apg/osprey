@@ -13,6 +13,9 @@ import re
 from pathlib import Path
 from typing import Any
 
+from osprey.interfaces.web_terminal.sdk_context import build_system_prompt
+from osprey.utils.config import get_facility_timezone
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -44,9 +47,6 @@ except ImportError:
     ToolUseBlock = object  # type: ignore[assignment,misc]
     ClaudeSDKError = Exception  # type: ignore[assignment,misc]
     CLIConnectionError = Exception  # type: ignore[assignment,misc]
-
-from osprey.interfaces.web_terminal.sdk_context import build_system_prompt
-from osprey.utils.config import get_facility_timezone
 
 # Pattern for MCP tool name prefixes: mcp__<server>__<tool>
 _MCP_PREFIX_RE = re.compile(r"^mcp__[^_]+__")

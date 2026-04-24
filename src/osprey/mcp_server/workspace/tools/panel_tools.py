@@ -47,10 +47,7 @@ async def list_panels() -> str:
         "lattice": "LATTICE",
     }
 
-    panels = [
-        {"id": pid, "label": labels.get(pid, pid.upper())}
-        for pid in data.get("enabled", [])
-    ]
+    panels = [{"id": pid, "label": labels.get(pid, pid.upper())} for pid in data.get("enabled", [])]
     for cp in data.get("custom", []):
         panels.append({"id": cp["id"], "label": cp.get("label", cp["id"].upper())})
 

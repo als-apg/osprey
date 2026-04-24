@@ -333,8 +333,8 @@ async def create_entry(
     service = _require_service(request)
 
     try:
-        from osprey.services.ariel_search.models import FacilityEntryCreateRequest
         from osprey.services.ariel_search.exceptions import IngestionError
+        from osprey.services.ariel_search.models import FacilityEntryCreateRequest
 
         facility_request = FacilityEntryCreateRequest(
             subject=entry_req.subject,

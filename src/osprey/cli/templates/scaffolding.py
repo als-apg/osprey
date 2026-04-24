@@ -180,7 +180,6 @@ def create_project_structure(
         shutil.copy(gitignore_source, project_dir / ".gitignore")
 
 
-
 def copy_services(template_root: Path, project_dir: Path):
     """Copy service configurations to project (flattened structure).
 

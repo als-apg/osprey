@@ -256,9 +256,7 @@ class TestBuildCleanEnv:
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
 
-        monkeypatch.setattr(
-            "osprey.utils.shell_resolver._USER_BIN_CANDIDATES", [bin_dir]
-        )
+        monkeypatch.setattr("osprey.utils.shell_resolver._USER_BIN_CANDIDATES", [bin_dir])
         monkeypatch.setenv("PATH", "/usr/bin")
 
         env = build_clean_env()

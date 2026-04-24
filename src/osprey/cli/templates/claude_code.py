@@ -73,10 +73,11 @@ def build_claude_code_context(
     ctx = {
         "project_name": project_name,
         "package_name": package_name,
-        "project_root": str(project_root_override) if project_root_override else str(project_dir.absolute()),
+        "project_root": str(project_root_override)
+        if project_root_override
+        else str(project_dir.absolute()),
         "current_python_env": (
-            config.get("execution", {}).get("python_env_path")
-            or sys.executable
+            config.get("execution", {}).get("python_env_path") or sys.executable
         ),
         "template_name": template_name,
         "data_bundle": data_bundle,
@@ -551,7 +552,10 @@ def regenerate_claude_code(
     config = resolve_env_vars(config)
 
     ctx = build_claude_code_context(
-        template_root, jinja_env, project_dir, config,
+        template_root,
+        jinja_env,
+        project_dir,
+        config,
         project_root_override=project_root_override,
     )
 

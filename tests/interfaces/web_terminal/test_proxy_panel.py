@@ -120,11 +120,11 @@ class TestProxyForwardedPrefix:
         app, client = app_and_client
 
         html_body = (
-            '<script>'
+            "<script>"
             'fetch("/dashboard/triggers");'
             "fetch('/dashboard/runs');"
             'new EventSource("/dashboard/stream/abc");'
-            '</script>'
+            "</script>"
         )
 
         async def fake_request(*, method, url, headers, content):

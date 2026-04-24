@@ -162,7 +162,7 @@ def web(
         shell = resolve_shell_command(shell_raw)
     except FileNotFoundError as e:
         click.echo(f"ERROR: {e}", err=True)
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
     if detach:
         _start_detached(host, port, shell, project)

@@ -27,7 +27,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
@@ -162,9 +161,7 @@ class TestHelloWorldBuildOutput:
         limits = json.loads(limits_path.read_text())
 
         # Filter to actual channel entries (exclude metadata keys)
-        channels = {
-            k: v for k, v in limits.items() if not k.startswith("_") and k != "defaults"
-        }
+        channels = {k: v for k, v in limits.items() if not k.startswith("_") and k != "defaults"}
         assert len(channels) == 3
 
         # Verify specific channel properties

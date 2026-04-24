@@ -31,9 +31,7 @@ class TestConnectorFactory:
         """Test creating a mock control system connector."""
         config = {
             "type": "mock",
-            "connector": {
-                "mock": {"response_delay_ms": 0, "noise_level": 0.01}
-            },
+            "connector": {"mock": {"response_delay_ms": 0, "noise_level": 0.01}},
         }
 
         connector = await ConnectorFactory.create_control_system_connector(config)
