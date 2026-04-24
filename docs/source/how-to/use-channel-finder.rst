@@ -124,24 +124,15 @@ The database follows MATLAB Middle Layer (MML) functional organization
       --output data/channel_databases/middle_layer.json
 
 
-Interactive Testing and Benchmarking
-====================================
+Web Interface
+=============
 
-All pipelines share the same CLI for interactive testing:
-
-.. code-block:: bash
-
-   osprey channel-finder
-
-Run benchmarks with domain-expert queries before production deployment:
+Launch the browser-based channel explorer:
 
 .. code-block:: bash
 
-   osprey channel-finder benchmark
-   osprey channel-finder benchmark --queries 0,1 --model anthropic/claude-sonnet
-
-Aim for >90 % F1 score. Gather test queries from multiple operators --
-developer-only benchmarks often overestimate production accuracy.
+   osprey channel-finder web
+   osprey channel-finder web --port 9000
 
 
 Configuration Reference
@@ -172,14 +163,6 @@ Key ``config.yml`` settings:
 
 Framework Integration
 =====================
-
-.. admonition:: PLACEHOLDER: CAPABILITY-TO-MCP MIGRATION
-   :class: warning
-
-   **Old content (line 2219):** "The channel finder integrates into OSPREY as a capability... @capability_node class ChannelFindingCapability(BaseCapability)"
-   **New equivalent:** Needs human judgment
-   **Why this is fuzzy:** The old capability class pattern (BaseCapability, capability_node, CapabilityContext, provides/requires) has been replaced by MCP tools, but the exact MCP tool interface for channel finding is not specified in the rename map.
-   **Action needed:** Document how the channel finder is exposed as an MCP tool and how downstream tools (e.g., channel read) consume its results.
 
 The ``ChannelFinderService`` class remains the core business logic layer and
 can be used independently of the framework:

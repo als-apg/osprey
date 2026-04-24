@@ -73,6 +73,7 @@ def test_install_unknown_name_errors(fake_home: Path) -> None:
     combined = (result.output or "") + (result.stderr or "")
     assert "nonexistent-skill" in combined
     assert "build-interview" in combined
+    assert "osprey-build-deploy" in combined
 
 
 def test_resource_path_resolves() -> None:
@@ -81,3 +82,71 @@ def test_resource_path_resolves() -> None:
 
     skill_md = files("osprey").joinpath("templates/skills/build-interview/SKILL.md")
     assert skill_md.is_file()
+
+
+def test_resource_path_for_deploy_skill_resolves() -> None:
+    """The deploy skill is discoverable at the new templates/skills/ location."""
+    from importlib.resources import files
+
+    skill_md = files("osprey").joinpath("templates/skills/osprey-build-deploy/SKILL.md")
+    assert skill_md.is_file()
+
+
+def test_install_deploy_skill_to_custom_target(tmp_path: Path) -> None:
+    """``--target`` installs the deploy skill into a project-local .claude/skills/.
+
+    This is the path build-interview uses at end of Phase 8 to copy the deploy
+    skill into the freshly generated profile repo.
+    """
+    target = tmp_path / "build-profile" / ".claude" / "skills"
+    runner = CliRunner()
+    result = runner.invoke(
+        skills,
+        ["install", "osprey-build-deploy", "--target", str(target)],
+    )
+
+    assert result.exit_code == 0, result.output
+    installed = target / "osprey-build-deploy"
+    assert (installed / "SKILL.md").is_file()
+    assert (installed / "references" / "setup-interview.md").is_file()
+    assert (installed / "templates" / "core" / "docker-compose.yml").is_file()
+
+
+def test_install_target_backs_up_existing(tmp_path: Path) -> None:
+    """``--target`` honors the same backup-on-conflict behavior as the default."""
+    target = tmp_path / ".claude" / "skills"
+    existing = target / "osprey-build-deploy"
+    existing.mkdir(parents=True)
+    (existing / "sentinel.txt").write_text("preserve me")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        skills,
+        ["install", "osprey-build-deploy", "--target", str(target)],
+    )
+
+    assert result.exit_code == 0, (result.output, result.stderr)
+    assert (existing / "SKILL.md").is_file()
+    backups = list(target.glob("osprey-build-deploy.bak.*"))
+    assert len(backups) == 1
+    assert (backups[0] / "sentinel.txt").read_text() == "preserve me"
+
+
+def test_install_target_expands_tilde(fake_home: Path) -> None:
+    """``--target`` with a literal ``~`` expands against the user's home dir.
+
+    ``click.Path(path_type=Path)`` does not expand tildes; programmatic
+    callers or quoted paths that bypass shell expansion would otherwise
+    create a literal ``~`` directory in CWD. The install path should
+    expanduser() before resolving.
+    """
+    runner = CliRunner()
+    result = runner.invoke(
+        skills,
+        ["install", "osprey-build-deploy", "--target", "~/my-skills"],
+    )
+
+    assert result.exit_code == 0, (result.output, result.stderr)
+    installed = fake_home / "my-skills" / "osprey-build-deploy"
+    assert (installed / "SKILL.md").is_file()
+    assert not (Path.cwd() / "~").exists(), "literal ~ dir leaked into CWD"

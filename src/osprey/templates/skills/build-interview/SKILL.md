@@ -23,12 +23,13 @@ By the end of this interview you will generate a `build-profile/` directory cont
 2. **README.md** — Plain-language summary of what was configured and setup instructions
 3. **channels.json** — A channel database populated with their PVs (if they provided PV details)
 4. **channel_limits.json** — Safety limits for writable channels (if write access was requested)
+5. **.claude/skills/osprey-build-deploy/** — Project-local deploy skill, copied into the profile repo so `/osprey-build-deploy` is available whenever the user opens Claude Code in this repo (Phase 2: ship it)
 
 For **migration** interviews, the directory additionally contains:
-5. **overlays/** — Salvaged and ported files from the old project (channel databases, custom code, etc.)
-6. **migration-notes.md** — Documents all classification decisions and flagged items
+6. **overlays/** — Salvaged and ported files from the old project (channel databases, custom code, etc.)
+7. **migration-notes.md** — Documents all classification decisions and flagged items
 
-The profile.yml declares the data bundle, artifact selection (hooks, rules, skills, agents), config overrides, and overlay paths — everything `osprey build` needs to produce a working project in one command.
+The profile.yml declares the data bundle, artifact selection (hooks, rules, skills, agents), config overrides, and overlay paths — everything `osprey build` needs to produce a working project in one command. The deploy skill is the second half of the workflow: this interview owns *what to build*, the deploy skill owns *how to ship it*.
 
 Read `references/osprey-config-reference.md` before generating any config files — it contains the exact YAML structure, valid field values, and channel database JSON schema.
 
@@ -480,14 +481,49 @@ Directory containing all salvaged and ported files, organized by destination pat
 
 Documents: scan date, source path, config variant chosen, classification decisions, model transformation, EVALUATE items and their review status, ported components, skipped items and why.
 
+#### 8. Install the deploy skill into the profile repo
+
+The profile repo is the durable, git-tracked artifact the user will redeploy from many times. Install the project-local `osprey-build-deploy` skill so that `/osprey-build-deploy` is available in every Claude Code session opened against this repo.
+
+**First, verify your working directory.** The `osprey skills install --target` command resolves relative paths against the current CWD. Run `pwd` and confirm the output contains a `build-profile/` subdirectory (i.e., CWD is the *parent* of the directory you just created). If not, `cd` to that parent before continuing — otherwise the skill will be installed at the wrong path (e.g., `build-profile/build-profile/.claude/skills/`).
+
+Then run:
+
+```bash
+osprey skills install osprey-build-deploy --target build-profile/.claude/skills/
+```
+
+This copies the deploy skill (SKILL.md + 18 reference docs + 7 templates) into `build-profile/.claude/skills/osprey-build-deploy/`. It's the second half of OSPREY's two-phase setup: this interview owns **profile authoring** (what), the deploy skill owns **deploy operations** (how to ship).
+
+**Check the exit code before spawning verification agents.** If `osprey skills install` returns non-zero, show the user the stderr output and stop — common causes are `osprey` not on PATH (user installed via `pipx` or isolated venv), permission denied writing into `.claude/skills/`, or a partial copy after a backup rename. Do NOT proceed to the verification agents on failure; they will all FAIL with confusing "missing files" messages that mask the real error.
+
+#### 9. Verify the deploy skill installed correctly
+
+Only run this step after confirming the install command exited zero. Spawn three verification agents **in parallel** (single message, three Agent tool calls) to confirm the install. Each agent should run quickly and report back PASS/FAIL with one-line reasoning. If any agent reports FAIL, surface the failure to the user before proceeding to Phase 9a — do not silently swallow install errors.
+
+**Agent 1 — File inventory**
+> "Verify `build-profile/.claude/skills/osprey-build-deploy/` contains a complete copy of the deploy skill. Expected: SKILL.md at the root, a `references/` directory with at least 8 top-level .md files plus a `modules/` subdirectory with at least 10 .md files, and a `templates/` directory with `core/` containing docker-compose.yml, .gitlab-ci.yml, .env.template, README.md, and scripts/ (deploy.sh + verify.sh). Run from the parent of `build-profile/` (run `pwd` first to confirm). Use Glob and Bash `find ... | wc -l`. Report PASS with file count, or FAIL with what's missing. Under 100 words."
+
+**Agent 2 — SKILL.md frontmatter**
+> "Read `build-profile/.claude/skills/osprey-build-deploy/SKILL.md` (relative to the parent of `build-profile/` — run `pwd` first to confirm CWD) and verify the YAML frontmatter is intact: opens with `---`, has `name: osprey-build-deploy`, has a `description:` block, closes with `---`. Also verify the body still references the templates and modules (grep for `templates/core/` and for at least one file under `references/`). Report PASS or FAIL. Under 100 words."
+
+**Agent 3 — Discoverability sanity check**
+> "From the parent of `build-profile/` (run `pwd` first to confirm CWD), verify what Claude Code will see when a user runs `/osprey-build-deploy` inside the profile repo. Check: `build-profile/.claude/skills/osprey-build-deploy/SKILL.md` exists and is readable, and no broken symlinks under `build-profile/.claude/skills/`. A `.bak.*` directory is EXPECTED and NOT a failure if this was a re-run of the install (backups are created by design); only flag a `.bak.*` directory if it is empty or has a symlink loop. Use `ls -la` and `head` on the SKILL.md. Report PASS or FAIL with one-line reasoning. Under 80 words."
+
+If all three return PASS, continue to the final message. If any FAIL, tell the user exactly what failed and offer to retry the install before proceeding.
+
 #### After generating all files
 
 Tell the user:
-> "Your build profile is ready in the `build-profile/` directory. Here's what I created: [list files]. To create your project, run:
+> "Your build profile is ready in the `build-profile/` directory. Here's what I created: [list files]. The deploy skill is now installed at `build-profile/.claude/skills/osprey-build-deploy/` — that's Phase 2.
+>
+> **Phase 1 (now done): Build the assistant.** Run:
 > ```
 > osprey build <project-name> build-profile/profile.yml
 > ```
-> That's it — one command. Then `cd <project-name> && claude` to start using your agent."
+> Then `cd <project-name> && claude` to start using your agent.
+>
+> **Phase 2 (when you're ready to deploy): Ship it.** Open Claude Code in the `build-profile/` repo and run `/osprey-build-deploy` — it walks you through CI/CD setup, the deploy server, and ongoing release operations. The deploy skill lives with the repo, so it's always available wherever you cloned this profile."
 
 If mock mode:
 > "Everything is set to simulated/mock mode right now, which is perfect for trying things out. When you're ready to connect to real hardware, edit `profile.yml` — change `control_system.type` from `mock` to `epics`, add your gateway addresses, and run `osprey build` again."

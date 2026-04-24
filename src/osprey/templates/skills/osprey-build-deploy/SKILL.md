@@ -29,7 +29,15 @@ description: >
 
 # OSPREY Build & Deploy
 
-Deployment control plane for a facility profile repository. This skill ships with `osprey init --facility`, so every new facility repo comes with its own deploy operator pre-installed.
+Deployment control plane for a facility profile repository.
+
+This skill is project-local — it lives at `<profile-repo>/.claude/skills/osprey-build-deploy/` and is installed by `/build-interview` at the end of Phase 8 (when the profile repo is generated). To refresh or re-install it later (e.g., after upgrading OSPREY), run from the profile repo root:
+
+```bash
+osprey skills install osprey-build-deploy --target .claude/skills/
+```
+
+The previous copy is automatically backed up to `.claude/skills/osprey-build-deploy.bak.<timestamp>/`.
 
 ## Scope (read this — separation matters)
 
@@ -237,7 +245,7 @@ OSPREY is actively developed. When something can't be expressed through the curr
 | Scaffolding (file copy logic) | `src/osprey/cli/templates/scaffolding.py` |
 | App templates | `src/osprey/templates/apps/` |
 | Project template (single-profile init) | `src/osprey/templates/project/` |
-| Facility template (this skill lives here!) | `src/osprey/templates/facility/` |
+| Bundled skills (this skill + `build-interview`) | `src/osprey/templates/skills/` |
 | Built-assistant Claude templates | `src/osprey/templates/claude_code/` |
 
 Workflow:
