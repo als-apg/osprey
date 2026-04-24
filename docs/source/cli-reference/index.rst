@@ -50,10 +50,13 @@ Create a new project from a template.
    osprey init [OPTIONS] PROJECT_NAME
 
 ``--template <name>``
-   ``hello_world``, ``control_assistant`` (default), or ``lattice_design``.
+   ``hello_world`` or ``control_assistant`` (default).
 
-``--registry-style <style>``
-   ``extend`` (default, recommended) or ``standalone``.
+``--output-dir, -o <path>``
+   Directory in which to create the project (default: current directory).
+
+``--force, -f``
+   Overwrite an existing project directory.
 
 .. code-block:: bash
 
