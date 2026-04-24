@@ -28,7 +28,7 @@ Overview
 The ``osprey build`` command takes a YAML profile and produces a standalone Claude Code
 project. The profile declares:
 
-- **Base template** to start from (``control_assistant`` or ``lattice_design``)
+- **Base template** to start from (``control_assistant`` or ``hello_world``)
 - **Config overrides** for the generated ``config.yml`` (dot-notation)
 - **File overlays** that copy facility data into the project
 - **MCP server definitions** to inject custom tools

@@ -207,14 +207,16 @@ OSPREY is installed and ready to use. Here's what to do next:
 
    **Install the interview skill**
 
-   Copy the interview skill to your Claude Code skills directory:
+   Install the interview skill with the OSPREY CLI:
 
    .. code-block:: bash
 
-      mkdir -p ~/.claude/skills
-      cp -r ~/osprey/src/osprey/templates/skills/build-interview ~/.claude/skills/build-interview
+      uv run osprey skills install build-interview
 
-   This makes the ``/build-interview`` command available in any Claude Code session.
+   This copies the skill into ``~/.claude/skills/build-interview`` and makes the
+   ``/build-interview`` command available in any Claude Code session. Re-running
+   the command preserves your previous copy under
+   ``~/.claude/skills/build-interview.bak.<timestamp>``.
 
    **Run the interview**
 

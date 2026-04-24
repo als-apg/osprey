@@ -24,27 +24,28 @@ This work was presented as a contributed oral presentation at [ICALEPCS'25](http
 # Install the framework (using uv, recommended)
 uv pip install osprey-framework
 
-# Or using pip:
-# pip install osprey-framework
+# Create a minimal project to verify your setup
+osprey init quickstart --template hello_world
+cd quickstart
 
-# Recommended: Interactive setup (guides you through everything!)
-osprey
-
-# The interactive menu will:
-# - Help you choose a template with descriptions
-# - Guide you through AI provider and model selection
-# - Automatically detect and configure API keys from your environment
-# - Create a ready-to-use project with smart defaults
-
-# Alternative: Direct command if you know what you want
-osprey init my-assistant
-cd my-assistant
-# If API keys aren't in your environment, copy and edit .env:
+# If API keys aren't already in your environment, copy and edit .env:
 # cp .env.example .env
 
 # Start a Claude Code agent session
 claude
 ```
+
+For a production project tailored to your detector, beamline, or accelerator
+subsystem, install the guided build-interview skill and run it from Claude Code:
+
+```bash
+# Install the /build-interview skill into ~/.claude/skills/
+uv run osprey skills install build-interview
+```
+
+Then start Claude Code in an empty directory and type `/build-interview`. The
+skill walks you through a guided conversation, produces a build profile, and
+`osprey build profile.yml` generates a ready-to-use project.
 
 
 ## 📚 Documentation

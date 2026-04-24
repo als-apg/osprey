@@ -21,7 +21,6 @@ without arguments launches an interactive TUI menu.
    osprey build              # Build project from profile
    osprey deploy COMMAND     # Manage services
    osprey health             # Check system health
-   osprey migrate            # Run project migrations
    osprey tasks              # Browse AI assistant tasks
    osprey claude             # Manage Claude Code integration
    osprey web                # Launch web terminal
@@ -142,15 +141,6 @@ Run comprehensive system health check.
 .. code-block:: bash
 
    osprey health [--project PATH]
-
-osprey migrate
-==============
-
-Run project migrations for newer framework versions.
-
-.. code-block:: bash
-
-   osprey migrate
 
 osprey claude
 =============

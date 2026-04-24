@@ -119,6 +119,7 @@ logbook_*.jsonl
 
 # Auto-generated documentation
 _autosummary/
+docs/build/
 
 # PID files
 *.pid
