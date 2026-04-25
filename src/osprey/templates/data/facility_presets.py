@@ -1,7 +1,7 @@
 """EPICS facility configuration presets.
 
 Provides gateway configurations for common facilities to simplify
-project setup during osprey init.
+project setup during osprey build.
 
 Based on contributions from PR #37 by Marty Smith.
 """

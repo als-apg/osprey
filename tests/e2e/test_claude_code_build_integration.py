@@ -1,7 +1,7 @@
 """End-to-end tests for the full Claude Code + OSPREY MCP integration.
 
 These tests verify the complete workflow:
-1. `osprey init` creates a project with Claude Code integration files
+1. `osprey build` creates a project with Claude Code integration files
 2. The Claude Code CLI discovers the OSPREY MCP server via .mcp.json
 3. Claude calls MCP tools (archiver_read, execute, channel_find)
 4. The tools produce real artifacts (archiver data files, PNG plots)
@@ -31,7 +31,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.cli.init_cmd import init
+from osprey.cli.build_cmd import build
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -68,24 +68,21 @@ def init_project(
     provider: str = "anthropic",
     model: str = "claude-haiku-4-5-20251001",
 ) -> Path:
-    """Create a project via ``osprey init`` CLI, return project_dir.
+    """Create a project via ``osprey build --preset <template>``, return project_dir.
 
     Uses the Click test runner so we don't need a real shell.
     """
     runner = CliRunner()
     args = [
         name,
-        "--template",
-        template,
-        "--output-dir",
-        str(tmp_path),
-        "--provider",
-        provider,
-        "--model",
-        model,
+        "--preset", template.replace("_", "-"),
+        "--skip-deps", "--skip-lifecycle",
+        "--output-dir", str(tmp_path),
+        "--set", f"provider={provider}",
+        "--set", f"model={model}",
     ]
-    result = runner.invoke(init, args)
-    assert result.exit_code == 0, f"osprey init failed: {result.output}"
+    result = runner.invoke(build, args)
+    assert result.exit_code == 0, f"osprey build failed: {result.output}"
     project_dir = tmp_path / name
     assert project_dir.exists(), f"Project directory not created: {project_dir}"
     return project_dir
@@ -174,7 +171,7 @@ def allow_all_tools(project_dir: Path) -> None:
 def find_png_files(root: Path) -> list[Path]:
     """Recursively find generated .png files under *root*.
 
-    Excludes template assets (logos, icons) that ship with ``osprey init``
+    Excludes template assets (logos, icons) that ship with ``osprey build``
     and therefore don't prove that ``execute`` created a plot.
     """
     template_names = {"ALS_assistant_logo.png"}
@@ -307,16 +304,16 @@ pytestmark = [
 # ===========================================================================
 
 
-class TestInitProjectClaudeCodeFilesSmoke:
-    """Quick sanity check that ``osprey init`` produces valid Claude Code files.
+class TestBuildProjectClaudeCodeFilesSmoke:
+    """Quick sanity check that ``osprey build`` produces valid Claude Code files.
 
     This complements the unit tests in ``tests/cli/test_claude_code_integration.py``
-    by running in the e2e suite with the full init flow.
+    by running in the e2e suite with the full build flow.
     """
 
     @pytest.mark.e2e_smoke
-    def test_init_creates_valid_claude_code_files(self, tmp_path):
-        """osprey init creates all 8 Claude Code files with valid content."""
+    def test_build_creates_valid_claude_code_files(self, tmp_path):
+        """osprey build creates all 8 Claude Code files with valid content."""
         project_dir = init_project(tmp_path, "smoke-test")
 
         # -- All 8 files exist --

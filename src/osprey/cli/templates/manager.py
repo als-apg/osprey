@@ -182,8 +182,8 @@ class TemplateManager:
         # Detect environment variables from the system
         detected_env_vars = scaffolding.detect_environment_variables()
 
-        # Fall back to example profile artifacts when the caller didn't pass any
-        # (e.g. `osprey init`). An explicit empty dict from `osprey build` means the
+        # Fall back to preset profile artifacts when the caller didn't pass any
+        # (legacy code path). An explicit empty dict from `osprey build` means the
         # profile deliberately selects nothing, and must not be overridden.
         if artifacts is None:
             tmpl_manifest = manifest.load_template_manifest(self.template_root, data_bundle)

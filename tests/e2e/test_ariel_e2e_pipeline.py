@@ -1,7 +1,7 @@
 """E2E Test: Full Osprey Pipeline with ARIEL Logbook Search.
 
 This test validates the real user experience end-to-end:
-  osprey init → database setup → ingest demo logbook → ask agent a logbook question →
+  osprey build → database setup → ingest demo logbook → ask agent a logbook question →
   classifier routes → orchestrator plans → LogbookSearchCapability executes →
   ARIELSearchService searches → response generated.
 

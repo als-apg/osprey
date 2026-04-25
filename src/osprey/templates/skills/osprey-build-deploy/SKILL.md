@@ -238,13 +238,13 @@ OSPREY is actively developed. When something can't be expressed through the curr
 
 | What | Where (relative to OSPREY repo root) |
 |------|--------------------------------------|
-| Build command | `src/osprey/cli/build_cmd.py` |
-| Init command | `src/osprey/cli/init_cmd.py` |
+| Build command (presets, overrides, --set) | `src/osprey/cli/build_cmd.py` |
+| Bundled preset YAML profiles | `src/osprey/profiles/presets/` |
 | Profile schema/dataclasses | `src/osprey/cli/build_profile.py` |
 | Template manager | `src/osprey/cli/templates/manager.py` |
 | Scaffolding (file copy logic) | `src/osprey/cli/templates/scaffolding.py` |
 | App templates | `src/osprey/templates/apps/` |
-| Project template (single-profile init) | `src/osprey/templates/project/` |
+| Project template (single-profile build) | `src/osprey/templates/project/` |
 | Bundled skills (this skill + `build-interview`) | `src/osprey/templates/skills/` |
 | Built-assistant Claude templates | `src/osprey/templates/claude_code/` |
 

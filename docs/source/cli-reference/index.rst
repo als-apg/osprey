@@ -16,8 +16,7 @@ without arguments launches an interactive TUI menu.
 
    osprey                    # Launch interactive menu
    osprey --version          # Show framework version
-   osprey init PROJECT       # Create new project
-   osprey build              # Build project from profile
+   osprey build PROJECT      # Build project from preset or profile
    osprey config             # Manage configuration
    osprey deploy COMMAND     # Manage services
    osprey health             # Check system health
@@ -40,29 +39,6 @@ Global Options
 
 ``--help``
    Show help for any command (e.g., ``osprey deploy --help``).
-
-osprey init
-===========
-
-Create a new project from a template.
-
-.. code-block:: bash
-
-   osprey init [OPTIONS] PROJECT_NAME
-
-``--template <name>``
-   ``hello_world`` or ``control_assistant`` (default).
-
-``--output-dir, -o <path>``
-   Directory in which to create the project (default: current directory).
-
-``--force, -f``
-   Overwrite an existing project directory.
-
-.. code-block:: bash
-
-   osprey init my-agent
-   osprey init my-first-agent --template hello_world
 
 osprey config
 =============
@@ -89,12 +65,23 @@ Manage project configuration. Interactive menu if no subcommand is given.
 osprey build
 ============
 
-Build a facility-specific assistant from a profile. See
-:doc:`/how-to/build-profiles`.
+Build a facility-specific assistant from a bundled preset or a YAML profile.
+See :doc:`/how-to/build-profiles`.
 
 .. code-block:: bash
 
-   osprey build PROJECT_NAME PROFILE [OPTIONS]
+   osprey build PROJECT_NAME [PROFILE] [OPTIONS]
+
+``--preset NAME`` — Use a bundled preset (mutually exclusive with positional
+``PROFILE``). Run ``osprey build --list-presets`` to see available names.
+
+``-O, --override PATH`` — Layer a YAML file on top of the base preset/profile
+(repeatable, in order).
+
+``--set KEY.PATH=VALUE`` — Inline scalar/list override (repeatable). RHS is
+parsed as YAML so ``true``, ``[a,b]``, and bare ints/floats are typed.
+
+``--list-presets`` — Print bundled preset names and exit.
 
 ``-o, --output-dir PATH`` — Output directory (default: current directory).
 
@@ -104,8 +91,10 @@ Build a facility-specific assistant from a profile. See
 
 .. code-block:: bash
 
-   osprey build als-test ~/profiles/als-dev.yml
-   osprey build my-assistant profile.yml --force -o /tmp
+   osprey build my-agent --preset hello-world
+   osprey build als-test ~/profiles/als-dev.yml --force
+   osprey build edu --preset education -O overrides.yml --set model=claude-sonnet-4-6
+   osprey build --list-presets
 
 osprey deploy
 =============

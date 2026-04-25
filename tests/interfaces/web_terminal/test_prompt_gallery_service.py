@@ -8,7 +8,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.cli.init_cmd import init
+from osprey.cli.build_cmd import build
 from osprey.interfaces.web_terminal.prompt_gallery_service import PromptGalleryService
 from osprey.services.prompts.catalog import PromptCatalog
 
@@ -21,9 +21,22 @@ SAFE_ARTIFACT = "rules/safety"  # Always available, real content
 
 @pytest.fixture()
 def project_dir(tmp_path):
-    """Create a real OSPREY project via ``osprey init``."""
+    """Create a real OSPREY project via ``osprey build --preset control-assistant``.
+
+    The gallery tests assert presence of channel-finder/data-visualizer agents
+    and the diagnose skill, which only ship with the full control-assistant
+    preset (not hello-world).
+    """
     runner = CliRunner()
-    result = runner.invoke(init, ["gallery-test", "--output-dir", str(tmp_path)])
+    result = runner.invoke(
+        build,
+        [
+            "gallery-test",
+            "--preset", "control-assistant",
+            "--skip-deps", "--skip-lifecycle",
+            "--output-dir", str(tmp_path),
+        ],
+    )
     assert result.exit_code == 0, result.output
     return tmp_path / "gallery-test"
 
@@ -59,7 +72,7 @@ class TestListArtifacts:
     def test_list_artifacts_only_existing_files(self, service, project_dir):
         """Every returned artifact corresponds to a file that exists on disk."""
         result = service.list_artifacts()
-        assert len(result) > 0, "Expected at least some artifacts from osprey init"
+        assert len(result) > 0, "Expected at least some artifacts from osprey build"
         for art in result:
             fpath = project_dir / art["output_path"]
             assert fpath.exists(), f"{art['output_path']} listed but not on disk"

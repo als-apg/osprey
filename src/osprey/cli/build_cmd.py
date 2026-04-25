@@ -1,12 +1,15 @@
 """Build command — assemble a facility-specific assistant from a build profile.
 
-Reads a YAML build profile that specifies a base template, config overrides,
-file overlays, and MCP server definitions. Produces a standalone, self-contained
-project directory (wipe-and-rebuild safe).
+Reads a YAML build profile (or a bundled ``--preset``) that specifies a base
+template, config overrides, file overlays, and MCP server definitions.
+Produces a standalone, self-contained project directory (wipe-and-rebuild
+safe).
 
 Usage:
     osprey build my-assistant profile.yml
-    osprey build my-assistant profile.yml --force
+    osprey build my-assistant --preset hello-world
+    osprey build my-assistant --preset education -O override.yml --set model=claude-sonnet-4-6
+    osprey build --list-presets
 """
 
 from __future__ import annotations
@@ -30,9 +33,54 @@ from .templates.manager import TemplateManager
 logger = get_logger("build")
 
 
+def _list_presets_callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
+    """Eager --list-presets: print bundled presets and exit before any args parse."""
+    if not value or ctx.resilient_parsing:
+        return
+    from .build_profile import list_presets
+
+    for name in list_presets():
+        click.echo(name)
+    ctx.exit(0)
+
+
 @click.command()
-@click.argument("project_name")
-@click.argument("profile", type=click.Path(exists=True, dir_okay=False))
+@click.argument("project_name", required=False)
+@click.argument(
+    "profile",
+    required=False,
+    default=None,
+    type=click.Path(exists=False, dir_okay=False),
+)
+@click.option(
+    "--preset",
+    default=None,
+    metavar="NAME",
+    help="Use a bundled preset profile (see --list-presets).",
+)
+@click.option(
+    "--override",
+    "-O",
+    "overrides",
+    multiple=True,
+    type=click.Path(exists=False, dir_okay=False, path_type=Path),
+    help="Layer a YAML file on top of the base profile/preset (repeatable).",
+)
+@click.option(
+    "--set",
+    "set_pairs",
+    multiple=True,
+    metavar="KEY.PATH=VALUE",
+    help="Inline scalar/list override (repeatable). RHS parsed as YAML.",
+)
+@click.option(
+    "--list-presets",
+    is_flag=True,
+    is_eager=True,
+    expose_value=False,
+    callback=_list_presets_callback,
+    help="List bundled preset names and exit.",
+)
 @click.option(
     "--output-dir",
     "-o",
@@ -56,8 +104,11 @@ logger = get_logger("build")
     "build path differs from the runtime path, e.g. --runtime-root /app/als-assistant)",
 )
 def build(
-    project_name: str,
-    profile: str,
+    project_name: str | None,
+    profile: str | None,
+    preset: str | None,
+    overrides: tuple[Path, ...],
+    set_pairs: tuple[str, ...],
     output_dir: str,
     force: bool,
     stream: bool,
@@ -65,34 +116,56 @@ def build(
     skip_deps: bool,
     runtime_root: str | None,
 ) -> None:
-    """Build a facility-specific assistant from a profile.
+    """Build a facility-specific assistant from a profile or bundled preset.
 
     Assembles a standalone project by rendering a base template, applying
     config overrides, copying overlay files, and injecting MCP servers.
 
     PROJECT_NAME: Name of the project directory to create
 
-    PROFILE: Path to a YAML build profile
+    PROFILE: Optional path to a YAML build profile (mutually exclusive with --preset)
 
     Examples:
 
     \b
-      # Build from profile
+      # Build from a bundled preset
+      $ osprey build my-assistant --preset hello-world
+
+      # Build from a profile file
       $ osprey build als-test ~/profiles/als-dev.yml
 
-      # Force overwrite
-      $ osprey build als-test ~/profiles/als-dev.yml --force
+      # Layer overrides on top of a preset
+      $ osprey build als-test --preset control-assistant -O als-overrides.yml \\
+            --set model=claude-sonnet-4-6
+
+      # List available presets
+      $ osprey build --list-presets
     """
-    from .build_profile import load_profile
-    from .init_cmd import _clear_claude_code_project_state
+    from .build_profile import resolve_build_profile
+    from .project_utils import _clear_claude_code_project_state
+
+    if not project_name:
+        raise click.UsageError(
+            "PROJECT_NAME is required. Run 'osprey build --help' for usage."
+        )
 
     logger.info("Building project: %s", project_name)
 
     try:
-        # 1. Load and validate profile
-        profile_path = Path(profile).resolve()
-        profile_dir = profile_path.parent
-        build_profile = load_profile(profile_path)
+        # 1. Resolve profile from any combination of preset / file / overlays.
+        #    resolve_build_profile() enforces mutual exclusion (preset XOR profile)
+        #    and merges layers in order: base -> override file(s) -> --set values.
+        profile_arg = Path(profile).resolve() if profile else None
+        try:
+            build_profile, profile_dir = resolve_build_profile(
+                profile_arg, preset, tuple(overrides), tuple(set_pairs)
+            )
+        except BuildProfileError as e:
+            # Mutual-exclusion / missing-input errors are user errors, not bugs.
+            msg = str(e)
+            if "either" in msg.lower() or "not both" in msg.lower():
+                raise click.UsageError(msg) from e
+            raise
 
         logger.info("  Profile: %s", build_profile.name)
         logger.info("  Data bundle: %s", build_profile.data_bundle)
@@ -325,6 +398,8 @@ def build(
         logger.info("✓ Project built successfully at: %s", project_path)
 
     except click.Abort:
+        raise
+    except click.UsageError:
         raise
     except BuildProfileError as e:
         logger.error("✗ Build error: %s", e)

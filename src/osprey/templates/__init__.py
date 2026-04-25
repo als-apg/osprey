@@ -8,7 +8,7 @@ Osprey Framework. Templates are organized into:
 - services/ : Docker/Podman service configurations (Jupyter, web-terminal)
 
 Templates are bundled with the pip-installed framework package and used by
-the CLI scaffolding commands (osprey init, osprey create-example, etc.).
+the CLI scaffolding command (osprey build).
 """
 
 __all__ = []

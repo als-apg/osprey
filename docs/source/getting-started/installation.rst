@@ -10,7 +10,7 @@ Get OSPREY running in five steps. The whole process takes about 10 minutes.
    - Node.js, Claude Code, and ``uv`` installed
    - An API key configured for your AI provider
    - The ``osprey`` CLI installed and on your ``PATH``
-   - The ability to create projects with ``osprey init`` or ``osprey build``
+   - The ability to create projects with ``osprey build``
 
 
 Step 1: Install Node.js
@@ -167,7 +167,7 @@ Step 5: Install OSPREY
 
       This is the right choice for most users. Your own projects stay separate
       from the tool — you'll create them in their own directories with
-      ``osprey init`` or ``osprey build``.
+      ``osprey build``.
 
       To upgrade later:
 

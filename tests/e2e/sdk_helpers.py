@@ -16,7 +16,7 @@ from typing import Any
 
 from click.testing import CliRunner
 
-from osprey.cli.init_cmd import init
+from osprey.cli.build_cmd import build
 
 # SDK imports — skip entire module if not installed
 try:
@@ -76,23 +76,20 @@ def init_project(
     model: str = "haiku",
     channel_finder_mode: str | None = None,
 ) -> Path:
-    """Create a project via ``osprey init`` CLI, return project_dir."""
+    """Create a project via ``osprey build --preset <template>``, return project_dir."""
     runner = CliRunner()
     args = [
         name,
-        "--template",
-        template,
-        "--output-dir",
-        str(tmp_path),
-        "--provider",
-        provider,
-        "--model",
-        model,
+        "--preset", template.replace("_", "-"),
+        "--skip-deps", "--skip-lifecycle",
+        "--output-dir", str(tmp_path),
+        "--set", f"provider={provider}",
+        "--set", f"model={model}",
     ]
     if channel_finder_mode is not None:
-        args.extend(["--channel-finder-mode", channel_finder_mode])
-    result = runner.invoke(init, args)
-    assert result.exit_code == 0, f"osprey init failed: {result.output}"
+        args.extend(["--set", f"channel_finder_mode={channel_finder_mode}"])
+    result = runner.invoke(build, args)
+    assert result.exit_code == 0, f"osprey build failed: {result.output}"
     project_dir = tmp_path / name
     assert project_dir.exists(), f"Project directory not created: {project_dir}"
     return project_dir

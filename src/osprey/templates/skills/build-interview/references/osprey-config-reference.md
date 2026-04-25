@@ -202,7 +202,7 @@ channel_finder:
 # ============================================================
 execution:
   execution_method: "local"
-  python_env_path: PYTHON_PATH_HERE  # Will be filled by osprey init
+  python_env_path: PYTHON_PATH_HERE  # Will be filled by osprey build
 
 # ============================================================
 # CLI
@@ -710,11 +710,12 @@ Used when write access is enabled to define safe operating ranges:
 # Create a project from a build profile:
 osprey build project-name path/to/profile.yml
 
-# Or start from an example profile:
-osprey init --example control-assistant my-profile.yml
-# Edit my-profile.yml, then:
+# Or start from a bundled preset:
+osprey build project-name --preset control-assistant
+# To customize, copy the preset and edit:
+cp src/osprey/profiles/presets/control-assistant.yml my-profile.yml
 osprey build project-name my-profile.yml
 ```
 
-Valid data bundles: `hello_world`, `control_assistant`
+Valid data bundles: `hello_world`, `control_assistant`, `education`
 Valid model tiers: `haiku`, `sonnet`, `opus`

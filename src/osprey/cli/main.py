@@ -42,7 +42,6 @@ class LazyGroup(click.Group):
         """Lazily import and return the command when it's invoked."""
         # Map command names to their module paths
         commands = {
-            "init": "osprey.cli.init_cmd",
             "build": "osprey.cli.build_cmd",
             "deploy": "osprey.cli.deploy_cmd",
             "config": "osprey.cli.config_cmd",
@@ -86,7 +85,6 @@ class LazyGroup(click.Group):
     def list_commands(self, ctx):
         """Return list of available commands (for --help)."""
         return [
-            "init",
             "build",
             "config",
             "deploy",
@@ -119,7 +117,8 @@ def cli(ctx):
 
     \b
       osprey                          Launch interactive menu
-      osprey init my-project          Create new project
+      osprey build my-project --preset hello-world
+                                      Create new project from a bundled preset
       osprey config                   Manage configuration (show, export, set)
       osprey deploy up                Start services
       osprey claude regen             Regenerate Claude Code artifacts

@@ -34,10 +34,10 @@ class TestLazyGroup:
         # Test a known command
         with mock.patch("importlib.import_module") as mock_import:
             mock_module = mock.Mock()
-            mock_module.init = mock.Mock()
+            mock_module.build = mock.Mock()
             mock_import.return_value = mock_module
 
-            group.get_command(ctx, "init")
+            group.get_command(ctx, "build")
 
             # Should attempt to import the module
             mock_import.assert_called_once()
@@ -59,7 +59,7 @@ class TestLazyGroup:
 
         # Verify expected commands are present
         expected_commands = [
-            "init",
+            "build",
             "config",
             "deploy",
             "health",

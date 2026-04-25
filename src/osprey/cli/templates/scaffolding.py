@@ -324,7 +324,7 @@ def rebase_logbook_timestamps(project_dir: Path) -> None:
     """Shift demo logbook timestamps so the most recent entry is near 'now'.
 
     The bundled demo logbook has fixed timestamps (e.g. March 2024).  When a
-    user runs ``osprey init`` months or years later, the logbook entries look
+    user runs ``osprey build`` months or years later, the logbook entries look
     stale and won't align with mock archiver data (which is generated relative
     to the current time).
 

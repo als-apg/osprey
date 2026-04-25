@@ -415,7 +415,7 @@ After the review agent returns:
 
 ### Phase 8 — Generate Build Profile
 
-Read `references/osprey-config-reference.md` now for the exact config.yml structure and channel database schema. Also read `src/osprey/profiles/examples/control-assistant.yml` as a reference for the profile YAML format.
+Read `references/osprey-config-reference.md` now for the exact config.yml structure and channel database schema. Also read `src/osprey/profiles/presets/control-assistant.yml` as a reference for the profile YAML format.
 
 Create a `build-profile/` directory with:
 

@@ -1,6 +1,6 @@
 """Prompt Catalog — declarative catalog of all Claude Code prompt artifacts.
 
-Each prompt artifact produced by ``osprey init`` / ``osprey claude regen``
+Each prompt artifact produced by ``osprey build`` / ``osprey claude regen``
 is cataloged here with a canonical name, template path, output path, and
 metadata.  The catalog enables:
 

@@ -276,11 +276,6 @@ class TestValidation:
         with pytest.raises(BuildProfileError, match="'name' is required"):
             profile.validate(tmp_path)
 
-    def test_invalid_data_bundle_reported(self, tmp_path: Path):
-        profile = BuildProfile(name="Test", data_bundle="bogus_bundle")
-        with pytest.raises(BuildProfileError, match="data_bundle 'bogus_bundle' is not supported"):
-            profile.validate(tmp_path)
-
     def test_lifecycle_step_missing_name(self, tmp_path: Path):
         profile = BuildProfile(
             name="Test",

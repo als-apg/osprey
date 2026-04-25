@@ -584,7 +584,7 @@ class TestFacilityMd:
     """Test facility.md creation and preservation."""
 
     def test_facility_md_created_on_init(self, tmp_path):
-        """osprey init creates .claude/rules/facility.md."""
+        """create_project() (osprey build path) creates .claude/rules/facility.md."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="facility-init",

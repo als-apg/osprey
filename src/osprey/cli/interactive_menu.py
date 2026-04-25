@@ -7,7 +7,7 @@ for the interactive menu system. It delegates to:
 - project_actions: Deploy, health, config, and other action handlers
 
 The interactive menu is optional - users can still use direct commands like:
-    osprey init my-project
+    osprey build my-project --preset hello-world
     osprey web
     osprey deploy up
 """

@@ -21,7 +21,7 @@ Framework & Infrastructure
       :link: deploy-project
       :link-type: doc
 
-      Create, configure, and deploy an OSPREY project from ``osprey init`` through
+      Create, configure, and deploy an OSPREY project from ``osprey build`` through
       ``osprey deploy`` to a running instance.
 
    .. grid-item-card:: Build Profiles

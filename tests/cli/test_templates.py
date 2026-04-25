@@ -8,7 +8,15 @@ registry helper pattern correctly.
 import pytest
 from click.testing import CliRunner
 
-from osprey.cli.init_cmd import init
+from osprey.cli.build_cmd import build
+
+# All CLI tests below build the hello-world preset with deps + lifecycle skipped.
+# Centralised so future flag changes are one-line edits.
+_BUILD_FLAGS = ["--preset", "hello-world", "--skip-deps", "--skip-lifecycle"]
+
+
+def _build_args(name: str, output_dir: str, *extra: str) -> list[str]:
+    return [name, *_BUILD_FLAGS, "--output-dir", output_dir, *extra]
 from osprey.cli.templates import claude_code, manifest
 from osprey.cli.templates.manager import TemplateManager
 
@@ -72,58 +80,28 @@ class TestTemplateManager:
             manager.create_project("test-project", tmp_path, "nonexistent_template")
 
 
-class TestCLIIntegration:
-    """Test CLI command integration with templates."""
-
-    def test_init_command_basic(self, tmp_path):
-        """Test basic init command."""
-        runner = CliRunner()
-
-        result = runner.invoke(init, ["test-project", "--output-dir", str(tmp_path)])
-
-        assert result.exit_code == 0
-        assert "Project created successfully" in result.output
-        # New init shows Mode: Claude Code
-        assert "Mode: Claude Code" in result.output
-
-    def test_init_command_shows_next_steps(self, tmp_path):
-        """Test that init command shows helpful next steps."""
-        runner = CliRunner()
-
-        result = runner.invoke(init, ["test-project", "--output-dir", str(tmp_path)])
-
-        assert result.exit_code == 0
-        # Should show next steps
-        assert "Next steps:" in result.output
-        assert "cd test-project" in result.output
-        assert "claude" in result.output
-
-
 class TestGitIsolation:
-    """Test that osprey init creates a self-contained git repo."""
+    """Test that osprey build creates a self-contained git repo."""
 
-    def test_init_creates_git_repo(self, tmp_path):
-        """Test that osprey init creates a .git directory."""
+    def test_build_creates_git_repo(self, tmp_path):
+        """osprey build creates a .git directory."""
         runner = CliRunner()
+        result = runner.invoke(build, _build_args("git-test", str(tmp_path)))
 
-        result = runner.invoke(init, ["git-test", "--output-dir", str(tmp_path)])
-
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
         project_dir = tmp_path / "git-test"
         assert (project_dir / ".git").exists(), ".git directory should be created"
 
-    def test_init_initial_commit(self, tmp_path):
-        """Test that osprey init creates an initial commit with expected files."""
+    def test_build_initial_commit(self, tmp_path):
+        """osprey build creates exactly one initial commit with expected files tracked."""
         import subprocess
 
         runner = CliRunner()
+        result = runner.invoke(build, _build_args("commit-test", str(tmp_path)))
 
-        result = runner.invoke(init, ["commit-test", "--output-dir", str(tmp_path)])
-
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
         project_dir = tmp_path / "commit-test"
 
-        # Verify there is exactly one commit
         log = subprocess.run(
             ["git", "log", "--oneline"],
             cwd=project_dir,
@@ -133,9 +111,8 @@ class TestGitIsolation:
         assert log.returncode == 0
         commits = log.stdout.strip().splitlines()
         assert len(commits) == 1
-        assert "Initial project from osprey init" in commits[0]
+        assert "Initial project from osprey build" in commits[0]
 
-        # Verify key files are tracked
         tracked = subprocess.run(
             ["git", "ls-files"],
             cwd=project_dir,
@@ -148,53 +125,37 @@ class TestGitIsolation:
         assert ".mcp.json" in tracked_files
 
     def test_gitignore_tracks_claude_dir(self, tmp_path):
-        """Test that .claude/ is NOT in .gitignore (should be tracked)."""
+        """.claude/ must NOT be gitignored (it's part of the project)."""
         runner = CliRunner()
+        result = runner.invoke(build, _build_args("track-test", str(tmp_path)))
 
-        result = runner.invoke(init, ["track-test", "--output-dir", str(tmp_path)])
-
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
         project_dir = tmp_path / "track-test"
-
         gitignore_content = (project_dir / ".gitignore").read_text()
-        # .claude/ should NOT appear as a top-level ignore pattern
         lines = [line.strip() for line in gitignore_content.splitlines()]
         assert ".claude/" not in lines, ".claude/ should not be ignored"
         assert "CLAUDE.md" not in lines, "CLAUDE.md should not be ignored"
         assert ".mcp.json" not in lines, ".mcp.json should not be ignored"
 
     def test_gitignore_ignores_local_settings(self, tmp_path):
-        """Test that personal local settings are ignored."""
+        """Personal local settings (CLAUDE.local.md, .claude/settings.local.json) are ignored."""
         runner = CliRunner()
+        result = runner.invoke(build, _build_args("local-test", str(tmp_path)))
 
-        result = runner.invoke(init, ["local-test", "--output-dir", str(tmp_path)])
-
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
         project_dir = tmp_path / "local-test"
-
         gitignore_content = (project_dir / ".gitignore").read_text()
         assert ".claude/settings.local.json" in gitignore_content
         assert "CLAUDE.local.md" in gitignore_content
 
-    def test_init_output_mentions_git(self, tmp_path):
-        """Test that init output confirms git initialization."""
-        runner = CliRunner()
-
-        result = runner.invoke(init, ["msg-test", "--output-dir", str(tmp_path)])
-
-        assert result.exit_code == 0
-        assert "Initialized git repository" in result.output
-        assert "standalone git repo" in result.output
-
     def test_claude_dir_in_initial_commit(self, tmp_path):
-        """Test that .claude/ files are included in the initial commit."""
+        """.claude/ artifacts are included in the initial commit."""
         import subprocess
 
         runner = CliRunner()
+        result = runner.invoke(build, _build_args("claude-track-test", str(tmp_path)))
 
-        result = runner.invoke(init, ["claude-track-test", "--output-dir", str(tmp_path)])
-
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
         project_dir = tmp_path / "claude-track-test"
 
         tracked = subprocess.run(
@@ -208,8 +169,9 @@ class TestGitIsolation:
         claude_files = [f for f in tracked_files if f.startswith(".claude/")]
         assert len(claude_files) > 0, ".claude/ files should be tracked in git"
 
-    def test_init_inside_existing_repo_warns(self, tmp_path):
-        """Test that creating a project inside an existing git repo shows a warning."""
+    def test_init_inside_existing_repo_warns(self, tmp_path, caplog):
+        """Build inside an existing git repo still creates an isolated repo + warns."""
+        import logging
         import subprocess
 
         # Create a parent git repo
@@ -229,14 +191,20 @@ class TestGitIsolation:
         )
 
         runner = CliRunner()
-        result = runner.invoke(init, ["nested-test", "--output-dir", str(tmp_path)])
+        with caplog.at_level(logging.WARNING, logger="build"):
+            result = runner.invoke(build, _build_args("nested-test", str(tmp_path)))
 
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
         # Should still create the git repo (for isolation)
         project_dir = tmp_path / "nested-test"
         assert (project_dir / ".git").exists()
-        # Should warn about nested repo
-        assert "nested git repo" in result.output
+        # The build logger emits a WARNING about the nested repo. Check via
+        # caplog (not result.output) — RichHandler routing differs depending on
+        # whether pytest's log-capture has hooked the root logger first.
+        assert any("nested git repo" in rec.getMessage() for rec in caplog.records), (
+            f"expected 'nested git repo' warning; got records: "
+            f"{[r.getMessage()[:80] for r in caplog.records]}"
+        )
 
     def test_init_inside_existing_repo_still_isolates(self, tmp_path):
         """Test that nested repo has its own independent git root."""
@@ -260,7 +228,7 @@ class TestGitIsolation:
         )
 
         runner = CliRunner()
-        result = runner.invoke(init, ["isolated-test", "--output-dir", str(tmp_path)])
+        result = runner.invoke(build, _build_args("isolated-test", str(tmp_path)))
 
         assert result.exit_code == 0
         project_dir = tmp_path / "isolated-test"
@@ -296,18 +264,18 @@ class TestGitIsolation:
             }
             claude_json.write_text(json.dumps(data, indent=2) + "\n")
 
-            # Directory does NOT exist — simulates rm -rf before osprey init
+            # Directory does NOT exist — simulates rm -rf before osprey build
             assert not project_path.exists()
 
             # Create project (no --force needed, directory is gone)
             runner = CliRunner()
-            result = runner.invoke(init, ["stale-test", "--output-dir", str(tmp_path)])
-            assert result.exit_code == 0
+            result = runner.invoke(build, _build_args("stale-test", str(tmp_path)))
+            assert result.exit_code == 0, result.output
 
             # Trust entry should be gone
             after = json.loads(claude_json.read_text())
             assert str(project_path) not in after.get("projects", {}), (
-                "Stale trust entry should be cleared on init"
+                "Stale trust entry should be cleared on build"
             )
         finally:
             if backup_data is not None:
@@ -320,8 +288,8 @@ class TestGitIsolation:
         runner = CliRunner()
 
         # Create project first time
-        result = runner.invoke(init, ["session-test", "--output-dir", str(tmp_path)])
-        assert result.exit_code == 0
+        result = runner.invoke(build, _build_args("session-test", str(tmp_path)))
+        assert result.exit_code == 0, result.output
 
         project_path = (tmp_path / "session-test").resolve()
 
@@ -334,8 +302,8 @@ class TestGitIsolation:
         assert claude_project_dir.exists()
 
         # Re-create with --force
-        result = runner.invoke(init, ["session-test", "--output-dir", str(tmp_path), "--force"])
-        assert result.exit_code == 0
+        result = runner.invoke(build, _build_args("session-test", str(tmp_path), "--force"))
+        assert result.exit_code == 0, result.output
 
         # Session directory should be gone
         assert not claude_project_dir.exists(), "Session directory should be removed on --force"
@@ -468,7 +436,7 @@ class TestTemplateManifest:
         import yaml
 
         profile_text = (
-            importlib.resources.files("osprey.profiles.examples")
+            importlib.resources.files("osprey.profiles.presets")
             .joinpath("control-assistant.yml")
             .read_text(encoding="utf-8")
         )
@@ -488,29 +456,30 @@ class TestTemplateManifest:
         mf = manifest.load_template_manifest(manager.template_root, "nonexistent_template")
         assert mf is None
 
-    def test_load_manifest_example_profile_fallback_includes_web_panels(self):
-        """Example-profile fallback must surface web_panels in the artifacts dict.
+    def test_load_manifest_preset_profile_fallback_includes_web_panels(self):
+        """Preset-profile fallback must surface web_panels in the artifacts dict.
 
-        `osprey init` relies on this fallback (control_assistant has no manifest.yml).
-        If web_panels is dropped, config.yml renders `panels: {}` and the web
-        terminal shows only the universal panels — the exact bug reported when
-        ARIEL / channel-finder / tuning panels went missing.
+        Direct ``TemplateManager.create_project()`` callers rely on this fallback
+        (control_assistant has no manifest.yml). If web_panels is dropped,
+        config.yml renders ``panels: {}`` and the web terminal shows only the
+        universal panels — the exact bug reported when ARIEL / channel-finder /
+        tuning panels went missing.
         """
         manager = TemplateManager()
         mf = manifest.load_template_manifest(manager.template_root, "control_assistant")
         assert mf is not None
         artifacts = mf.get("artifacts", {})
-        # The example profile declares these panels; they must round-trip through
+        # The preset profile declares these panels; they must round-trip through
         # the fallback so create_project() → Jinja → config.yml wires them up.
         assert "web_panels" in artifacts, (
-            "web_panels stripped by example-profile fallback — `osprey init` will "
+            "web_panels stripped by preset-profile fallback — TemplateManager will "
             "render `panels: {}` and no built-in panels will appear."
         )
         assert set(artifacts["web_panels"]) >= {"ariel", "channel-finder", "tuning"}
 
-    def test_init_style_create_project_enables_builtin_panels(self, tmp_path):
-        """create_project() without explicit artifacts (the `osprey init` path)
-        must render the builtin panels block from the example profile."""
+    def test_create_project_without_artifacts_enables_builtin_panels(self, tmp_path):
+        """create_project() without explicit artifacts (legacy direct-call path)
+        must render the builtin panels block from the preset profile."""
         import yaml as _yaml
 
         manager = TemplateManager()

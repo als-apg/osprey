@@ -32,14 +32,14 @@ import yaml
 # ---------------------------------------------------------------------------
 
 
-def _resolve_example_profile(name: str) -> Path:
-    """Resolve a bundled example profile name to its filesystem path."""
+def _resolve_preset_profile(name: str) -> Path:
+    """Resolve a bundled preset profile name to its filesystem path."""
     from importlib.resources import files
 
-    examples_dir = Path(str(files("osprey").joinpath("profiles/examples")))
-    profile_path = examples_dir / f"{name}.yml"
+    presets_dir = Path(str(files("osprey").joinpath("profiles/presets")))
+    profile_path = presets_dir / f"{name}.yml"
     if not profile_path.exists():
-        raise FileNotFoundError(f"Example profile '{name}' not found at {profile_path}")
+        raise FileNotFoundError(f"Preset profile '{name}' not found at {profile_path}")
     return profile_path
 
 
@@ -53,7 +53,7 @@ def _build_from_profile(profile_name: str, project_name: str, tmp_path: Path) ->
     from osprey.cli.templates.artifact_library import validate_artifacts
     from osprey.cli.templates.manager import TemplateManager
 
-    profile_path = _resolve_example_profile(profile_name)
+    profile_path = _resolve_preset_profile(profile_name)
     build_profile = load_profile(profile_path)
 
     # Collect and validate artifact selections (mirrors build_cmd.py step 1b)
@@ -117,7 +117,7 @@ class TestHelloWorldProfileLoads:
         from osprey.cli.build_profile import load_profile
         from osprey.cli.templates.artifact_library import validate_artifacts
 
-        profile_path = _resolve_example_profile("hello-world")
+        profile_path = _resolve_preset_profile("hello-world")
         profile = load_profile(profile_path)
 
         assert profile.data_bundle == "hello_world"

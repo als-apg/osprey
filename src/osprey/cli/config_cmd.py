@@ -67,7 +67,7 @@ def config(ctx, project):
                     )
                     console.print(f"   Looking for: {config_path}", style=Styles.DIM)
                     console.print(
-                        "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
+                        "\n💡 Create a new project with: [bold cyan]osprey build my-project --preset hello-world[/bold cyan]",
                         style=Styles.DIM,
                     )
                     console.print("   Or run from a project directory", style=Styles.DIM)
@@ -76,7 +76,7 @@ def config(ctx, project):
             except Exception:
                 console.print("❌ No Osprey project found", style=Styles.ERROR)
                 console.print(
-                    "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
+                    "\n💡 Create a new project with: [bold cyan]osprey build my-project --preset hello-world[/bold cyan]",
                     style=Styles.DIM,
                 )
                 console.print(
@@ -144,7 +144,7 @@ def show(project: str, format: str):
         except Exception:
             console.print("❌ No Osprey project found", style=Styles.ERROR)
             console.print(
-                "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
+                "\n💡 Create a new project with: [bold cyan]osprey build my-project --preset hello-world[/bold cyan]",
                 style=Styles.DIM,
             )
             console.print(
@@ -155,7 +155,7 @@ def show(project: str, format: str):
         if not config_path.exists():
             console.print(f"❌ Configuration file not found: {config_path}", style=Styles.ERROR)
             console.print(
-                "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
+                "\n💡 Create a new project with: [bold cyan]osprey build my-project --preset hello-world[/bold cyan]",
                 style=Styles.DIM,
             )
             raise click.Abort()
@@ -196,7 +196,7 @@ def export(output: str, format: str):
     """Export framework default configuration template.
 
     Displays the Osprey framework's default configuration template that is used
-    when creating new projects with 'osprey init'. This is useful for:
+    when creating new projects with 'osprey build'. This is useful for:
 
     \b
       - Understanding available configuration options
@@ -322,7 +322,7 @@ def set_control_system(system_type: str, project: str):
         except Exception:
             console.print("❌ No Osprey project found", style=Styles.ERROR)
             console.print(
-                "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
+                "\n💡 Create a new project with: [bold cyan]osprey build my-project --preset hello-world[/bold cyan]",
                 style=Styles.DIM,
             )
             console.print(
@@ -333,7 +333,7 @@ def set_control_system(system_type: str, project: str):
         if not config_path.exists():
             console.print(f"❌ Configuration file not found: {config_path}", style=Styles.ERROR)
             console.print(
-                "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
+                "\n💡 Create a new project with: [bold cyan]osprey build my-project --preset hello-world[/bold cyan]",
                 style=Styles.DIM,
             )
             raise click.Abort() from None
@@ -396,7 +396,7 @@ def set_epics_gateway(facility: str, address: str, port: int, project: str):
         except Exception:
             console.print("❌ No Osprey project found", style=Styles.ERROR)
             console.print(
-                "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
+                "\n💡 Create a new project with: [bold cyan]osprey build my-project --preset hello-world[/bold cyan]",
                 style=Styles.DIM,
             )
             console.print(
@@ -407,7 +407,7 @@ def set_epics_gateway(facility: str, address: str, port: int, project: str):
         if not config_path.exists():
             console.print(f"❌ Configuration file not found: {config_path}", style=Styles.ERROR)
             console.print(
-                "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
+                "\n💡 Create a new project with: [bold cyan]osprey build my-project --preset hello-world[/bold cyan]",
                 style=Styles.DIM,
             )
             raise click.Abort() from None

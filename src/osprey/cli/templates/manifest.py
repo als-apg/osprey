@@ -96,15 +96,15 @@ def load_template_manifest(
                         return {"artifacts": stored_artifacts}
                 except (json.JSONDecodeError, OSError):
                     pass
-        # Fall back to the bundled example profile (manifest.yml was removed; example
+        # Fall back to the bundled preset profile (manifest.yml was removed; preset
         # profiles are now the canonical source of artifact declarations per data bundle)
-        _example_name = template_name.replace("_", "-") + ".yml"
+        _preset_name = template_name.replace("_", "-") + ".yml"
         try:
             import importlib.resources
 
             profile_text = (
-                importlib.resources.files("osprey.profiles.examples")
-                .joinpath(_example_name)
+                importlib.resources.files("osprey.profiles.presets")
+                .joinpath(_preset_name)
                 .read_text(encoding="utf-8")
             )
             profile_data = yaml.safe_load(profile_text) or {}
@@ -309,31 +309,28 @@ def extract_init_args(
 
 
 def build_reproducible_command(init_args: dict[str, Any]) -> str:
-    """Build a reproducible CLI command from init arguments.
+    """Build a reproducible ``osprey build`` command from creation arguments.
+
+    Maps the legacy init-style keys (``template``, ``provider``, ``model``,
+    ``channel_finder_mode``) onto the current build CLI: ``--preset`` for
+    template selection, ``--set`` for provider/model/channel-finder overrides.
 
     Args:
-        init_args: Dictionary of init arguments
+        init_args: Dictionary of project creation arguments.
 
     Returns:
-        CLI command string that can recreate the project
+        CLI command string that can recreate the project.
     """
-    parts = ["osprey", "init", init_args["project_name"]]
+    parts = ["osprey", "build", init_args["project_name"]]
 
-    # Always include template for reproducibility (default may change)
+    # Template name -> preset (hyphenated CLI form)
     if init_args.get("template"):
-        parts.extend(["--template", init_args["template"]])
+        parts.extend(["--preset", init_args["template"].replace("_", "-")])
 
-    # Add provider if specified
-    if init_args.get("provider"):
-        parts.extend(["--provider", init_args["provider"]])
-
-    # Add model if specified
-    if init_args.get("model"):
-        parts.extend(["--model", init_args["model"]])
-
-    # Add channel_finder_mode if specified
-    if init_args.get("channel_finder_mode"):
-        parts.extend(["--channel-finder-mode", init_args["channel_finder_mode"]])
+    # Other knobs flow through --set so the command stays declarative.
+    for key in ("provider", "model", "channel_finder_mode"):
+        if init_args.get(key):
+            parts.extend(["--set", f"{key}={init_args[key]}"])
 
     return " ".join(parts)
 

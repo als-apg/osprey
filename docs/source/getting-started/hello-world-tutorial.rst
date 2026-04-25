@@ -26,7 +26,7 @@ Create a ready-to-run project in one command:
 
 .. code-block:: bash
 
-   osprey init my-first-agent -t hello_world
+   osprey build my-first-agent --preset hello-world
    cd my-first-agent
 
 .. note::

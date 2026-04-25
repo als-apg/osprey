@@ -25,7 +25,7 @@ This work was presented as a contributed oral presentation at [ICALEPCS'25](http
 uv pip install osprey-framework
 
 # Create a minimal project to verify your setup
-osprey init quickstart --template hello_world
+osprey build quickstart --preset hello-world
 cd quickstart
 
 # If API keys aren't already in your environment, copy and edit .env:

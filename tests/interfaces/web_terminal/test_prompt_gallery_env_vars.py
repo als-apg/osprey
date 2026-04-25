@@ -9,20 +9,28 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.cli.init_cmd import init
+from osprey.cli.build_cmd import build
 from osprey.interfaces.web_terminal.prompt_gallery_service import PromptGalleryService
 
-# Use an artifact known to exist after osprey init and backed by a .j2 template
+# Use an artifact known to exist after osprey build and backed by a .j2 template
 SAFE_ARTIFACT = "rules/safety"
 
 
 @pytest.fixture()
 def project_dir(tmp_path):
-    """Create a real OSPREY project via ``osprey init``."""
+    """Create a real OSPREY project via ``osprey build --preset hello-world``."""
     from click.testing import CliRunner
 
     runner = CliRunner()
-    result = runner.invoke(init, ["env-test", "--output-dir", str(tmp_path)])
+    result = runner.invoke(
+        build,
+        [
+            "env-test",
+            "--preset", "hello-world",
+            "--skip-deps", "--skip-lifecycle",
+            "--output-dir", str(tmp_path),
+        ],
+    )
     assert result.exit_code == 0, result.output
     return tmp_path / "env-test"
 
