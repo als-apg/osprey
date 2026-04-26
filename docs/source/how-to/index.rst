@@ -63,7 +63,7 @@ Framework & Infrastructure
       :link: /cli-reference/index
       :link-type: doc
 
-      Complete reference for all ``osprey`` commands — init, deploy, config,
+      Complete reference for all ``osprey`` commands — build, deploy, config,
       health, claude, web, and more.
 
 Services & Connectors

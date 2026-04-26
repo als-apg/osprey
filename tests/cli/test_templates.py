@@ -171,7 +171,7 @@ class TestGitIsolation:
         claude_files = [f for f in tracked_files if f.startswith(".claude/")]
         assert len(claude_files) > 0, ".claude/ files should be tracked in git"
 
-    def test_init_inside_existing_repo_warns(self, tmp_path, caplog):
+    def test_build_inside_existing_repo_warns(self, tmp_path, caplog):
         """Build inside an existing git repo still creates an isolated repo + warns."""
         import logging
         import subprocess
@@ -208,7 +208,7 @@ class TestGitIsolation:
             f"{[r.getMessage()[:80] for r in caplog.records]}"
         )
 
-    def test_init_inside_existing_repo_still_isolates(self, tmp_path):
+    def test_build_inside_existing_repo_still_isolates(self, tmp_path):
         """Test that nested repo has its own independent git root."""
         import subprocess
         from pathlib import Path
@@ -245,8 +245,8 @@ class TestGitIsolation:
         assert git_root.returncode == 0
         assert Path(git_root.stdout.strip()).resolve() == project_dir.resolve()
 
-    def test_init_clears_stale_trust_state(self, tmp_path):
-        """Test that init clears trust state even when directory was already deleted."""
+    def test_build_clears_stale_trust_state(self, tmp_path):
+        """Test that build clears trust state even when directory was already deleted."""
         import json
         from pathlib import Path
 
