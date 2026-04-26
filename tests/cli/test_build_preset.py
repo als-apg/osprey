@@ -159,8 +159,13 @@ def test_preset_name_normalization(runner: CliRunner, tmp_path: Path) -> None:
     assert r_under.exit_code == 0, r_under.output
     cfg_a = _config_yaml(out_a / "smoke")
     cfg_b = _config_yaml(out_b / "smoke")
-    # Same preset → same default_model, same data_bundle in rendered config
-    assert cfg_a.get("default_model") == cfg_b.get("default_model")
+    # Same preset → same default_model in rendered config.
+    # NB: the rendered key lives at claude_code.default_model, NOT top-level
+    # (this test was previously vacuously passing on a top-level lookup).
+    assert (
+        cfg_a["claude_code"]["default_model"]
+        == cfg_b["claude_code"]["default_model"]
+    )
 
 
 def test_preset_drift_guard() -> None:
