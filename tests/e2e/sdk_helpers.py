@@ -80,11 +80,16 @@ def init_project(
     runner = CliRunner()
     args = [
         name,
-        "--preset", template.replace("_", "-"),
-        "--skip-deps", "--skip-lifecycle",
-        "--output-dir", str(tmp_path),
-        "--set", f"provider={provider}",
-        "--set", f"model={model}",
+        "--preset",
+        template.replace("_", "-"),
+        "--skip-deps",
+        "--skip-lifecycle",
+        "--output-dir",
+        str(tmp_path),
+        "--set",
+        f"provider={provider}",
+        "--set",
+        f"model={model}",
     ]
     if channel_finder_mode is not None:
         args.extend(["--set", f"channel_finder_mode={channel_finder_mode}"])

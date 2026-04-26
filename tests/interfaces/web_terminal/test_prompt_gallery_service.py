@@ -32,9 +32,12 @@ def project_dir(tmp_path):
         build,
         [
             "gallery-test",
-            "--preset", "control-assistant",
-            "--skip-deps", "--skip-lifecycle",
-            "--output-dir", str(tmp_path),
+            "--preset",
+            "control-assistant",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
         ],
     )
     assert result.exit_code == 0, result.output

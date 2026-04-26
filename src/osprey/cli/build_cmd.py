@@ -164,11 +164,7 @@ def build(
             # except chain produces exit code 2.
             msg = str(e)
             lower = msg.lower()
-            if (
-                "either" in lower
-                or "not both" in lower
-                or lower.startswith("unknown preset")
-            ):
+            if "either" in lower or "not both" in lower or lower.startswith("unknown preset"):
                 raise click.UsageError(msg) from e
             raise
 

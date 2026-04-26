@@ -75,11 +75,16 @@ def init_project(
     runner = CliRunner()
     args = [
         name,
-        "--preset", template.replace("_", "-"),
-        "--skip-deps", "--skip-lifecycle",
-        "--output-dir", str(tmp_path),
-        "--set", f"provider={provider}",
-        "--set", f"model={model}",
+        "--preset",
+        template.replace("_", "-"),
+        "--skip-deps",
+        "--skip-lifecycle",
+        "--output-dir",
+        str(tmp_path),
+        "--set",
+        f"provider={provider}",
+        "--set",
+        f"model={model}",
     ]
     result = runner.invoke(build, args)
     assert result.exit_code == 0, f"osprey build failed: {result.output}"

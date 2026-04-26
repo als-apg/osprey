@@ -692,9 +692,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             # browsers trigger a download instead. Serve as text/plain so the
             # gallery preview iframe shows the source.
             media_type = (
-                "text/plain; charset=utf-8"
-                if entry.artifact_type == "text"
-                else entry.mime_type
+                "text/plain; charset=utf-8" if entry.artifact_type == "text" else entry.mime_type
             )
             return FileResponse(
                 filepath,

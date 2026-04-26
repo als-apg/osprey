@@ -808,9 +808,7 @@ def test_overlay_md_files_registered_as_user_owned(runner: CliRunner, tmp_path: 
 def test_extends_missing_base_aborts(runner: CliRunner, tmp_path: Path) -> None:
     """T5: extends pointing at a missing file produces a clear error, not a stack trace."""
     profile = tmp_path / "p.yml"
-    profile.write_text(
-        "name: Orphan\nextends: ./does-not-exist.yml\ndata_bundle: hello_world\n"
-    )
+    profile.write_text("name: Orphan\nextends: ./does-not-exist.yml\ndata_bundle: hello_world\n")
     result = runner.invoke(
         build,
         [
@@ -848,9 +846,7 @@ def test_extends_cycle_detected(runner: CliRunner, tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("preset", list_presets())
-def test_each_bundled_preset_builds_clean(
-    preset: str, runner: CliRunner, tmp_path: Path
-) -> None:
+def test_each_bundled_preset_builds_clean(preset: str, runner: CliRunner, tmp_path: Path) -> None:
     """T1: every bundled preset must build to a project with a valid config and manifest.
 
     Auto-extends as new presets land (e.g. 'education'). A new preset that
