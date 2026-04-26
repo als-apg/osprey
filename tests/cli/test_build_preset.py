@@ -847,6 +847,40 @@ def test_extends_cycle_detected(runner: CliRunner, tmp_path: Path) -> None:
     assert "cycle" in result.output.lower() or "circular" in result.output.lower()
 
 
+@pytest.mark.parametrize("preset", list_presets())
+def test_each_bundled_preset_builds_clean(
+    preset: str, runner: CliRunner, tmp_path: Path
+) -> None:
+    """T1: every bundled preset must build to a project with a valid config and manifest.
+
+    Auto-extends as new presets land (e.g. 'education'). A new preset that
+    parses but doesn't build will fail this test on the next CI run.
+    """
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            preset,
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    project_dir = tmp_path / "smoke"
+    # 1. Core artifacts rendered
+    assert (project_dir / "config.yml").exists()
+    assert (project_dir / "CLAUDE.md").exists()
+    # 2. Manifest is valid JSON with the bumped schema
+    import json
+
+    manifest = json.loads((project_dir / ".osprey-manifest.json").read_text())
+    assert manifest["schema_version"] == "1.2.0"
+    assert manifest["creation"]["template"] == preset
+
+
 def test_preset_yaml_must_be_mapping(tmp_path: Path) -> None:
     """T5: a preset YAML that parses to a list (not a mapping) raises BuildProfileError."""
     # We can't easily inject a malformed bundled preset, but we can verify the
