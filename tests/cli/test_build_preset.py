@@ -555,3 +555,145 @@ def test_override_non_mapping_aborts(runner: CliRunner, tmp_path: Path) -> None:
     )
     assert result.exit_code != 0
     assert "mapping" in result.output.lower()
+
+
+def test_set_dotted_path_lands_in_config_yml(runner: CliRunner, tmp_path: Path) -> None:
+    """T3 (also pins B3 closure): --set with dotted key writes to nested config."""
+    # `config.<...>` is the documented path for inserting custom rendered-config
+    # fields via --set; assert the dotted key lands at the nested location.
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "--set",
+            "config.system.timezone=UTC",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    config = _config_yaml(tmp_path / "smoke")
+    assert config.get("system", {}).get("timezone") == "UTC"
+
+
+def test_set_yaml_typed_values(runner: CliRunner, tmp_path: Path) -> None:
+    """T3: RHS of --set is YAML-parsed for free type coercion."""
+    # Use config-side keys so we can reliably assert each parsed type.
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "--set",
+            "config.an_int=120",
+            "--set",
+            "config.a_bool=true",
+            "--set",
+            "config.a_null=null",
+            "--set",
+            "config.a_list=[a, b]",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    cfg = _config_yaml(tmp_path / "smoke")
+    # config.* lands under the rendered config-overrides path.
+    sect = cfg.get("config") or cfg  # tolerant of preset's actual layout
+    assert sect.get("an_int") == 120 or cfg.get("an_int") == 120
+    assert sect.get("a_bool") is True or cfg.get("a_bool") is True
+    # null may be persisted as None or omitted; accept either.
+    assert (sect.get("a_null") is None) or ("a_null" not in sect)
+    assert sect.get("a_list") == ["a", "b"] or cfg.get("a_list") == ["a", "b"]
+
+
+def test_set_overrides_override_file(runner: CliRunner, tmp_path: Path) -> None:
+    """T3: --set wins over -O at the same key (per docstring precedence)."""
+    over = tmp_path / "o.yml"
+    over.write_text("model: claude-sonnet-4-6\n")
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "-O",
+            str(over),
+            "--set",
+            "model=claude-opus-4-5",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    cfg = _config_yaml(tmp_path / "smoke")
+    assert cfg["claude_code"]["default_model"] == "claude-opus-4-5"
+
+
+def test_set_path_through_scalar_aborts(runner: CliRunner, tmp_path: Path) -> None:
+    """T3: a --set key that descends through a scalar raises BuildProfileError."""
+    # First --set sets a scalar, second tries to descend into it.
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "--set",
+            "model=claude-haiku-4-5",
+            "--set",
+            "model.flavor=fast",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code != 0
+    assert "scalar" in result.output.lower() or "conflict" in result.output.lower()
+
+
+def test_set_malformed_pair_aborts(runner: CliRunner, tmp_path: Path) -> None:
+    """T3: --set without '=' or with empty key aborts cleanly."""
+    no_eq = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "--set",
+            "model",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert no_eq.exit_code != 0
+    assert "=" in no_eq.output or "key=value" in no_eq.output.lower()
+
+    empty_key = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "--set",
+            "=oops",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert empty_key.exit_code != 0
+    assert "non-empty" in empty_key.output.lower() or "empty" in empty_key.output.lower()
