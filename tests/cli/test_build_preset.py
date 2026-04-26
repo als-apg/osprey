@@ -697,3 +697,106 @@ def test_set_malformed_pair_aborts(runner: CliRunner, tmp_path: Path) -> None:
     )
     assert empty_key.exit_code != 0
     assert "non-empty" in empty_key.output.lower() or "empty" in empty_key.output.lower()
+
+
+def test_profile_mcp_servers_persisted_to_config(runner: CliRunner, tmp_path: Path) -> None:
+    """T4: profile-defined mcp_servers land in the project's config.yml."""
+    profile = tmp_path / "p.yml"
+    profile.write_text(
+        "name: McpTest\n"
+        "data_bundle: hello_world\n"
+        "mcp_servers:\n"
+        "  echo:\n"
+        "    command: echo\n"
+        "    args: [hello]\n"
+        "    permissions:\n"
+        "      allow: [echo]\n"
+    )
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            str(profile),
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    config = _config_yaml(tmp_path / "smoke")
+    # NB: profile mcp_servers are persisted under claude_code.servers
+    # (see _persist_mcp_servers in build_cmd.py).
+    servers = config.get("claude_code", {}).get("servers", {})
+    assert "echo" in servers, f"claude_code.servers in config: {list(servers.keys())}"
+    assert servers["echo"]["command"] == "echo"
+    assert servers["echo"]["args"] == ["hello"]
+
+
+def test_profile_categories_persisted_to_config(runner: CliRunner, tmp_path: Path) -> None:
+    """T4: custom artifact categories from profile land in config.yml."""
+    profile = tmp_path / "p.yml"
+    profile.write_text(
+        "name: CatTest\n"
+        "data_bundle: hello_world\n"
+        "categories:\n"
+        "  diagnostics:\n"
+        "    label: Diagnostics\n"
+        "    color: '#ff0066'\n"
+    )
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            str(profile),
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    config = _config_yaml(tmp_path / "smoke")
+    cats = config.get("categories", {})
+    assert "diagnostics" in cats, f"categories in config: {list(cats.keys())}"
+    assert cats["diagnostics"]["label"] == "Diagnostics"
+    assert cats["diagnostics"]["color"].lower() == "#ff0066"
+
+
+def test_overlay_md_files_registered_as_user_owned(runner: CliRunner, tmp_path: Path) -> None:
+    """T4: overlay files copied in are registered with user_owned ownership in manifest."""
+    profile_dir = tmp_path / "profile"
+    profile_dir.mkdir()
+    overlay_src = profile_dir / "extra.md"
+    overlay_src.write_text("# Custom rule\nuser-defined content\n")
+    profile = profile_dir / "p.yml"
+    profile.write_text(
+        "name: OverlayTest\n"
+        "data_bundle: hello_world\n"
+        "overlay:\n"
+        "  extra.md: .claude/rules/extra.md\n"
+    )
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            str(profile),
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    project_dir = tmp_path / "smoke"
+    # 1. file actually landed
+    assert (project_dir / ".claude" / "rules" / "extra.md").exists()
+    # 2. registered in manifest user_owned section (or comparable artifact-ownership field)
+    import json
+
+    manifest = json.loads((project_dir / ".osprey-manifest.json").read_text())
+    # The exact ownership key may be 'user_owned' or under 'artifacts'; assert presence.
+    serialized = json.dumps(manifest)
+    assert "extra.md" in serialized, (
+        "Overlay file not referenced in manifest at all — check _register_overlay_artifacts"
+    )
