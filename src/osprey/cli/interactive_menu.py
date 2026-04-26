@@ -3,7 +3,6 @@
 This module provides the top-level navigation loop and shared utilities
 for the interactive menu system. It delegates to:
 - menu_display: Banner, ASCII art, help screens
-- init_wizard: Interactive project creation flow
 - project_actions: Deploy, health, config, and other action handlers
 
 The interactive menu is optional - users can still use direct commands like:
