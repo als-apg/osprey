@@ -350,12 +350,25 @@ def build(
         }
         if build_profile.channel_finder_mode:
             manifest_context["channel_finder_mode"] = build_profile.channel_finder_mode
+        # Carry the invocation source forward so build_reproducible_command
+        # renders the matching --preset or positional form (C12).
+        if preset:
+            from .build_profile import _normalize_preset_name
+
+            manifest_preset = _normalize_preset_name(preset)
+            manifest_profile_path = None
+        else:
+            manifest_preset = None
+            manifest_profile_path = profile  # the original CLI string
+
         manager.generate_manifest(
             project_dir=project_path,
             project_name=project_name,
             data_bundle=build_profile.data_bundle,
             context=manifest_context,
             artifacts=artifacts or None,
+            preset_name=manifest_preset,
+            profile_path=manifest_profile_path,
         )
 
         # 16b. Re-render Claude Code files with complete config

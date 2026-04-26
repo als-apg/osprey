@@ -236,3 +236,126 @@ def test_preset_drift_guard() -> None:
         assert env.get("file") is None, (
             f"{yml.name}: env.file must be unset (path would break in the wheel)"
         )
+
+
+def test_manifest_schema_version_bumped(runner: CliRunner, tmp_path: Path) -> None:
+    """B2/C3/C12: manifest schema bump from 1.1.0 to 1.2.0."""
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    import json
+
+    manifest = json.loads((tmp_path / "smoke" / ".osprey-manifest.json").read_text())
+    assert manifest["schema_version"] == "1.2.0"
+
+
+def test_manifest_uses_build_args_not_init_args(runner: CliRunner, tmp_path: Path) -> None:
+    """C3: on-disk key renamed from init_args to build_args."""
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    import json
+
+    manifest = json.loads((tmp_path / "smoke" / ".osprey-manifest.json").read_text())
+    assert "build_args" in manifest
+    assert "init_args" not in manifest
+
+
+def test_manifest_records_preset_name_distinctly_from_data_bundle(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """B2: creation.template carries the preset name, not the data_bundle."""
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    import json
+
+    manifest = json.loads((tmp_path / "smoke" / ".osprey-manifest.json").read_text())
+    creation = manifest["creation"]
+    # Preset name (hyphenated form) lives in 'template'; data_bundle is the underlying app bundle.
+    assert creation["template"] == "hello-world"
+    assert creation["data_bundle"] == "hello_world"
+
+
+def test_reproducible_command_emits_preset_form_for_preset_build(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """C12: preset-sourced builds reproduce as 'osprey build NAME --preset PRESET'."""
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    import json
+
+    manifest = json.loads((tmp_path / "smoke" / ".osprey-manifest.json").read_text())
+    cmd = manifest["reproducible_command"]
+    assert "--preset hello-world" in cmd
+    assert "smoke" in cmd
+
+
+def test_reproducible_command_emits_positional_form_for_profile_build(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """C12: positional-profile builds reproduce as 'osprey build NAME PROFILE.yml'."""
+    profile = tmp_path / "p.yml"
+    profile.write_text(
+        "name: PosTest\ndata_bundle: hello_world\nprovider: anthropic\nmodel: claude-haiku-4-5\n"
+    )
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            str(profile),
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    import json
+
+    manifest = json.loads((tmp_path / "smoke" / ".osprey-manifest.json").read_text())
+    cmd = manifest["reproducible_command"]
+    # Positional form: must NOT reference --preset and MUST mention the profile path.
+    assert "--preset" not in cmd
+    assert str(profile) in cmd or profile.name in cmd

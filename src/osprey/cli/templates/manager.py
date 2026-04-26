@@ -435,18 +435,22 @@ class TemplateManager:
         data_bundle: str | None = None,
         context: dict[str, Any] | None = None,
         artifacts: dict[str, list[str]] | None = None,
+        preset_name: str | None = None,
+        profile_path: str | None = None,
     ) -> dict[str, Any]:
         """Generate a project manifest for migration support.
 
         Args:
-            project_dir: Root directory of the created project
-            project_name: Name of the project
-            data_bundle: Data bundle used to create the project
-            context: Full context dict used during template rendering
-            artifacts: Profile-driven artifact selection (hooks, rules, skills, agents, etc.)
+            project_dir: Root directory of the created project.
+            project_name: Name of the project.
+            data_bundle: Underlying app bundle (default: "control_assistant").
+            context: Full context dict used during template rendering.
+            artifacts: Profile-driven artifact selection.
+            preset_name: Hyphenated preset name (if --preset was used).
+            profile_path: Path string to positional profile (if used).
 
         Returns:
-            Dictionary containing the manifest data that was written to file
+            Dictionary containing the manifest data that was written to file.
         """
         if data_bundle is None:
             data_bundle = "control_assistant"
@@ -460,6 +464,8 @@ class TemplateManager:
             data_bundle,
             context,
             artifacts=artifacts,
+            preset_name=preset_name,
+            profile_path=profile_path,
         )
 
     def copy_services(self, project_dir: Path):
