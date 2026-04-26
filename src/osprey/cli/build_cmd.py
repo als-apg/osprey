@@ -341,8 +341,6 @@ def build(
         if build_profile.env.required or build_profile.env.defaults:
             _generate_env_template(project_path, build_profile.env)
 
-        # 15. (moved to step 6c — venv created before template rendering)
-
         # 16. Generate manifest
         manifest_context = {
             "default_provider": build_profile.provider or "anthropic",
