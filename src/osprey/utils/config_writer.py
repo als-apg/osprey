@@ -507,13 +507,13 @@ def get_facility_from_gateway_config(config_path: Path) -> str | None:
     Returns:
         Facility name ('APS', 'ALS', 'Custom') or None if using defaults
     """
-    from osprey.templates.data import FACILITY_PRESETS
+    from osprey.templates.data import FACILITY_GATEWAYS
 
     current_gateways = get_epics_gateway_config(config_path)
     if not current_gateways:
         return None
 
-    for _facility_id, preset in FACILITY_PRESETS.items():
+    for _facility_id, preset in FACILITY_GATEWAYS.items():
         preset_gateways = preset["gateways"]
 
         if "read_only" in current_gateways and "read_only" in preset_gateways:

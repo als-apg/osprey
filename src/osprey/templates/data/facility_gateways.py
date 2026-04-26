@@ -1,13 +1,14 @@
-"""EPICS facility configuration presets.
+"""EPICS facility gateway connection-string registry.
 
-Provides gateway configurations for common facilities to simplify
-project setup during osprey build.
+Provides gateway addresses for common facilities to simplify project setup
+during ``osprey build``. Distinct from build profile presets — this module
+deals with the EPICS network endpoints, not the bundled scaffolding profiles.
 
 Based on contributions from PR #37 by Marty Smith.
 """
 
 # Facility gateway configurations
-FACILITY_PRESETS = {
+FACILITY_GATEWAYS = {
     "aps": {
         "name": "APS (Argonne National Laboratory)",
         "description": "Advanced Photon Source",
@@ -74,7 +75,7 @@ def get_facility_config(facility: str) -> dict | None:
         >>> config['gateways']['read_only']['address']
         'pvgatemain1.aps4.anl.gov'
     """
-    return FACILITY_PRESETS.get(facility)
+    return FACILITY_GATEWAYS.get(facility)
 
 
 def list_facilities() -> list[str]:
@@ -83,7 +84,7 @@ def list_facilities() -> list[str]:
     Returns:
         List of facility identifiers.
     """
-    return list(FACILITY_PRESETS.keys())
+    return list(FACILITY_GATEWAYS.keys())
 
 
 def get_facility_choices() -> list[tuple[str, str]]:
@@ -94,6 +95,6 @@ def get_facility_choices() -> list[tuple[str, str]]:
     """
     choices = [
         (f"{config['name']} - {config['description']}", facility)
-        for facility, config in FACILITY_PRESETS.items()
+        for facility, config in FACILITY_GATEWAYS.items()
     ]
     return choices

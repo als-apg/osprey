@@ -1,21 +1,21 @@
 """Tests for EPICS facility presets."""
 
-from osprey.templates.data.facility_presets import (
-    FACILITY_PRESETS,
+from osprey.templates.data.facility_gateways import (
+    FACILITY_GATEWAYS,
     get_facility_choices,
     get_facility_config,
     list_facilities,
 )
 
 
-def test_facility_presets_structure():
+def test_facility_gateways_structure():
     """Test that facility presets have correct structure."""
-    assert "aps" in FACILITY_PRESETS
-    assert "als" in FACILITY_PRESETS
-    assert "simulation" in FACILITY_PRESETS
+    assert "aps" in FACILITY_GATEWAYS
+    assert "als" in FACILITY_GATEWAYS
+    assert "simulation" in FACILITY_GATEWAYS
 
     # Check APS structure
-    aps = FACILITY_PRESETS["aps"]
+    aps = FACILITY_GATEWAYS["aps"]
     assert "name" in aps
     assert "description" in aps
     assert "gateways" in aps
@@ -68,7 +68,7 @@ def test_get_facility_choices():
     for display_name, facility_id in choices:
         assert isinstance(display_name, str)
         assert isinstance(facility_id, str)
-        assert facility_id in FACILITY_PRESETS
+        assert facility_id in FACILITY_GATEWAYS
 
 
 def test_aps_gateway_addresses():
@@ -91,7 +91,7 @@ def test_als_gateway_addresses():
 
 def test_simulation_preset():
     """Test simulation preset for local soft IOC."""
-    assert "simulation" in FACILITY_PRESETS
+    assert "simulation" in FACILITY_GATEWAYS
 
     sim = get_facility_config("simulation")
     assert sim is not None

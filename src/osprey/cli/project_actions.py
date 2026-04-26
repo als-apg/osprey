@@ -556,7 +556,7 @@ def _check_simulation_ioc_running(host: str = "localhost", port: int = 5064) -> 
 
 def handle_set_epics_gateway(project_path: Path | None = None) -> None:
     """Handle interactive EPICS gateway configuration."""
-    from osprey.templates.data import FACILITY_PRESETS
+    from osprey.templates.data import FACILITY_GATEWAYS
     from osprey.utils.config_writer import (
         find_config_file,
         get_control_system_type,
@@ -588,7 +588,7 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
 
     # Show facility choices
     choices = []
-    for facility_id, preset in FACILITY_PRESETS.items():
+    for facility_id, preset in FACILITY_GATEWAYS.items():
         display_name = f"{preset['name']} - {preset['description']}"
         choices.append(Choice(display_name, value=facility_id))
 
@@ -650,7 +650,7 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
 
         # Check if simulation IOC is running when using simulation preset
         if facility == "simulation":
-            preset = FACILITY_PRESETS[facility]
+            preset = FACILITY_GATEWAYS[facility]
             host = preset["gateways"]["read_only"]["address"]
             port = preset["gateways"]["read_only"]["port"]
 
