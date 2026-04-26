@@ -237,14 +237,16 @@ def get_framework_version() -> str:
     """Get current osprey version.
 
     Returns:
-        Version string (e.g., "0.7.0")
+        Version string (e.g., "0.7.0") or ``"unknown"`` if the version
+        symbol cannot be imported (broken environment / partial install).
+        Manifest readers can branch on the sentinel.
     """
     try:
         from osprey import __version__
 
         return __version__
     except (ImportError, AttributeError):
-        return "0.7.0"
+        return "unknown"
 
 
 def sha256_file(file_path: Path) -> str:

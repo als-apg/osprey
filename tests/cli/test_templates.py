@@ -558,6 +558,23 @@ class TestTemplateManifest:
         assert mf is None
 
 
+def test_get_framework_version_unknown_on_import_failure(monkeypatch):
+    """C8: fallback returns 'unknown', not a stale hard-coded version."""
+    import builtins
+
+    import osprey.cli.templates.manifest as manifest_mod
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "osprey":
+            raise ImportError("simulated failure")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    assert manifest_mod.get_framework_version() == "unknown"
+
+
 def test_registry_style_parameter_is_gone():
     """C1 regression guard: removing the 'standalone' branch must remove the
     parameter from every entry point that no longer needs it. Catches anyone
