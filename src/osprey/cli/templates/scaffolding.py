@@ -384,7 +384,6 @@ def create_application_code(
     package_name: str,
     data_bundle: str,
     ctx: dict,
-    registry_style: str = "extend",
     project_root: Path = None,
 ):
     """Create application code from template.
@@ -396,15 +395,9 @@ def create_application_code(
         package_name: Python package name (e.g., "my_assistant")
         data_bundle: Name of the data bundle (apps/ subdirectory) to use
         ctx: Template context variables
-        registry_style: Registry style - "extend" or "standalone"
         project_root: Actual project root (for placing scripts/ at root)
 
     Note:
-        All templates support both extend and standalone styles. The extend style
-        renders the template as-is. The standalone style uses generate_explicit_registry_code()
-        to dynamically create a full registry with all framework + app components listed.
-        This approach works generically for all templates without needing template-specific logic.
-
         Special handling: Files in scripts/ directory are placed at project root
         instead of inside the package to provide convenient CLI access.
     """
@@ -415,9 +408,6 @@ def create_application_code(
     # Use src_dir's parent as project_root if not provided
     if project_root is None:
         project_root = src_dir.parent
-
-    # Add registry_style to context for templates that might use it
-    ctx["registry_style"] = registry_style
 
     # Project-level files that should only live at project root, not in src/
     # These are handled by create_project_structure() and should be skipped here
@@ -460,46 +450,15 @@ def create_application_code(
             # Template file - render it
             output_name = template_file.stem  # Remove .j2 extension
             output_path = base_output_dir / output_rel_path.parent / output_name
-
-            # Special handling for standalone registry style
-            if registry_style == "standalone" and output_name == "registry.py":
-                generate_explicit_registry(output_path, ctx, data_bundle)
-            else:
-                # Convert Windows backslashes to forward slashes for Jinja2
-                # (harmless on Linux/macOS where paths already use forward slashes)
-                template_path_str = f"apps/{data_bundle}/{rel_path}".replace("\\", "/")
-                render_template(jinja_env, template_path_str, ctx, output_path)
+            # Convert Windows backslashes to forward slashes for Jinja2
+            # (harmless on Linux/macOS where paths already use forward slashes)
+            template_path_str = f"apps/{data_bundle}/{rel_path}".replace("\\", "/")
+            render_template(jinja_env, template_path_str, ctx, output_path)
         else:
             # Static file - copy directly
             output_path = base_output_dir / output_rel_path
             output_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(template_file, output_path)
-
-
-def generate_explicit_registry(output_path: Path, ctx: dict, data_bundle: str):
-    """Generate explicit registry code using the generic code generation function.
-
-    This parses the template to extract app-specific components and uses
-    the generate_explicit_registry_code() function to create the full explicit registry.
-
-    Args:
-        output_path: Where to write the generated registry.py
-        ctx: Template context with app_class_name, app_display_name, package_name
-        data_bundle: Name of the data bundle being processed
-    """
-    from osprey.registry import generate_explicit_registry_code
-
-    # Generate the explicit registry code
-    registry_code = generate_explicit_registry_code(
-        app_class_name=ctx["app_class_name"],
-        app_display_name=ctx["app_display_name"],
-        package_name=ctx["package_name"],
-    )
-
-    # Write to output file
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    # Use UTF-8 encoding explicitly to support Unicode characters on Windows
-    output_path.write_text(registry_code, encoding="utf-8")
 
 
 def create_agent_data_structure(template_root: Path, project_dir: Path, ctx: dict):

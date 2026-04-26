@@ -1219,7 +1219,6 @@ def _build_for_web_panels(
         project_name="panels-test",
         output_dir=tmp_path / "out",
         data_bundle=build_profile.data_bundle,
-        registry_style="extend",
         context={},
         force=False,
         artifacts=artifacts,

@@ -145,9 +145,7 @@ def build(
     from .project_utils import _clear_claude_code_project_state
 
     if not project_name:
-        raise click.UsageError(
-            "PROJECT_NAME is required. Run 'osprey build --help' for usage."
-        )
+        raise click.UsageError("PROJECT_NAME is required. Run 'osprey build --help' for usage.")
 
     logger.info("Building project: %s", project_name)
 
@@ -289,7 +287,6 @@ def build(
             project_name=project_name,
             output_dir=output_path,
             data_bundle=build_profile.data_bundle,
-            registry_style="extend",
             context=context,
             force=True,  # Directory already exists from step 6b (venv created there)
             artifacts=artifacts or None,
@@ -357,7 +354,6 @@ def build(
             project_dir=project_path,
             project_name=project_name,
             data_bundle=build_profile.data_bundle,
-            registry_style="extend",
             context=manifest_context,
             artifacts=artifacts or None,
         )

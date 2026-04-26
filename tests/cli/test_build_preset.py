@@ -39,8 +39,15 @@ def test_list_presets_exits_zero(runner: CliRunner) -> None:
 def test_preset_hello_world_creates_project(runner: CliRunner, tmp_path: Path) -> None:
     result = runner.invoke(
         build,
-        ["smoke", "--preset", "hello-world", "--skip-deps", "--skip-lifecycle",
-         "--output-dir", str(tmp_path)],
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
     )
     assert result.exit_code == 0, result.output
     project_dir = tmp_path / "smoke"
@@ -53,8 +60,17 @@ def test_preset_with_override_file(runner: CliRunner, tmp_path: Path) -> None:
     override.write_text("model: claude-opus-4-5\n")
     result = runner.invoke(
         build,
-        ["smoke", "--preset", "hello-world", "-O", str(override),
-         "--skip-deps", "--skip-lifecycle", "--output-dir", str(tmp_path)],
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "-O",
+            str(override),
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
     )
     assert result.exit_code == 0, result.output
     config = _config_yaml(tmp_path / "smoke")
@@ -64,8 +80,17 @@ def test_preset_with_override_file(runner: CliRunner, tmp_path: Path) -> None:
 def test_set_flag_overrides_scalar(runner: CliRunner, tmp_path: Path) -> None:
     result = runner.invoke(
         build,
-        ["smoke", "--preset", "hello-world", "--set", "model=claude-sonnet-4-6",
-         "--skip-deps", "--skip-lifecycle", "--output-dir", str(tmp_path)],
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "--set",
+            "model=claude-sonnet-4-6",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
     )
     assert result.exit_code == 0, result.output
     config = _config_yaml(tmp_path / "smoke")
@@ -77,14 +102,24 @@ def test_set_with_list_value_extends(runner: CliRunner, tmp_path: Path) -> None:
     result = runner.invoke(
         build,
         # memory-guard is a real registered hook NOT in the hello-world preset
-        ["smoke", "--preset", "hello-world", "--set", "hooks=[memory-guard]",
-         "--skip-deps", "--skip-lifecycle", "--output-dir", str(tmp_path)],
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "--set",
+            "hooks=[memory-guard]",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
     )
     assert result.exit_code == 0, result.output
     # The persisted manifest is the post-merge artifact list seen by the build.
     manifest_path = tmp_path / "smoke" / ".osprey-manifest.json"
     assert manifest_path.exists(), result.output
     import json
+
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     hooks = set(manifest["artifacts"]["hooks"])
     assert "memory-guard" in hooks
@@ -96,15 +131,11 @@ def test_positional_profile_still_works(runner: CliRunner, tmp_path: Path) -> No
     """Backward-compat: existing osprey build PROJECT PROFILE.yml flow."""
     profile = tmp_path / "p.yml"
     profile.write_text(
-        "name: PosTest\n"
-        "data_bundle: hello_world\n"
-        "provider: anthropic\n"
-        "model: claude-haiku-4-5\n"
+        "name: PosTest\ndata_bundle: hello_world\nprovider: anthropic\nmodel: claude-haiku-4-5\n"
     )
     result = runner.invoke(
         build,
-        ["smoke", str(profile), "--skip-deps", "--skip-lifecycle",
-         "--output-dir", str(tmp_path)],
+        ["smoke", str(profile), "--skip-deps", "--skip-lifecycle", "--output-dir", str(tmp_path)],
     )
     assert result.exit_code == 0, result.output
     assert (tmp_path / "smoke" / "config.yml").exists()
@@ -114,7 +145,8 @@ def test_mutually_exclusive_profile_and_preset(runner: CliRunner, tmp_path: Path
     profile = tmp_path / "p.yml"
     profile.write_text("name: X\ndata_bundle: hello_world\n")
     result = runner.invoke(
-        build, ["smoke", str(profile), "--preset", "hello-world"],
+        build,
+        ["smoke", str(profile), "--preset", "hello-world"],
     )
     assert result.exit_code == 2
     assert "not both" in result.output.lower()
@@ -147,13 +179,27 @@ def test_preset_name_normalization(runner: CliRunner, tmp_path: Path) -> None:
 
     r_hyphen = runner.invoke(
         build,
-        ["smoke", "--preset", "control-assistant", "--skip-deps", "--skip-lifecycle",
-         "--output-dir", str(out_a)],
+        [
+            "smoke",
+            "--preset",
+            "control-assistant",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(out_a),
+        ],
     )
     r_under = runner.invoke(
         build,
-        ["smoke", "--preset", "control_assistant", "--skip-deps", "--skip-lifecycle",
-         "--output-dir", str(out_b)],
+        [
+            "smoke",
+            "--preset",
+            "control_assistant",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(out_b),
+        ],
     )
     assert r_hyphen.exit_code == 0, r_hyphen.output
     assert r_under.exit_code == 0, r_under.output
@@ -162,10 +208,7 @@ def test_preset_name_normalization(runner: CliRunner, tmp_path: Path) -> None:
     # Same preset → same default_model in rendered config.
     # NB: the rendered key lives at claude_code.default_model, NOT top-level
     # (this test was previously vacuously passing on a top-level lookup).
-    assert (
-        cfg_a["claude_code"]["default_model"]
-        == cfg_b["claude_code"]["default_model"]
-    )
+    assert cfg_a["claude_code"]["default_model"] == cfg_b["claude_code"]["default_model"]
 
 
 def test_preset_drift_guard() -> None:
@@ -176,6 +219,7 @@ def test_preset_drift_guard() -> None:
     will silently fail at install time. Catch it here.
     """
     import importlib.resources
+
     presets_root = importlib.resources.files("osprey.profiles.presets")
     presets_dir = Path(str(presets_root))
     yml_files = sorted(presets_dir.glob("*.yml"))

@@ -114,7 +114,6 @@ class TemplateManager:
         project_name: str,
         output_dir: Path,
         data_bundle: str = "control_assistant",
-        registry_style: str = "extend",
         context: dict[str, Any] | None = None,
         force: bool = False,
         artifacts: dict[str, list[str]] | None = None,
@@ -134,7 +133,6 @@ class TemplateManager:
             project_name: Name of the project (e.g., "my-assistant")
             output_dir: Parent directory where project will be created
             data_bundle: Data bundle (app template) to use (default: "control_assistant")
-            registry_style: Registry style - "extend" (recommended) or "standalone" (advanced)
             context: Additional template context variables
             force: If True, skip existence check (used when caller already handled deletion)
             artifacts: Profile-driven artifact selection (hooks, rules, skills, agents, etc.)
@@ -442,7 +440,6 @@ class TemplateManager:
         project_dir: Path,
         project_name: str,
         data_bundle: str | None = None,
-        registry_style: str = "extend",
         context: dict[str, Any] | None = None,
         artifacts: dict[str, list[str]] | None = None,
         # Deprecated alias kept for backward compatibility
@@ -454,7 +451,6 @@ class TemplateManager:
             project_dir: Root directory of the created project
             project_name: Name of the project
             data_bundle: Data bundle used to create the project
-            registry_style: Registry style ("extend" or "standalone")
             context: Full context dict used during template rendering
             artifacts: Profile-driven artifact selection (hooks, rules, skills, agents, etc.)
             template_name: Deprecated alias for data_bundle; use data_bundle instead.
@@ -474,7 +470,6 @@ class TemplateManager:
             project_dir,
             project_name,
             data_bundle,
-            registry_style,
             context,
             artifacts=artifacts,
         )

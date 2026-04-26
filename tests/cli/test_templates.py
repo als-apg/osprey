@@ -17,6 +17,8 @@ _BUILD_FLAGS = ["--preset", "hello-world", "--skip-deps", "--skip-lifecycle"]
 
 def _build_args(name: str, output_dir: str, *extra: str) -> list[str]:
     return [name, *_BUILD_FLAGS, "--output-dir", output_dir, *extra]
+
+
 from osprey.cli.templates import claude_code, manifest
 from osprey.cli.templates.manager import TemplateManager
 
@@ -487,7 +489,6 @@ class TestTemplateManifest:
             project_name="init-panels-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
-            registry_style="extend",
             context={},
         )
         config = _yaml.safe_load((project_dir / "config.yml").read_text())
@@ -555,6 +556,21 @@ class TestTemplateManifest:
         # Verify by checking that load_template_manifest returns None
         mf = manifest.load_template_manifest(manager.template_root, "nonexistent_template")
         assert mf is None
+
+
+def test_registry_style_parameter_is_gone():
+    """C1 regression guard: removing the 'standalone' branch must remove the
+    parameter from every entry point that no longer needs it. Catches anyone
+    re-adding it without a real CLI flag."""
+    import inspect
+
+    from osprey.cli.templates.manager import TemplateManager
+
+    sig = inspect.signature(TemplateManager.create_project)
+    assert "registry_style" not in sig.parameters, (
+        "registry_style should be removed from create_project; resurrect only "
+        "with a real CLI flag, not as a dead constant."
+    )
 
 
 if __name__ == "__main__":

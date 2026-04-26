@@ -78,7 +78,6 @@ def _build_from_profile(profile_name: str, project_name: str, tmp_path: Path) ->
         project_name=project_name,
         output_dir=tmp_path,
         data_bundle=build_profile.data_bundle,
-        registry_style="extend",
         context=context,
         force=False,
         artifacts=artifacts or None,

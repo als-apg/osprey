@@ -19,9 +19,12 @@ def project_dir(tmp_path):
         build,
         [
             "prompts-test",
-            "--preset", "hello-world",
-            "--skip-deps", "--skip-lifecycle",
-            "--output-dir", str(tmp_path),
+            "--preset",
+            "hello-world",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
         ],
     )
     assert result.exit_code == 0, result.output

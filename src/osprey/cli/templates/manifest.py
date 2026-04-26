@@ -267,7 +267,6 @@ def sha256_file(file_path: Path) -> str:
 def extract_init_args(
     project_name: str,
     template_name: str,
-    registry_style: str,
     context: dict[str, Any],
 ) -> dict[str, Any]:
     """Extract init arguments from context for manifest storage.
@@ -278,7 +277,6 @@ def extract_init_args(
     Args:
         project_name: Name of the project
         template_name: Template used
-        registry_style: Registry style
         context: Full template context
 
     Returns:
@@ -288,7 +286,6 @@ def extract_init_args(
     init_args = {
         "project_name": project_name,
         "template": template_name,
-        "registry_style": registry_style,
     }
 
     # Optional arguments that may be in context
@@ -471,7 +468,6 @@ def generate_manifest(
     project_dir: Path,
     project_name: str,
     template_name: str,
-    registry_style: str,
     context: dict[str, Any],
     artifacts: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
@@ -487,7 +483,6 @@ def generate_manifest(
         project_dir: Root directory of the created project
         project_name: Name of the project
         template_name: Template (data bundle) used to create the project
-        registry_style: Registry style ("extend" or "standalone")
         context: Full context dict used during template rendering
         artifacts: Profile-driven artifact selection (hooks, rules, skills,
             agents, output_styles, web_panels). When provided, stored in the
@@ -498,7 +493,7 @@ def generate_manifest(
         Dictionary containing the manifest data that was written to file
     """
     # Build init_args from context - extract the user-facing options
-    init_args = extract_init_args(project_name, template_name, registry_style, context)
+    init_args = extract_init_args(project_name, template_name, context)
 
     # Build reproducible command string
     reproducible_command = build_reproducible_command(init_args)
@@ -518,7 +513,6 @@ def generate_manifest(
         "timestamp": datetime.now(UTC).isoformat(),
         "template": template_name,
         "data_bundle": template_name,
-        "registry_style": registry_style,
         "claude_code_only": True,
     }
 
