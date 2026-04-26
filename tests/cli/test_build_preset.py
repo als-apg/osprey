@@ -388,3 +388,170 @@ def test_reproducible_command_emits_positional_form_for_profile_build(
     # Positional form: must NOT reference --preset and MUST mention the profile path.
     assert "--preset" not in cmd
     assert str(profile) in cmd or profile.name in cmd
+
+
+def test_override_deep_merges_nested_dict(runner: CliRunner, tmp_path: Path) -> None:
+    """T2: nested dicts in -O files deep-merge into preset values, not replace."""
+    override = tmp_path / "over.yml"
+    override.write_text("config:\n  system:\n    timezone: UTC\n")
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "-O",
+            str(override),
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    config = _config_yaml(tmp_path / "smoke")
+    # The override-injected value must land at the rendered nested key.
+    assert config.get("system", {}).get("timezone") == "UTC"
+
+
+def test_override_unions_string_list(runner: CliRunner, tmp_path: Path) -> None:
+    """T2: string lists union-dedup with preserved base order (per _merge_lists)."""
+    override = tmp_path / "over.yml"
+    # hello-world preset has hooks: [hook-log, hook-config, approval] (or similar).
+    # Add memory-guard via override; pre-existing items must remain.
+    override.write_text("hooks:\n  - memory-guard\n")
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "-O",
+            str(override),
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    import json
+
+    manifest = json.loads((tmp_path / "smoke" / ".osprey-manifest.json").read_text())
+    hooks = set(manifest["artifacts"]["hooks"])
+    assert "memory-guard" in hooks
+    assert {"hook-log", "hook-config", "approval"} <= hooks
+
+
+def test_multiple_override_files_apply_in_order(runner: CliRunner, tmp_path: Path) -> None:
+    """T2: -O is multiple=True; later files win at the same key."""
+    a = tmp_path / "a.yml"
+    a.write_text("model: claude-sonnet-4-6\n")
+    b = tmp_path / "b.yml"
+    b.write_text("model: claude-opus-4-5\n")
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "-O",
+            str(a),
+            "-O",
+            str(b),
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    config = _config_yaml(tmp_path / "smoke")
+    assert config["claude_code"]["default_model"] == "claude-opus-4-5"
+
+
+def test_override_missing_file_aborts(runner: CliRunner, tmp_path: Path) -> None:
+    """T2: a missing -O file produces a clear non-zero exit, not a stack trace."""
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "-O",
+            str(tmp_path / "does-not-exist.yml"),
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code != 0
+    assert "not found" in result.output.lower() or "does-not-exist" in result.output
+
+
+def test_override_malformed_yaml_aborts(runner: CliRunner, tmp_path: Path) -> None:
+    """T2: malformed YAML in an -O file aborts cleanly with a YAML-related message."""
+    bad = tmp_path / "bad.yml"
+    bad.write_text("model: : invalid:\n  - [unterminated\n")
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "-O",
+            str(bad),
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code != 0
+    assert "yaml" in result.output.lower() or "invalid" in result.output.lower()
+
+
+def test_override_empty_file_is_noop(runner: CliRunner, tmp_path: Path) -> None:
+    """T2: an empty -O file (parses to None) is a no-op (skip-None branch)."""
+    empty = tmp_path / "empty.yml"
+    empty.write_text("")
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "-O",
+            str(empty),
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # Project still built; preset's defaults remain.
+    assert (tmp_path / "smoke" / "config.yml").exists()
+
+
+def test_override_non_mapping_aborts(runner: CliRunner, tmp_path: Path) -> None:
+    """T2: an -O file whose top-level body is a list (not a mapping) aborts."""
+    bad = tmp_path / "list.yml"
+    bad.write_text("- one\n- two\n")
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "hello-world",
+            "-O",
+            str(bad),
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code != 0
+    assert "mapping" in result.output.lower()
