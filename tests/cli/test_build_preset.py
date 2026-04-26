@@ -142,20 +142,23 @@ def test_positional_profile_still_works(runner: CliRunner, tmp_path: Path) -> No
 
 
 def test_mutually_exclusive_profile_and_preset(runner: CliRunner, tmp_path: Path) -> None:
+    """T6: positional + --preset is mutually exclusive -> exit 2."""
     profile = tmp_path / "p.yml"
     profile.write_text("name: X\ndata_bundle: hello_world\n")
     result = runner.invoke(
         build,
         ["smoke", str(profile), "--preset", "hello-world"],
     )
-    assert result.exit_code == 2
-    assert "not both" in result.output.lower()
+    assert result.exit_code == 2, result.output
+    assert "Pass either a profile path or --preset, not both" in result.output
 
 
 def test_neither_profile_nor_preset_required(runner: CliRunner) -> None:
+    """T6: no profile + no preset is a usage error -> exit 2 with a specific message."""
     result = runner.invoke(build, ["smoke"])
-    assert result.exit_code == 2
-    assert "required" in result.output.lower() or "either" in result.output.lower()
+    assert result.exit_code == 2, result.output
+    # Pin the exact wording from build_profile.py
+    assert "Either a profile path or --preset is required" in result.output
 
 
 def test_unknown_preset_name(runner: CliRunner, tmp_path: Path) -> None:
