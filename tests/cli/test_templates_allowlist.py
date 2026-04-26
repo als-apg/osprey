@@ -1,9 +1,10 @@
-"""Guard that the shipped app templates match the build_profile allowlist.
+"""Guard that the shipped app templates remain a known, fixed set.
 
-Mirrors the filter in ``build_profile.py`` (line ~200) where the hardcoded
-``valid_bundles`` set of accepted ``data_bundle`` values lives. If a template
-is added on disk without updating the allowlist (or vice versa), profile
-validation drifts silently — this test catches the drift at collection time.
+The build pipeline accepts any directory under ``templates/apps/`` as a
+``data_bundle``; preset coverage is driven by ``list_presets()`` reflection.
+This test pins the on-disk set so that adding/removing an app bundle is an
+explicit, reviewed change — and so that preset-parametrized tests stay in
+sync with what actually ships.
 """
 
 from pathlib import Path
