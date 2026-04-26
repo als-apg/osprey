@@ -209,7 +209,7 @@ class TemplateManager:
 
         # Derive channel finder configuration:
         # - When called from build (artifacts provided): check if channel-finder agent is selected
-        # - When called from init (no artifacts): check if bundle config template declares it
+        # - When artifacts is None (programmatic caller): check if bundle config template declares it
         _profile_agents = (artifacts or {}).get("agents", [])
         _bundle_has_channel_finder = (bundle_dir / "config.yml.j2").exists() and not artifacts
         if "channel-finder" in _profile_agents or _bundle_has_channel_finder:
