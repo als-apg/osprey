@@ -117,8 +117,6 @@ class TemplateManager:
         context: dict[str, Any] | None = None,
         force: bool = False,
         artifacts: dict[str, list[str]] | None = None,
-        # Deprecated alias kept for backward compatibility
-        template_name: str | None = None,
     ) -> Path:
         """Create complete project from template.
 
@@ -136,7 +134,6 @@ class TemplateManager:
             context: Additional template context variables
             force: If True, skip existence check (used when caller already handled deletion)
             artifacts: Profile-driven artifact selection (hooks, rules, skills, agents, etc.)
-            template_name: Deprecated alias for data_bundle; use data_bundle instead.
 
         Returns:
             Path to created project directory
@@ -144,10 +141,6 @@ class TemplateManager:
         Raises:
             ValueError: If data bundle doesn't exist or project directory exists
         """
-        # Support deprecated template_name alias
-        if template_name is not None:
-            data_bundle = template_name
-
         # 1. Validate data bundle exists
         bundle_dir = self.template_root / "apps" / data_bundle
         if not bundle_dir.is_dir():
@@ -442,8 +435,6 @@ class TemplateManager:
         data_bundle: str | None = None,
         context: dict[str, Any] | None = None,
         artifacts: dict[str, list[str]] | None = None,
-        # Deprecated alias kept for backward compatibility
-        template_name: str | None = None,
     ) -> dict[str, Any]:
         """Generate a project manifest for migration support.
 
@@ -453,13 +444,10 @@ class TemplateManager:
             data_bundle: Data bundle used to create the project
             context: Full context dict used during template rendering
             artifacts: Profile-driven artifact selection (hooks, rules, skills, agents, etc.)
-            template_name: Deprecated alias for data_bundle; use data_bundle instead.
 
         Returns:
             Dictionary containing the manifest data that was written to file
         """
-        if template_name is not None:
-            data_bundle = template_name
         if data_bundle is None:
             data_bundle = "control_assistant"
         if context is None:
