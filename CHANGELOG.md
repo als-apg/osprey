@@ -17,17 +17,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Vendor assets default to CDN**: Web interfaces now load xterm.js, Plotly, highlight.js, KaTeX, and marked directly from `cdn.jsdelivr.net` / `cdn.plot.ly`. Fresh `uv sync` just works — no `osprey vendor fetch` needed. Set `OSPREY_OFFLINE=1` (or `offline: true` in `config.yml`) to use locally bundled assets, as required for firewalled deployments like the LBL control room; then run `osprey vendor fetch` to populate `static/vendor/`. Previously the interfaces hard-coded `/static/vendor/...` paths and silently rendered blank pages when the dirs were empty.
 - **Workspace**: Unify `osprey-workspace/` and `_agent_data/` into single configurable `_agent_data` directory (config key: `agent_data.base_dir`)
+- **Build profile validation**: unknown top-level keys now emit a warning instead of being silently accepted. Catches typos like `mcp_server:` (singular). Will become a hard error in a future release.
+- **Documentation**: `docs/source/how-to/build-profiles.rst` "CLI Reference" section rewritten for the post-refactor surface (`--preset`, `-O`, `--set`).
+- **Internal**: `FACILITY_PRESETS` (EPICS gateway connection-string registry) renamed to `FACILITY_GATEWAYS` to disambiguate from build-profile presets.
 
 ### Fixed
 - **Web Terminal**: In offline mode, `osprey web` fails fast with a clear error pointing at `osprey vendor fetch` when `static/vendor/` is empty or corrupt, instead of silently serving a blank page. In default CDN mode the preflight check is skipped.
 - **Claude Code / CBORG**: Pin CBORG model IDs to specific versions (`claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-7`) in the resolver fallback and in `api.providers.cborg.models` templates. Unversioned aliases like `anthropic/claude-opus` disabled Claude Code's capability detection, causing it to send the legacy `thinking.type.enabled` schema which Vertex-backed Opus 4.7 rejects with HTTP 400.
+- **`osprey build`**: unknown `--preset` names now exit with status 2 (usage error) instead of 1, matching the documented contract.
+- **CI**: `.github/workflows/ci.yml` updated for the retired `osprey init` command.
 
 ### Removed (BREAKING)
 - **`osprey migrate` command removed.** The legacy config-migration workflow is retired; users on older configs should run `osprey init` fresh or hand-edit.
 - **`lattice_design` template removed.** `osprey init --template lattice_design` and `data_bundle: lattice_design` in build profiles are no longer valid. Build profiles now strictly accept `{hello_world, control_assistant}`.
-- **Interactive init wizard removed.** `osprey init --interactive` and the main-menu "Create new project" action no longer exist. Use `osprey init <name> --template <hello_world|control_assistant>`.
-- **`osprey init` CLI surface narrowed.** The `--provider`, `--model`, `--channel-finder-mode`, and `--example`/`--examples` flags are removed. `osprey init` now accepts only `-t/--template`, `-o/--output-dir`, and `-f/--force`. Configure providers/models/channel-finder modes via the generated `config.yml` or a build profile instead.
-- **`osprey config set-models` command removed.** The CLI subcommand, its interactive-menu entry, and the underlying `get_provider_metadata` / `select_provider` / `select_model` / `update_all_models` / `get_all_model_configs` helpers are gone — LangGraph-era cruft tied to the old post-init model-swap workflow that had drifted broken (querying an empty provider list). To change provider/model, edit the generated `config.yml` directly or re-run `osprey init` with a different template/profile.
+- **`osprey init` retired and merged into `osprey build --preset`.** The `init` command is gone. Use `osprey build <name> --preset <hello-world|control-assistant|...>` for bundled scaffolding, or `osprey build <name> <profile.yml>` for a custom profile. Override files via `-O FILE` (repeatable, deep-merge in declaration order) and key-value overrides via `--set KEY.PATH=VALUE` (YAML-typed RHS). The retired `osprey init` flag set (`--provider`, `--model`, `--channel-finder-mode`, `--example`, `--examples`, `--interactive`) is folded into the profile-and-overlay model. The `lattice_design` template is gone. The `osprey config set-models` subcommand and the interactive init wizard are also retired.
+- **Manifest schema bumped to 1.2.0.** `.osprey-manifest.json` now records `build_args` (renamed from `init_args`), with a `source: "preset"|"profile"` discriminator and a `preset` or `profile_path` field so `reproducible_command` renders the matching CLI form. `creation.template` now carries the actual preset name (hyphenated) rather than duplicating `data_bundle`. The `creation.registry_style` field is removed (the standalone branch was dead). No backward-compat shim — readers must accept the new keys.
 
 ## [0.11.5] - 2026-03-13
 
