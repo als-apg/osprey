@@ -159,9 +159,16 @@ def build(
                 profile_arg, preset, tuple(overrides), tuple(set_pairs)
             )
         except BuildProfileError as e:
-            # Mutual-exclusion / missing-input errors are user errors, not bugs.
+            # Mutual-exclusion / missing-input / unknown-preset errors are
+            # user errors, not bugs — promote to UsageError so the outer
+            # except chain produces exit code 2.
             msg = str(e)
-            if "either" in msg.lower() or "not both" in msg.lower():
+            lower = msg.lower()
+            if (
+                "either" in lower
+                or "not both" in lower
+                or lower.startswith("unknown preset")
+            ):
                 raise click.UsageError(msg) from e
             raise
 

@@ -159,13 +159,13 @@ def test_neither_profile_nor_preset_required(runner: CliRunner) -> None:
 
 
 def test_unknown_preset_name(runner: CliRunner, tmp_path: Path) -> None:
+    """C10: unknown preset is a usage error → exit 2 (per click convention)."""
     result = runner.invoke(
         build,
         ["smoke", "--preset", "bogus", "--skip-deps", "--output-dir", str(tmp_path)],
     )
-    assert result.exit_code != 0
+    assert result.exit_code == 2, result.output
     assert "bogus" in result.output.lower()
-    # The error should list the available presets to help the user.
     for name in list_presets():
         assert name in result.output
 
