@@ -324,8 +324,58 @@ def load_profile(path: Path) -> BuildProfile:
     return profile
 
 
+# Top-level keys recognized by BuildProfile. Anything else is almost certainly
+# a typo of one of these (e.g. mcp_server vs mcp_servers).
+_KNOWN_PROFILE_KEYS = frozenset(
+    {
+        "name",
+        "extends",
+        "data_bundle",
+        "provider",
+        "model",
+        "channel_finder_mode",
+        "config",
+        "overlay",
+        "mcp_servers",
+        "services",
+        "lifecycle",
+        "env",
+        "dependencies",
+        "requires_osprey_version",
+        "osprey_install",
+        "python_env",
+        "hooks",
+        "rules",
+        "skills",
+        "agents",
+        "output_styles",
+        "web_panels",
+        "categories",
+    }
+)
+
+
+def _warn_unknown_keys(raw: dict[str, Any]) -> None:
+    """Warn (don't abort) on unknown top-level profile keys.
+
+    Lenient first; promote to a hard error after one release cycle if it
+    stays clean. See cleanup item C11.
+    """
+    import logging
+
+    logger = logging.getLogger("osprey.cli.build_profile")
+    unknown = sorted(set(raw.keys()) - _KNOWN_PROFILE_KEYS)
+    for key in unknown:
+        logger.warning(
+            "Unknown profile key %r — ignored. Did you mean one of: %s?",
+            key,
+            ", ".join(sorted(_KNOWN_PROFILE_KEYS)),
+        )
+
+
 def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     """Parse raw YAML dict into a BuildProfile."""
+    _warn_unknown_keys(raw)
     mcp_servers: dict[str, McpServerDef] = {}
     for name, sdef in raw.get("mcp_servers", {}).items():
         if not isinstance(sdef, dict):
@@ -439,9 +489,7 @@ def _load_preset_raw(name: str) -> tuple[dict[str, Any], Path]:
     target = presets_dir / f"{normalized}.yml"
     if not target.exists():
         available = ", ".join(list_presets()) or "(none)"
-        raise BuildProfileError(
-            f"Unknown preset {name!r}. Available: {available}"
-        )
+        raise BuildProfileError(f"Unknown preset {name!r}. Available: {available}")
     try:
         raw = yaml.safe_load(target.read_text(encoding="utf-8"))
     except yaml.YAMLError as e:
@@ -461,9 +509,7 @@ def _parse_set_pairs(pairs: tuple[str, ...]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for pair in pairs:
         if "=" not in pair:
-            raise BuildProfileError(
-                f"--set expects KEY=VALUE (with '='), got: {pair!r}"
-            )
+            raise BuildProfileError(f"--set expects KEY=VALUE (with '='), got: {pair!r}")
         key, _, raw_value = pair.partition("=")
         key = key.strip()
         if not key:
@@ -471,9 +517,7 @@ def _parse_set_pairs(pairs: tuple[str, ...]) -> dict[str, Any]:
         try:
             value = yaml.safe_load(raw_value)
         except yaml.YAMLError as e:
-            raise BuildProfileError(
-                f"--set value for {key!r} is not valid YAML: {e}"
-            ) from e
+            raise BuildProfileError(f"--set value for {key!r} is not valid YAML: {e}") from e
         target: dict[str, Any] = result
         parts = key.split(".")
         for part in parts[:-1]:
@@ -515,13 +559,9 @@ def resolve_build_profile(
         invalid YAML, or validation failures.
     """
     if profile_path is not None and preset is not None:
-        raise BuildProfileError(
-            "Pass either a profile path or --preset, not both."
-        )
+        raise BuildProfileError("Pass either a profile path or --preset, not both.")
     if profile_path is None and preset is None:
-        raise BuildProfileError(
-            "Either a profile path or --preset is required."
-        )
+        raise BuildProfileError("Either a profile path or --preset is required.")
 
     if preset is not None:
         raw, base_anchor = _load_preset_raw(preset)
@@ -535,9 +575,7 @@ def resolve_build_profile(
         except yaml.YAMLError as e:
             raise BuildProfileError(f"Invalid YAML in {profile_path}: {e}") from e
         if not isinstance(raw, dict):
-            raise BuildProfileError(
-                f"Profile must be a YAML mapping, got {type(raw).__name__}"
-            )
+            raise BuildProfileError(f"Profile must be a YAML mapping, got {type(raw).__name__}")
         base_anchor = profile_path.resolve()
         profile_dir = profile_path.parent
 
@@ -551,9 +589,7 @@ def resolve_build_profile(
         if override_raw is None:
             continue
         if not isinstance(override_raw, dict):
-            raise BuildProfileError(
-                f"Override must be a YAML mapping: {override_path}"
-            )
+            raise BuildProfileError(f"Override must be a YAML mapping: {override_path}")
         raw = _deep_merge(raw, override_raw)
 
     if set_pairs:

@@ -238,6 +238,35 @@ def test_preset_drift_guard() -> None:
         )
 
 
+def test_unknown_profile_key_warns(runner: CliRunner, tmp_path: Path, caplog) -> None:
+    """C11: unknown top-level profile keys (e.g. typos) emit a warning, not silence."""
+    profile = tmp_path / "p.yml"
+    profile.write_text(
+        "name: TypoTest\n"
+        "data_bundle: hello_world\n"
+        "mcp_server: {}\n"  # typo of mcp_servers
+        "permission: []\n"  # typo of permissions
+    )
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                str(profile),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    warnings = " ".join(r.message for r in caplog.records if r.levelno >= logging.WARNING)
+    assert "mcp_server" in warnings
+    assert "permission" in warnings
+
+
 def test_manifest_schema_version_bumped(runner: CliRunner, tmp_path: Path) -> None:
     """B2/C3/C12: manifest schema bump from 1.1.0 to 1.2.0."""
     result = runner.invoke(
