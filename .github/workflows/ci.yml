@@ -210,11 +210,11 @@ jobs:
 
     - name: Create hello_world project
       run: |
-        uv run osprey init hello-world-test --template hello_world
+        uv run osprey build hello-world-test --preset hello-world --skip-deps --skip-lifecycle
         cd hello-world-test
         # Switch default provider to cborg (CI only has CBORG_API_KEY).
         sed -i 's|^  provider: anthropic$|  provider: cborg|' config.yml
-        sed -i 's|^  default_model: haiku$|  default_model: anthropic/claude-haiku|' config.yml
+        sed -i 's|^  default_model: claude-haiku-4-5$|  default_model: anthropic/claude-haiku|' config.yml
         uv run osprey skills install build-interview
         ls -la
 
