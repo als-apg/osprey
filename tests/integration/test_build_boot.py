@@ -280,6 +280,83 @@ def test_mcp_servers_register_expected_tools(
     assert not failures, f"MCP boot smoke failed for preset {preset!r}:\n" + "\n".join(failures)
 
 
+@pytest.mark.parametrize("preset", PRESETS)
+def test_skip_deps_command_resolves_importable_python(
+    preset: str, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """``--skip-deps`` builds must write a python that has osprey importable.
+
+    The Claude Code SDK and other subprocess launchers spawn MCP servers in
+    contexts where PATH is sanitized — bare ``"python"`` lands on whatever
+    interpreter pyenv/system happens to expose, which usually does NOT have
+    osprey installed. This test rebuilds the preset with ``--skip-deps``,
+    reads the rendered ``.mcp.json``, and asserts every stdio server's
+    ``command`` is (a) an absolute path and (b) a python that can
+    ``import osprey``.
+
+    Locks the contract: ``--skip-deps`` must pin to ``sys.executable``
+    (the python running osprey-build), not gamble on PATH resolution.
+    """
+    base = tmp_path_factory.mktemp(f"skipdeps_{preset}")
+    project_dir = base / preset
+    osprey_bin = _find_osprey_console_script()
+    proc = subprocess.run(
+        [
+            str(osprey_bin),
+            "build",
+            preset,
+            "--preset",
+            preset,
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(base),
+            "--force",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={**os.environ, "CLAUDECODE": ""},
+    )
+    if proc.returncode != 0:
+        pytest.fail(
+            f"osprey build --skip-deps {preset} failed:\n"
+            f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
+        )
+
+    cfg = _load_mcp_json(project_dir)
+    servers = cfg.get("mcpServers", {})
+    assert servers, f".mcp.json has no servers for preset {preset}"
+
+    failures: list[str] = []
+    for name, entry in servers.items():
+        if "url" in entry or "command" not in entry:
+            continue
+        cmd = entry["command"]
+        if not Path(cmd).is_absolute():
+            failures.append(
+                f"{name}: command is not an absolute path: {cmd!r} "
+                f"(--skip-deps must pin to sys.executable, not gamble on PATH)"
+            )
+            continue
+        probe = subprocess.run(
+            [cmd, "-c", "import osprey"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if probe.returncode != 0:
+            failures.append(
+                f"{name}: command {cmd!r} cannot import osprey:\n"
+                f"  stderr: {probe.stderr.strip()}"
+            )
+
+    assert not failures, (
+        f"--skip-deps build for {preset!r} produced unimportable commands:\n  "
+        + "\n  ".join(failures)
+    )
+
+
 def _expected_tools_for(server_name: str) -> set[str] | None:
     """Return the hard-coded expected-tools subset for a known server name.
 

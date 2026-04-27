@@ -268,8 +268,14 @@ def build(
         # 6d. Resolve python_env for template context
         python_env = build_profile.python_env or "project"
         if skip_deps:
-            # No venv created — use bare "python" resolved from PATH at runtime
-            resolved_python_env = "python"
+            # No venv created — pin to the python running osprey-build, which is
+            # guaranteed to have osprey importable (else this command couldn't
+            # run). Bare "python" gambles on PATH and breaks for subprocess
+            # contexts that don't inherit the venv's PATH (Claude Code SDK,
+            # containerized launchers).
+            import sys
+
+            resolved_python_env = sys.executable
         elif python_env == "project":
             resolved_python_env = str(project_path / ".venv" / "bin" / "python")
         elif python_env == "build":
