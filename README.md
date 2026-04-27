@@ -21,8 +21,8 @@ This work was presented as a contributed oral presentation at [ICALEPCS'25](http
 ## 🚀 Quick Start
 
 ```bash
-# Install the framework (using uv, recommended)
-uv pip install osprey-framework
+# Install the framework as a standalone CLI tool (using uv, recommended)
+uv tool install osprey-framework
 
 # Create a minimal project to verify your setup
 osprey build quickstart --preset hello-world
