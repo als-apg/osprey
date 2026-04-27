@@ -75,6 +75,46 @@ are usually redundant now that OSPREY provides the channel finder natively. Howe
 specific **prompt builders** within (`framework_prompts/channel_finder/`) are NOT redundant —
 they customize the generic pipeline with facility-specific naming conventions and matching rules.
 
+### Services Stack Decomposition
+
+Old projects often have a `services/` directory with Docker-based service definitions. The
+arch-mapping table classifies the directory as a whole, but in practice each service splits
+into a TRANSFORM half (infrastructure that needs adapting) and a SALVAGE half (custom assets
+that drop in unchanged). Walk through them service-by-service:
+
+| Service           | TRANSFORM (adapt)                                 | SALVAGE (copy as-is)                          | OBSOLETE                                  |
+|-------------------|---------------------------------------------------|-----------------------------------------------|-------------------------------------------|
+| `jupyter/`        | Dockerfile (base image), kernel.json templates    | custom startup scripts, requirements.txt      | —                                         |
+| `open-webui/`     | docker-compose fragment (env names may change)    | custom.css, logo.png, function modules        | pipeline integration (LangGraph gateway)  |
+| `pipelines/`      | —                                                 | —                                             | the whole directory (was LangGraph entry) |
+| `postgres/`, `ariel/` | docker-compose fragment, init SQL paths       | seed data, schema migrations                  | —                                         |
+| facility-custom   | Dockerfile, compose fragment                      | startup scripts, configs, assets              | check for LangGraph/CapabilityContext refs |
+
+In the build profile, port these as `services:` entries with `template:` pointing to the
+overlay directory:
+
+```yaml
+services:
+  jupyter:
+    template: overlays/services/jupyter
+    config:
+      kernel_mode: epics
+  open-webui:
+    template: overlays/services/open-webui
+```
+
+Each service template directory needs a `docker-compose.yml.j2` — flag missing ones in
+migration-notes.md.
+
+### Secrets — never copy values into the build profile
+
+When extracting `.env` / `.env.example` content into the profile's `env:` block, **only copy
+variable names**. Never copy values, even when the file is committed to the old repo (the user
+may not realize a token is in there). For each variable found, classify as `required` (no
+default) or `defaults` (has a non-secret default like `INFO`, `UTC`). If a variable name itself
+suggests a credential (`*_TOKEN`, `*_KEY`, `*_PASSWORD`, `*_SECRET`), surface it explicitly in
+migration-notes.md so the user knows to populate it before deployment.
+
 ---
 
 ## Scan Strategy

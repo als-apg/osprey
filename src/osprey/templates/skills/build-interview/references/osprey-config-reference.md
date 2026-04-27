@@ -704,7 +704,7 @@ Used when write access is enabled to define safe operating ranges:
 | cborg | anthropic/claude-haiku | anthropic/claude-sonnet | anthropic/claude-opus |
 | als-apg | claude-haiku-4-5-20251001 | claude-sonnet-4-6 | claude-opus-4-6 |
 
-### Init command format
+### Build command format
 
 ```bash
 # Create a project from a build profile:
@@ -712,10 +712,27 @@ osprey build project-name path/to/profile.yml
 
 # Or start from a bundled preset:
 osprey build project-name --preset control-assistant
+osprey build --list-presets   # show all bundled presets
+
 # To customize, copy the preset and edit:
 cp src/osprey/profiles/presets/control-assistant.yml my-profile.yml
 osprey build project-name my-profile.yml
+
+# Or layer overrides without editing the profile:
+osprey build project-name --preset control-assistant \
+    -O als-overrides.yml --set model=claude-sonnet-4-6
 ```
+
+Profiles can also inherit from another profile via `extends:` at the top:
+
+```yaml
+extends: ../presets/control-assistant.yml
+config:
+  control_system.type: epics       # only restate the diffs
+```
+
+See `_resolve_extends` in `src/osprey/cli/build_profile.py` for chain semantics
+(circular `extends` is detected and rejected).
 
 Valid data bundles: `hello_world`, `control_assistant`, `education`
 Valid model tiers: `haiku`, `sonnet`, `opus`

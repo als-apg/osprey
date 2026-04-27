@@ -227,12 +227,6 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             output_path=".claude/skills/demo-gallery/SKILL.md",
             description="Artifact Gallery demo showcase skill",
         ),
-        PromptArtifact(
-            canonical_name="skills/migrate-legacy",
-            template_path="claude/skills/migrate-legacy/SKILL.md",
-            output_path=".claude/skills/migrate-legacy/SKILL.md",
-            description="Interactive migration from legacy LangGraph-based OSPREY projects",
-        ),
         # ── Output Styles ────────────────────────────────────────────
         PromptArtifact(
             canonical_name="output-styles/control-operator",

@@ -4,11 +4,12 @@ description: >
   Interactive interview to create a custom OSPREY build profile for a new accelerator, detector,
   or beamline application. Use when someone says "interview me", "create a build profile",
   "set up my agent", "configure my detector", "onboard me", or needs to create an OSPREY project
-  tailored to their specific control system. Also handles migration from existing OSPREY projects —
-  trigger on "migrate my project", "I have an existing project", "upgrade from old OSPREY",
-  "bring my project forward", "convert my project". Also use for /build-interview feedback to
-  collect post-use feedback. Also trigger when onboarding a new colleague or when anyone needs
-  help figuring out what their OSPREY agent should look like.
+  tailored to their specific control system. Also handles migration from existing OSPREY projects
+  (including LangGraph-era projects) — trigger on "migrate my project", "I have an existing project",
+  "upgrade from old OSPREY", "upgrade from langgraph", "legacy migration", "bring my project forward",
+  "convert my project", "extract profile from existing project", "reverse-engineer build profile".
+  Also use for /build-interview feedback to collect post-use feedback. Also trigger when onboarding
+  a new colleague or when anyone needs help figuring out what their OSPREY agent should look like.
 ---
 
 # OSPREY Build Profile Interview
@@ -440,6 +441,7 @@ skills:
 agents: []            # Only agents for selected features
 output_styles:
   - control-operator
+web_panels: []        # e.g. ariel, channel-finder, tuning — only if web dashboard requested
 
 config:
   project_name: "<project-name>"
@@ -451,11 +453,40 @@ overlay:
   # channel_limits.json: data/channel_limits.json  # if write access
 ```
 
-**For migration**, the profile additionally includes:
+If the profile is mostly a small delta on top of a bundled preset, prefer `extends:` at the top
+of the profile (`extends: ../../src/osprey/profiles/presets/control-assistant.yml` or similar)
+and only restate the diffs — see `_resolve_extends` in `src/osprey/cli/build_profile.py` for
+chain semantics. After the build, customizations can also be layered without editing the file:
+`osprey build <name> profile.yml -O overrides.yml --set model=claude-sonnet-4-6`.
+
+**For migration**, the profile additionally includes (omit blocks that don't apply):
 - `overlay:` entries for salvaged channel databases, limits, benchmarks, custom code
-- `dependencies:` from old pyproject.toml (facility-specific packages)
-- `env:` with required/default vars from old .env
+- `dependencies:` from old pyproject.toml (facility-specific packages only)
+- `env:` with required/default vars from old .env (variable names only — never copy values)
+- `services:` for Docker stacks ported from old `services/` (jupyter, open-webui, etc.)
 - Config overrides extracted from old config.yml (gateway addresses, archiver URLs, etc.)
+
+```yaml
+# Migration-only blocks (illustrative)
+services:
+  jupyter:
+    template: overlays/services/jupyter
+    config:
+      kernel_mode: epics
+  open-webui:
+    template: overlays/services/open-webui
+
+env:
+  required:
+    - JLAB_API_KEY        # never copy the value, only the name
+    - EPICS_CA_ADDR_LIST
+  defaults:
+    OSPREY_LOG_LEVEL: INFO
+
+dependencies:
+  - jlab-archiver-client>=2.0.0
+  - pyepics>=3.5.9,<4.0.0
+```
 
 #### 2. `build-profile/README.md`
 
@@ -527,6 +558,21 @@ Tell the user:
 
 If mock mode:
 > "Everything is set to simulated/mock mode right now, which is perfect for trying things out. When you're ready to connect to real hardware, edit `profile.yml` — change `control_system.type` from `mock` to `epics`, add your gateway addresses, and run `osprey build` again."
+
+**Migration only — post-build verification.** If this was a migration with ported custom code,
+guide the user through two quick checks before they consider the migration done:
+
+```bash
+# 1. Smoke-test that ported connectors/providers/builders import cleanly
+cd <project-name>
+uv run python -c "from <project>.connectors.<module> import <Class>; print('OK')"
+
+# 2. Audit the result for safety regressions vs the old project
+osprey audit <project-name>/
+```
+
+If any EVALUATE-category port was flagged "Not sure" or "Port with notes" in Phase 5.5,
+remind the user that those entries in `migration-notes.md` need follow-up before going live.
 
 Then proceed to Phase 9a.
 
