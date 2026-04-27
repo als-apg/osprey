@@ -206,6 +206,39 @@ def test_build_paths_are_self_consistent(build_outputs: dict[str, Path], preset:
 
 
 @pytest.mark.parametrize("preset", PRESETS)
+def test_stale_command_path_fails_fast(
+    build_outputs: dict[str, Path], preset: str, tmp_path: Path
+) -> None:
+    """Per-preset: a stale command path in .mcp.json must fail fast, not hang.
+
+    Takes each stdio server's real .mcp.json entry and rewrites only its
+    ``command`` to a non-existent location. Every other arg/env is preserved,
+    so this exercises the spawn path with the exact framing a moved-build
+    failure would hit. Locks the contract that future refactors of
+    ``_mcp_handshake.list_mcp_tools`` must not swallow ``FileNotFoundError``
+    and replace fast failure with hangs.
+    """
+    cfg = _load_mcp_json(build_outputs[preset])
+    servers = cfg.get("mcpServers", {})
+    assert servers, f".mcp.json has no servers for preset {preset}"
+
+    saw_stdio = False
+    for name, entry in servers.items():
+        if "url" in entry or "command" not in entry:
+            continue
+        saw_stdio = True
+        bogus_cmd = str(tmp_path / "definitely-not-here" / Path(entry["command"]).name)
+        with pytest.raises(MCPHandshakeError, match="command not found:"):
+            list_mcp_tools(
+                command=bogus_cmd,
+                args=list(entry.get("args") or []),
+                env=entry.get("env"),
+                timeout=5.0,
+            )
+    assert saw_stdio, f"preset {preset!r} has no stdio MCP server to probe"
+
+
+@pytest.mark.parametrize("preset", PRESETS)
 def test_mcp_servers_register_expected_tools(
     build_outputs: dict[str, Path], preset: str
 ) -> None:
