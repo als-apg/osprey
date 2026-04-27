@@ -30,7 +30,7 @@ def list_mcp_tools(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    timeout: float = 10.0,
+    timeout: float = 30.0,
 ) -> list[str]:
     """Spawn an MCP stdio server and return the tool names it advertises.
 

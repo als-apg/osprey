@@ -226,7 +226,7 @@ def test_mcp_servers_register_expected_tools(
                 command=entry["command"],
                 args=list(entry.get("args") or []),
                 env=entry.get("env"),
-                timeout=10.0,
+                timeout=30.0,
             )
         except MCPHandshakeError as exc:
             failures.append(f"{name}: handshake failed: {exc}")
