@@ -24,6 +24,7 @@ from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster, Wo
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
+from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -136,17 +137,6 @@ def _launch_lattice_dashboard_server(app: FastAPI) -> None:
     except Exception:
         logger.warning("Could not auto-launch lattice dashboard", exc_info=True)
         app.state.lattice_dashboard_server_url = None
-
-
-# Panel classification constants
-UNIVERSAL_PANELS = {"artifacts"}
-BUILTIN_PANELS = {
-    "artifacts",
-    "ariel",
-    "tuning",
-    "channel-finder",
-    "lattice",
-}
 
 
 def _load_panel_config() -> tuple[set[str], list[dict]]:

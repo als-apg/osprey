@@ -4,12 +4,12 @@ Fast (<5s), no model calls, no subprocess. Run on every push.
 
 Catches drift between:
   • preset YAML and the artifact registry (hooks/rules/skills/agents/output_styles)
+  • preset ``web_panels`` and the shared ``BUILTIN_PANELS`` registry
   • SKILL.md ``mcp__server__tool`` references and the actual ``@mcp.tool()``
     function names exposed by the framework MCP servers
 
-Web-panel and MCP-server cross-checks are intentionally out-of-scope: the
-build-time loader currently treats web_panels as warn-only, and MCP-server
-short names are matched at .mcp.json render time (Tier 1 covers that).
+MCP-server short names are matched at .mcp.json render time (Tier 1 covers
+that).
 """
 
 from __future__ import annotations
@@ -140,6 +140,24 @@ def test_preset_yaml_parses_and_artifacts_resolve(preset_path: Path) -> None:
             artifacts[artifact_type] = list(names)
     if artifacts:
         validate_artifacts(artifacts)
+
+
+@pytest.mark.parametrize("preset_path", _all_presets(), ids=lambda p: p.stem)
+def test_preset_web_panels_against_registry(preset_path: Path) -> None:
+    """Every ``web_panels`` entry in a preset must resolve to a built-in panel.
+
+    The runtime registry lives in ``osprey.profiles.web_panels`` and is shared
+    with both the web terminal and the template-manifest validator. A drifted
+    preset entry would render a broken UI tab at runtime.
+    """
+    from osprey.profiles.web_panels import BUILTIN_PANELS
+
+    profile = load_profile(preset_path)
+    unknown = [p for p in profile.web_panels if p not in BUILTIN_PANELS]
+    assert not unknown, (
+        f"{preset_path.name} declares unknown web_panels: {unknown} "
+        f"(valid: {sorted(BUILTIN_PANELS)})"
+    )
 
 
 def _iter_skill_files() -> list[Path]:

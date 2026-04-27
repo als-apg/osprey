@@ -273,6 +273,22 @@ class BuildProfile:
                     f"'{self.requires_osprey_version}' (must be PEP 440, e.g. '>=0.12.0')"
                 )
 
+        # Validate web_panels: each entry must either be a built-in (rendered
+        # by the framework) or a custom panel backed by a ``web.panels.<id>.url``
+        # config override (rendered as an iframe by the web terminal). Catches
+        # typos in shipped presets and missing URL backing for facility panels.
+        from osprey.profiles.web_panels import BUILTIN_PANELS
+
+        for panel in self.web_panels:
+            if panel in BUILTIN_PANELS:
+                continue
+            url_key = f"web.panels.{panel}.url"
+            if url_key not in self.config:
+                errors.append(
+                    f"Unknown web_panel {panel!r}: not in BUILTIN_PANELS "
+                    f"({sorted(BUILTIN_PANELS)}) and no '{url_key}' config override"
+                )
+
         # Validate custom category definitions
         import re
 

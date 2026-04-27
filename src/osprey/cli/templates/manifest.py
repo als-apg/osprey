@@ -9,9 +9,14 @@ from typing import Any
 
 import yaml
 
+from osprey.profiles.web_panels import BUILTIN_PANELS
 from osprey.services.prompts.catalog import PromptCatalog
 
 logger = logging.getLogger("osprey.cli.templates")
+
+
+class ManifestError(ValueError):
+    """Raised when a template manifest references unknown artifacts or panels."""
 
 # Manifest schema version for future compatibility
 MANIFEST_SCHEMA_VERSION = "1.2.0"
@@ -146,11 +151,15 @@ def load_template_manifest(
                     template_name,
                 )
 
-    # Validate web_panels entries
-    valid_panel_ids = {"ariel", "channel-finder", "tuning"}
+    # Validate web_panels entries against the shared registry. Unreachable for
+    # presets today (they short-circuit at the artifacts wrapper above) but the
+    # load-bearing gate for any future template manifest.
     for panel_id in manifest.get("web_panels", []):
-        if panel_id not in valid_panel_ids:
-            logger.warning("Unknown web_panel '%s' in template '%s'", panel_id, template_name)
+        if panel_id not in BUILTIN_PANELS:
+            raise ManifestError(
+                f"Unknown web_panel {panel_id!r} in template {template_name!r} "
+                f"(valid: {sorted(BUILTIN_PANELS)})"
+            )
 
     return manifest
 
