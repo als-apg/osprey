@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Claude Code / CBORG**: Pin CBORG model IDs to specific versions (`claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-7`) in the resolver fallback and in `api.providers.cborg.models` templates. Unversioned aliases like `anthropic/claude-opus` disabled Claude Code's capability detection, causing it to send the legacy `thinking.type.enabled` schema which Vertex-backed Opus 4.7 rejects with HTTP 400.
 - **`osprey build`**: unknown `--preset` names now exit with status 2 (usage error) instead of 1, matching the documented contract.
 - **CI**: `.github/workflows/ci.yml` updated for the retired `osprey init` command.
+- **Tests**: Three `tests/cli/test_claude_regen.py` call sites still passed the dropped `registry_style="extend"` arg to `TemplateManager.generate_manifest`, which leaked into the `context` parameter and crashed at `manifest.py:436` with `AttributeError: 'str' object has no attribute 'get'`. Removing the stale arg restores 3 tests; missed by commit `4e94e033`.
 
 ### Removed (BREAKING)
 - **`osprey migrate` command removed.** The legacy config-migration workflow is retired; users on older configs should run `osprey init` fresh or hand-edit.
