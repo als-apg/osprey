@@ -54,6 +54,16 @@ Keep the tone conversational — this is a chat, not a form. Explain *why* each 
 
 ---
 
+### Phase 0 — Setting the Stage
+
+Before launching into Phase 1, set expectations about the friction log in plain language. Keep it brief — one short paragraph, conversational tone:
+
+> "As we go, I'll keep a small private notes file at `build-profile/.interview-notes.md` for the OSPREY team — things that trip you up, questions that don't quite make sense, or anything you want to flag. You can also tell me directly: just start any answer with `log this:` (or `for the log:`) and I'll capture it verbatim. Nothing leaves your machine — at the very end I'll show you everything before any of it gets sent."
+
+Then proceed to Phase 1.
+
+---
+
 ### Phase 1 — Welcome & Context
 
 Start with a short welcome:
@@ -260,6 +270,8 @@ If they chose "Real EPICS connection", follow up for gateway details: read-only 
 ---
 
 ### Phase 5 — Additional Features
+
+> *(Casual reminder, drop into the conversation once: "By the way — anytime something's confusing or you want to flag a thought for the OSPREY team, just start your reply with `log this:` and I'll capture it verbatim.")*
 
 #### Migration path
 
@@ -624,6 +636,18 @@ If they chose options that suggest specific feedback (like "More questions" or t
 
 **Q3** (only if Q1 was one of the first three options — meaning they actually used the project): "Anything else the OSPREY team should know? One sentence is plenty, or just skip."
 
+#### Friction log review
+
+Before composing the email, check for `build-profile/.interview-notes.md`. If the file is missing, skip this subsection and compose as usual. If it exists:
+
+1. Read it and split entries by tag (`colleague-note` vs `observed`).
+2. **`colleague-note` entries** → auto-include verbatim. The colleague already opted in by typing the trigger; do not re-ask.
+3. **`observed` entries** → show the top 3 highest-signal ones inline (paraphrased one-liners), then a single AskUserQuestion:
+   - Show all observed entries — then decide
+   - Include all observed (without showing each one)
+   - Drop all observed — just send my own notes
+4. Selected entries flow into the email template's two new optional sections below.
+
 #### Compose the email
 
 Assemble a plain-text email from their answers. **Omit any line entirely where the data is unavailable or was skipped** — don't leave blank fields.
@@ -643,6 +667,12 @@ Interview experience: [9a answer — OMIT THIS LINE if no 9a data exists]
 Project status: [Q1 answer — OMIT if skipped]
 Suggestion: [Q2 answer plus any free-form — OMIT if skipped]
 Additional notes: [Q3 answer — OMIT if skipped or not asked]
+
+Colleague notes:
+- [each colleague-note entry on its own line — OMIT entire section if no entries]
+
+Observed friction:
+- [each selected observed entry on its own line — OMIT entire section if user dropped all or none exist]
 
 ---
 Sent via OSPREY build interview feedback
@@ -693,3 +723,7 @@ If the `open`/`xdg-open` command fails (headless server, SSH session), display t
 - **Migration = confirmation.** When migration_context exists, phrase questions as confirmations: "I found X — keep it?" not "What X do you want?" The user already made these decisions once; respect that.
 - **Explain what's obsolete.** For migration, always briefly explain why old LangGraph code is not needed: "The new architecture uses Claude Code directly as the orchestrator, so the old graph definitions aren't needed anymore."
 - **Feedback is never mandatory.** Phase 9a is always offered but never insisted upon. If the user declines or says "skip", respect it immediately. No guilt trips.
+- **Friction log capture.** Throughout Phases 1–8, append tagged single-line bullets to `build-profile/.interview-notes.md` in the form `- [P<n>][observed|colleague-note] <text>`. Create the directory lazily (`mkdir -p build-profile/`) on first entry. Best-effort only: if the write fails, swallow the error silently — never block the interview.
+  - **observed (passive):** Log when the colleague spontaneously types uncertainty ("hmm, I'm not sure", "what does X mean?"), asks a clarifying question about what *a question* means, contradicts an earlier answer, or hesitates audibly on a default ("I guess so?", "if you say so"). Do **NOT** log when they pick "I'm not sure" from a designed AskUserQuestion menu — that's a feature of the flow, not friction.
+  - **colleague-note (explicit):** When any answer starts with `log this:` or `for the log:`, capture the rest of that line verbatim as a `colleague-note` entry. Acknowledge briefly ("Got it, logged.") and continue without breaking flow.
+  - **Migration mode weighting.** Bias `observed` entries toward interview-quality friction ("the LangGraph question was confusing"), away from the colleague's own porting decisions ("hesitated on porting their custom provider") — the latter reads like a performance review of their old work.
