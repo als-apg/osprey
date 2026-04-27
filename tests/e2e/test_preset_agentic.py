@@ -28,6 +28,7 @@ from tests.e2e.sdk_helpers import (
     init_project,
     is_claude_code_available,
     run_sdk_query,
+    run_sdk_query_with_hooks,
 )
 
 pytestmark = [
@@ -67,6 +68,47 @@ def _channel_finder_server_name(project_dir: Path) -> str | None:
                     return name
             return name
     return None
+
+
+async def _assert_approval_hook_fires(
+    project: Path,
+    query: str,
+    expected_write_tool: str,
+    *,
+    max_turns: int = 6,
+    max_budget_usd: float = 0.30,
+) -> None:
+    """Run a write-style query and verify the approval hook recorded an event.
+
+    Uses ``run_sdk_query_with_hooks`` with ``permission_mode="default"`` and
+    ``approval_policy="auto_approve"`` so hooks fire (vs. ``run_sdk_query``
+    which uses ``bypassPermissions`` and silently elides them). Asserts:
+
+    - at least one ``HookEvent`` was recorded (otherwise hooks are absent)
+    - one of those events corresponds to ``expected_write_tool``
+    - decision was ``"allow"`` under the auto-approve policy
+    """
+    result = await run_sdk_query_with_hooks(
+        project,
+        query,
+        approval_policy="auto_approve",
+        max_turns=max_turns,
+        max_budget_usd=max_budget_usd,
+    )
+    assert result.hook_events, (
+        "no hook events recorded — approval hook did not fire on a write query. "
+        "Either the agent never reached for a write tool, or hooks are not "
+        "wired into the project's .claude/settings.json."
+    )
+    matching = [e for e in result.hook_events if e.tool_name == expected_write_tool]
+    assert matching, (
+        f"approval hook fired but not for {expected_write_tool}. "
+        f"Recorded: {[(e.tool_name, e.decision) for e in result.hook_events]}"
+    )
+    assert all(e.decision == "allow" for e in matching), (
+        f"auto_approve policy should allow all writes, got: "
+        f"{[(e.tool_name, e.decision, e.reason) for e in matching]}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -141,3 +183,29 @@ async def test_control_assistant_channel_finder_flow(
         ),
     )
     assert eval.passed, eval.reasoning
+
+
+@pytest.mark.asyncio
+async def test_hello_world_write_triggers_approval_hook(tmp_path: Path) -> None:
+    """Hello-world write probe: agent sets a mock channel; approval hook fires."""
+    project = init_project(
+        tmp_path, "hw_write", template="hello_world", provider="cborg"
+    )
+    await _assert_approval_hook_fires(
+        project,
+        "Set the example channel to 1.5.",
+        expected_write_tool="mcp__controls__channel_write",
+    )
+
+
+@pytest.mark.asyncio
+async def test_control_assistant_write_triggers_approval_hook(tmp_path: Path) -> None:
+    """Control-assistant write probe: same contract on the heavier preset."""
+    project = init_project(
+        tmp_path, "ca_write", template="control_assistant", provider="cborg"
+    )
+    await _assert_approval_hook_fires(
+        project,
+        "Set the BPM offset channel for sector 5 to 0.0.",
+        expected_write_tool="mcp__controls__channel_write",
+    )
