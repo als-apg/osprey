@@ -58,6 +58,7 @@ Create a working directory for your project and start Claude Code:
 
 .. code-block:: bash
 
+   # skip-ci
    mkdir -p ~/my-osprey-project
    cd ~/my-osprey-project
    claude
@@ -102,6 +103,7 @@ Then:
 
 .. code-block:: bash
 
+   # skip-ci
    osprey build my-project build-profile/profile.yml
 
 One command. OSPREY reads your profile, validates your selections, copies your
@@ -111,12 +113,14 @@ To start using it:
 
 .. code-block:: bash
 
+   # skip-ci
    cd my-project && claude
 
 Or for the web dashboard:
 
 .. code-block:: bash
 
+   # skip-ci
    osprey web
 
 Phase 2: deploy your project
@@ -129,6 +133,7 @@ redeploy from many times. When you're ready to ship to a real deploy server
 
 .. code-block:: bash
 
+   # skip-ci
    cd build-profile
    git init && git add -A && git commit -m "Initial profile"
    claude
@@ -157,6 +162,7 @@ from the profile repo root:
 
 .. code-block:: bash
 
+   # skip-ci
    osprey skills install osprey-build-deploy --target .claude/skills/
 
 The previous copy is backed up to ``.claude/skills/osprey-build-deploy.bak.<timestamp>/``.
