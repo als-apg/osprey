@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Version tag to build docs for (e.g., v0.11.4). Leave empty for main branch build.'
+        description: 'Version tag to build docs for (e.g., v2026.5.0). Leave empty for main branch build.'
         required: false
         type: string
 
