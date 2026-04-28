@@ -23,6 +23,9 @@ import click
 _SKILL_SOURCES: dict[str, str] = {
     "build-interview": "templates/skills/build-interview",
     "osprey-build-deploy": "templates/skills/osprey-build-deploy",
+    "osprey-contribute": "templates/skills/osprey-contribute",
+    "osprey-pre-commit": "templates/skills/osprey-pre-commit",
+    "osprey-release": "templates/skills/osprey-release",
 }
 
 
@@ -50,6 +53,9 @@ def install(name: str, target: Path | None) -> None:
     Currently supported skills:
       build-interview      Author OSPREY build profiles (global)
       osprey-build-deploy  Operate a facility profile repo's deploy pipeline
+      osprey-contribute    Walk a contributor through the GitHub Flow journey
+      osprey-pre-commit    Run quick / ci / premerge check scripts at the right gate
+      osprey-release       Cut a CalVer release: bump PR, tag, verify publish
 
     On an existing non-empty target, the prior content is renamed to
     <name>.bak.<YYYYMMDD-HHMMSS>/ before the new copy is written, so a
