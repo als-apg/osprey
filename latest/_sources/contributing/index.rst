@@ -48,6 +48,32 @@ If all tests pass, you are ready to contribute.
 Git and GitHub Workflow
 -----------------------
 
+Branch Strategy
+^^^^^^^^^^^^^^^
+
+Osprey follows a **release-train** model with two long-lived branches:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 25 60
+
+   * - Branch
+     - Role
+     - What lands here
+   * - ``next``
+     - Rolling integration / development
+     - All day-to-day work: features, fixes, docs, refactors. This is the **default target** for pull requests.
+   * - ``main``
+     - Released code only
+     - Receives merges from ``next`` at release time, immediately followed by a version bump and a ``vYYYY.M.P`` tag (CalVer). No ad-hoc commits between releases.
+
+**What this means for contributors:**
+
+- Branch your work off ``next``, and open your PR against ``next``.
+- ``main`` always reflects the most recent tagged release, so users installing from ``main`` get a stable, versioned snapshot.
+- The version picker in the docs (top-right) lets users switch between released versions; ``next`` is built and published as the *latest (development)* entry.
+- Release cuts (``next`` → ``main`` + tag) are handled by maintainers via the release workflow — contributors do not need to merge to ``main`` directly.
+
 Branch Naming
 ^^^^^^^^^^^^^
 
@@ -78,8 +104,8 @@ Making Changes
    # Tier 2: Full CI check (2-3 min) -- before pushing
    ./scripts/ci_check.sh
 
-   # Tier 3: Pre-merge check -- before creating a PR
-   ./scripts/premerge_check.sh main
+   # Tier 3: Pre-merge check -- before creating a PR (compare against your PR target)
+   ./scripts/premerge_check.sh next
 
 **4. Commit changes** using conventional commit format:
 

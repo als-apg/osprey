@@ -394,6 +394,15 @@
   <section id="osprey-framework-documentation">
 <h1>Osprey Framework Documentation<a class="headerlink" href="#osprey-framework-documentation" title="Link to this heading">#</a></h1>
 <p><strong>An agentic interface for safety-critical control systems.</strong></p>
+<div class="admonition-new-architecture-april-2026 admonition">
+<p class="admonition-title">New architecture (April 2026)</p>
+<p>Osprey has transitioned from its legacy LangGraph orchestrator to a
+coding-agent harness built on Claude Code with MCP servers and hook-based
+approval. If you’re upgrading from a previous version, see
+<a class="reference internal" href="getting-started/build-interview.html"><span class="doc">Guided Project Setup (Build Interview)</span></a>. The last LangGraph-era release is archived at
+<a class="reference external" href="https://als-apg.github.io/osprey/v0.11.5/">v0.11.5 docs</a> (also reachable
+via the version picker in the top-right).</p>
+</div>
 <p>The <strong>Osprey Framework</strong> is an agentic interface and harness for scientific facilities managing complex technical infrastructure — particle accelerators, fusion experiments, beamlines, and large telescopes. It wraps a coding agent in an operator-facing safety policy, a hook-based approval chain, and an MCP-server multiplexer, so the agent layer, the underlying LLM, and the compute backend are each replaceable without changing what the operator sees. The current reference implementation is a browser-based operator workstation; other surfaces (control-room consoles, chat clients, headless services) are possible.</p>
 <p>Osprey addresses control-specific challenges: semantic addressing across large channel namespaces, <a class="reference internal" href="how-to/add-connector.html"><span class="doc">protocol-agnostic integration with control stacks</span></a> (EPICS, LabVIEW, Tango), <a class="reference internal" href="how-to/ariel/index.html"><span class="doc">intelligent logbook search</span></a> across facility electronic logbooks, and mandatory human oversight for safety-critical operations.</p>
 <figure class="align-center" id="id1">

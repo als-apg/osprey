@@ -3,6 +3,15 @@ Osprey Framework Documentation
 
 **An agentic interface for safety-critical control systems.**
 
+.. admonition:: New architecture (April 2026)
+
+   Osprey has transitioned from its legacy LangGraph orchestrator to a
+   coding-agent harness built on Claude Code with MCP servers and hook-based
+   approval. If you're upgrading from a previous version, see
+   :doc:`getting-started/build-interview`. The last LangGraph-era release is archived at
+   `v0.11.5 docs <https://als-apg.github.io/osprey/v0.11.5/>`_ (also reachable
+   via the version picker in the top-right).
+
 The **Osprey Framework** is an agentic interface and harness for scientific facilities managing complex technical infrastructure — particle accelerators, fusion experiments, beamlines, and large telescopes. It wraps a coding agent in an operator-facing safety policy, a hook-based approval chain, and an MCP-server multiplexer, so the agent layer, the underlying LLM, and the compute backend are each replaceable without changing what the operator sees. The current reference implementation is a browser-based operator workstation; other surfaces (control-room consoles, chat clients, headless services) are possible.
 
 Osprey addresses control-specific challenges: semantic addressing across large channel namespaces, :doc:`protocol-agnostic integration with control stacks <how-to/add-connector>` (EPICS, LabVIEW, Tango), :doc:`intelligent logbook search <how-to/ariel/index>` across facility electronic logbooks, and mandatory human oversight for safety-critical operations.

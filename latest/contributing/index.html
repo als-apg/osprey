@@ -456,6 +456,41 @@ uv<span class="w"> </span>add<span class="w"> </span>&lt;package&gt;
 <hr class="docutils" />
 <section id="git-and-github-workflow">
 <h2>Git and GitHub Workflow<a class="headerlink" href="#git-and-github-workflow" title="Link to this heading">#</a></h2>
+<section id="branch-strategy">
+<h3>Branch Strategy<a class="headerlink" href="#branch-strategy" title="Link to this heading">#</a></h3>
+<p>Osprey follows a <strong>release-train</strong> model with two long-lived branches:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 15.0%" />
+<col style="width: 25.0%" />
+<col style="width: 60.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Branch</p></th>
+<th class="head"><p>Role</p></th>
+<th class="head"><p>What lands here</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">next</span></code></p></td>
+<td><p>Rolling integration / development</p></td>
+<td><p>All day-to-day work: features, fixes, docs, refactors. This is the <strong>default target</strong> for pull requests.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">main</span></code></p></td>
+<td><p>Released code only</p></td>
+<td><p>Receives merges from <code class="docutils literal notranslate"><span class="pre">next</span></code> at release time, immediately followed by a version bump and a <code class="docutils literal notranslate"><span class="pre">vYYYY.M.P</span></code> tag (CalVer). No ad-hoc commits between releases.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>What this means for contributors:</strong></p>
+<ul class="simple">
+<li><p>Branch your work off <code class="docutils literal notranslate"><span class="pre">next</span></code>, and open your PR against <code class="docutils literal notranslate"><span class="pre">next</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">main</span></code> always reflects the most recent tagged release, so users installing from <code class="docutils literal notranslate"><span class="pre">main</span></code> get a stable, versioned snapshot.</p></li>
+<li><p>The version picker in the docs (top-right) lets users switch between released versions; <code class="docutils literal notranslate"><span class="pre">next</span></code> is built and published as the <em>latest (development)</em> entry.</p></li>
+<li><p>Release cuts (<code class="docutils literal notranslate"><span class="pre">next</span></code> → <code class="docutils literal notranslate"><span class="pre">main</span></code> + tag) are handled by maintainers via the release workflow — contributors do not need to merge to <code class="docutils literal notranslate"><span class="pre">main</span></code> directly.</p></li>
+</ul>
+</section>
 <section id="branch-naming">
 <h3>Branch Naming<a class="headerlink" href="#branch-naming" title="Link to this heading">#</a></h3>
 <ul class="simple">
@@ -480,8 +515,8 @@ uv<span class="w"> </span>add<span class="w"> </span>&lt;package&gt;
 <span class="c1"># Tier 2: Full CI check (2-3 min) -- before pushing</span>
 ./scripts/ci_check.sh
 
-<span class="c1"># Tier 3: Pre-merge check -- before creating a PR</span>
-./scripts/premerge_check.sh<span class="w"> </span>main
+<span class="c1"># Tier 3: Pre-merge check -- before creating a PR (compare against your PR target)</span>
+./scripts/premerge_check.sh<span class="w"> </span>next
 </pre></div>
 </div>
 <p><strong>4. Commit changes</strong> using conventional commit format:</p>
@@ -680,6 +715,7 @@ The marker-based approach causes registry state leaks and service conflicts.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-setup">Environment Setup</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#git-and-github-workflow">Git and GitHub Workflow</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#branch-strategy">Branch Strategy</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#branch-naming">Branch Naming</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#making-changes">Making Changes</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#commit-message-format">Commit Message Format</a></li>
