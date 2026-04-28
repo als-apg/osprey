@@ -1,0 +1,813 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Use the Web Terminal &#8212; Osprey Framework 2026.5.0 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=955835e8"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/use-web-terminal';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.5.0';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Use the CLI Chat Interface" href="use-cli-chat.html" />
+    <link rel="prev" title="Add an MCP Server" href="add-mcp-server.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Apr 28, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Use the Web Terminal</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Control System Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">How-To Guides</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Use the Web Terminal</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="use-the-web-terminal">
+<h1>Use the Web Terminal<a class="headerlink" href="#use-the-web-terminal" title="Link to this heading">#</a></h1>
+<p>The OSPREY Web Terminal is a browser-based interface that wraps Claude Code in a
+split-pane layout: a real terminal (PTY) on the left and a live workspace file
+viewer on the right. It is built with FastAPI and communicates with the terminal
+session over WebSocket, so every keystroke and resize event is forwarded in real
+time.</p>
+<section id="launching">
+<h2>Launching<a class="headerlink" href="#launching" title="Link to this heading">#</a></h2>
+<p>Start the web terminal from any OSPREY project directory:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>web
+</pre></div>
+</div>
+<p>The command boots a Uvicorn server on <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code> and
+automatically opens your default browser. You can override the defaults:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>web<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">9000</span>
+</pre></div>
+</div>
+<p>The server reads <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> from the project directory (or the directory
+given by <code class="docutils literal notranslate"><span class="pre">--project</span></code>). Use <code class="docutils literal notranslate"><span class="pre">--shell</span></code> to replace the default <code class="docutils literal notranslate"><span class="pre">claude</span></code>
+command.</p>
+<p><strong>Background mode</strong> — run the server as a detached process:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>web<span class="w"> </span>--detach<span class="w">          </span><span class="c1"># start in background</span>
+osprey<span class="w"> </span>web<span class="w"> </span>stop<span class="w">              </span><span class="c1"># stop the background server</span>
+</pre></div>
+</div>
+<p>When detached, the PID is written to <code class="docutils literal notranslate"><span class="pre">.osprey-web.pid</span></code> and logs go to
+<code class="docutils literal notranslate"><span class="pre">.osprey-web.log</span></code> in the project directory.</p>
+<section id="companion-servers">
+<h3>Companion Servers<a class="headerlink" href="#companion-servers" title="Link to this heading">#</a></h3>
+<p>On startup the web terminal auto-launches companion web servers that power the
+side panels:</p>
+<ul class="simple">
+<li><p><strong>Artifact gallery</strong> (port 8086) — workspace artifact browser</p></li>
+</ul>
+<p>Domain-specific servers are launched when their config section is present:</p>
+<ul class="simple">
+<li><p><strong>ARIEL</strong> (port 8085) — logbook search</p></li>
+<li><p><strong>Tuning panel</strong> (port 8090) — parameter tuning UI</p></li>
+<li><p><strong>Channel Finder</strong> (port 8092) — channel lookup</p></li>
+<li><p><strong>Lattice dashboard</strong> (port 8097) — accelerator visualization</p></li>
+</ul>
+<p>Each server’s host, port, and <code class="docutils literal notranslate"><span class="pre">auto_launch</span></code> flag can be overridden in
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> under its own section (e.g., <code class="docutils literal notranslate"><span class="pre">artifact_server.port</span></code>).</p>
+</section>
+</section>
+<section id="key-features">
+<h2>Key Features<a class="headerlink" href="#key-features" title="Link to this heading">#</a></h2>
+<section id="terminal-pty">
+<h3>Terminal PTY<a class="headerlink" href="#terminal-pty" title="Link to this heading">#</a></h3>
+<p>The left pane is a full terminal emulator backed by a server-side PTY. Input and
+output travel over the <code class="docutils literal notranslate"><span class="pre">/ws/terminal</span></code> WebSocket. The terminal supports:</p>
+<ul class="simple">
+<li><p><strong>Resize</strong>: the client sends <code class="docutils literal notranslate"><span class="pre">{&quot;type&quot;:</span> <span class="pre">&quot;resize&quot;,</span> <span class="pre">&quot;cols&quot;:</span> <span class="pre">N,</span> <span class="pre">&quot;rows&quot;:</span> <span class="pre">N}</span></code>
+and the PTY window is adjusted immediately.</p></li>
+<li><p><strong>Session resume</strong>: pass <code class="docutils literal notranslate"><span class="pre">?session_id=UUID&amp;mode=resume</span></code> to reconnect to an
+existing Claude Code conversation.</p></li>
+<li><p><strong>Session switching</strong>: send <code class="docutils literal notranslate"><span class="pre">{&quot;type&quot;:</span> <span class="pre">&quot;switch_session&quot;,</span> <span class="pre">&quot;session_id&quot;:</span> <span class="pre">UUID}</span></code>
+to hop between background sessions without losing state.</p></li>
+<li><p><strong>Background pool</strong>: up to <code class="docutils literal notranslate"><span class="pre">max_background_sessions</span></code> (default 5) detached
+sessions are kept alive in a pool for quick switching.</p></li>
+</ul>
+</section>
+<section id="operator-mode">
+<h3>Operator Mode<a class="headerlink" href="#operator-mode" title="Link to this heading">#</a></h3>
+<p>An alternative WebSocket endpoint (<code class="docutils literal notranslate"><span class="pre">/ws/operator</span></code>) drives Claude through the
+Agent SDK instead of a PTY. The client sends structured JSON prompts and
+receives typed events (text, thinking, tool use, errors).</p>
+</section>
+<section id="live-workspace-viewer">
+<h3>Live Workspace Viewer<a class="headerlink" href="#live-workspace-viewer" title="Link to this heading">#</a></h3>
+<p>The right pane shows the workspace directory tree in real time. A file watcher
+broadcasts change events over Server-Sent Events (<code class="docutils literal notranslate"><span class="pre">/api/files/events</span></code>), so new
+artifacts, plots, and data files appear without a manual refresh.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/files/tree</span></code> – directory tree as JSON</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/files/content/{path}</span></code> – file preview (up to 1 MB, text only)</p></li>
+</ul>
+<p>The viewer can be scoped to a specific session by appending
+<code class="docutils literal notranslate"><span class="pre">?session_id=UUID</span></code> to the URL.</p>
+</section>
+<section id="settings-drawer">
+<h3>Settings Drawer<a class="headerlink" href="#settings-drawer" title="Link to this heading">#</a></h3>
+<p>The settings drawer exposes the project <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> through a REST API:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/config</span></code> – read agent-relevant config sections as structured JSON
+plus the raw YAML.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">PUT</span> <span class="pre">/api/config</span></code> – validate and overwrite the entire file (a <code class="docutils literal notranslate"><span class="pre">.yml.bak</span></code>
+backup is created automatically).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">PATCH</span> <span class="pre">/api/config</span></code> – apply dot-notation field updates (e.g.
+<code class="docutils literal notranslate"><span class="pre">&quot;control_system.writes_enabled&quot;:</span> <span class="pre">true</span></code>) while preserving comments and
+formatting.</p></li>
+</ul>
+<p>After saving, the UI prompts you to restart the terminal so the agent picks up
+the new settings.</p>
+</section>
+<section id="claude-code-setup-editor">
+<h3>Claude Code Setup Editor<a class="headerlink" href="#claude-code-setup-editor" title="Link to this heading">#</a></h3>
+<p>Read and edit the Claude Code integration files (<code class="docutils literal notranslate"><span class="pre">.claude/</span></code> directory) without
+leaving the browser:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/claude-setup</span></code> – list all Claude Code files in the project.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">PUT</span> <span class="pre">/api/claude-setup</span></code> – save changes to an existing file.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/claude-setup</span></code> – create a new file in an allowed subdirectory.</p></li>
+</ul>
+</section>
+<section id="session-diagnostics">
+<h3>Session Diagnostics<a class="headerlink" href="#session-diagnostics" title="Link to this heading">#</a></h3>
+<p>A dedicated session panel lets you inspect the running conversation:</p>
+<ul class="simple">
+<li><p><strong>Session list</strong> (<code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/sessions</span></code>) – all Claude Code sessions
+registered for the project.</p></li>
+<li><p><strong>Agent hierarchy</strong> (<code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/session-agents</span></code>) – subagent tree with tool
+call breakdowns.</p></li>
+<li><p><strong>Agent timeline</strong> (<code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/session-agent-timeline</span></code>) – full internal
+timeline of a subagent’s execution.</p></li>
+<li><p><strong>Tool call log</strong> (<code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/session-log</span></code>) – filterable by agent, tool
+name, error status, and time range.</p></li>
+<li><p><strong>Chat history</strong> (<code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/session-chat</span></code>) – human-readable conversation
+turns.</p></li>
+<li><p><strong>Artifact summary</strong> (<code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/session-summary</span></code>) – inventory of workspace
+artifacts with channel extraction.</p></li>
+</ul>
+</section>
+<section id="prompt-gallery">
+<h3>Prompt Gallery<a class="headerlink" href="#prompt-gallery" title="Link to this heading">#</a></h3>
+<p>Browse, edit, and override the prompt artifacts that shape the agent:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/prompts</span></code> – list all prompt artifacts with framework/user-owned
+status.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/prompts/{name}/scaffold</span></code> – scaffold an override from the
+framework template.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">PUT</span> <span class="pre">/api/prompts/{name}/override</span></code> – save a custom override.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">DELETE</span> <span class="pre">/api/prompts/{name}/override</span></code> – revert to the framework version.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/prompts/{name}/diff</span></code> – unified diff between framework and
+override.</p></li>
+</ul>
+</section>
+<section id="memory-gallery">
+<h3>Memory Gallery<a class="headerlink" href="#memory-gallery" title="Link to this heading">#</a></h3>
+<p>Manage Claude memory files (Markdown notes persisted across sessions):</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/claude-memory</span></code> – list memory files.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/claude-memory</span></code> – create a new memory file.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">PUT</span> <span class="pre">/api/claude-memory/{filename}</span></code> – update an existing file.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">DELETE</span> <span class="pre">/api/claude-memory/{filename}</span></code> – delete a file.</p></li>
+</ul>
+</section>
+<section id="side-panels">
+<h3>Side Panels<a class="headerlink" href="#side-panels" title="Link to this heading">#</a></h3>
+<p>The web terminal can embed companion services as iframe panels. The <strong>artifact
+gallery</strong> is always enabled. <strong>Domain panels</strong> are activated in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">panels</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">ariel</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">tuning</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">channel-finder</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<p>Custom panels pointing to external URLs are also supported:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">panels</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">my-dashboard</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">My Dashboard</span>
+<span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://localhost:3000</span>
+<span class="w">      </span><span class="nt">health_endpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/health</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">/api/panel-focus</span></code> endpoint lets MCP tools programmatically switch the
+active panel.</p>
+</section>
+</section>
+<section id="configuration-reference">
+<h2>Configuration Reference<a class="headerlink" href="#configuration-reference" title="Link to this heading">#</a></h2>
+<p>All options live under the <code class="docutils literal notranslate"><span class="pre">web_terminal</span></code> key in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 15.0%" />
+<col style="width: 55.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">shell</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">claude</span></code></p></td>
+<td><p>Shell command spawned in the PTY.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">watch_dir</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">./_agent_data</span></code></p></td>
+<td><p>Directory watched for live file events.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">max_background_sessions</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">5</span></code></p></td>
+<td><p>Maximum detached PTY sessions kept alive in the pool.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The server itself accepts <code class="docutils literal notranslate"><span class="pre">--host</span></code> (default <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>), <code class="docutils literal notranslate"><span class="pre">--port</span></code>
+(default <code class="docutils literal notranslate"><span class="pre">8087</span></code>), <code class="docutils literal notranslate"><span class="pre">--shell</span></code>, <code class="docutils literal notranslate"><span class="pre">--project</span></code>, <code class="docutils literal notranslate"><span class="pre">--reload</span></code>, and <code class="docutils literal notranslate"><span class="pre">--detach</span></code>
+on the command line. CLI flags take precedence over <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> values.</p>
+<section id="hook-debugging">
+<h3>Hook Debugging<a class="headerlink" href="#hook-debugging" title="Link to this heading">#</a></h3>
+<p>When <code class="docutils literal notranslate"><span class="pre">hooks.debug</span></code> is enabled in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, the web terminal exposes:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/hooks/debug-status</span></code> – whether hook debug mode is active.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/hooks/debug-log</span></code> – recent entries from <code class="docutils literal notranslate"><span class="pre">hook_debug.jsonl</span></code>.</p></li>
+</ul>
+</section>
+<section id="health-check">
+<h3>Health Check<a class="headerlink" href="#health-check" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/health</span></code> returns the service status, version, and server session ID.</p>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="add-mcp-server.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Add an MCP Server</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="use-cli-chat.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Use the CLI Chat Interface</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#launching">Launching</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#companion-servers">Companion Servers</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#key-features">Key Features</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#terminal-pty">Terminal PTY</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#operator-mode">Operator Mode</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#live-workspace-viewer">Live Workspace Viewer</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#settings-drawer">Settings Drawer</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-setup-editor">Claude Code Setup Editor</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#session-diagnostics">Session Diagnostics</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#prompt-gallery">Prompt Gallery</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#memory-gallery">Memory Gallery</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#side-panels">Side Panels</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-reference">Configuration Reference</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-debugging">Hook Debugging</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#health-check">Health Check</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/use-web-terminal.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
