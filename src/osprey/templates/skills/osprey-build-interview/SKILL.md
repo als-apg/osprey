@@ -1,5 +1,5 @@
 ---
-name: build-interview
+name: osprey-build-interview
 description: >
   Interactive interview to create a custom OSPREY build profile for a new accelerator, detector,
   or beamline application. Use when someone says "interview me", "create a build profile",
@@ -8,7 +8,7 @@ description: >
   (including LangGraph-era projects) — trigger on "migrate my project", "I have an existing project",
   "upgrade from old OSPREY", "upgrade from langgraph", "legacy migration", "bring my project forward",
   "convert my project", "extract profile from existing project", "reverse-engineer build profile".
-  Also use for /build-interview feedback to collect post-use feedback. Also trigger when onboarding
+  Also use for /osprey-build-interview feedback to collect post-use feedback. Also trigger when onboarding
   a new colleague or when anyone needs help figuring out what their OSPREY agent should look like.
 ---
 
@@ -40,8 +40,8 @@ Read `references/osprey-config-reference.md` before generating any config files 
 
 Before starting Phase 1, check the invocation context:
 
-- If the user says `/build-interview feedback` or "I want to give feedback" → skip directly to **Phase 9b**.
-- If the user provides a path to an existing project as an argument (e.g., `/build-interview /path/to/old-project`) → treat as a migration, start Phase 1 with the migration path pre-selected.
+- If the user says `/osprey-build-interview feedback` or "I want to give feedback" → skip directly to **Phase 9b**.
+- If the user provides a path to an existing project as an argument (e.g., `/osprey-build-interview /path/to/old-project`) → treat as a migration, start Phase 1 with the migration path pre-selected.
 - Otherwise → start Phase 1 normally.
 
 ---
@@ -604,10 +604,10 @@ AskUserQuestion with options:
 - Skip this
 
 If they answer (anything except Skip):
-> "Thanks for that. When you've had a chance to build and test your project, you can come back anytime and say `/build-interview feedback` — I'll help you send quick notes to the OSPREY team. No obligation. Good luck with your project!"
+> "Thanks for that. When you've had a chance to build and test your project, you can come back anytime and say `/osprey-build-interview feedback` — I'll help you send quick notes to the OSPREY team. No obligation. Good luck with your project!"
 
 If they skip:
-> "No problem! If you ever want to send feedback later, just say `/build-interview feedback`. Good luck with your project!"
+> "No problem! If you ever want to send feedback later, just say `/osprey-build-interview feedback`. Good luck with your project!"
 
 **That's it for 9a.** No email, no follow-up. They're free to go.
 
@@ -615,7 +615,7 @@ If they skip:
 
 ### Phase 9b — Standalone Feedback (re-entry)
 
-This phase runs when the user invokes `/build-interview feedback` or says "I want to give feedback on the build interview." It may be a new session with no prior interview context.
+This phase runs when the user invokes `/osprey-build-interview feedback` or says "I want to give feedback on the build interview." It may be a new session with no prior interview context.
 
 > "Welcome back! I'll ask a couple of quick questions, then draft a short email you can send to the OSPREY team. You can skip any question."
 

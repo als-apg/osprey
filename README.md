@@ -36,14 +36,14 @@ claude
 ```
 
 For a production project tailored to your detector, beamline, or accelerator
-subsystem, install the guided build-interview skill and run it from Claude Code:
+subsystem, install the guided osprey-build-interview skill and run it from Claude Code:
 
 ```bash
-# Install the /build-interview skill into ~/.claude/skills/
-uv run osprey skills install build-interview
+# Install the /osprey-build-interview skill into ~/.claude/skills/
+uv run osprey skills install osprey-build-interview
 ```
 
-Then start Claude Code in an empty directory and type `/build-interview`. The
+Then start Claude Code in an empty directory and type `/osprey-build-interview`. The
 skill walks you through a guided conversation, produces a build profile, and
 `osprey build profile.yml` generates a ready-to-use project.
 

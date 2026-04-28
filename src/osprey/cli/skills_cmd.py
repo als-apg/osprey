@@ -6,7 +6,7 @@ editable and installed (zipped) wheel modes.
 
 The default target is ``~/.claude/skills/`` (global, available in any Claude
 Code session). With ``--target``, the skill can be installed into a specific
-``.claude/skills/`` directory — used by the build-interview skill to drop
+``.claude/skills/`` directory — used by the osprey-build-interview skill to drop
 ``osprey-build-deploy`` into a freshly generated facility profile repo.
 """
 
@@ -21,7 +21,7 @@ from pathlib import Path
 import click
 
 _SKILL_SOURCES: dict[str, str] = {
-    "build-interview": "templates/skills/build-interview",
+    "osprey-build-interview": "templates/skills/osprey-build-interview",
     "osprey-build-deploy": "templates/skills/osprey-build-deploy",
     "osprey-contribute": "templates/skills/osprey-contribute",
     "osprey-pre-commit": "templates/skills/osprey-pre-commit",
@@ -51,11 +51,11 @@ def install(name: str, target: Path | None) -> None:
 
     \b
     Currently supported skills:
-      build-interview      Author OSPREY build profiles (global)
-      osprey-build-deploy  Operate a facility profile repo's deploy pipeline
-      osprey-contribute    Walk a contributor through the GitHub Flow journey
-      osprey-pre-commit    Run quick / ci / premerge check scripts at the right gate
-      osprey-release       Cut a CalVer release: bump PR, tag, verify publish
+      osprey-build-interview  Author OSPREY build profiles (global)
+      osprey-build-deploy     Operate a facility profile repo's deploy pipeline
+      osprey-contribute       Walk a contributor through the GitHub Flow journey
+      osprey-pre-commit       Run quick / ci / premerge check scripts at the right gate
+      osprey-release          Cut a CalVer release: bump PR, tag, verify publish
 
     On an existing non-empty target, the prior content is renamed to
     <name>.bak.<YYYYMMDD-HHMMSS>/ before the new copy is written, so a

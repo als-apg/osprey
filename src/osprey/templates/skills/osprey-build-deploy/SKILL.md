@@ -23,15 +23,15 @@ description: >
   values (GitLab host, deploy server, container runtime, proxy, ports, optional
   modules) and writes them to `facility-config.yml` at the repo root; subsequent
   invocations read that config. Does NOT author build profile YAMLs — that is the
-  job of the separate `build-interview` skill (`/build-interview`). If the user wants
-  to create or edit a profile, hand off to `/build-interview` and stop.
+  job of the separate `osprey-build-interview` skill (`/osprey-build-interview`). If the user wants
+  to create or edit a profile, hand off to `/osprey-build-interview` and stop.
 ---
 
 # OSPREY Build & Deploy
 
 Deployment control plane for a facility profile repository.
 
-This skill is project-local — it lives at `<profile-repo>/.claude/skills/osprey-build-deploy/` and is installed by `/build-interview` at the end of Phase 8 (when the profile repo is generated). To refresh or re-install it later (e.g., after upgrading OSPREY), run from the profile repo root:
+This skill is project-local — it lives at `<profile-repo>/.claude/skills/osprey-build-deploy/` and is installed by `/osprey-build-interview` at the end of Phase 8 (when the profile repo is generated). To refresh or re-install it later (e.g., after upgrading OSPREY), run from the profile repo root:
 
 ```bash
 osprey skills install osprey-build-deploy --target .claude/skills/
@@ -45,10 +45,10 @@ This skill owns **deployment**, not profile authoring. The split is:
 
 | Concern | Skill | Produces / Operates on |
 |---------|-------|-----------------------|
-| Author the OSPREY build profile YAML for one assistant (signals, channels, write safety, AI provider, channel finder, archiver, dashboard) | **`build-interview`** (separate, invoked as `/build-interview`) | `build-profile/profile.yml`, channel databases, channel limits |
+| Author the OSPREY build profile YAML for one assistant (signals, channels, write safety, AI provider, channel finder, archiver, dashboard) | **`osprey-build-interview`** (separate, invoked as `/osprey-build-interview`) | `build-profile/profile.yml`, channel databases, channel limits |
 | Stand up CI/CD, deploy infra, on-server runtime; ongoing release operations | **this skill** | `docker-compose.yml`, `.gitlab-ci.yml`, `scripts/deploy.sh`, `.env.template`, container deploys, health checks |
 
-**If the user wants to create or modify a profile YAML, hand off to `/build-interview` and stop.** Do not edit profile YAMLs in this skill — that's not its job and the two skills must not overlap.
+**If the user wants to create or modify a profile YAML, hand off to `/osprey-build-interview` and stop.** Do not edit profile YAMLs in this skill — that's not its job and the two skills must not overlap.
 
 This skill **gates on a deploy interview**. The interview is the only way the skill learns site-specific values (GitLab host, deploy server, ports, which optional modules the facility wants). Once the interview has run, those values live in `facility-config.yml` at the repo root and every subsequent action reads from there. Treat that file as the authoritative source of truth — never hardcode hostnames or ports inside generated files; always derive from config.
 
@@ -92,7 +92,7 @@ If the user's intent is clear, match it to one action below and go directly. If 
 
 ### Hand off to other skills
 
-- **Author or edit a profile YAML, channel database, or channel limits** → use `/build-interview` instead. Do not handle this in this skill. Tell the user: *"Profile authoring is the job of the separate `build-interview` skill — try `/build-interview` and it will walk you through creating or updating the profile."*
+- **Author or edit a profile YAML, channel database, or channel limits** → use `/osprey-build-interview` instead. Do not handle this in this skill. Tell the user: *"Profile authoring is the job of the separate `osprey-build-interview` skill — try `/osprey-build-interview` and it will walk you through creating or updating the profile."*
 
 ### Gated on optional modules
 
@@ -192,7 +192,7 @@ These are anti-patterns the operations team learned to avoid:
 
 A "client" build produces a Claude Code project on a developer's machine that talks to the **remotely deployed MCP services** instead of running its own containers. Useful for developers who need the full assistant without standing up the whole stack locally.
 
-This is a thin wrapper around `osprey build` against a `*-client.yml` profile. The skill does **not** author the profile (use `/build-interview` for that); it documents the build + connection workflow once the profile already exists.
+This is a thin wrapper around `osprey build` against a `*-client.yml` profile. The skill does **not** author the profile (use `/osprey-build-interview` for that); it documents the build + connection workflow once the profile already exists.
 
 Prerequisites:
 - `pip install osprey-framework`
@@ -245,7 +245,7 @@ OSPREY is actively developed. When something can't be expressed through the curr
 | Scaffolding (file copy logic) | `src/osprey/cli/templates/scaffolding.py` |
 | App templates | `src/osprey/templates/apps/` |
 | Project template (single-profile build) | `src/osprey/templates/project/` |
-| Bundled skills (this skill + `build-interview`) | `src/osprey/templates/skills/` |
+| Bundled skills (this skill + `osprey-build-interview`) | `src/osprey/templates/skills/` |
 | Built-assistant Claude templates | `src/osprey/templates/claude_code/` |
 
 Workflow:
