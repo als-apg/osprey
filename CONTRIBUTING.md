@@ -43,6 +43,12 @@ ruff format --check src/ tests/
 - Open a Pull Request with a clear description
 - Address review feedback
 
+## Branch Strategy
+
+Osprey uses **GitHub Flow**: `main` is the single long-lived branch and is always the PR target. Releases are CalVer tags (`vYYYY.M.P`) on `main` — there is no separate `develop`, `release/*`, or `next` branch. Hotfixes follow the same flow: branch from the tag or from `main`, open a PR back to `main`, and tag a follow-up release.
+
+For details (CI gates, branch protection, release cuts) see the [full Contributing Guide](https://als-apg.github.io/osprey/contributing/).
+
 ## Branch Naming
 
 - `feature/description` - New features

@@ -85,9 +85,6 @@ This directory contains testing and validation scripts for the Osprey Framework 
 # Check against main branch (default)
 ./scripts/premerge_check.sh main
 
-# Check against develop branch
-./scripts/premerge_check.sh develop
-
 # Check against current branch's upstream
 ./scripts/premerge_check.sh
 ```

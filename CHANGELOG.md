@@ -11,6 +11,15 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Changed
+- **Branch strategy: adopt GitHub Flow.** The short-lived `next` integration
+  branch is retired in favour of trunk-based development on `main`. CI now
+  triggers only on `main` push/PR (the legacy GitFlow-era patterns
+  `develop`, `release-*`, `feature/**` were dead refs). Contributing docs
+  and `scripts/README.md` updated; `CONTRIBUTING.md` gains a brief Branch
+  Strategy section. Hotfixes follow the same flow: branch from the tag or
+  `main`, PR back, tag again.
+
 ## [2026.5.0] - 2026-04-29
 
 This release retires the LangGraph-based orchestration that powered Osprey
