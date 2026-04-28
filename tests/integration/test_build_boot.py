@@ -60,6 +60,7 @@ EXPECTED_TOOLS: dict[str, set[str]] = {
 # channel-finder: enumerated dynamically since which backend is enabled
 # (hierarchical | in_context | middle_layer) depends on preset config.
 
+
 # Forbidden path fragments in any rendered command/args/env value. Catches
 # the worktree-rename bug class: any reference to a host source-tree path
 # (where the repo lives) means the build wired itself up to outside-the-
@@ -200,8 +201,7 @@ def test_build_paths_are_self_consistent(build_outputs: dict[str, Path], preset:
                     failures.append(f"{name}: env {k}={v} references host source path")
 
     assert not failures, (
-        f".mcp.json for preset {preset!r} has stale or escaping paths:\n  "
-        + "\n  ".join(failures)
+        f".mcp.json for preset {preset!r} has stale or escaping paths:\n  " + "\n  ".join(failures)
     )
 
 
@@ -223,7 +223,7 @@ def test_stale_command_path_fails_fast(
     assert servers, f".mcp.json has no servers for preset {preset}"
 
     saw_stdio = False
-    for name, entry in servers.items():
+    for _name, entry in servers.items():
         if "url" in entry or "command" not in entry:
             continue
         saw_stdio = True
@@ -239,9 +239,7 @@ def test_stale_command_path_fails_fast(
 
 
 @pytest.mark.parametrize("preset", PRESETS)
-def test_mcp_servers_register_expected_tools(
-    build_outputs: dict[str, Path], preset: str
-) -> None:
+def test_mcp_servers_register_expected_tools(build_outputs: dict[str, Path], preset: str) -> None:
     """Spawn every stdio MCP server and verify it advertises the documented tools."""
     project_dir = build_outputs[preset]
     cfg = _load_mcp_json(project_dir)
@@ -347,8 +345,7 @@ def test_skip_deps_command_resolves_importable_python(
         )
         if probe.returncode != 0:
             failures.append(
-                f"{name}: command {cmd!r} cannot import osprey:\n"
-                f"  stderr: {probe.stderr.strip()}"
+                f"{name}: command {cmd!r} cannot import osprey:\n  stderr: {probe.stderr.strip()}"
             )
 
     assert not failures, (

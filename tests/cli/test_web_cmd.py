@@ -101,10 +101,13 @@ def test_wait_for_server_early_crash():
 # -- detach -----------------------------------------------------------------
 
 
+@patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/bin/fake-claude")
 @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
 @patch("osprey.cli.web_cmd.subprocess.Popen")
 @patch("osprey.cli.web_cmd.get_config_value", return_value={})
-def test_detach_spawns_subprocess(mock_config, mock_popen, mock_wait, tmp_path, runner):
+def test_detach_spawns_subprocess(
+    mock_config, mock_popen, mock_wait, mock_resolve, tmp_path, runner
+):
     mock_proc = MagicMock()
     mock_proc.pid = 12345
     mock_popen.return_value = mock_proc
@@ -118,10 +121,11 @@ def test_detach_spawns_subprocess(mock_config, mock_popen, mock_wait, tmp_path, 
     assert call_kwargs.kwargs["start_new_session"] is True
 
 
+@patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/bin/fake-claude")
 @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
 @patch("osprey.cli.web_cmd.subprocess.Popen")
 @patch("osprey.cli.web_cmd.get_config_value", return_value={})
-def test_detach_writes_pid_file(mock_config, mock_popen, mock_wait, tmp_path, runner):
+def test_detach_writes_pid_file(mock_config, mock_popen, mock_wait, mock_resolve, tmp_path, runner):
     mock_proc = MagicMock()
     mock_proc.pid = 12345
     mock_popen.return_value = mock_proc
@@ -134,9 +138,10 @@ def test_detach_writes_pid_file(mock_config, mock_popen, mock_wait, tmp_path, ru
     assert pid_content == "12345"
 
 
+@patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/bin/fake-claude")
 @patch("osprey.cli.web_cmd._read_pid", return_value=99999)
 @patch("osprey.cli.web_cmd.get_config_value", return_value={})
-def test_detach_idempotent_when_running(mock_config, mock_read_pid, runner, tmp_path):
+def test_detach_idempotent_when_running(mock_config, mock_read_pid, mock_resolve, runner, tmp_path):
     with runner.isolated_filesystem(temp_dir=tmp_path):
         result = runner.invoke(web, ["--detach"])
 
@@ -144,10 +149,13 @@ def test_detach_idempotent_when_running(mock_config, mock_read_pid, runner, tmp_
     assert "already running" in result.output
 
 
+@patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/bin/fake-claude")
 @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
 @patch("osprey.cli.web_cmd.subprocess.Popen")
 @patch("osprey.cli.web_cmd.get_config_value", return_value={})
-def test_detach_cleans_stale_pid(mock_config, mock_popen, mock_wait, tmp_path, runner):
+def test_detach_cleans_stale_pid(
+    mock_config, mock_popen, mock_wait, mock_resolve, tmp_path, runner
+):
     mock_proc = MagicMock()
     mock_proc.pid = 55555
     mock_popen.return_value = mock_proc
@@ -165,10 +173,13 @@ def test_detach_cleans_stale_pid(mock_config, mock_popen, mock_wait, tmp_path, r
     mock_popen.assert_called_once()
 
 
+@patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/bin/fake-claude")
 @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
 @patch("osprey.cli.web_cmd.subprocess.Popen")
 @patch("osprey.cli.web_cmd.get_config_value", return_value={})
-def test_detach_shows_url_and_pid(mock_config, mock_popen, mock_wait, tmp_path, runner):
+def test_detach_shows_url_and_pid(
+    mock_config, mock_popen, mock_wait, mock_resolve, tmp_path, runner
+):
     mock_proc = MagicMock()
     mock_proc.pid = 12345
     mock_popen.return_value = mock_proc
