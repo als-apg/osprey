@@ -11,6 +11,24 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Added
+- **`osprey-contribute` skill.** A new installable skill that walks
+  contributors through the GitHub Flow contribution journey end-to-end:
+  orient → branch → commit → push → PR → watch CI → merge. Auto-detects
+  internal vs fork mode from `git remote -v`. Four hard blocks codify the
+  protected-branch reality (no commits to `main`, `quick_check.sh` before
+  commit, `ci_check.sh` before push, `premerge_check.sh main` before PR);
+  soft prompts handle branch-prefix and conventional-commit conventions.
+  Composes with `osprey-pre-commit`, `commit-organize`, and `osprey-release`.
+  Install with `osprey skills install osprey-contribute`.
+- **`osprey-pre-commit` skill promoted to dual-distribution.** Previously a
+  local-only skill at `.claude/skills/pre-commit/` (gitignored), now lives
+  under `src/osprey/templates/skills/osprey-pre-commit/` and is installable
+  via `osprey skills install osprey-pre-commit`. The original SKILL.md +
+  separate `instructions.md` (with a broken relative path link) has been
+  collapsed into a single self-contained SKILL.md focused on the three
+  check tiers (`quick_check.sh`, `ci_check.sh`, `premerge_check.sh main`).
+
 ### Changed
 - **Branch strategy: adopt GitHub Flow.** The short-lived `next` integration
   branch is retired in favour of trunk-based development on `main`. CI now
@@ -19,6 +37,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   and `scripts/README.md` updated; `CONTRIBUTING.md` gains a brief Branch
   Strategy section. Hotfixes follow the same flow: branch from the tag or
   `main`, PR back, tag again.
+- **`osprey-release` skill rewritten for the new flow.** Collapsed from a
+  ~96-line SKILL.md plus a stale 412-line `instructions.md` into a single
+  ~230-line SKILL.md. The version-bump is now a PR (direct push to `main`
+  is rejected by branch protection); examples switched from SemVer to
+  CalVer; the version-file table tracks Hatch's dynamic-version setup
+  (`pyproject.toml` reads from `src/osprey/__init__.py`, no manual edit
+  needed). Now installable via `osprey skills install osprey-release`.
 
 ## [2026.5.0] - 2026-04-29
 
