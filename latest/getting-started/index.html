@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Getting Started &#8212; Osprey Framework 0.11.5 documentation</title>
+    <title>Getting Started &#8212; Osprey Framework 2026.5.0 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../_static/documentation_options.js?v=955835e8"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,11 +53,10 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.5.0';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             false;
         </script>
-    <script src="../_static/js/execution_plan_viewer.js?v=09b61639"></script>
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
@@ -66,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+    <meta name="docbuild:last-update" content="Apr 28, 2026"/>
   </head>
   
   
@@ -150,22 +149,15 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../developer-guides/index.html">
-    Developer Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../api_reference/index.html">
-    API Reference
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../example-applications/index.html">
-    Example Applications
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
@@ -293,22 +285,15 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../developer-guides/index.html">
-    Developer Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../api_reference/index.html">
-    API Reference
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../example-applications/index.html">
-    Example Applications
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
@@ -386,13 +371,8 @@
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation &amp; Setup</a></li>
 <li class="toctree-l1"><a class="reference internal" href="conceptual-tutorial.html">Conceptual Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hello-world-tutorial.html">Hello World Tutorial</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="control-assistant.html">Production Control Systems Tutorial</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="control-assistant-part1-setup.html">Part 1: Getting Started</a></li>
-<li class="toctree-l2"><a class="reference internal" href="control-assistant-part2-channel-finder.html">Part 2: Building Your Channel Finder</a></li>
-<li class="toctree-l2"><a class="reference internal" href="control-assistant-part3-production.html">Part 3: Integration &amp; Deployment</a></li>
-<li class="toctree-l2"><a class="reference internal" href="control-assistant-part4-customization.html">Part 4: Customization &amp; Extension</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="build-interview.html">Guided Project Setup (Build Interview)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="control-assistant.html">Production Control Systems Tutorial</a></li>
 </ul>
 </div>
 </nav></div>
@@ -503,13 +483,13 @@ Prepared mind for your Osprey journey</p>
 </div>
 </div>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
-<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-3 sd-row-cols-lg-3 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
+<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-🌤️ 2. Hello World</div>
-<p class="sd-card-text">Build a weather agent with natural language queries and mock API integration.</p>
+🔧 2. Hello World</div>
+<p class="sd-card-text">Build your first agent with a mock control system — one MCP server, zero complexity.</p>
 <p class="sd-card-text"><strong>Outcome:</strong>
 Your first working agent</p>
 </div>
@@ -519,7 +499,18 @@ Your first working agent</p>
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-🎛️ 3. Control Systems</div>
+🎯 3. Guided Build Interview</div>
+<p class="sd-card-text">Generate a project profile for your own detector, beamline, or accelerator subsystem through a guided conversation.</p>
+<p class="sd-card-text"><strong>Outcome:</strong>
+A tailored project for your facility</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="build-interview.html"><span class="doc">Guided Project Setup (Build Interview)</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+🎛️ 4. Control Systems</div>
 <p class="sd-card-text">Production control system patterns with channel finding pipelines and comprehensive tooling.</p>
 <p class="sd-card-text"><strong>Outcome:</strong>
 Enterprise integration patterns</p>
@@ -530,12 +521,12 @@ Enterprise integration patterns</p>
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-💡 4. Explore Examples</div>
-<p class="sd-card-text">See production applications like ALS Assistant for advanced patterns.</p>
+💡 5. How-To Guides</div>
+<p class="sd-card-text">Task-oriented guides for connectors, MCP servers, providers, and more.</p>
 <p class="sd-card-text"><strong>Outcome:</strong>
-Real-world inspiration</p>
+Practical recipes</p>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="../example-applications/index.html"><span class="doc">Example Applications</span></a></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="../how-to/index.html"><span class="doc">How-To Guides</span></a></div>
 </div>
 </div>
 </div>
@@ -545,23 +536,12 @@ Real-world inspiration</p>
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-⚡ 5. Framework Mastery</div>
-<p class="sd-card-text">Master essential development patterns: capabilities, state management, and testing workflows.</p>
+⚡ 5. Architecture</div>
+<p class="sd-card-text">Understand the Claude Code + MCP architecture, data flow, and key concepts.</p>
 <p class="sd-card-text"><strong>Outcome:</strong>
-Framework expertise</p>
+Architecture understanding</p>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="../developer-guides/02_quick-start-patterns/index.html"><span class="doc">Quick Start Patterns</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-📚 6. API Reference</div>
-<p class="sd-card-text">Complete method documentation, parameters, and return values for daily development.</p>
-<p class="sd-card-text"><strong>Outcome:</strong>
-Development reference</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="../api_reference/index.html"><span class="doc">API Reference</span></a></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="../architecture/index.html"><span class="doc">Architecture Overview</span></a></div>
 </div>
 </div>
 </div>
@@ -663,7 +643,7 @@ Development reference</p>
 
   <p class="copyright">
     
-      © Copyright 2025, Osprey Developer Team.
+      © Copyright 2026, Osprey Developer Team.
       <br/>
     
   </p>

@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Contributing to Osprey &#8212; Osprey Framework 0.11.5 documentation</title>
+    <title>Contributing to Osprey &#8212; Osprey Framework 2026.5.0 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../_static/documentation_options.js?v=955835e8"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,20 +53,18 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.5.0';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             false;
         </script>
-    <script src="../_static/js/execution_plan_viewer.js?v=09b61639"></script>
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Git and GitHub Workflow" href="01_git-and-github.html" />
-    <link rel="prev" title="ALS Accelerator Assistant" href="../example-applications/als-assistant.html" />
+    <link rel="prev" title="CLI Reference" href="../cli-reference/index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+    <meta name="docbuild:last-update" content="Apr 28, 2026"/>
   </head>
   
   
@@ -150,22 +148,15 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../developer-guides/index.html">
-    Developer Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../api_reference/index.html">
-    API Reference
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../example-applications/index.html">
-    Example Applications
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
@@ -293,22 +284,15 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../developer-guides/index.html">
-    Developer Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../api_reference/index.html">
-    API Reference
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../example-applications/index.html">
-    Example Applications
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
@@ -382,13 +366,7 @@
 <nav class="bd-docs-nav bd-links"
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
-  <div class="bd-toc-item navbar-nav"><ul class="nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="01_git-and-github.html">Git and GitHub Workflow</a></li>
-<li class="toctree-l1"><a class="reference internal" href="02_code-standards.html">Code Standards</a></li>
-<li class="toctree-l1"><a class="reference internal" href="03_ai-assisted-development.html">AI-Assisted Development</a></li>
-<li class="toctree-l1"><a class="reference internal" href="04_community.html">Community Guidelines</a></li>
-</ul>
-</div>
+  <div class="bd-toc-item navbar-nav"></div>
 </nav></div>
     </div>
   
@@ -446,159 +424,219 @@
                   
   <section id="contributing-to-osprey">
 <h1>Contributing to Osprey<a class="headerlink" href="#contributing-to-osprey" title="Link to this heading">#</a></h1>
-<p>Thank you for your interest in contributing to the Osprey Framework!</p>
-<p>This guide will help you get set up and ready to contribute. Whether you’re fixing a bug, adding a feature, or improving documentation, we’re excited to have you here.</p>
-<hr class="docutils" />
-<section id="contributing-guide">
-<h2>Contributing Guide<a class="headerlink" href="#contributing-guide" title="Link to this heading">#</a></h2>
-<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
-<div class="sd-row sd-row-cols-2 sd-row-cols-xs-2 sd-row-cols-sm-2 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-🔄 Git &amp; GitHub Workflow</div>
-<p class="sd-card-text">Learn branching conventions, commit messages, and the PR process.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="01_git-and-github.html"><span class="doc">Git and GitHub Workflow</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-📋 Code Standards</div>
-<p class="sd-card-text">Python style guide, testing requirements, and linting setup.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="02_code-standards.html"><span class="doc">Code Standards</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-🤖 AI-Assisted Development</div>
-<p class="sd-card-text">Structured workflows designed for AI coding assistants.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="03_ai-assisted-development.html"><span class="doc">AI-Assisted Development</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-🤝 Community Guidelines</div>
-<p class="sd-card-text">Code of conduct, reporting bugs, and getting help.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="04_community.html"><span class="doc">Community Guidelines</span></a></div>
-</div>
-</div>
-</div>
-</section>
+<p>Thank you for your interest in contributing to the Osprey Framework. This guide covers environment setup, Git workflow, code standards, and community guidelines.</p>
 <hr class="docutils" />
 <section id="environment-setup">
 <h2>Environment Setup<a class="headerlink" href="#environment-setup" title="Link to this heading">#</a></h2>
-<p>Before you can contribute, you’ll need to set up your local development environment. This process takes about 5-10 minutes for first-time setup.</p>
-<p><strong>Prerequisites:</strong></p>
-<ul class="simple">
-<li><p>Python 3.11 or 3.12</p></li>
-<li><p>Git for version control</p></li>
-<li><p>A GitHub account</p></li>
-</ul>
+<p><strong>Prerequisites:</strong> Python 3.11+, Git, a GitHub account, and <a class="reference external" href="https://docs.astral.sh/uv/">uv</a>.</p>
 <p><strong>1. Fork and Clone</strong></p>
-<p>First, fork the Osprey repository on GitHub, then clone your fork locally:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/YOUR-USERNAME/osprey.git
 <span class="nb">cd</span><span class="w"> </span>osprey
 </pre></div>
 </div>
-<p><strong>2. Create Virtual Environment</strong></p>
-<p>We strongly recommend using a virtual environment to isolate dependencies:</p>
-<div class="sd-tab-set docutils">
-<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-0">
-uv (Recommended)</label><div class="sd-tab-content docutils">
-<p><a class="reference external" href="https://docs.astral.sh/uv/">uv</a> is a fast Python package manager that handles virtual environments automatically:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># uv creates and manages the .venv automatically</span>
-uv<span class="w"> </span>venv
-<span class="c1"># uv will auto-activate in commands, or:</span>
-<span class="nb">source</span><span class="w"> </span>.venv/bin/activate
+<p><strong>2. Install Dependencies</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install all dev and docs dependencies (creates .venv automatically)</span>
+uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>docs
+
+<span class="c1"># Add a new dependency</span>
+uv<span class="w"> </span>add<span class="w"> </span>&lt;package&gt;
 </pre></div>
 </div>
-</div>
-<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-1">
-pip (Traditional)</label><div class="sd-tab-content docutils">
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3.11<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>venv
-<span class="nb">source</span><span class="w"> </span>venv/bin/activate<span class="w">  </span><span class="c1"># macOS/Linux</span>
-<span class="c1"># or: venv\Scripts\activate  # Windows</span>
+<p><strong>3. Set Up Pre-commit Hooks</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pre-commit<span class="w"> </span>install
 </pre></div>
 </div>
-</div>
-</div>
-<p><strong>3. Install Dependencies</strong></p>
-<p>Install Osprey in development mode with all development and documentation dependencies:</p>
-<div class="sd-tab-set docutils">
-<input checked="checked" id="sd-tab-item-2" name="sd-tab-set-1" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-2">
-uv (Recommended)</label><div class="sd-tab-content docutils">
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>docs
-</pre></div>
-</div>
-</div>
-<input id="sd-tab-item-3" name="sd-tab-set-1" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-3">
-pip (Traditional)</label><div class="sd-tab-content docutils">
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>pip
-pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[dev,docs]&quot;</span>
-</pre></div>
-</div>
-</div>
-</div>
-<p>This installs the framework in “editable” mode, meaning changes you make to the source code are immediately available.</p>
+<p>Hooks auto-fix formatting and prevent commits with common problems.</p>
 <p><strong>4. Verify Installation</strong></p>
-<p>Run the test suite to make sure everything is working:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>--ignore<span class="o">=</span>tests/e2e<span class="w"> </span>-v
-<span class="c1"># or with pip:</span>
-pytest<span class="w"> </span>tests/<span class="w"> </span>--ignore<span class="o">=</span>tests/e2e<span class="w"> </span>-v
 </pre></div>
 </div>
-<p>If all tests pass, you’re ready to start contributing!</p>
+<p>If all tests pass, you are ready to contribute.</p>
 </section>
 <hr class="docutils" />
-<section id="quick-reference">
-<h2>Quick Reference<a class="headerlink" href="#quick-reference" title="Link to this heading">#</a></h2>
-<p><strong>Common Commands:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run tests</span>
+<section id="git-and-github-workflow">
+<h2>Git and GitHub Workflow<a class="headerlink" href="#git-and-github-workflow" title="Link to this heading">#</a></h2>
+<section id="branch-naming">
+<h3>Branch Naming<a class="headerlink" href="#branch-naming" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">feature/description</span></code> – New features</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">fix/description</span></code> – Bug fixes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">docs/description</span></code> – Documentation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">refactor/description</span></code> – Code refactoring</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">test/description</span></code> – Test improvements</p></li>
+</ul>
+</section>
+<section id="making-changes">
+<h3>Making Changes<a class="headerlink" href="#making-changes" title="Link to this heading">#</a></h3>
+<p><strong>1. Create a branch:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>checkout<span class="w"> </span>-b<span class="w"> </span>feature/your-feature-name
+</pre></div>
+</div>
+<p><strong>2. Make changes</strong> – follow the code standards below, add tests, update docs.</p>
+<p><strong>3. Test locally</strong> using the three-tier system:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Tier 1: Quick check (&lt; 30s) -- before every commit</span>
+./scripts/quick_check.sh
+
+<span class="c1"># Tier 2: Full CI check (2-3 min) -- before pushing</span>
+./scripts/ci_check.sh
+
+<span class="c1"># Tier 3: Pre-merge check -- before creating a PR</span>
+./scripts/premerge_check.sh<span class="w"> </span>main
+</pre></div>
+</div>
+<p><strong>4. Commit changes</strong> using conventional commit format:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>add<span class="w"> </span>.
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat(scope): short description</span>
+
+<span class="s2">- Detail about what changed</span>
+<span class="s2">- Another detail&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="commit-message-format">
+<h3>Commit Message Format<a class="headerlink" href="#commit-message-format" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">feat:</span></code> – New features</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">fix:</span></code> – Bug fixes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">docs:</span></code> – Documentation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">refactor:</span></code> – Code refactoring</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">test:</span></code> – Tests</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">chore:</span></code> – Dependencies, build</p></li>
+</ul>
+<p>Every commit needs a corresponding CHANGELOG entry added <strong>before</strong> committing.</p>
+</section>
+<section id="pull-request-process">
+<h3>Pull Request Process<a class="headerlink" href="#pull-request-process" title="Link to this heading">#</a></h3>
+<ol class="arabic simple">
+<li><p>Push your branch: <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">push</span> <span class="pre">origin</span> <span class="pre">feature/your-feature-name</span></code></p></li>
+<li><p>Open a PR on GitHub with a description, related issues, and testing performed.</p></li>
+<li><p>PR requirements: pass all CI checks, receive maintainer approval, include CHANGELOG entries, have appropriate tests.</p></li>
+<li><p>During review: respond to feedback promptly, make requested changes, ask questions if unclear.</p></li>
+</ol>
+</section>
+</section>
+<hr class="docutils" />
+<section id="code-standards">
+<h2>Code Standards<a class="headerlink" href="#code-standards" title="Link to this heading">#</a></h2>
+<section id="python-style">
+<h3>Python Style<a class="headerlink" href="#python-style" title="Link to this heading">#</a></h3>
+<p>We follow PEP 8 with Ruff enforcement:</p>
+<ul class="simple">
+<li><p><strong>Line length</strong>: 100 characters</p></li>
+<li><p><strong>Type hints</strong>: Gradual typing enforced with mypy</p></li>
+<li><p><strong>Docstrings</strong>: Google style</p></li>
+<li><p><strong>Classes</strong>: PascalCase, <strong>Functions</strong>: snake_case, <strong>Constants</strong>: UPPER_SNAKE_CASE</p></li>
+</ul>
+<p><strong>Import organization:</strong> standard library, then third-party, then local (<code class="docutils literal notranslate"><span class="pre">from</span> <span class="pre">osprey...</span></code>).</p>
+</section>
+<section id="linting-and-formatting">
+<h3>Linting and Formatting<a class="headerlink" href="#linting-and-formatting" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Lint and format</span>
+uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>src/<span class="w"> </span>tests/
+uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>format<span class="w"> </span>src/<span class="w"> </span>tests/
+
+<span class="c1"># Auto-fix lint issues</span>
+uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>--fix<span class="w"> </span>src/<span class="w"> </span>tests/
+
+<span class="c1"># Type checking</span>
+uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w"> </span>src/
+</pre></div>
+</div>
+</section>
+<section id="testing">
+<h3>Testing<a class="headerlink" href="#testing" title="Link to this heading">#</a></h3>
+<p>All new functionality must include tests.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 40.0%" />
+<col style="width: 40.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Type</p></th>
+<th class="head"><p>When to Use</p></th>
+<th class="head"><p>Cost/Speed</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Unit</strong></p></td>
+<td><p>Pure functions, business logic, utilities</p></td>
+<td><p>Fast, no external dependencies</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Integration</strong></p></td>
+<td><p>Component interactions, API endpoints</p></td>
+<td><p>Medium</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>E2E</strong></p></td>
+<td><p>Critical user flows, deployment validation</p></td>
+<td><p>Slow, requires API keys ($0.10-$0.25/run)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Running tests:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Unit tests (fast, no API keys required)</span>
 uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>--ignore<span class="o">=</span>tests/e2e<span class="w"> </span>-v
 
-<span class="c1"># Check code style</span>
-uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>src/<span class="w"> </span>tests/
+<span class="c1"># Single test file</span>
+uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/path/to/test_file.py<span class="w"> </span>-v
 
-<span class="c1"># Pre-commit check</span>
-./scripts/premerge_check.sh
+<span class="c1"># Single test function</span>
+uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/path/to/test_file.py::test_function_name<span class="w"> </span>-v
 
-<span class="c1"># Build documentation</span>
-<span class="nb">cd</span><span class="w"> </span>docs<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>sphinx-autobuild<span class="w"> </span><span class="nb">source</span><span class="w"> </span>build
+<span class="c1"># E2E tests (requires API keys) -- MUST use path, NOT marker</span>
+uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/e2e/<span class="w"> </span>-v
+
+<span class="c1"># With coverage</span>
+uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>--ignore<span class="o">=</span>tests/e2e<span class="w"> </span>--cov<span class="o">=</span>src/osprey
 </pre></div>
 </div>
-<p><strong>Before Every Commit:</strong></p>
-<ul class="simple">
-<li><p>Run <code class="docutils literal notranslate"><span class="pre">./scripts/premerge_check.sh</span></code> to catch common issues</p></li>
-<li><p>Follow conventional commit format (<code class="docutils literal notranslate"><span class="pre">feat:</span></code>, <code class="docutils literal notranslate"><span class="pre">fix:</span></code>, <code class="docutils literal notranslate"><span class="pre">docs:</span></code>, etc.)</p></li>
-<li><p>Add a CHANGELOG entry</p></li>
-<li><p>Ensure tests pass</p></li>
-</ul>
-<p>See the guide cards above for detailed workflows and standards.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>E2E tests <strong>must</strong> be run with <code class="docutils literal notranslate"><span class="pre">pytest</span> <span class="pre">tests/e2e/</span></code> not <code class="docutils literal notranslate"><span class="pre">pytest</span> <span class="pre">-m</span> <span class="pre">e2e</span></code>.
+The marker-based approach causes registry state leaks and service conflicts.</p>
+</div>
+</section>
+<section id="docstrings">
+<h3>Docstrings<a class="headerlink" href="#docstrings" title="Link to this heading">#</a></h3>
+<p>All public functions, classes, and methods need Google-style docstrings:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">capability_function</span><span class="p">(</span><span class="n">param1</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">param2</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Short description of function.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        param1: Description of first parameter.</span>
+<span class="sd">        param2: Description of second parameter.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Description of return value.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: When parameter is invalid.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+</pre></div>
+</div>
+</section>
 </section>
 <hr class="docutils" />
+<section id="community-guidelines">
+<h2>Community Guidelines<a class="headerlink" href="#community-guidelines" title="Link to this heading">#</a></h2>
+<p><strong>Code of Conduct</strong>: We are committed to a welcoming and inclusive environment. Be respectful, welcome newcomers, accept constructive criticism, and show empathy. Harassment, personal attacks, trolling, or publishing private information are unacceptable. Report issues to the maintainers; all reports are handled confidentially.</p>
+<p><strong>Communication Channels:</strong></p>
+<ul class="simple">
+<li><p><strong>GitHub Issues</strong> – Bug reports, feature requests, task tracking</p></li>
+<li><p><strong>GitHub Discussions</strong> – Questions, ideas, brainstorming</p></li>
+<li><p><strong>Pull Requests</strong> – Code contributions, documentation, code review</p></li>
+</ul>
+<p><strong>Reporting Bugs</strong>: Search existing issues first, then open a bug report with a clear description, reproduction steps, environment details (OS, Python version, Osprey version), and full error messages.</p>
+<p><strong>Feature Requests</strong>: Describe your use case, current limitations, proposed solution, and alternatives considered.</p>
+<p><strong>Response Expectations</strong>: Maintainers are volunteers. Please be patient and provide clear, detailed information.</p>
+</section>
 <section id="getting-help">
 <h2>Getting Help<a class="headerlink" href="#getting-help" title="Link to this heading">#</a></h2>
-<p><strong>Stuck? Have questions?</strong></p>
 <ul class="simple">
-<li><p><a class="reference external" href="https://github.com/als-apg/osprey/discussions">GitHub Discussions</a> - Ask questions, share ideas, get help from the community</p></li>
-<li><p><a class="reference external" href="https://github.com/als-apg/osprey/issues">GitHub Issues</a> - Report bugs, request features</p></li>
-<li><p><a class="reference internal" href="../developer-guides/index.html"><span class="doc">Developer Guides</span></a> - Deep technical documentation on framework architecture</p></li>
-<li><p><a class="reference internal" href="04_community.html"><span class="doc">Community Guidelines</span></a> - Community guidelines and code of conduct</p></li>
+<li><p><a class="reference external" href="https://github.com/als-apg/osprey/discussions">GitHub Discussions</a> – Ask questions, share ideas</p></li>
+<li><p><a class="reference external" href="https://github.com/als-apg/osprey/issues">GitHub Issues</a> – Report bugs, request features</p></li>
 </ul>
-<div class="toctree-wrapper compound">
-</div>
 </section>
 </section>
 
@@ -613,22 +651,13 @@ uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="../example-applications/als-assistant.html"
+       href="../cli-reference/index.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">ALS Accelerator Assistant</p>
+        <p class="prev-next-title">CLI Reference</p>
       </div>
-    </a>
-    <a class="right-next"
-       href="01_git-and-github.html"
-       title="next page">
-      <div class="prev-next-info">
-        <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Git and GitHub Workflow</p>
-      </div>
-      <i class="fa-solid fa-angle-right"></i>
     </a>
 </div>
                 </footer>
@@ -649,9 +678,22 @@ uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contributing-guide">Contributing Guide</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-setup">Environment Setup</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-reference">Quick Reference</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#git-and-github-workflow">Git and GitHub Workflow</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#branch-naming">Branch Naming</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#making-changes">Making Changes</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#commit-message-format">Commit Message Format</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pull-request-process">Pull Request Process</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#code-standards">Code Standards</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#python-style">Python Style</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#linting-and-formatting">Linting and Formatting</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#testing">Testing</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#docstrings">Docstrings</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#community-guidelines">Community Guidelines</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#getting-help">Getting Help</a></li>
 </ul>
   </nav></div>
@@ -697,7 +739,7 @@ uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span
 
   <p class="copyright">
     
-      © Copyright 2025, Osprey Developer Team.
+      © Copyright 2026, Osprey Developer Team.
       <br/>
     
   </p>

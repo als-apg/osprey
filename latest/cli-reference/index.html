@@ -1,0 +1,960 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>CLI Reference &#8212; Osprey Framework 2026.5.0 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=955835e8"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'cli-reference/index';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.5.0';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Contributing to Osprey" href="../contributing/index.html" />
+    <link rel="prev" title="Osprey Integration" href="../how-to/ariel/osprey-integration.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Apr 28, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../how-to/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/use-web-terminal.html">Use the Web Terminal</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/use-cli-chat.html">Use the CLI Chat Interface</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/add-connector.html">Control System Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../how-to/ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../how-to/ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-to/ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-to/ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-to/ariel/osprey-integration.html">Osprey Integration</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">CLI Reference</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../how-to/index.html" class="nav-link">How-To Guides</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">CLI Reference</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="cli-reference">
+<h1>CLI Reference<a class="headerlink" href="#cli-reference" title="Link to this heading">#</a></h1>
+<p>Complete reference for all Osprey Framework CLI commands.</p>
+<p><strong>Prerequisites:</strong> Framework installed (<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span></code>)</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
+<p>All commands are accessed through the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> command. Running <code class="docutils literal notranslate"><span class="pre">osprey</span></code>
+without arguments launches an interactive TUI menu.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w">                    </span><span class="c1"># Launch interactive menu</span>
+osprey<span class="w"> </span>--version<span class="w">          </span><span class="c1"># Show framework version</span>
+osprey<span class="w"> </span>build<span class="w"> </span>PROJECT<span class="w">      </span><span class="c1"># Build project from preset or profile</span>
+osprey<span class="w"> </span>config<span class="w">             </span><span class="c1"># Manage configuration</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>COMMAND<span class="w">     </span><span class="c1"># Manage services</span>
+osprey<span class="w"> </span>health<span class="w">             </span><span class="c1"># Check system health</span>
+osprey<span class="w"> </span>channel-finder<span class="w">     </span><span class="c1"># Channel finder CLI</span>
+osprey<span class="w"> </span>claude<span class="w">             </span><span class="c1"># Manage Claude Code integration</span>
+osprey<span class="w"> </span>eject<span class="w">              </span><span class="c1"># Copy framework components for customization</span>
+osprey<span class="w"> </span>ariel<span class="w">              </span><span class="c1"># ARIEL logbook search service</span>
+osprey<span class="w"> </span>artifacts<span class="w">          </span><span class="c1"># Artifact gallery</span>
+osprey<span class="w"> </span>web<span class="w">                </span><span class="c1"># Launch web terminal</span>
+osprey<span class="w"> </span>prompts<span class="w">            </span><span class="c1"># Prompt artifact overrides</span>
+osprey<span class="w"> </span>audit<span class="w">              </span><span class="c1"># Audit project or profile safety</span>
+osprey<span class="w"> </span>skills<span class="w">             </span><span class="c1"># Manage bundled Osprey skills</span>
+osprey<span class="w"> </span>vendor<span class="w">             </span><span class="c1"># Manage locally bundled vendor assets</span>
+</pre></div>
+</div>
+</section>
+<section id="global-options">
+<h2>Global Options<a class="headerlink" href="#global-options" title="Link to this heading">#</a></h2>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">--version</span></code></dt><dd><p>Show framework version and exit.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">--help</span></code></dt><dd><p>Show help for any command (e.g., <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">--help</span></code>).</p>
+</dd>
+</dl>
+</section>
+<section id="osprey-config">
+<h2>osprey config<a class="headerlink" href="#osprey-config" title="Link to this heading">#</a></h2>
+<p>Manage project configuration. Interactive menu if no subcommand is given.</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">config</span> <span class="pre">show</span> <span class="pre">[--project</span> <span class="pre">PATH]</span> <span class="pre">[--format</span> <span class="pre">yaml|json]</span></code></dt><dd><p>Display current project configuration.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">config</span> <span class="pre">export</span> <span class="pre">[--output</span> <span class="pre">PATH]</span> <span class="pre">[--format</span> <span class="pre">yaml|json]</span></code></dt><dd><p>Export framework default configuration template.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">config</span> <span class="pre">set-control-system</span> <span class="pre">SYSTEM_TYPE</span> <span class="pre">[--project</span> <span class="pre">PATH]</span></code></dt><dd><p>Switch connector: <code class="docutils literal notranslate"><span class="pre">mock</span></code>, <code class="docutils literal notranslate"><span class="pre">epics</span></code>, <code class="docutils literal notranslate"><span class="pre">tango</span></code>, <code class="docutils literal notranslate"><span class="pre">labview</span></code>.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">config</span> <span class="pre">set-epics-gateway</span> <span class="pre">[--facility</span> <span class="pre">als|aps|custom]</span> <span class="pre">[--address]</span> <span class="pre">[--port]</span></code></dt><dd><p>Configure EPICS gateway using facility presets or custom values.</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>config<span class="w"> </span>show
+osprey<span class="w"> </span>config<span class="w"> </span>set-control-system<span class="w"> </span>epics
+</pre></div>
+</div>
+</section>
+<section id="osprey-build">
+<h2>osprey build<a class="headerlink" href="#osprey-build" title="Link to this heading">#</a></h2>
+<p>Build a facility-specific assistant from a bundled preset or a YAML profile.
+See <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>PROJECT_NAME<span class="w"> </span><span class="o">[</span>PROFILE<span class="o">]</span><span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--preset</span> <span class="pre">NAME</span></code> — Use a bundled preset (mutually exclusive with positional
+<code class="docutils literal notranslate"><span class="pre">PROFILE</span></code>). Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--list-presets</span></code> to see available names.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-O,</span> <span class="pre">--override</span> <span class="pre">PATH</span></code> — Layer a YAML file on top of the base preset/profile
+(repeatable, in order).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">KEY.PATH=VALUE</span></code> — Inline scalar/list override (repeatable). RHS is
+parsed as YAML so <code class="docutils literal notranslate"><span class="pre">true</span></code>, <code class="docutils literal notranslate"><span class="pre">[a,b]</span></code>, and bare ints/floats are typed.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--list-presets</span></code> — Print bundled preset names and exit.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-o,</span> <span class="pre">--output-dir</span> <span class="pre">PATH</span></code> — Output directory (default: current directory).</p>
+<p><code class="docutils literal notranslate"><span class="pre">-f,</span> <span class="pre">--force</span></code> — Overwrite existing project directory.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-s,</span> <span class="pre">--stream</span></code> — Stream build step output in real time.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-agent<span class="w"> </span>--preset<span class="w"> </span>hello-world
+osprey<span class="w"> </span>build<span class="w"> </span>als-test<span class="w"> </span>~/profiles/als-dev.yml<span class="w"> </span>--force
+osprey<span class="w"> </span>build<span class="w"> </span>edu<span class="w"> </span>--preset<span class="w"> </span>education<span class="w"> </span>-O<span class="w"> </span>overrides.yml<span class="w"> </span>--set<span class="w"> </span><span class="nv">model</span><span class="o">=</span>claude-sonnet-4-6
+osprey<span class="w"> </span>build<span class="w"> </span>--list-presets
+</pre></div>
+</div>
+</section>
+<section id="osprey-deploy">
+<h2>osprey deploy<a class="headerlink" href="#osprey-deploy" title="Link to this heading">#</a></h2>
+<p>Manage Docker/Podman services for Osprey projects.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>ACTION<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p><strong>Actions:</strong> <code class="docutils literal notranslate"><span class="pre">up</span></code>, <code class="docutils literal notranslate"><span class="pre">down</span></code>, <code class="docutils literal notranslate"><span class="pre">restart</span></code>, <code class="docutils literal notranslate"><span class="pre">status</span></code>, <code class="docutils literal notranslate"><span class="pre">build</span></code>, <code class="docutils literal notranslate"><span class="pre">clean</span></code>, <code class="docutils literal notranslate"><span class="pre">rebuild</span></code>.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">up</span></code> – Start all configured services.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">down</span></code> – Stop all services.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">restart</span></code> – Restart all services.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">status</span></code> – Show service status.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">build</span></code> – Build/prepare compose files without starting services.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">clean</span></code> – Remove containers and volumes (destructive).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">rebuild</span></code> – Clean, rebuild, and restart services.</p></li>
+</ul>
+<p><strong>Options (apply to all actions):</strong></p>
+<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--project</span> <span class="pre">DIRECTORY</span></code> – Project directory (default: current directory or <code class="docutils literal notranslate"><span class="pre">OSPREY_PROJECT</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">-c,</span> <span class="pre">--config</span> <span class="pre">PATH</span></code> – Configuration file (default: <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> in project directory).</p>
+<p><code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--detached</span></code> – Run services in detached mode (for <code class="docutils literal notranslate"><span class="pre">up</span></code>, <code class="docutils literal notranslate"><span class="pre">restart</span></code>, <code class="docutils literal notranslate"><span class="pre">rebuild</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--dev</span></code> – Copy local osprey package to containers instead of using PyPI version.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--expose</span></code> – Expose services on all network interfaces (<code class="docutils literal notranslate"><span class="pre">0.0.0.0</span></code>).</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>-d
+osprey<span class="w"> </span>deploy<span class="w"> </span>status
+osprey<span class="w"> </span>deploy<span class="w"> </span>rebuild<span class="w"> </span>--dev
+osprey<span class="w"> </span>deploy<span class="w"> </span>down
+</pre></div>
+</div>
+</section>
+<section id="osprey-health">
+<h2>osprey health<a class="headerlink" href="#osprey-health" title="Link to this heading">#</a></h2>
+<p>Run comprehensive system health check.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>health<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--project</span> <span class="pre">DIRECTORY</span></code> – Project directory (default: current directory or <code class="docutils literal notranslate"><span class="pre">OSPREY_PROJECT</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code> – Show detailed information about warnings and errors.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-b,</span> <span class="pre">--basic</span></code> – Skip model completion tests (only check configuration and connectivity).</p>
+</section>
+<section id="osprey-claude">
+<h2>osprey claude<a class="headerlink" href="#osprey-claude" title="Link to this heading">#</a></h2>
+<p>Manage Claude Code integration — regenerate artifacts, launch chat, and check
+status.</p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">chat</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Regenerate artifacts from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, launch companion servers, and
+start Claude Code in the terminal. See <a class="reference internal" href="../how-to/use-cli-chat.html"><span class="doc">Use the CLI Chat Interface</span></a>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--project</span> <span class="pre">DIRECTORY</span></code> — Project directory (default: current directory).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--resume</span> <span class="pre">SESSION_ID</span></code> — Resume a previous session.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--print</span></code> — Non-interactive pipe-friendly mode.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--effort</span> <span class="pre">[low|medium|high|max]</span></code> — Set effort level.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Re-render all Claude Code integration files (<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>,
+<code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code>, <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>, agents) from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.
+Existing files are backed up to <code class="docutils literal notranslate"><span class="pre">_agent_data/backup/</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--project</span> <span class="pre">DIRECTORY</span></code> — Project directory (default: current directory).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--dry-run</span></code> — Show what would change without writing files.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">status</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Display provider configuration, model tier mappings, per-agent model
+assignments, and artifact sync status.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--project</span> <span class="pre">DIRECTORY</span></code> — Project directory (default: current directory).</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>claude<span class="w"> </span>chat
+osprey<span class="w"> </span>claude<span class="w"> </span>chat<span class="w"> </span>--resume<span class="w"> </span>abc123
+osprey<span class="w"> </span>claude<span class="w"> </span>regen<span class="w"> </span>--dry-run
+osprey<span class="w"> </span>claude<span class="w"> </span>status
+</pre></div>
+</div>
+</section>
+<section id="osprey-eject">
+<h2>osprey eject<a class="headerlink" href="#osprey-eject" title="Link to this heading">#</a></h2>
+<p>Copy framework services to your project for customization.</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">eject</span> <span class="pre">list</span></code></dt><dd><p>List all ejectable framework capabilities and services.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">eject</span> <span class="pre">service</span> <span class="pre">NAME</span> <span class="pre">[--output</span> <span class="pre">PATH]</span> <span class="pre">[--include-tests]</span></code></dt><dd><p>Copy a framework service directory locally.</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>eject<span class="w"> </span>list
+osprey<span class="w"> </span>eject<span class="w"> </span>service<span class="w"> </span>channel_finder<span class="w"> </span>--include-tests
+</pre></div>
+</div>
+</section>
+<section id="osprey-channel-finder">
+<h2>osprey channel-finder<a class="headerlink" href="#osprey-channel-finder" title="Link to this heading">#</a></h2>
+<p>Tools for building, validating, previewing, and serving control system
+channel databases.</p>
+<p>Options: <code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--project</span> <span class="pre">PATH</span></code>, <code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code></p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">build-database</span></code></dt><dd><p>Build a channel database from a CSV file.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">validate</span></code></dt><dd><p>Validate a channel database JSON file.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">preview</span></code></dt><dd><p>Preview a channel database with flexible display options.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">web</span></code></dt><dd><p>Launch the Channel Finder web interface.</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>build-database
+osprey<span class="w"> </span>channel-finder<span class="w"> </span>validate
+osprey<span class="w"> </span>channel-finder<span class="w"> </span>preview
+osprey<span class="w"> </span>channel-finder<span class="w"> </span>web
+</pre></div>
+</div>
+</section>
+<section id="osprey-ariel">
+<h2>osprey ariel<a class="headerlink" href="#osprey-ariel" title="Link to this heading">#</a></h2>
+<p>Manage the ARIEL logbook search service.</p>
+<p><code class="docutils literal notranslate"><span class="pre">quickstart</span> <span class="pre">[--source</span> <span class="pre">PATH]</span></code> – Full setup: migrate and ingest demo data.</p>
+<p><code class="docutils literal notranslate"><span class="pre">status</span> <span class="pre">[--json]</span></code> – Show service status.</p>
+<p><code class="docutils literal notranslate"><span class="pre">migrate</span></code> – Create or update database tables.</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">ingest</span> <span class="pre">--source</span> <span class="pre">PATH</span> <span class="pre">[--adapter</span> <span class="pre">TYPE]</span> <span class="pre">[--since</span> <span class="pre">DATE]</span> <span class="pre">[--limit</span> <span class="pre">N]</span> <span class="pre">[--dry-run]</span></code></dt><dd><p>Ingest logbook entries from file or URL.</p>
+</dd>
+</dl>
+<p><code class="docutils literal notranslate"><span class="pre">watch</span> <span class="pre">[--source]</span> <span class="pre">[--once]</span> <span class="pre">[--interval</span> <span class="pre">N]</span> <span class="pre">[--dry-run]</span></code> – Poll for new entries.</p>
+<p><code class="docutils literal notranslate"><span class="pre">enhance</span> <span class="pre">[--module</span> <span class="pre">NAME]</span> <span class="pre">[--force]</span> <span class="pre">[--limit</span> <span class="pre">N]</span></code> – Run enhancement modules.</p>
+<p><code class="docutils literal notranslate"><span class="pre">models</span></code> – List embedding models and tables.</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">search</span> <span class="pre">QUERY</span> <span class="pre">[--mode</span> <span class="pre">auto|keyword|semantic|rag]</span> <span class="pre">[--limit</span> <span class="pre">N]</span> <span class="pre">[--json]</span></code></dt><dd><p>Execute a search query.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">reembed</span> <span class="pre">--model</span> <span class="pre">NAME</span> <span class="pre">--dimension</span> <span class="pre">N</span> <span class="pre">[--batch-size</span> <span class="pre">N]</span> <span class="pre">[--force]</span></code></dt><dd><p>Re-embed entries with a different model.</p>
+</dd>
+</dl>
+<p><code class="docutils literal notranslate"><span class="pre">web</span> <span class="pre">[--port</span> <span class="pre">N]</span> <span class="pre">[--host</span> <span class="pre">ADDR]</span> <span class="pre">[--reload]</span></code> – Launch web interface.</p>
+<p><code class="docutils literal notranslate"><span class="pre">purge</span> <span class="pre">[--yes]</span> <span class="pre">[--embeddings-only]</span></code> – Delete all ARIEL data.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>quickstart
+osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span>
+osprey<span class="w"> </span>ariel<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">8080</span>
+</pre></div>
+</div>
+</section>
+<section id="osprey-artifacts">
+<h2>osprey artifacts<a class="headerlink" href="#osprey-artifacts" title="Link to this heading">#</a></h2>
+<p>Manage the OSPREY Artifact Gallery – a local web gallery that displays
+interactive plots, tables, and other outputs produced by Claude during
+analysis sessions. Artifacts are written by Claude via <code class="docutils literal notranslate"><span class="pre">save_artifact()</span></code> in
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">execute</span></code> or the <code class="docutils literal notranslate"><span class="pre">artifact_save</span></code> MCP tool.</p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">artifacts</span> <span class="pre">web</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Launch the Artifact Gallery web interface. Starts a FastAPI server on
+<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8086</span></code> by default.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--port</span> <span class="pre">INTEGER</span></code> — Port (default: from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> or <code class="docutils literal notranslate"><span class="pre">8086</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">-h,</span> <span class="pre">--host</span> <span class="pre">TEXT</span></code> — Host to bind to (default: from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> or
+<code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--reload</span></code> — Enable auto-reload for development.</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w">                    </span><span class="c1"># Start on localhost:8086</span>
+osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">9000</span><span class="w">        </span><span class="c1"># Custom port</span>
+osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w">     </span><span class="c1"># Bind to all interfaces</span>
+osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w"> </span>--reload<span class="w">           </span><span class="c1"># Development mode</span>
+</pre></div>
+</div>
+</section>
+<section id="osprey-web">
+<h2>osprey web<a class="headerlink" href="#osprey-web" title="Link to this heading">#</a></h2>
+<p>Launch the Web Terminal interface. See <a class="reference internal" href="../how-to/use-web-terminal.html"><span class="doc">Use the Web Terminal</span></a>.</p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Start the web terminal server (default: <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--port</span> <span class="pre">INTEGER</span></code> — Port (default: from config or 8087).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--host</span> <span class="pre">TEXT</span></code> — Host to bind to (default: <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--shell</span> <span class="pre">TEXT</span></code> — Shell command to run (default: <code class="docutils literal notranslate"><span class="pre">claude</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--project</span> <span class="pre">DIRECTORY</span></code> — Project directory (default: current directory).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--detach</span></code> — Run in background (PID written to <code class="docutils literal notranslate"><span class="pre">.osprey-web.pid</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--reload</span></code> — Auto-reload for development.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">stop</span></code></dt><dd><p>Stop a background web terminal server.</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>web
+osprey<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">9000</span><span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0
+osprey<span class="w"> </span>web<span class="w"> </span>--detach
+osprey<span class="w"> </span>web<span class="w"> </span>stop
+</pre></div>
+</div>
+</section>
+<section id="osprey-audit">
+<h2>osprey audit<a class="headerlink" href="#osprey-audit" title="Link to this heading">#</a></h2>
+<p>Audit a build profile or project directory for safety risks. Uses an AI
+reviewer to analyze permissions, hooks, MCP server configs, overlay files,
+and lifecycle scripts.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>audit<span class="w"> </span>TARGET<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--build</span></code> — Build a profile in a temp directory, then audit the result.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--model</span> <span class="pre">TEXT</span></code> — Model for the reviewer agent.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--budget</span> <span class="pre">FLOAT</span></code> — Maximum budget in USD.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code> — Show verbose output.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--json</span></code> — Output as JSON.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>audit<span class="w"> </span>my-project/
+osprey<span class="w"> </span>audit<span class="w"> </span>profile.yml<span class="w"> </span>--build
+osprey<span class="w"> </span>audit<span class="w"> </span>project/<span class="w"> </span>--json
+</pre></div>
+</div>
+</section>
+<section id="osprey-prompts">
+<h2>osprey prompts<a class="headerlink" href="#osprey-prompts" title="Link to this heading">#</a></h2>
+<p>Manage prompt artifact ownership. Framework-managed prompt artifacts (agents,
+rules, etc.) can be claimed per-facility for in-place editing. Claimed files
+are marked user-owned in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">.osprey-manifest.json</span></code>, and
+subsequent <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code> runs skip them.</p>
+<p>All subcommands accept a common flag:</p>
+<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--project</span> <span class="pre">DIRECTORY</span></code> — Project directory (default: current directory).</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">prompts</span> <span class="pre">list</span></code></dt><dd><p>List all prompt artifacts and their ownership status (framework vs.
+user-owned).</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">prompts</span> <span class="pre">claim</span> <span class="pre">NAME</span></code></dt><dd><p>Claim ownership of a framework artifact for in-place editing. If the file
+doesn’t exist yet, the framework template is rendered in place at the
+canonical output path. If it already exists, it is marked user-owned.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">prompts</span> <span class="pre">diff</span> <span class="pre">NAME</span></code></dt><dd><p>Show a unified diff between the current framework template (re-rendered)
+and your file at the canonical output path.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">prompts</span> <span class="pre">unclaim</span> <span class="pre">NAME</span></code></dt><dd><p>Release ownership and restore framework management. The next
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code> will overwrite the file with the framework template.</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>prompts<span class="w"> </span>list<span class="w">                           </span><span class="c1"># Show all artifacts</span>
+osprey<span class="w"> </span>prompts<span class="w"> </span>claim<span class="w"> </span>agents/channel-finder<span class="w">    </span><span class="c1"># Claim for editing</span>
+osprey<span class="w"> </span>prompts<span class="w"> </span>diff<span class="w"> </span>agents/channel-finder<span class="w">     </span><span class="c1"># Compare yours vs framework</span>
+osprey<span class="w"> </span>prompts<span class="w"> </span>unclaim<span class="w"> </span>rules/safety<span class="w">           </span><span class="c1"># Restore framework management</span>
+</pre></div>
+</div>
+</section>
+<section id="osprey-skills">
+<h2>osprey skills<a class="headerlink" href="#osprey-skills" title="Link to this heading">#</a></h2>
+<p>Manage bundled Osprey skills — Claude Code skills shipped with OSPREY that
+can be installed either globally or into a specific project’s
+<code class="docutils literal notranslate"><span class="pre">.claude/skills/</span></code> directory.</p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">skills</span> <span class="pre">install</span> <span class="pre">NAME</span> <span class="pre">[--target</span> <span class="pre">PATH]</span></code></dt><dd><p>Install a bundled skill into <code class="docutils literal notranslate"><span class="pre">&lt;target&gt;/&lt;name&gt;/</span></code> (defaults to
+<code class="docutils literal notranslate"><span class="pre">~/.claude/skills/&lt;name&gt;/</span></code>). If the target already exists and is
+non-empty, the prior content is renamed to
+<code class="docutils literal notranslate"><span class="pre">&lt;name&gt;.bak.&lt;YYYYMMDD-HHMMSS&gt;/</span></code> before the new copy is written, so a
+previous version is never lost.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--target</span> <span class="pre">PATH</span></code> — directory to install into. Tilde is expanded. Use a
+project-local <code class="docutils literal notranslate"><span class="pre">.claude/skills/</span></code> path to scope the skill to one repo
+(e.g., <code class="docutils literal notranslate"><span class="pre">build-profile/.claude/skills/</span></code>). Omit for the global install.</p>
+<p>Currently supported skills:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">build-interview</span></code> — guided project-profile generation (see
+<a class="reference internal" href="../getting-started/build-interview.html"><span class="doc">Guided Project Setup (Build Interview)</span></a>). Typically installed globally
+so it is available in any Claude Code session.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey-build-deploy</span></code> — CI/CD setup, deploy-server operations, and
+release workflow for a facility profile repo. Typically installed
+project-locally (into the profile repo’s <code class="docutils literal notranslate"><span class="pre">.claude/skills/</span></code>) by the
+last phase of the <code class="docutils literal notranslate"><span class="pre">build-interview</span></code> skill, so <code class="docutils literal notranslate"><span class="pre">/osprey-build-deploy</span></code>
+is available wherever the profile repo is cloned.</p></li>
+</ul>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>build-interview
+osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-build-deploy<span class="w"> </span>--target<span class="w"> </span>build-profile/.claude/skills/
+</pre></div>
+</div>
+</section>
+<section id="osprey-vendor">
+<h2>osprey vendor<a class="headerlink" href="#osprey-vendor" title="Link to this heading">#</a></h2>
+<p>Manage locally bundled vendor assets (JS/CSS/fonts) for firewalled
+deployments. By default OSPREY interfaces load third-party libraries directly
+from CDN; set <code class="docutils literal notranslate"><span class="pre">OSPREY_OFFLINE=1</span></code> (or <code class="docutils literal notranslate"><span class="pre">offline:</span> <span class="pre">true</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>) to
+switch the interfaces over to local bundles.</p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">fetch</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Download all vendor assets declared in the manifest into
+<code class="docutils literal notranslate"><span class="pre">static/vendor/</span></code>. Run once on firewalled deployments before starting
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> with <code class="docutils literal notranslate"><span class="pre">OSPREY_OFFLINE=1</span></code>. In default CDN mode this command
+is optional.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-q,</span> <span class="pre">--quiet</span></code> — Suppress per-file output.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-k,</span> <span class="pre">--insecure</span></code> — Skip TLS cert verification. Every asset is still
+checked against its manifest SHA256, so this is safe behind corporate
+proxies (e.g. Squid) that intercept TLS. Also enabled via
+<code class="docutils literal notranslate"><span class="pre">OSPREY_VENDOR_INSECURE=1</span></code>.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">verify</span></code></dt><dd><p>Verify all vendor assets exist on disk with correct SHA256 checksums.</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>vendor<span class="w"> </span>fetch<span class="w">                    </span><span class="c1"># Download all assets</span>
+osprey<span class="w"> </span>vendor<span class="w"> </span>fetch<span class="w"> </span>--insecure<span class="w">         </span><span class="c1"># Behind a TLS-intercepting proxy</span>
+osprey<span class="w"> </span>vendor<span class="w"> </span>verify<span class="w">                   </span><span class="c1"># Check checksums</span>
+</pre></div>
+</div>
+</section>
+<section id="environment-variables">
+<h2>Environment Variables<a class="headerlink" href="#environment-variables" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">OSPREY_PROJECT</span><span class="o">=</span>/path/to/project<span class="w">   </span><span class="c1"># Default project directory</span>
+<span class="nv">ANTHROPIC_API_KEY</span><span class="o">=</span>sk-...<span class="w">          </span><span class="c1"># Or OPENAI_API_KEY, GOOGLE_API_KEY, etc.</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">OSPREY_PROJECT</span></code> sets a default project directory for all commands. Priority:
+<code class="docutils literal notranslate"><span class="pre">--project</span></code> flag &gt; <code class="docutils literal notranslate"><span class="pre">OSPREY_PROJECT</span></code> &gt; current directory.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="../how-to/ariel/osprey-integration.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Osprey Integration</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../contributing/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Contributing to Osprey</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#global-options">Global Options</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-config">osprey config</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-build">osprey build</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-deploy">osprey deploy</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-health">osprey health</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-claude">osprey claude</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-eject">osprey eject</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-channel-finder">osprey channel-finder</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-ariel">osprey ariel</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-artifacts">osprey artifacts</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-web">osprey web</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-audit">osprey audit</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-prompts">osprey prompts</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-skills">osprey skills</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-vendor">osprey vendor</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/cli-reference/index.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

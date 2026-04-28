@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Conceptual Tutorial &#8212; Osprey Framework 0.11.5 documentation</title>
+    <title>Conceptual Tutorial &#8212; Osprey Framework 2026.5.0 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../_static/documentation_options.js?v=955835e8"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,11 +53,10 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.5.0';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             false;
         </script>
-    <script src="../_static/js/execution_plan_viewer.js?v=09b61639"></script>
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
@@ -66,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+    <meta name="docbuild:last-update" content="Apr 28, 2026"/>
   </head>
   
   
@@ -150,22 +149,15 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../developer-guides/index.html">
-    Developer Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../api_reference/index.html">
-    API Reference
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../example-applications/index.html">
-    Example Applications
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
@@ -293,22 +285,15 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../developer-guides/index.html">
-    Developer Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../api_reference/index.html">
-    API Reference
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../example-applications/index.html">
-    Example Applications
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
@@ -386,13 +371,8 @@
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation &amp; Setup</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Conceptual Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hello-world-tutorial.html">Hello World Tutorial</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="control-assistant.html">Production Control Systems Tutorial</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="control-assistant-part1-setup.html">Part 1: Getting Started</a></li>
-<li class="toctree-l2"><a class="reference internal" href="control-assistant-part2-channel-finder.html">Part 2: Building Your Channel Finder</a></li>
-<li class="toctree-l2"><a class="reference internal" href="control-assistant-part3-production.html">Part 3: Integration &amp; Deployment</a></li>
-<li class="toctree-l2"><a class="reference internal" href="control-assistant-part4-customization.html">Part 4: Customization &amp; Extension</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="build-interview.html">Guided Project Setup (Build Interview)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="control-assistant.html">Production Control Systems Tutorial</a></li>
 </ul>
 </div>
 </nav></div>
@@ -455,279 +435,84 @@
                   
   <section id="conceptual-tutorial">
 <h1>Conceptual Tutorial<a class="headerlink" href="#conceptual-tutorial" title="Link to this heading">#</a></h1>
-<p>Before building useful agentic AI applications using Osprey, it’s important to
-understand the framework’s core architecture and operational model.</p>
-<p>This conceptual tutorial introduces the fundamental concepts and design patterns
-that will prepare you for the hands-on coding journey ahead.</p>
-<section id="building-on-proven-foundations">
-<h2>Building on Proven Foundations<a class="headerlink" href="#building-on-proven-foundations" title="Link to this heading">#</a></h2>
-<p>Osprey doesn’t reinvent the wheel. At its core, the framework is built on
-<a class="reference external" href="https://github.com/langchain-ai/langgraph">LangGraph</a>, a production-ready orchestration
-framework developed by LangChain for building stateful, long-running AI agents. LangGraph
-provides the foundational capabilities that make reliable agent systems possible: durable
-execution, checkpointing, human-in-the-loop workflows, and comprehensive state management.</p>
-<p>Rather than creating yet another generic agent framework from scratch, Osprey extends LangGraph
-with specialized patterns and infrastructure specifically designed for scientific and
-high-stakes operational environments. This approach allows us to focus on solving domain-specific
-challenges—such as managing large sets of specialized tools, handling complex data flows, and
-ensuring transparent execution—while leveraging a battle-tested foundation for the core
-orchestration layer.</p>
+<p>This page explains what OSPREY is, how it works, and why it is
+designed the way it is. You do not need to read this before starting
+the hands-on tutorials, but it will help you understand what is
+happening under the hood.</p>
+<section id="what-is-osprey">
+<h2>What is OSPREY?<a class="headerlink" href="#what-is-osprey" title="Link to this heading">#</a></h2>
+<p>Operating a particle accelerator, beamline, or fusion experiment means
+juggling dozens of tools — archivers, logbooks, channel finders, OPI
+screens — while holding operational context in your head. Every task
+requires knowing which tool to open, which PV names to use, and what
+the safe operating ranges are.</p>
+<p>OSPREY puts an AI agent in front of those tools. You interact in
+natural language — “read the beam current”, “bump the horizontal
+corrector by 0.5 A”, “what happened to the vacuum last Tuesday” —
+and the agent figures out which tools to call, which channels to query,
+and how to present the results.</p>
+<p>The catch: the agent can never write to hardware on its own. Safety
+enforcement lives in code that the agent cannot modify or bypass, not
+in the agent’s own judgment. The agent proposes actions; the safety
+system and the operator decide whether they happen.</p>
 </section>
-<section id="how-osprey-works">
-<h2>How Osprey Works<a class="headerlink" href="#how-osprey-works" title="Link to this heading">#</a></h2>
-<p>An agentic AI application can be treated as a chatbot with tools. Currently there are two major
-types of agentic AI applications: ReAct agents and Planning agents.</p>
-<div class="sd-tab-set docutils">
-<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-0">
-ReAct Agents</label><div class="sd-tab-content docutils">
-<p>ReAct agents work in a way that is similar to how LLMs handle chat history.
-When a user query comes in, the agent processes the entire conversation history,
-along with the previous tool usage records, to decide the next action.</p>
-<p>The advantage of ReAct agents is that they can leverage the full power of LLMs to
-dynamically decide what to do next based on the entire context. However, this
-also means that ReAct agents can be less efficient and less predictable, as
-they may revisit previous steps or make decisions that are hard to foresee.
-Additionally, ReAct agents may get lost in complicated setups with many tools
-and complex state management.</p>
-</div>
-<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-1">
-Planning Agents</label><div class="sd-tab-content docutils">
-<p>Planning agents, on the other hand, separate the “thinking” and “acting” phases.
-For every user query, they first create a comprehensive plan, breaking down
-the task into manageable steps. Once the plan is formulated, the agent
-executes each step sequentially, utilizing tools as necessary to accomplish
-each subtask.</p>
-<p>The advantage of Planning agents is that the execution path is more structured and predictable,
-as the plan is created upfront. This can lead to more efficient use of tools and resources.
-Additionally, planning agents have less dependency on the LLM’s ability to generate stable outputs
-since they decompose the task into smaller, easier steps. Each step can be
-handled with more focused prompts and potentially smaller models.</p>
-</div>
-</div>
-<p>Osprey supports
-<a class="reference internal" href="../developer-guides/01_understanding-the-framework/04_orchestration-architecture.html"><span class="doc">both orchestration modes</span></a>
-and defaults to the Planning approach (switchable to ReAct in your project configuration).
-Regardless of which mode you choose, the building blocks are the same: <strong>Capabilities</strong> –
-modular components that encapsulate domain-specific business logic and tool integrations.
-Given a user query, the framework determines which capabilities to use, in what order, and
-with what inputs, effectively chaining them together to accomplish complex tasks.</p>
-<p>A critical architectural distinction of Osprey is how data flows between capabilities.
-Unlike standard ReAct agents where tool outputs are returned directly to the LLM’s context
-(which works for short strings but fails when tools produce large datasets that would overflow
-the context window), Osprey uses <strong>Contexts</strong> - strictly typed Pydantic data classes that
-provide a structured layer for storing and communicating data between capabilities. This
-approach enables efficient handling of large outputs, maintains type safety, and allows data
-to persist across conversation turns without consuming valuable context window space.</p>
-<p>Capabilities and contexts are the central building blocks of Osprey applications. So when designing your
-Osprey application, always think in terms of capabilities and contexts:</p>
-<ul class="simple">
-<li><p>What capabilities do I need to accomplish the task?</p></li>
-<li><p>What contexts would the capability need to work?</p></li>
-<li><p>What contexts should the capability produce as output?</p></li>
-</ul>
-<p>Now let’s look at a simple example to better understand those concepts.</p>
+<section id="how-the-agent-works">
+<h2>How the Agent Works<a class="headerlink" href="#how-the-agent-works" title="Link to this heading">#</a></h2>
+<p>The agent is built on two components: <strong>Claude Code</strong> and <strong>MCP tools</strong>.</p>
+<p><strong>Claude Code</strong> is an AI assistant that runs in your terminal (or behind
+a web interface). It reads natural language, reasons about what to do,
+and calls tools to carry out actions. It does not connect to your
+control system directly — it has no knowledge of PV names, channel
+addresses, or hardware protocols until you give it tools.</p>
+<p><strong>MCP tools</strong> are the interface between the agent and your
+infrastructure. OSPREY ships tools for reading and writing control
+system channels, querying archivers, searching logbooks, and finding
+channel addresses. When the agent starts, it discovers which tools are
+available and what each tool can do. When you ask a question, Claude
+decides which tools to call, calls them, and uses the results to form
+a response.</p>
+<p>This separation matters: Claude is the reasoning layer, and the tools
+are the execution layer. You control what the agent can do by choosing
+which tools to enable. If you only enable <code class="docutils literal notranslate"><span class="pre">channel_read</span></code>, the agent
+can read channels but has no way to write to them — regardless of
+what the user asks.</p>
 </section>
-<section id="mindflow-to-build-a-weather-assistant-in-osprey">
-<h2>Mindflow to Build a Weather Assistant in Osprey<a class="headerlink" href="#mindflow-to-build-a-weather-assistant-in-osprey" title="Link to this heading">#</a></h2>
-<p>Assume we want to build a weather assistant that can provide weather information based on user queries.</p>
-<section id="what-would-users-ask">
-<h3>What would users ask<a class="headerlink" href="#what-would-users-ask" title="Link to this heading">#</a></h3>
-<p>First step is to think about what queries we want to support, or we imagine users would ask. Based on our
-experience in real life, for the weather assistant, users would typically ask questions like:</p>
-<ul class="simple">
-<li><p>“What’s the weather like in San Francisco today?”</p></li>
-<li><p>“Will it rain tomorrow in New York?”</p></li>
-<li><p>“Give me a 5-day weather forecast for Los Angeles.”</p></li>
-<li><p>“What about the day after tomorrow?” – referring to previous query</p></li>
-</ul>
+<section id="the-safety-model">
+<h2>The Safety Model<a class="headerlink" href="#the-safety-model" title="Link to this heading">#</a></h2>
+<p>The agent can propose writes but cannot execute them alone. When a
+write is proposed, the operator sees the target channel and value and
+must explicitly approve before anything reaches hardware.</p>
+<p>Two automated checks run behind the scenes. The <strong>kill switch</strong>
+(<code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>) blocks all writes globally when
+off — no prompt appears. The <strong>limits system</strong> validates each value
+against per-channel safe ranges and read-only flags. If either check
+fails, the write is blocked before the operator is ever asked.</p>
+<p>These checks are enforced by the runtime. The agent cannot modify,
+skip, or influence them.</p>
 </section>
-<section id="what-capabilities-are-needed">
-<h3>What capabilities are needed<a class="headerlink" href="#what-capabilities-are-needed" title="Link to this heading">#</a></h3>
-<p>To deal with the queries above, obviously we need a capability that can fetch weather data,
-given the location and date. Let’s call it <cite>FetchWeatherCapability</cite>.
-This capability would require the location and date as inputs, and return the weather information.
-Therefore we’ll need the following contexts:</p>
-<ul class="simple">
-<li><p><cite>LocationContext</cite> – to represent the location information</p></li>
-<li><p><cite>DateContext</cite> – to represent the date information</p></li>
-<li><p><cite>WeatherContext</cite> – to represent the weather information returned by the capability</p></li>
-</ul>
-<p>Beyond fetching weather data, we need a capability to present results to users. Once we have a
-<cite>WeatherContext</cite> with weather data, how do we communicate it back in natural language? Osprey provides
-<a class="reference internal" href="../developer-guides/04_infrastructure-components/05_message-generation.html#respond-capability"><span class="std std-ref">RespondCapability</span></a> - a built-in capability that generates natural language
-responses from execution results and available contexts.</p>
-<p>Are those capabilities sufficient? Maybe not. Thinking more carefully about what we have so far: how can we get the
-<cite>LocationContext</cite> and <cite>DateContext</cite> from user queries? It could be easy if the user query is straightforward, but
-what if the user query looks like:</p>
-<ul class="simple">
-<li><p>“What’s the weather like in NYC?”</p></li>
-<li><p>“Will it rain tonight around Stanford university?”</p></li>
-</ul>
-<p>So we probably need another capability to extract location and date information from user queries:</p>
-<ul class="simple">
-<li><p><cite>ExtractLocationCapability</cite> – to extract location information from user queries</p></li>
-<li><p><cite>ExtractDateCapability</cite> – to extract date information from user queries</p></li>
-</ul>
-</section>
-<section id="the-final-design">
-<h3>The Final Design<a class="headerlink" href="#the-final-design" title="Link to this heading">#</a></h3>
-<p>Following this iterative thinking process, here’s the complete weather assistant architecture:</p>
-<p><strong>Capabilities</strong></p>
-<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
-<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-🌍 ExtractLocationCapability</div>
-<p class="sd-card-text">Parse location information from user queries.</p>
-<p class="sd-card-text"><strong>Requires:</strong> None</p>
-<p class="sd-card-text"><strong>Provides:</strong> LocationContext</p>
-</div>
-</div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-📅 ExtractDateCapability</div>
-<p class="sd-card-text">Parse date information from user queries.</p>
-<p class="sd-card-text"><strong>Requires:</strong> None</p>
-<p class="sd-card-text"><strong>Provides:</strong> DateContext</p>
-</div>
-</div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-☀️ FetchWeatherCapability</div>
-<p class="sd-card-text">Call weather API to fetch weather information based on location and date.</p>
-<p class="sd-card-text"><strong>Requires:</strong> LocationContext, DateContext</p>
-<p class="sd-card-text"><strong>Provides:</strong> WeatherContext</p>
-</div>
-</div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-💬 RespondCapability</div>
-<p class="sd-card-text">Generate natural language responses from execution results.</p>
-<p class="sd-card-text"><strong>Requires:</strong> None</p>
-<p class="sd-card-text"><strong>Provides:</strong> None</p>
-</div>
-</div>
-</div>
-</div>
-</div>
-<p><strong>Context Classes</strong></p>
-<div class="pst-scrollable-table-container"><table class="table">
-<colgroup>
-<col style="width: 30.0%" />
-<col style="width: 70.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Context</p></th>
-<th class="head"><p>Purpose</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">LocationContext</span></code></p></td>
-<td><p>Stores parsed location information (city, region)</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">DateContext</span></code></p></td>
-<td><p>Stores parsed date/time information</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">WeatherContext</span></code></p></td>
-<td><p>Stores weather data (temperature, conditions, etc.)</p></td>
-</tr>
-</tbody>
-</table>
-</div>
-<div class="tip admonition">
-<p class="admonition-title">The Osprey Design Pattern</p>
-<p>When designing any Osprey application, follow this iterative process:</p>
-<ol class="arabic simple">
-<li><p><strong>Identify required capabilities</strong> - What domain-specific tasks need to be performed?</p></li>
-<li><p><strong>Define necessary contexts</strong> - What data does each capability need and produce?</p></li>
-<li><p><strong>Check for missing data</strong> - How will capabilities get their required contexts?</p>
-<ul class="simple">
-<li><p>If straightforward to extract → no additional capabilities needed</p></li>
-<li><p>If complex → create extraction/transformation capabilities</p></li>
-</ul>
-</li>
-<li><p><strong>Repeat</strong> until all data dependencies are resolved</p></li>
-</ol>
-<p>This bottom-up thinking ensures your agent has all the pieces needed to accomplish user goals.</p>
-</div>
-</section>
-</section>
-<section id="how-osprey-chains-capabilities-together">
-<h2>How Osprey Chains Capabilities Together<a class="headerlink" href="#how-osprey-chains-capabilities-together" title="Link to this heading">#</a></h2>
-<p>Once you’ve designed your capabilities and contexts, Osprey’s orchestrator automatically
-chains them together. The framework supports two orchestration modes that differ in <em>when</em>
-decisions are made, but both use the same capability and context infrastructure.</p>
-<div class="sd-tab-set docutils">
-<input checked="checked" id="sd-tab-item-2" name="sd-tab-set-1" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-2">
-Plan-First Mode (default)</label><div class="sd-tab-content docutils">
-<p>The orchestrator creates a <strong>complete plan upfront</strong> before any execution begins.</p>
-<p><strong>Query: “What’s the weather in San Francisco today?”</strong></p>
-<p>The orchestrator creates this plan:</p>
-<ol class="arabic simple">
-<li><p><strong>ExtractLocationCapability</strong> → produces <code class="docutils literal notranslate"><span class="pre">LocationContext(location=&quot;San</span> <span class="pre">Francisco&quot;)</span></code></p></li>
-<li><p><strong>ExtractDateCapability</strong> → produces <code class="docutils literal notranslate"><span class="pre">DateContext(date=&quot;today&quot;)</span></code></p></li>
-<li><p><strong>FetchWeatherCapability</strong> → uses <code class="docutils literal notranslate"><span class="pre">LocationContext</span></code> + <code class="docutils literal notranslate"><span class="pre">DateContext</span></code> → produces <code class="docutils literal notranslate"><span class="pre">WeatherContext</span></code></p></li>
-<li><p><strong>RespondCapability</strong> → generates natural language response from <code class="docutils literal notranslate"><span class="pre">WeatherContext</span></code></p></li>
-</ol>
-<p><strong>Key Observations:</strong></p>
-<ul class="simple">
-<li><p>Each plan is created <strong>upfront</strong> before execution begins</p></li>
-<li><p>Capabilities are <strong>chained together</strong> - the output of one becomes the input to another</p></li>
-<li><p>Predictable and efficient: a single LLM call creates the entire plan</p></li>
-</ul>
-</div>
-<input id="sd-tab-item-3" name="sd-tab-set-1" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-3">
-Reactive Mode (ReAct)</label><div class="sd-tab-content docutils">
-<p>The orchestrator decides <strong>one step at a time</strong>, observing results between steps.</p>
-<p><strong>Query: “What’s the weather in San Francisco today?”</strong></p>
-<p>The reactive orchestrator loop:</p>
-<ol class="arabic simple">
-<li><p><strong>Decide</strong> → ExtractLocationCapability → <strong>Observe</strong> result</p></li>
-<li><p><strong>Decide</strong> → ExtractDateCapability → <strong>Observe</strong> result</p></li>
-<li><p><strong>Decide</strong> → FetchWeatherCapability → <strong>Observe</strong> result</p></li>
-<li><p><strong>Decide</strong> → Respond to user</p></li>
-</ol>
-<p><strong>Key Observations:</strong></p>
-<ul class="simple">
-<li><p>Each step is decided <strong>after</strong> observing previous results</p></li>
-<li><p>Adapts dynamically to intermediate outcomes and errors</p></li>
-<li><p>Better suited for exploratory or error-prone tasks</p></li>
-</ul>
-<p>Enable with: <code class="docutils literal notranslate"><span class="pre">execution_control.agent_control.orchestration_mode:</span> <span class="pre">react</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p>
-</div>
-</div>
-<p><strong>In both modes:</strong></p>
-<ul class="simple">
-<li><p>The orchestrator <strong>selects capabilities</strong> based on what’s needed for each query</p></li>
-<li><p>Capabilities are <strong>chained together</strong> - the output of one becomes the input to another</p></li>
-<li><p><strong>RespondCapability</strong> accesses available contexts to generate responses</p></li>
-<li><p>Your capabilities work identically regardless of orchestration mode</p></li>
-</ul>
+<section id="the-connector-abstraction">
+<h2>The Connector Abstraction<a class="headerlink" href="#the-connector-abstraction" title="Link to this heading">#</a></h2>
+<p>OSPREY does not talk to your control system directly. It uses a
+<strong>connector</strong> — an adapter that translates tool calls into the
+appropriate protocol (EPICS Channel Access, mock data, or a custom
+backend).</p>
+<p>You select the connector in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> by setting
+<code class="docutils literal notranslate"><span class="pre">control_system.type</span></code>. Change <code class="docutils literal notranslate"><span class="pre">mock</span></code> to <code class="docutils literal notranslate"><span class="pre">epics</span></code> and the same
+agent, tools, and safety hooks work against real hardware. No code
+changes, no reconfiguration — one setting.</p>
 </section>
 <section id="next-steps">
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">#</a></h2>
 <p>Now that you understand the core concepts, you’re ready to build:</p>
 <dl class="simple">
-<dt><strong>Start here:</strong> <a class="reference internal" href="hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a></dt><dd><p>Implements a weather assistant using an even simpler architecture (single capability)
-to help you get hands-on quickly. Learn the framework basics before tackling complexity.</p>
+<dt><strong>Start here:</strong> <a class="reference internal" href="hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a></dt><dd><p>Build your first agent with one MCP server and a mock control system.
+One command to create, one command to run.</p>
 </dd>
-<dt><strong>Then scale up:</strong> <a class="reference internal" href="control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a></dt><dd><p>Demonstrates the full modular architecture from this tutorial applied to a real
-industrial control system with 8+ capabilities and production deployment.</p>
+<dt><strong>Then scale up:</strong> <a class="reference internal" href="control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a></dt><dd><p>Add channel finding, logbook search, archiver access, and a web
+terminal for production deployment.</p>
+</dd>
+<dt><strong>Go deeper:</strong> <a class="reference internal" href="../architecture/index.html"><span class="doc">Architecture Overview</span></a></dt><dd><p>Detailed diagrams of the safety chain, data flow, and the full MCP
+tool catalog.</p>
 </dd>
 </dl>
 </section>
@@ -780,15 +565,10 @@ industrial control system with 8+ capabilities and production deployment.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#building-on-proven-foundations">Building on Proven Foundations</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-osprey-works">How Osprey Works</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mindflow-to-build-a-weather-assistant-in-osprey">Mindflow to Build a Weather Assistant in Osprey</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-would-users-ask">What would users ask</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-capabilities-are-needed">What capabilities are needed</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-final-design">The Final Design</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-osprey-chains-capabilities-together">How Osprey Chains Capabilities Together</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-is-osprey">What is OSPREY?</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-the-agent-works">How the Agent Works</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-safety-model">The Safety Model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-connector-abstraction">The Connector Abstraction</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
 </ul>
   </nav></div>
@@ -834,7 +614,7 @@ industrial control system with 8+ capabilities and production deployment.</p>
 
   <p class="copyright">
     
-      © Copyright 2025, Osprey Developer Team.
+      © Copyright 2026, Osprey Developer Team.
       <br/>
     
   </p>

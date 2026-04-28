@@ -1,0 +1,1613 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Build Profiles &#8212; Osprey Framework 2026.5.0 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=955835e8"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
+
+
+
+
+
+const initStyles = () => {
+    const defaultStyle = document.createElement('style');
+    defaultStyle.textContent = `pre.mermaid {
+    /* Same as .mermaid-container > pre */
+    display: block;
+    width: 100%;
+}
+
+pre.mermaid > svg {
+    /* Same as .mermaid-container > pre > svg */
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}`;
+    document.head.appendChild(defaultStyle);
+
+    const fullscreenStyle = document.createElement('style');
+    fullscreenStyle.textContent = `.mermaid-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.mermaid-container > pre {
+    display: block;
+    width: 100%;
+}
+
+.mermaid-container > pre > svg {
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}
+
+.mermaid-fullscreen-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    color: #333;
+}
+
+.mermaid-fullscreen-btn:hover {
+    opacity: 100% !important;
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-btn.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-btn.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 95vw;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.98);
+    z-index: 9999;
+    padding: 20px;
+    overflow: auto;
+}
+
+.mermaid-fullscreen-modal.dark-theme {
+    background: rgba(0, 0, 0, 0.98);
+}
+
+.mermaid-fullscreen-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen {
+    position: relative;
+    width: 95vw;
+    height: 90vh;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen.dark-theme {
+    background: #1a1a1a;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-container-fullscreen pre.mermaid {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen .mermaid svg {
+    height: 100% !important;
+    width: 100% !important;
+    cursor: grab;
+}
+
+.mermaid-fullscreen-close {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    font-size: 24px;
+    line-height: 1;
+    color: #333;
+}
+
+.mermaid-fullscreen-close:hover {
+    background: white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-close.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-close.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
+    display: none !important;
+}`;
+    document.head.appendChild(fullscreenStyle);
+}
+
+// Detect if page has dark background
+const isDarkTheme = () => {
+    // We use a set of heuristics:
+    // 1. Check for common dark mode classes or attributes
+    // 2. Check computed background color brightness
+    if (document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        document.body.getAttribute('data-theme') === 'dark') {
+        // console.log("Dark theme detected via class/attribute");
+        return true;
+    }
+    if (document.documentElement.classList.contains('light') ||
+        document.documentElement.getAttribute('data-theme') === 'light' ||
+        document.body.classList.contains('light') ||
+        document.body.getAttribute('data-theme') === 'light') {
+        // console.log("Light theme detected via class/attribute");
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // console.log("Dark theme detected via prefers-color-scheme");
+        return true;
+    }
+    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        // console.log("Background color brightness:", brightness);
+        return brightness < 128;
+    }
+    // console.log("No dark or light theme detected, defaulting to light theme");
+    return false;
+};
+
+let darkTheme = isDarkTheme();
+let modal = null;
+let modalContent = null;
+let previousScrollOffset = [window.scrollX, window.scrollY];
+
+const runMermaid = async (rerun) => {
+    console.log("Running mermaid diagrams, rerun =", rerun);
+    // clear all existing mermaid charts
+    let all_mermaids = document.querySelectorAll(".mermaid");
+
+    if (rerun) {
+        all_mermaids.forEach((el) => {
+            if(!el.hasAttribute("data-original-code")) {
+                // store original code
+                // console.log(`Storing original code for first run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+            if(el.getAttribute("data-processed") === "true") {
+                // remove and restore original
+                el.removeAttribute("data-processed");
+                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
+                el.innerHTML = el.getAttribute('data-original-code');
+            } else {
+                // store original code
+                // console.log(`Storing original code for re-run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+        });
+        await mermaid.run();
+    }
+
+    all_mermaids = document.querySelectorAll(".mermaid");
+    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
+
+    if ("False" === "True") {
+        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
+        if(mermaids_to_add_zoom > 0) {
+            var svgs = d3.selectAll("");
+            if(all_mermaids.length !== mermaids_processed.length) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else if(svgs.size() !== mermaids_to_add_zoom) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else {
+                svgs.each(function() {
+                    var svg = d3.select(this);
+                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
+                    var inner = svg.select("g");
+                    var zoom = d3.zoom().on("zoom", function(event) {
+                        inner.attr("transform", event.transform);
+                    });
+                    svg.call(zoom);
+                });
+            }
+        }
+    } else if(all_mermaids.length !== mermaids_processed.length) {
+        // Wait for mermaid to process all diagrams
+        setTimeout(() => runMermaid(false), 200);
+        return;
+    }
+
+    // Stop here if not adding fullscreen capability
+    if ("True" !== "True") return;
+
+    if (modal !== null ) {
+        // Destroy existing modal
+        modal.remove();
+        modal = null;
+        modalContent = null;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
+    modal.innerHTML = `
+        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
+        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
+    `;
+    document.body.appendChild(modal);
+
+    modalContent = modal.querySelector('.mermaid-container-fullscreen');
+    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
+
+    const closeModal = () => {
+        modal.classList.remove('active');
+        modalContent.innerHTML = '';
+        document.body.style.overflow = ''
+        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+        }
+    });
+
+    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
+        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
+            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
+            // Already processed, adjust button class if needed
+            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
+            if (existingBtn) {
+                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+            }
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.className = 'mermaid-container';
+        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
+        container.appendChild(mermaidDiv);
+
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
+        fullscreenBtn.textContent = '⛶';
+        fullscreenBtn.style.opacity = '50%';
+
+        // Calculate dynamic position based on diagram's margin and padding
+        const diagramStyle = window.getComputedStyle(mermaidDiv);
+        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
+        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
+        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
+        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
+        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
+        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
+
+        fullscreenBtn.addEventListener('click', () => {
+            previousScrollOffset = [window.scroll, window.scrollY];
+            const clone = mermaidDiv.cloneNode(true);
+            modalContent.innerHTML = '';
+            modalContent.appendChild(clone);
+
+            const svg = clone.querySelector('svg');
+            if (svg) {
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxWidth = '100%';
+                svg.style.sdisplay = 'block';
+
+                if ("False" === "True") {
+                    setTimeout(() => {
+                        const g = svg.querySelector('g');
+                        if (g) {
+                            var svgD3 = d3.select(svg);
+                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
+                            var inner = svgD3.select("g");
+                            var zoom = d3.zoom().on("zoom", function(event) {
+                                inner.attr("transform", event.transform);
+                            });
+                            svgD3.call(zoom);
+                        }
+                    }, 100);
+                }
+            }
+
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+        container.appendChild(fullscreenBtn);
+    });
+};
+
+const load = async () => {
+    initStyles();
+
+    await runMermaid(true);
+
+    const reRunIfThemeChanges = async () => {
+        const newDarkTheme = isDarkTheme();
+        if (newDarkTheme !== darkTheme) {
+            darkTheme = newDarkTheme;
+            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
+            await mermaid.initialize(
+                {...JSON.parse(
+                    `{"startOnLoad": false}`
+                ),
+                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+                }
+            );
+            await runMermaid(true);
+        }
+    };
+
+    // Update theme classes when theme changes
+    const themeObserver = new MutationObserver(reRunIfThemeChanges);
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+    themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+};
+
+
+
+
+
+console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
+mermaid.initialize(
+    {...JSON.parse(
+        `{"startOnLoad": false}`
+    ),
+    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+    }
+);
+
+window.addEventListener("load", load);</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/build-profiles';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.5.0';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Add an MCP Server" href="add-mcp-server.html" />
+    <link rel="prev" title="Container Deployment" href="deploy-project.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Apr 28, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-web-terminal.html">Use the Web Terminal</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Control System Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">How-To Guides</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Build Profiles</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="build-profiles">
+<span id="how-to-build-profiles"></span><h1>Build Profiles<a class="headerlink" href="#build-profiles" title="Link to this heading">#</a></h1>
+<p>Assemble facility-specific assistants from OSPREY templates using declarative YAML profiles.
+Build profiles separate <strong>what makes your facility unique</strong> (channel data, safety limits,
+custom MCP servers) from <strong>what OSPREY provides</strong> (agents, rules, hooks, safety infrastructure).</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<ul class="simple">
+<li><p class="sd-card-text">Writing build profile YAML files for your facility</p></li>
+<li><p class="sd-card-text">Overlaying facility data onto OSPREY templates</p></li>
+<li><p class="sd-card-text">Injecting custom MCP servers into the built project</p></li>
+<li><p class="sd-card-text">Using config overrides, lifecycle commands, and environment templates</p></li>
+<li><p class="sd-card-text">Structuring a facility profiles repository</p></li>
+</ul>
+<p class="sd-card-text"><strong>Prerequisites:</strong> A working OSPREY installation (<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span></code>).</p>
+<p class="sd-card-text"><strong>Time:</strong> 15–30 minutes for a basic profile; varies for custom MCP servers.</p>
+</div>
+</details><section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> command takes a YAML profile and produces a standalone Claude Code
+project. The profile declares:</p>
+<ul class="simple">
+<li><p><strong>Base template</strong> to start from (<code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> or <code class="docutils literal notranslate"><span class="pre">hello_world</span></code>)</p></li>
+<li><p><strong>Config overrides</strong> for the generated <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (dot-notation)</p></li>
+<li><p><strong>File overlays</strong> that copy facility data into the project</p></li>
+<li><p><strong>MCP server definitions</strong> to inject custom tools</p></li>
+<li><p><strong>Lifecycle commands</strong> to run before/after the build</p></li>
+<li><p><strong>Environment templates</strong> for required variables and defaults</p></li>
+<li><p><strong>Dependencies</strong> to append to <code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code></p></li>
+</ul>
+<pre  class="mermaid">
+        flowchart LR
+   P[profile.yml] --&gt; B[osprey build]
+   T[Base Template] --&gt; B
+   D[Facility Data] --&gt; B
+   S[Custom MCP Servers] --&gt; B
+   B --&gt; O[Standalone Project]
+    </pre><p>The built project is <strong>wipe-and-rebuild safe</strong> — regenerating from the same profile
+produces the same output, and user-owned files (like <code class="docutils literal notranslate"><span class="pre">facility.md</span></code>) are tracked
+separately.</p>
+</section>
+<section id="quick-start">
+<h2>Quick Start<a class="headerlink" href="#quick-start" title="Link to this heading">#</a></h2>
+<p>Create a minimal profile and build:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># my-facility-dev.yml</span>
+<span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;My</span><span class="nv"> </span><span class="s">Facility</span><span class="nv"> </span><span class="s">(Dev)&quot;</span>
+<span class="nt">base_template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control_assistant</span>
+<span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic</span>
+<span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sonnet</span>
+<span class="nt">requires_osprey_version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&gt;=0.12.0&quot;</span>
+
+<span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mock</span>
+<span class="w">  </span><span class="nt">system.timezone</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">America/New_York</span>
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-facility<span class="w"> </span>my-facility-dev.yml<span class="w"> </span>-o<span class="w"> </span>/tmp<span class="w"> </span>--force
+</pre></div>
+</div>
+<p>This renders the <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> template with a mock control system and produces
+a complete Claude Code project at <code class="docutils literal notranslate"><span class="pre">/tmp/my-facility/</span></code>.</p>
+</section>
+<section id="profile-yaml-schema">
+<h2>Profile YAML Schema<a class="headerlink" href="#profile-yaml-schema" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 12.0%" />
+<col style="width: 15.0%" />
+<col style="width: 53.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Field</p></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
+<td><p>string</p></td>
+<td><p><em>required</em></p></td>
+<td><p>Human-readable profile name.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">base_template</span></code></p></td>
+<td><p>string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">control_assistant</span></code></p></td>
+<td><p>App template to use. See <code class="docutils literal notranslate"><span class="pre">src/osprey/templates/apps/</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">provider</span></code></p></td>
+<td><p>string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
+<td><p>LLM provider (<code class="docutils literal notranslate"><span class="pre">anthropic</span></code>, <code class="docutils literal notranslate"><span class="pre">cborg</span></code>, <code class="docutils literal notranslate"><span class="pre">openai</span></code>, <code class="docutils literal notranslate"><span class="pre">google</span></code>, etc.).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">model</span></code></p></td>
+<td><p>string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
+<td><p>Model tier (<code class="docutils literal notranslate"><span class="pre">haiku</span></code>, <code class="docutils literal notranslate"><span class="pre">sonnet</span></code>, <code class="docutils literal notranslate"><span class="pre">opus</span></code>).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code></p></td>
+<td><p>string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
+<td><p>Channel finder pipeline (<code class="docutils literal notranslate"><span class="pre">hierarchical</span></code>, <code class="docutils literal notranslate"><span class="pre">middle_layer</span></code>, <code class="docutils literal notranslate"><span class="pre">in_context</span></code>, <code class="docutils literal notranslate"><span class="pre">all</span></code>).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">config</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+<td><p>Dot-notation overrides for <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">overlay</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+<td><p>File/directory overlays (source → destination).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">mcp_servers</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+<td><p>MCP server definitions to inject.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">services</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+<td><p>Container service definitions for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> (see <a class="reference internal" href="#profile-services"><span class="std std-ref">Services</span></a>).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lifecycle</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+<td><p>Commands to run at build phases (<code class="docutils literal notranslate"><span class="pre">pre_build</span></code>, <code class="docutils literal notranslate"><span class="pre">post_build</span></code>, <code class="docutils literal notranslate"><span class="pre">validate</span></code>).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+<td><p>Environment variable template (<code class="docutils literal notranslate"><span class="pre">required</span></code>, <code class="docutils literal notranslate"><span class="pre">defaults</span></code>, <code class="docutils literal notranslate"><span class="pre">file</span></code>).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dependencies</span></code></p></td>
+<td><p>list</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[]</span></code></p></td>
+<td><p>Python packages to append to <code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code></p></td>
+<td><p>string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
+<td><p>PEP 440 version specifier (e.g. <code class="docutils literal notranslate"><span class="pre">&gt;=0.12.0</span></code>). Build aborts if not satisfied.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_install</span></code></p></td>
+<td><p>string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">local</span></code></p></td>
+<td><p>How to install OSPREY in the project venv: <code class="docutils literal notranslate"><span class="pre">local</span></code> (source tree), <code class="docutils literal notranslate"><span class="pre">pip</span></code> (PyPI), or a PEP 508 spec.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">python_env</span></code></p></td>
+<td><p>string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">project</span></code></p></td>
+<td><p>Python used by MCP servers: <code class="docutils literal notranslate"><span class="pre">project</span></code> (project venv), <code class="docutils literal notranslate"><span class="pre">build</span></code> (build-time Python), or an absolute path.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="configuration-overrides">
+<h2>Configuration Overrides<a class="headerlink" href="#configuration-overrides" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">config:</span></code> section uses <strong>dot notation</strong> to override any key in the generated
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Available keys are defined in the config template
+(<code class="docutils literal notranslate"><span class="pre">src/osprey/templates/project/config.yml.j2</span></code>).</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># Control system</span>
+<span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics</span>
+<span class="w">  </span><span class="nt">control_system.writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">control_system.limits_checking</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">control_system.connector.epics.timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span>
+
+<span class="w">  </span><span class="c1"># Archiver</span>
+<span class="w">  </span><span class="nt">archiver.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics_archiver</span>
+<span class="w">  </span><span class="nt">archiver.epics_archiver.url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://archiver.facility.org</span>
+
+<span class="w">  </span><span class="c1"># System</span>
+<span class="w">  </span><span class="nt">system.timezone</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">America/Los_Angeles</span>
+
+<span class="w">  </span><span class="c1"># Channel finder</span>
+<span class="w">  </span><span class="nt">channel_finder.pipeline_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">middle_layer</span>
+
+<span class="w">  </span><span class="c1"># Container runtime</span>
+<span class="w">  </span><span class="nt">container_runtime</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">podman</span>
+
+<span class="w">  </span><span class="c1"># Approval policy</span>
+<span class="w">  </span><span class="nt">approval.default_policy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">always</span>
+</pre></div>
+</div>
+</section>
+<section id="file-overlays">
+<h2>File Overlays<a class="headerlink" href="#file-overlays" title="Link to this heading">#</a></h2>
+<p>Overlays copy facility-specific files into the built project, replacing template
+defaults. Keys are source paths relative to the profile YAML directory; values are
+destination paths relative to the project root.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">overlay</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">data/channels.json</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/channel_databases/channels.json</span>
+<span class="w">  </span><span class="nt">data/limits.json</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/channel_limits.json</span>
+<span class="w">  </span><span class="nt">mcp_servers/custom</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">_mcp_servers/custom</span>
+<span class="w">  </span><span class="nt">prompts/facility.md</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.claude/rules/facility.md</span>
+</pre></div>
+</div>
+<p>Common overlay targets:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 40.0%" />
+<col style="width: 30.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Purpose</p></th>
+<th class="head"><p>Destination</p></th>
+<th class="head"><p>Notes</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Channel database</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">data/channel_databases/{name}.json</span></code></p></td>
+<td><p>Replaces template example</p></td>
+</tr>
+<tr class="row-odd"><td><p>Channel safety limits</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code></p></td>
+<td><p>Min/max/step per channel</p></td>
+</tr>
+<tr class="row-even"><td><p>Custom MCP server</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">_mcp_servers/{name}/</span></code></p></td>
+<td><p>Directory copy</p></td>
+</tr>
+<tr class="row-odd"><td><p>Facility rule</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">.claude/rules/{name}.md</span></code></p></td>
+<td><p>Custom Claude rule</p></td>
+</tr>
+<tr class="row-even"><td><p>Benchmark data</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">data/benchmarks/{name}.json</span></code></p></td>
+<td><p>Evaluation datasets</p></td>
+</tr>
+<tr class="row-odd"><td><p>Example scripts</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">_agent_data/example_scripts/{cat}/</span></code></p></td>
+<td><p>Claude learning examples</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="important admonition">
+<p class="admonition-title">Path Safety</p>
+<p>Overlay destinations must be <strong>relative paths</strong> without <code class="docutils literal notranslate"><span class="pre">..</span></code> components. Absolute
+paths and path traversal are blocked. Source paths that don’t exist on disk cause a
+validation error at load time.</p>
+</div>
+</section>
+<section id="mcp-server-injection">
+<h2>MCP Server Injection<a class="headerlink" href="#mcp-server-injection" title="Link to this heading">#</a></h2>
+<p>Custom MCP servers are injected into both <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> (server configuration) and
+<code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> (tool permissions).</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">mcp_servers</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my_server</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">python</span>
+<span class="w">    </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;-m&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;my_server&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">env</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">CONFIG</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{project_root}/config.yml&quot;</span>
+<span class="w">      </span><span class="nt">API_KEY</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;${MY_API_KEY}&quot;</span>
+<span class="w">    </span><span class="nt">permissions</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;safe_tool&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">      </span><span class="nt">ask</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;write_tool&quot;</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p><strong>Placeholder resolution:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">{project_root}</span></code> — resolved at <strong>build time</strong> to the absolute project path</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">${ENV_VAR}</span></code> — preserved for <strong>runtime</strong> resolution (not expanded during build)</p></li>
+</ul>
+<p><strong>Permission wiring:</strong> For a server named <code class="docutils literal notranslate"><span class="pre">my_server</span></code> with <code class="docutils literal notranslate"><span class="pre">allow:</span> <span class="pre">[&quot;safe_tool&quot;]</span></code>,
+the build adds <code class="docutils literal notranslate"><span class="pre">mcp__my_server__safe_tool</span></code> to the allow list in
+<code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code>.</p>
+<p>The recommended pattern for facility MCP servers:</p>
+<ol class="arabic simple">
+<li><p>Write the server as a standalone Python package with <code class="docutils literal notranslate"><span class="pre">__main__.py</span></code></p></li>
+<li><p>Place it in <code class="docutils literal notranslate"><span class="pre">mcp_servers/{name}/</span></code> in your profiles repo</p></li>
+<li><p>Overlay it to <code class="docutils literal notranslate"><span class="pre">_mcp_servers/{name}/</span></code> in the project</p></li>
+<li><p>Set <code class="docutils literal notranslate"><span class="pre">PYTHONPATH:</span> <span class="pre">&quot;{project_root}/_mcp_servers&quot;</span></code> so <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">{name}</span></code> resolves</p></li>
+</ol>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># Two-step wiring: overlay copies code, mcp_servers entry launches it</span>
+<span class="nt">overlay</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">mcp_servers/phoebus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">_mcp_servers/phoebus</span>
+
+<span class="nt">mcp_servers</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">phoebus</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">python</span>
+<span class="w">    </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;-m&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;phoebus&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">env</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">OSPREY_CONFIG</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{project_root}/config.yml&quot;</span>
+<span class="w">      </span><span class="nt">PYTHONPATH</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{project_root}/_mcp_servers&quot;</span>
+<span class="w">    </span><span class="nt">permissions</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;phoebus_launch&quot;</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+</section>
+<section id="services">
+<span id="profile-services"></span><h2>Services<a class="headerlink" href="#services" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">services</span></code> section defines facility-specific containers that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code>
+will manage alongside OSPREY’s built-in services (e.g. PostgreSQL).</p>
+<p>Each service points to a template directory containing a <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code>
+template. The template directory is copied into the project’s <code class="docutils literal notranslate"><span class="pre">services/</span></code> tree, and
+the service is registered in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> under <code class="docutils literal notranslate"><span class="pre">services</span></code> and
+<code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">typesense</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">services/typesense</span><span class="w">     </span><span class="c1"># Relative to profile directory</span>
+<span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8108</span>
+<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;${TYPESENSE_API_KEY}&quot;</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">template</span></code> directory must contain at least <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code>. Optional
+<code class="docutils literal notranslate"><span class="pre">config</span></code> values are written to <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> under <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;</span></code>.</p>
+</section>
+<section id="lifecycle-commands">
+<h2>Lifecycle Commands<a class="headerlink" href="#lifecycle-commands" title="Link to this heading">#</a></h2>
+<p>Lifecycle commands run shell commands at three phases of the build pipeline:</p>
+<ul class="simple">
+<li><p><strong>pre_build</strong> — runs before template rendering (cwd defaults to profile directory)</p></li>
+<li><p><strong>post_build</strong> — runs after git init (cwd defaults to project directory)</p></li>
+<li><p><strong>validate</strong> — advisory checks that warn but don’t abort (cwd defaults to project directory)</p></li>
+</ul>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">lifecycle</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">pre_build</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Check</span><span class="nv"> </span><span class="s">dependencies&quot;</span>
+<span class="w">      </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;pip</span><span class="nv"> </span><span class="s">check&quot;</span>
+<span class="w">  </span><span class="nt">post_build</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Build</span><span class="nv"> </span><span class="s">search</span><span class="nv"> </span><span class="s">index&quot;</span>
+<span class="w">      </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;python</span><span class="nv"> </span><span class="s">scripts/build_index.py&quot;</span>
+<span class="w">      </span><span class="nt">cwd</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;data&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Run</span><span class="nv"> </span><span class="s">integration</span><span class="nv"> </span><span class="s">tests&quot;</span>
+<span class="w">      </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;pytest</span><span class="nv"> </span><span class="s">tests/</span><span class="nv"> </span><span class="s">--junitxml={project_root}/check_results.xml&quot;</span>
+<span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span>
+<span class="w">      </span><span class="nt">stream</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">validate</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Smoke</span><span class="nv"> </span><span class="s">test&quot;</span>
+<span class="w">      </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;python</span><span class="nv"> </span><span class="s">-c</span><span class="nv"> </span><span class="s">&#39;import</span><span class="nv"> </span><span class="s">osprey;</span><span class="nv"> </span><span class="s">print(osprey.__version__)&#39;&quot;</span>
+</pre></div>
+</div>
+<p>Each step requires <code class="docutils literal notranslate"><span class="pre">name</span></code> and <code class="docutils literal notranslate"><span class="pre">run</span></code>. Optional fields:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">cwd</span></code> — resolved relative to the phase default directory.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">timeout</span></code> — seconds before the step is killed (default: 120).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">stream</span></code> — if <code class="docutils literal notranslate"><span class="pre">true</span></code>, stdout is printed in real time instead of captured. Can also
+be enabled for all steps via the <code class="docutils literal notranslate"><span class="pre">--stream</span></code> CLI flag.</p></li>
+</ul>
+<p>The <code class="docutils literal notranslate"><span class="pre">{project_root}</span></code> placeholder is replaced with the built project’s absolute path.</p>
+<p>Shell metacharacters (<code class="docutils literal notranslate"><span class="pre">|</span></code>, <code class="docutils literal notranslate"><span class="pre">&amp;&amp;</span></code>, <code class="docutils literal notranslate"><span class="pre">||</span></code>, <code class="docutils literal notranslate"><span class="pre">$(</span></code>, backticks) trigger shell execution;
+simple commands use <code class="docutils literal notranslate"><span class="pre">shlex.split()</span></code> for safer argument handling.</p>
+<p>The project venv’s <code class="docutils literal notranslate"><span class="pre">bin/</span></code> directory is prepended to <code class="docutils literal notranslate"><span class="pre">PATH</span></code>, so <code class="docutils literal notranslate"><span class="pre">python</span></code> and
+<code class="docutils literal notranslate"><span class="pre">pytest</span></code> inside lifecycle commands resolve to the project’s Python (with profile
+dependencies installed), not the OSPREY build environment.</p>
+</section>
+<section id="environment-templates">
+<h2>Environment Templates<a class="headerlink" href="#environment-templates" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">env</span></code> section generates a <code class="docutils literal notranslate"><span class="pre">.env.template</span></code> file in the built project, reminding
+users which environment variables to set.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">env</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">required</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">API_KEY</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DB_HOST</span>
+<span class="w">  </span><span class="nt">defaults</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">LOG_LEVEL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">info</span>
+<span class="w">    </span><span class="nt">PORT</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;8080&quot;</span>
+</pre></div>
+</div>
+<p>This produces a <code class="docutils literal notranslate"><span class="pre">.env.template</span></code> with:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span># Required
+API_KEY=
+DB_HOST=
+
+# Defaults
+LOG_LEVEL=info
+PORT=8080
+</pre></div>
+</div>
+<p>Required variable names must match <code class="docutils literal notranslate"><span class="pre">^[A-Z_][A-Z0-9_]*$</span></code>.</p>
+<p>To ship a pre-populated <code class="docutils literal notranslate"><span class="pre">.env</span></code> file (e.g. for non-secret defaults), use the <code class="docutils literal notranslate"><span class="pre">file</span></code>
+key. The path is relative to the profile directory:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">env</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">envs/dev.env</span><span class="w">        </span><span class="c1"># Copied to .env in the built project</span>
+<span class="w">  </span><span class="nt">required</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">SECRET_KEY</span><span class="p p-Indicator">]</span><span class="w">     </span><span class="c1"># .env.template is still generated</span>
+</pre></div>
+</div>
+</section>
+<section id="dependencies">
+<h2>Dependencies<a class="headerlink" href="#dependencies" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">dependencies</span></code> list appends Python package specifiers to the built project’s
+<code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code>. This ensures facility-specific packages are tracked alongside
+framework dependencies.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">dependencies</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">numpy&gt;=1.24</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pandas</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scipy~=1.11</span>
+</pre></div>
+</div>
+<p>After building, install with <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-r</span> <span class="pre">requirements.txt</span></code>.</p>
+</section>
+<section id="repository-structure">
+<h2>Repository Structure<a class="headerlink" href="#repository-structure" title="Link to this heading">#</a></h2>
+<p>A facility profiles repository should follow this layout:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-profiles/
+├── .gitignore
+├── facility-dev.yml               # Dev profile (mock control system)
+├── facility-prod.yml              # Production profile (real hardware)
+├── data/
+│   ├── channels.json              # Channel database
+│   ├── channel_limits.json        # Safety limits
+│   └── benchmarks/
+│       └── pv_finder_benchmark.json
+├── prompts/                       # Facility-specific Claude rules
+│   ├── facility.md
+│   └── domain-knowledge.md
+└── mcp_servers/                   # Custom MCP server packages
+    └── my_server/
+        ├── __init__.py
+        ├── __main__.py
+        ├── server.py
+        └── tools/
+            ├── __init__.py
+            └── my_tool.py
+</pre></div>
+</div>
+<p>This repository is consumed by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> but kept separate from the OSPREY
+framework itself — any facility can create their own equivalent.</p>
+</section>
+<section id="cli-reference">
+<h2>CLI Reference<a class="headerlink" href="#cli-reference" title="Link to this heading">#</a></h2>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>osprey build PROJECT_NAME [PROFILE] [OPTIONS]
+</pre></div>
+</div>
+<p><strong>Arguments:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">PROJECT_NAME</span></code> — name of the project directory to create</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">PROFILE</span></code> — <em>optional</em> path to a YAML build profile. Mutually exclusive
+with <code class="docutils literal notranslate"><span class="pre">--preset</span></code>; exactly one of the two must be provided.</p></li>
+</ul>
+<p><strong>Options:</strong></p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--preset</span> <span class="pre">NAME</span></code></p></td>
+<td><p>Use a bundled preset profile instead of a positional <code class="docutils literal notranslate"><span class="pre">PROFILE</span></code> path.
+Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--list-presets</span></code> to see what ships.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">-O,</span> <span class="pre">--override</span> <span class="pre">FILE</span></code></p></td>
+<td><p>Layer a YAML override file on top of the base profile/preset. May be
+repeated; files apply in declaration order. Top-level keys deep-merge;
+string lists union-dedup.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">KEY.PATH=VALUE</span></code></p></td>
+<td><p>Inline scalar/list override. RHS is parsed as YAML, so
+<code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">lifecycle.timeout=120</span></code> lands an int and
+<code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">hooks=[memory-guard]</span></code> lands a list. May be repeated.
+<code class="docutils literal notranslate"><span class="pre">--set</span></code> wins over <code class="docutils literal notranslate"><span class="pre">-O</span></code> files at the same key.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--list-presets</span></code></p></td>
+<td><p>List bundled preset names and exit (eager — no <code class="docutils literal notranslate"><span class="pre">PROJECT_NAME</span></code> needed).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">-o,</span> <span class="pre">--output-dir</span> <span class="pre">DIR</span></code></p></td>
+<td><p>Output directory (default: current directory).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">-f,</span> <span class="pre">--force</span></code></p></td>
+<td><p>Overwrite if project directory already exists.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">-s,</span> <span class="pre">--stream</span></code></p></td>
+<td><p>Stream lifecycle step output in real time.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--skip-lifecycle</span></code></p></td>
+<td><p>Skip <code class="docutils literal notranslate"><span class="pre">pre_build</span></code>, <code class="docutils literal notranslate"><span class="pre">post_build</span></code>, and <code class="docutils literal notranslate"><span class="pre">validate</span></code> phases.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--skip-deps</span></code></p></td>
+<td><p>Skip venv creation and dependency installation (CI mode).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--runtime-root</span> <span class="pre">PATH</span></code></p></td>
+<td><p>Override <code class="docutils literal notranslate"><span class="pre">project_root</span></code> in the rendered config. Useful when the
+build path differs from the runtime path (e.g. container builds).</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Layer ordering:</strong> base preset/profile → <code class="docutils literal notranslate"><span class="pre">-O</span></code> override file(s) in
+declaration order → <code class="docutils literal notranslate"><span class="pre">--set</span></code> pairs.</p>
+<p><strong>Examples:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># See what presets ship</span>
+osprey<span class="w"> </span>build<span class="w"> </span>--list-presets
+
+<span class="c1"># Build from a bundled preset</span>
+osprey<span class="w"> </span>build<span class="w"> </span>my-assistant<span class="w"> </span>--preset<span class="w"> </span>hello-world
+
+<span class="c1"># Build from a profile file</span>
+osprey<span class="w"> </span>build<span class="w"> </span>als-test<span class="w"> </span>~/als-profiles/als-dev.yml
+
+<span class="c1"># Layer overrides on a preset</span>
+osprey<span class="w"> </span>build<span class="w"> </span>als-test<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-O<span class="w"> </span>als-overrides.yml<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--set<span class="w"> </span><span class="nv">model</span><span class="o">=</span>claude-sonnet-4-6
+</pre></div>
+</div>
+</section>
+<section id="build-pipeline">
+<h2>Build Pipeline<a class="headerlink" href="#build-pipeline" title="Link to this heading">#</a></h2>
+<p>When <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> runs, it executes these steps in order:</p>
+<ol class="arabic simple">
+<li><p><strong>Load and validate</strong> the YAML profile (schema check, path existence)</p></li>
+<li><p><strong>Check version constraint</strong> — abort if <code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code> is not satisfied</p></li>
+<li><p><strong>Resolve output path</strong> and handle <code class="docutils literal notranslate"><span class="pre">--force</span></code> (remove existing directory)</p></li>
+<li><p><strong>Run pre_build commands</strong> (cwd: profile directory)</p></li>
+<li><p><strong>Clear Claude Code state</strong> for the target directory</p></li>
+<li><p><strong>Create project venv</strong> — install OSPREY (per <code class="docutils literal notranslate"><span class="pre">osprey_install</span></code>) and profile dependencies</p></li>
+<li><p><strong>Build context</strong> from profile fields (provider, model, python_env, channel finder mode)</p></li>
+<li><p><strong>Render base template</strong> via <code class="docutils literal notranslate"><span class="pre">TemplateManager.create_project()</span></code></p></li>
+<li><p><strong>Apply config overrides</strong> using dot-notation → nested key updates</p></li>
+<li><p><strong>Copy service templates</strong> (built-in containers for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code>)</p></li>
+<li><p><strong>Inject profile services</strong> (facility containers from <code class="docutils literal notranslate"><span class="pre">services:</span></code>)</p></li>
+<li><p><strong>Copy overlay files</strong> from the profile directory into the project</p></li>
+<li><p><strong>Inject MCP servers</strong> into <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> and <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code></p></li>
+<li><p><strong>Copy .env file</strong> (if <code class="docutils literal notranslate"><span class="pre">env.file</span></code> is set)</p></li>
+<li><p><strong>Generate .env.template</strong> from <code class="docutils literal notranslate"><span class="pre">env.required</span></code> and <code class="docutils literal notranslate"><span class="pre">env.defaults</span></code></p></li>
+<li><p><strong>Generate manifest</strong> (<code class="docutils literal notranslate"><span class="pre">.osprey-manifest.json</span></code>) for migration tracking</p></li>
+<li><p><strong>Initialize git</strong> and create an initial commit</p></li>
+<li><p><strong>Run post_build commands</strong> (cwd: project directory)</p></li>
+<li><p><strong>Run validate commands</strong> (advisory, cwd: project directory)</p></li>
+</ol>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The project venv (step 6) is created <strong>before</strong> template rendering so that
+templates can reference the resolved Python path. Lifecycle commands in
+<code class="docutils literal notranslate"><span class="pre">post_build</span></code> and <code class="docutils literal notranslate"><span class="pre">validate</span></code> automatically use the project venv’s Python.</p>
+</div>
+<p>The generated project contains everything Claude Code needs to run — no dependency on
+the profiles repository at runtime.</p>
+</section>
+<section id="what-gets-generated">
+<h2>What Gets Generated<a class="headerlink" href="#what-gets-generated" title="Link to this heading">#</a></h2>
+<p>After building, the project contains:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>built-project/
+├── .claude/
+│   ├── agents/           # From manifest (channel-finder, data-visualizer, ...)
+│   ├── rules/            # From manifest (safety, error-handling, ...)
+│   ├── hooks/            # From manifest (approval, writes-check, limits, ...)
+│   ├── skills/           # From manifest (diagnose, session-report, ...)
+│   ├── output-styles/    # From manifest (control-operator)
+│   └── settings.json     # Permissions, hooks, model config
+├── .mcp.json             # MCP server configurations
+├── CLAUDE.md             # Generated system prompt
+├── config.yml            # Config with overrides applied
+├── data/                 # Template data + overlays
+├── _mcp_servers/         # Custom server code (from overlays)
+└── ...
+</pre></div>
+</div>
+<p>Which agents, rules, hooks, and skills are included is controlled by the template’s
+<code class="docutils literal notranslate"><span class="pre">manifest.yml</span></code> — not by the profile. The profile can override <strong>data and config</strong> but
+not the set of Claude Code artifacts. To add new agents or rules, modify the OSPREY
+template (see <a class="reference internal" href="add-mcp-server.html"><span class="doc">Add an MCP Server</span></a>).</p>
+</section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>
+<p><strong>“Profile ‘name’ is required”</strong> — Add a <code class="docutils literal notranslate"><span class="pre">name:</span></code> field to your profile YAML.</p>
+<p><strong>“Overlay source not found”</strong> — Check that the source path exists relative to the
+profile YAML’s directory, not the current working directory.</p>
+<p><strong>“Overlay destination must be relative without ‘..’”</strong> — Destination paths cannot
+be absolute or contain <code class="docutils literal notranslate"><span class="pre">..</span></code>.</p>
+<p><strong>“MCP server ‘X’ missing ‘command’”</strong> — Every MCP server definition needs a
+<code class="docutils literal notranslate"><span class="pre">command</span></code> field.</p>
+<p><strong>“MCP server ‘X’ already exists in .mcp.json”</strong> — The server name conflicts with
+a built-in. Choose a different name.</p>
+<p><strong>“Directory ‘X’ already exists”</strong> — Use <code class="docutils literal notranslate"><span class="pre">--force</span></code> to overwrite, or pick a
+different project name.</p>
+<p><strong>“OSPREY X does not satisfy requires_osprey_version”</strong> — Upgrade OSPREY to a
+version matching the profile’s specifier, or remove the constraint.</p>
+<p><strong>“Service ‘X’ template dir missing docker-compose.yml.j2”</strong> — The service template
+directory must contain a <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code> file.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a></dt><dd><p>Complete CLI command reference</p>
+</dd>
+<dt><a class="reference internal" href="add-mcp-server.html"><span class="doc">Add an MCP Server</span></a></dt><dd><p>How to build custom MCP servers for OSPREY</p>
+</dd>
+<dt><a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a></dt><dd><p>Container deployment after building</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="deploy-project.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Container Deployment</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="add-mcp-server.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Add an MCP Server</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-start">Quick Start</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#profile-yaml-schema">Profile YAML Schema</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-overrides">Configuration Overrides</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#file-overlays">File Overlays</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-server-injection">MCP Server Injection</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#services">Services</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lifecycle-commands">Lifecycle Commands</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-templates">Environment Templates</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dependencies">Dependencies</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#repository-structure">Repository Structure</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cli-reference">CLI Reference</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-pipeline">Build Pipeline</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-gets-generated">What Gets Generated</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/build-profiles.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Hello World Tutorial &#8212; Osprey Framework 0.11.5 documentation</title>
+    <title>Hello World Tutorial &#8212; Osprey Framework 2026.5.0 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="../_static/documentation_options.js?v=955835e8"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,20 +53,19 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.5.0';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             false;
         </script>
-    <script src="../_static/js/execution_plan_viewer.js?v=09b61639"></script>
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Production Control Systems Tutorial" href="control-assistant.html" />
+    <link rel="next" title="Guided Project Setup (Build Interview)" href="build-interview.html" />
     <link rel="prev" title="Conceptual Tutorial" href="conceptual-tutorial.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+    <meta name="docbuild:last-update" content="Apr 28, 2026"/>
   </head>
   
   
@@ -150,22 +149,15 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../developer-guides/index.html">
-    Developer Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../api_reference/index.html">
-    API Reference
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../example-applications/index.html">
-    Example Applications
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
@@ -293,22 +285,15 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../developer-guides/index.html">
-    Developer Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../api_reference/index.html">
-    API Reference
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../example-applications/index.html">
-    Example Applications
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
@@ -386,13 +371,8 @@
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation &amp; Setup</a></li>
 <li class="toctree-l1"><a class="reference internal" href="conceptual-tutorial.html">Conceptual Tutorial</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Hello World Tutorial</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="control-assistant.html">Production Control Systems Tutorial</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="control-assistant-part1-setup.html">Part 1: Getting Started</a></li>
-<li class="toctree-l2"><a class="reference internal" href="control-assistant-part2-channel-finder.html">Part 2: Building Your Channel Finder</a></li>
-<li class="toctree-l2"><a class="reference internal" href="control-assistant-part3-production.html">Part 3: Integration &amp; Deployment</a></li>
-<li class="toctree-l2"><a class="reference internal" href="control-assistant-part4-customization.html">Part 4: Customization &amp; Extension</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="build-interview.html">Guided Project Setup (Build Interview)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="control-assistant.html">Production Control Systems Tutorial</a></li>
 </ul>
 </div>
 </nav></div>
@@ -455,1216 +435,222 @@
                   
   <section id="hello-world-tutorial">
 <h1>Hello World Tutorial<a class="headerlink" href="#hello-world-tutorial" title="Link to this heading">#</a></h1>
-<p>This tutorial builds a simple weather agent to get you from zero to a working Osprey
-application quickly. You’ll learn the essentials: project structure, capability
-implementation, context classes, and running your agent.</p>
-<p>We use a single capability with straightforward logic to keep things minimal while
-you learn the framework basics. The <a class="reference internal" href="conceptual-tutorial.html"><span class="doc">Conceptual Tutorial</span></a> and
-<a class="reference internal" href="control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a> demonstrate more complex patterns when you’re ready
-to scale up.</p>
-<section id="what-you-ll-build">
-<h2>What You’ll Build<a class="headerlink" href="#what-you-ll-build" title="Link to this heading">#</a></h2>
-<p>A “Hello World Weather” agent is a simple agent that:</p>
-<ul class="simple">
-<li><p>Responds to natural language weather queries</p></li>
-<li><p>These queries uses a mock API for realistic weather data.</p></li>
-<li><p>By this we demonstrate the complete capability → context → response flow</p></li>
-<li><p>Shows framework integration patterns</p></li>
-</ul>
-<p>By the end of this guide, you’ll have a working agent that responds to queries like “What’s the weather in Prague?” with temperature and conditions data.</p>
+<p>Build your first OSPREY agent. One MCP server, one mock control system, zero
+complexity. By the end of this tutorial, you’ll have an agent that reads
+control system channels using Claude Code.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-list-unordered" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.75 2.5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm1-6a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text"><strong>Prerequisites</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <p class="sd-card-text"><strong>Required:</strong></p>
 <ul class="simple">
-<li><p class="sd-card-text">Python 3.11+ with virtual environment</p></li>
-<li><p class="sd-card-text">Osprey framework installed via <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">osprey-framework</span></code></p></li>
-<li><p class="sd-card-text">API key from your chosen provider (we recommend Claude Haiku 4.5, but any OpenAI-compatible provider works including institutional services)</p></li>
+<li><p class="sd-card-text">Python 3.11+</p></li>
+<li><p class="sd-card-text"><a class="reference external" href="https://docs.anthropic.com/en/docs/claude-code/overview">Claude Code</a> CLI installed</p></li>
+<li><p class="sd-card-text">Osprey framework installed (<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span></code>)</p></li>
+<li><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code> set in your environment</p></li>
 </ul>
 <p class="sd-card-text">If you haven’t installed the framework yet, follow the <a class="reference internal" href="installation.html"><span class="doc">installation guide</span></a>.</p>
-<p class="sd-card-text"><strong>Optional but Recommended:</strong> Basic understanding of Python and async/await patterns.</p>
 </div>
 </details><section id="step-1-create-the-project">
-<h3>Step 1: Create the Project<a class="headerlink" href="#step-1-create-the-project" title="Link to this heading">#</a></h3>
-<div class="sd-tab-set docutils">
-<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-0">
-Interactive Mode (Recommended)</label><div class="sd-tab-content docutils">
-<p>The easiest way to create your project is using the interactive menu:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey
+<h2>Step 1: Create the Project<a class="headerlink" href="#step-1-create-the-project" title="Link to this heading">#</a></h2>
+<p>Create a ready-to-run project in one command:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-first-agent<span class="w"> </span>--preset<span class="w"> </span>hello-world
+<span class="nb">cd</span><span class="w"> </span>my-first-agent
 </pre></div>
 </div>
-<p>This launches an interactive terminal UI that will:</p>
-<ol class="arabic simple">
-<li><p>Guide you through template selection (choose <code class="docutils literal notranslate"><span class="pre">hello_world_weather</span></code>)</p></li>
-<li><p>Help you select an AI provider and model (we recommend <strong>Claude Haiku 4.5</strong>)</p></li>
-<li><p>Automatically detect and configure API keys</p></li>
-<li><p>Create a ready-to-use project</p></li>
-</ol>
-<p>Just follow the prompts, and you’ll have a complete project set up in minutes!</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>First run may take 1–2 minutes to create a virtual environment and install
+dependencies. Subsequent builds are near-instant.</p>
 </div>
-<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-1">
-Direct CLI Command</label><div class="sd-tab-content docutils">
-<p>If you prefer direct commands or are automating project creation:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>weather-agent<span class="w"> </span>--template<span class="w"> </span>hello_world_weather
-<span class="nb">cd</span><span class="w"> </span>weather-agent
-</pre></div>
-</div>
-<p>This is perfect for scripts, automation, or when you already know exactly what you want.</p>
-</div>
-</div>
-<p>Both methods create identical project structures. Use whichever fits your workflow.</p>
-<p><strong>Generated Project Structure</strong></p>
-<p>Either method generates a complete, self-contained project with the following structure:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>weather-agent/
-├── src/
-│   └── weather_agent/
-│       ├── __init__.py
-│       ├── mock_weather_api.py         # Mock data source (no external APIs)
-│       ├── context_classes.py          # Data models for weather information
-│       ├── registry.py                 # Component registration
-│       ├── framework_prompts.py        # Domain-specific prompt customizations
-│       └── capabilities/
-│           ├── __init__.py
-│           └── current_weather.py      # Weather retrieval logic
-├── config.yml                          # Model &amp; provider configuration
-└── .env.example                        # API key template
-</pre></div>
-</div>
-<div class="tip admonition">
-<p class="admonition-title">Want to see it in action first?</p>
-<p>If you’re the type who likes to play with the toy before reading the manual, jump straight to <a class="reference internal" href="#hello-world-deploy-test"><span class="std std-ref">Step 8: Run Your Agent</span></a> to get your agent running in minutes! You can always come back here to understand how everything works under the hood.</p>
-</div>
-<p>This tutorial will walk you through understanding how each component works and how they integrate together to create a complete AI agent application.</p>
 </section>
-<section id="step-2-the-mock-data-source">
-<h3>Step 2: The Mock Data Source<a class="headerlink" href="#step-2-the-mock-data-source" title="Link to this heading">#</a></h3>
-<p>The <code class="docutils literal notranslate"><span class="pre">mock_weather_api.py</span></code> file provides a deterministic weather data provider that eliminates external API dependencies while demonstrating the framework’s capability integration patterns.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">Simple Mock Weather API</span>
-<span class="sd">&quot;&quot;&quot;</span>
+<section id="step-2-understand-what-was-generated">
+<h2>Step 2: Understand What Was Generated<a class="headerlink" href="#step-2-understand-what-was-generated" title="Link to this heading">#</a></h2>
+<p>Your project has three key files that control everything:</p>
+<p><strong>config.yml</strong> — Project Configuration</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mock</span><span class="w">    </span><span class="c1"># Change to &#39;epics&#39; for real hardware</span>
+<span class="w">  </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">   </span><span class="c1"># Read-only by default</span>
 
-<span class="kn">import</span><span class="w"> </span><span class="nn">random</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="w">  </span><span class="nt">limits_checking</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">database_path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;data/channel_limits.json&quot;</span>
+<span class="w">    </span><span class="nt">allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 
-<span class="nd">@dataclass</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">CurrentWeatherReading</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Simple weather data model.&quot;&quot;&quot;</span>
-    <span class="n">location</span><span class="p">:</span> <span class="nb">str</span>
-    <span class="n">temperature</span><span class="p">:</span> <span class="nb">float</span>
-    <span class="n">conditions</span><span class="p">:</span> <span class="nb">str</span>
-    <span class="n">timestamp</span><span class="p">:</span> <span class="n">datetime</span>
-
-<span class="k">class</span><span class="w"> </span><span class="nc">SimpleWeatherAPI</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Mock weather API that returns weather data for any location string.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">get_current_weather</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">location</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CurrentWeatherReading</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get simple current weather for a location.&quot;&quot;&quot;</span>
-        <span class="c1"># Implementation details below...</span>
+<span class="nt">claude_code</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">servers</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">controls</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">}</span><span class="w">   </span><span class="c1"># The one MCP server</span>
 </pre></div>
 </div>
-<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
-<summary class="sd-summary-title sd-card-header">
-<span class="sd-summary-text">Complete Mock API Implementation</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
-<p class="sd-card-text">Full implementation of the mock weather service (<a class="reference external" href="https://github.com/als-apg/osprey/blob/main/src/osprey/templates/apps/hello_world_weather/mock_weather_api.py">view template on GitHub</a>)</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">Very simple mock weather API for quick setup.</span>
-<span class="sd">Accepts any location string and returns randomized weather data.</span>
-
-<span class="sd">The weather API returns only the type safe data model for the current weather reading.</span>
-<span class="sd">&quot;&quot;&quot;</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">random</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
-
-<span class="nd">@dataclass</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">CurrentWeatherReading</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Simple weather data model.&quot;&quot;&quot;</span>
-    <span class="n">location</span><span class="p">:</span> <span class="nb">str</span>
-    <span class="n">temperature</span><span class="p">:</span> <span class="nb">float</span>  <span class="c1"># Celsius</span>
-    <span class="n">conditions</span><span class="p">:</span> <span class="nb">str</span>
-    <span class="n">timestamp</span><span class="p">:</span> <span class="n">datetime</span>
-
-<span class="k">class</span><span class="w"> </span><span class="nc">SimpleWeatherAPI</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Very simple mock weather API for quick setup.</span>
-<span class="sd">    Accepts any location string and returns randomized weather data.</span>
-
-<span class="sd">    The weather API returns only the type safe data model for the current weather reading.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-
-    <span class="c1"># Weather condition options for random selection</span>
-    <span class="n">ALL_CONDITIONS</span> <span class="o">=</span> <span class="p">[</span>
-        <span class="s2">&quot;Sunny&quot;</span><span class="p">,</span> <span class="s2">&quot;Partly Cloudy&quot;</span><span class="p">,</span> <span class="s2">&quot;Cloudy&quot;</span><span class="p">,</span> <span class="s2">&quot;Overcast&quot;</span><span class="p">,</span> <span class="s2">&quot;Foggy&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;Rainy&quot;</span><span class="p">,</span> <span class="s2">&quot;Drizzle&quot;</span><span class="p">,</span> <span class="s2">&quot;Thunderstorms&quot;</span><span class="p">,</span> <span class="s2">&quot;Snow&quot;</span><span class="p">,</span> <span class="s2">&quot;Windy&quot;</span><span class="p">,</span> <span class="s2">&quot;Clear&quot;</span>
-    <span class="p">]</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">get_current_weather</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">location</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CurrentWeatherReading</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get simple current weather for a location.&quot;&quot;&quot;</span>
-
-        <span class="c1"># Generate random weather data</span>
-        <span class="n">temperature</span> <span class="o">=</span> <span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">35</span><span class="p">)</span>  <span class="c1"># Temperature range: 0-35°C</span>
-        <span class="n">conditions</span> <span class="o">=</span> <span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ALL_CONDITIONS</span><span class="p">)</span>
-
-        <span class="k">return</span> <span class="n">CurrentWeatherReading</span><span class="p">(</span>
-            <span class="n">location</span><span class="o">=</span><span class="n">location</span><span class="p">,</span>  <span class="c1"># Preserve exact location string</span>
-            <span class="n">temperature</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">temperature</span><span class="p">),</span>
-            <span class="n">conditions</span><span class="o">=</span><span class="n">conditions</span><span class="p">,</span>
-            <span class="n">timestamp</span><span class="o">=</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span>
-        <span class="p">)</span>
-
-<span class="c1"># Global API instance</span>
-<span class="n">weather_api</span> <span class="o">=</span> <span class="n">SimpleWeatherAPI</span><span class="p">()</span>
+<p>This tells OSPREY to use the <strong>mock connector</strong>, which accepts any channel
+name and returns synthetic data. In production, you change <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">mock</span></code> to
+<code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">epics</span></code> and point it at real hardware — your agent code stays the same.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">limits_checking</span></code> section enables the safety limits system. The limits
+database defines allowed ranges and read-only channels. With
+<code class="docutils literal notranslate"><span class="pre">allow_unlisted_channels:</span> <span class="pre">true</span></code>, channels not in the database can still be
+read freely.</p>
+<p><strong>.mcp.json</strong> — MCP Server Discovery</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;mcpServers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;controls&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;python&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;args&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;-m&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;osprey.mcp_server.control_system&quot;</span><span class="p">],</span>
+<span class="w">      </span><span class="nt">&quot;env&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;OSPREY_CONFIG&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;config.yml&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
 </pre></div>
 </div>
+<p>This is how Claude Code discovers the control system MCP server. When Claude
+starts, it launches this server and gains access to tools like
+<code class="docutils literal notranslate"><span class="pre">channel_read</span></code> and <code class="docutils literal notranslate"><span class="pre">channel_write</span></code>.</p>
+<p><strong>CLAUDE.md</strong> — Agent Behavior Instructions</p>
+<p>This file contains instructions that Claude reads on startup. It defines how
+the agent should behave, what safety rules to follow, and how to format
+responses. Edit this file to customize your agent’s personality and behavior.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">hello_world</span></code> template also installs Claude Code <strong>hooks</strong> for
+safety enforcement. These hooks run automatically before each tool call to
+check limits and require human approval for writes. You don’t need to
+configure them manually.</p>
 </div>
-</details></section>
-<section id="step-3-define-the-context-class">
-<h3>Step 3: Define the Context Class<a class="headerlink" href="#step-3-define-the-context-class" title="Link to this heading">#</a></h3>
-<p>Context classes provide structured data storage and enable seamless integration between your agent’s capabilities. Define a context class file (we’ll call it <code class="docutils literal notranslate"><span class="pre">context_classes.py</span></code>) to specify how weather information is stored and accessed throughout the framework.</p>
-<div class="admonition-requirements admonition">
-<p class="admonition-title">Requirements</p>
-<p>All context classes must inherit from <code class="docutils literal notranslate"><span class="pre">CapabilityContext</span></code> and implement the following required methods:</p>
-</div>
-<p><strong>Class Structure:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">CurrentWeatherContext</span><span class="p">(</span><span class="n">CapabilityContext</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Context for current weather conditions.&quot;&quot;&quot;</span>
-
-    <span class="c1"># Context type and category identifiers</span>
-    <span class="n">CONTEXT_TYPE</span><span class="p">:</span> <span class="n">ClassVar</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;CURRENT_WEATHER&quot;</span>
-    <span class="n">CONTEXT_CATEGORY</span><span class="p">:</span> <span class="n">ClassVar</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;LIVE_DATA&quot;</span>
-
-    <span class="c1"># Your data fields (must be json serializable)</span>
-    <span class="n">location</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Location name&quot;</span><span class="p">)</span>
-    <span class="n">temperature</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Temperature in Celsius&quot;</span><span class="p">)</span>
-    <span class="n">conditions</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Weather conditions&quot;</span><span class="p">)</span>
-    <span class="n">timestamp</span><span class="p">:</span> <span class="n">datetime</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;When data was retrieved&quot;</span><span class="p">)</span>
-</pre></div>
-</div>
-<p><strong>Required Method 1: get_access_details()</strong></p>
-<p>Provides structured access information for LLM consumption. This method is used when LLMs need to write Python code to access this context type:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">get_access_details</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Provide access details for LLM consumption.&quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="p">{</span>
-        <span class="s2">&quot;location&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">location</span><span class="p">,</span>
-        <span class="s2">&quot;temperature&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">temperature</span><span class="p">,</span>
-        <span class="s2">&quot;conditions&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">conditions</span><span class="p">,</span>
-        <span class="s2">&quot;temperature_formatted&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">temperature</span><span class="si">}</span><span class="s2">°C&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;access_pattern&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;context.</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">CONTEXT_TYPE</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.temperature, context.</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">CONTEXT_TYPE</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.conditions&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;example_usage&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;The temperature in </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">location</span><span class="si">}</span><span class="s2"> is </span><span class="se">{{</span><span class="s2">context.</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">CONTEXT_TYPE</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.temperature</span><span class="se">}}</span><span class="s2">°C with </span><span class="se">{{</span><span class="s2">context.</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">CONTEXT_TYPE</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.conditions</span><span class="se">}}</span><span class="s2"> conditions&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;available_fields&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;location&quot;</span><span class="p">,</span> <span class="s2">&quot;temperature&quot;</span><span class="p">,</span> <span class="s2">&quot;conditions&quot;</span><span class="p">,</span> <span class="s2">&quot;timestamp&quot;</span><span class="p">]</span>
-    <span class="p">}</span>
-</pre></div>
-</div>
-<p><strong>Required Method 2: get_summary()</strong></p>
-<p>Provides human-readable summaries for user interfaces and debugging:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">get_summary</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get human-readable summary for this weather context.&quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="p">{</span>
-        <span class="s2">&quot;summary&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Weather in </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">location</span><span class="si">}</span><span class="s2"> on </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">timestamp</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s1">&#39;%Y-%m-</span><span class="si">%d</span><span class="s1">&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">temperature</span><span class="si">}</span><span class="s2">°C, </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">conditions</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
-    <span class="p">}</span>
-</pre></div>
-</div>
-<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
-<summary class="sd-summary-title sd-card-header">
-<span class="sd-summary-text">Complete Weather Context Implementation</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
-<p class="sd-card-text">Full context class showing all required methods (<a class="reference external" href="https://github.com/als-apg/osprey/blob/main/src/osprey/templates/apps/hello_world_weather/context_classes.py.j2">view context class on GitHub</a>)</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">Hello World Weather Context Classes - Quick Start Version</span>
-
-<span class="sd">These classes serve as a simple data structure for exchange of the weather information between the capabilities and the orchestrator.</span>
-
-<span class="sd">It is important to note that the context classes are not used to determine the location, but rather to determine if the task requires current weather information for a specific location.</span>
-<span class="sd">The location is determined by the orchestrator based on the user query and the context of the task.</span>
-
-<span class="sd">The context classes are used to store the weather information in a structured format that can be easily used by the capabilities and the orchestrator.</span>
-<span class="sd">&quot;&quot;&quot;</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">ClassVar</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">Field</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.context.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">CapabilityContext</span>
-
-<span class="k">class</span><span class="w"> </span><span class="nc">CurrentWeatherContext</span><span class="p">(</span><span class="n">CapabilityContext</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Simple context for current weather conditions.&quot;&quot;&quot;</span>
-
-    <span class="n">CONTEXT_TYPE</span><span class="p">:</span> <span class="n">ClassVar</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;CURRENT_WEATHER&quot;</span>
-    <span class="n">CONTEXT_CATEGORY</span><span class="p">:</span> <span class="n">ClassVar</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;LIVE_DATA&quot;</span>
-
-    <span class="c1"># Basic weather data</span>
-    <span class="n">location</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Location name&quot;</span><span class="p">)</span>
-    <span class="n">temperature</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Temperature in Celsius&quot;</span><span class="p">)</span>
-    <span class="n">conditions</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Weather conditions description&quot;</span><span class="p">)</span>
-    <span class="n">timestamp</span><span class="p">:</span> <span class="n">datetime</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Timestamp of weather data&quot;</span><span class="p">)</span>
-
-    <span class="nd">@property</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">context_type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the context type identifier.&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">CONTEXT_TYPE</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">get_access_details</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Provide access details for LLM consumption.&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="p">{</span>
-            <span class="s2">&quot;location&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">location</span><span class="p">,</span>
-            <span class="s2">&quot;current_temp&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">temperature</span><span class="si">}</span><span class="s2">°C&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;conditions&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">conditions</span><span class="p">,</span>
-            <span class="s2">&quot;access_pattern&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;context.</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">CONTEXT_TYPE</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.temperature, context.</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">CONTEXT_TYPE</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.conditions&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;example_usage&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;The temperature in </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">location</span><span class="si">}</span><span class="s2"> is </span><span class="se">{{</span><span class="s2">context.</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">CONTEXT_TYPE</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.temperature</span><span class="se">}}</span><span class="s2">°C with </span><span class="se">{{</span><span class="s2">context.</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">CONTEXT_TYPE</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.conditions</span><span class="se">}}</span><span class="s2"> conditions&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;available_fields&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;location&quot;</span><span class="p">,</span> <span class="s2">&quot;temperature&quot;</span><span class="p">,</span> <span class="s2">&quot;conditions&quot;</span><span class="p">,</span> <span class="s2">&quot;timestamp&quot;</span><span class="p">]</span>
-        <span class="p">}</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">get_summary</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get human-readable summary for this weather context.&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="p">{</span>
-            <span class="s2">&quot;summary&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Weather in </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">location</span><span class="si">}</span><span class="s2"> on </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">timestamp</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s1">&#39;%Y-%m-</span><span class="si">%d</span><span class="s1">&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">temperature</span><span class="si">}</span><span class="s2">°C, </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">conditions</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
-        <span class="p">}</span>
-</pre></div>
-</div>
-</div>
-</details></section>
-<section id="step-4-building-the-weather-capability">
-<h3>Step 4: Building the Weather Capability<a class="headerlink" href="#step-4-building-the-weather-capability" title="Link to this heading">#</a></h3>
-<p>Capabilities are the <strong>business logic units</strong> that perform specific tasks. Our weather capability demonstrates the essential patterns for data retrieval, context storage, and framework integration.</p>
-<p><strong>4.1: The &#64;capability_node Decorator</strong></p>
-<p>The <code class="docutils literal notranslate"><span class="pre">&#64;capability_node</span></code> decorator validates required class components and creates a LangGraph-compatible wrapper function with full infrastructure support:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@capability_node</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">CurrentWeatherCapability</span><span class="p">(</span><span class="n">BaseCapability</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get current weather conditions for a location.&quot;&quot;&quot;</span>
-
-    <span class="c1"># Required class attributes for registry configuration</span>
-    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;current_weather&quot;</span>
-    <span class="n">description</span> <span class="o">=</span> <span class="s2">&quot;Get current weather conditions for a location&quot;</span>
-    <span class="n">provides</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;CURRENT_WEATHER&quot;</span><span class="p">]</span>
-    <span class="n">requires</span> <span class="o">=</span> <span class="p">[]</span>
-</pre></div>
-</div>
-<div class="admonition-key-insight admonition">
-<p class="admonition-title">Key Insight</p>
-<p>The <code class="docutils literal notranslate"><span class="pre">provides</span></code> field tells the framework what context types this capability generates. The <code class="docutils literal notranslate"><span class="pre">requires</span></code> field tells the framework what context types this capability needs to run.</p>
-</div>
-<p><strong>4.2: Core Business Logic</strong></p>
-<p>The <code class="docutils literal notranslate"><span class="pre">execute()</span></code> method contains your main business logic, which you could call the ‘tool’ in agentic terms. Here’s the weather retrieval:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Execute weather retrieval.&quot;&quot;&quot;</span>
-    <span class="c1"># Get unified logger with automatic streaming</span>
-    <span class="n">logger</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span>
-
-    <span class="k">try</span><span class="p">:</span>
-        <span class="c1"># Extract location from user&#39;s query</span>
-        <span class="n">query</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_task_objective</span><span class="p">()</span>
-        <span class="n">location</span> <span class="o">=</span> <span class="k">await</span> <span class="n">_parse_location_from_query</span><span class="p">(</span><span class="n">query</span><span class="p">)</span>
-
-        <span class="c1"># Get weather data</span>
-        <span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Getting weather for </span><span class="si">{</span><span class="n">location</span><span class="si">}</span><span class="s2">...&quot;</span><span class="p">)</span>
-        <span class="n">weather</span> <span class="o">=</span> <span class="n">weather_api</span><span class="o">.</span><span class="n">get_current_weather</span><span class="p">(</span><span class="n">location</span><span class="p">)</span>
-
-        <span class="c1"># Create context object</span>
-        <span class="n">context</span> <span class="o">=</span> <span class="n">CurrentWeatherContext</span><span class="p">(</span>
-            <span class="n">location</span><span class="o">=</span><span class="n">weather</span><span class="o">.</span><span class="n">location</span><span class="p">,</span>
-            <span class="n">temperature</span><span class="o">=</span><span class="n">weather</span><span class="o">.</span><span class="n">temperature</span><span class="p">,</span>
-            <span class="n">conditions</span><span class="o">=</span><span class="n">weather</span><span class="o">.</span><span class="n">conditions</span><span class="p">,</span>
-            <span class="n">timestamp</span><span class="o">=</span><span class="n">weather</span><span class="o">.</span><span class="n">timestamp</span>
-        <span class="p">)</span>
-
-        <span class="c1"># Store context and return state updates</span>
-        <span class="n">logger</span><span class="o">.</span><span class="n">success</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Weather retrieved: </span><span class="si">{</span><span class="n">location</span><span class="si">}</span><span class="s2"> - </span><span class="si">{</span><span class="n">weather</span><span class="o">.</span><span class="n">temperature</span><span class="si">}</span><span class="s2">°C&quot;</span><span class="p">)</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
-
-    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Weather retrieval error: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="k">raise</span>
-</pre></div>
-</div>
-<div class="admonition-key-steps admonition">
-<p class="admonition-title">Key Steps</p>
-<ol class="arabic simple">
-<li><p><strong>Logger Setup</strong> - Get unified logger using self.get_logger()</p></li>
-<li><p><strong>Task Retrieval</strong> - Get task of current execution step</p></li>
-<li><p><strong>Location Extraction</strong> - Parse user query to find location</p></li>
-<li><p><strong>Data Retrieval</strong> - Call your API/service to get actual data</p></li>
-<li><p><strong>Context Creation</strong> - Convert raw data to structured context object</p></li>
-<li><p><strong>Context Storage</strong> - Store context so other capabilities and LLM can access it</p></li>
-</ol>
-</div>
-<p><strong>4.3: Essential Supporting Methods</strong></p>
-<p>Every capability needs basic error handling and retry policies:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@staticmethod</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">classify_error</span><span class="p">(</span><span class="n">exc</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ErrorClassification</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Classify errors for retry decisions.&quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="p">(</span><span class="ne">ConnectionError</span><span class="p">,</span> <span class="ne">TimeoutError</span><span class="p">)):</span>
-        <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
-            <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RETRIABLE</span><span class="p">,</span>
-            <span class="n">user_message</span><span class="o">=</span><span class="s2">&quot;Weather service timeout, retrying...&quot;</span><span class="p">,</span>
-            <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)}</span>
-        <span class="p">)</span>
-
-    <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
-        <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">,</span>
-        <span class="n">user_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Weather service error: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
-        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span>
-            <span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Error: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span>
-        <span class="p">}</span>
-    <span class="p">)</span>
-
-<span class="nd">@staticmethod</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">get_retry_policy</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Retry policy for weather data retrieval.&quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="p">{</span>
-        <span class="s2">&quot;max_attempts&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
-        <span class="s2">&quot;delay_seconds&quot;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">,</span>
-        <span class="s2">&quot;backoff_factor&quot;</span><span class="p">:</span> <span class="mf">1.5</span>
-    <span class="p">}</span>
-</pre></div>
-</div>
-<div class="admonition-framework-benefits admonition">
-<p class="admonition-title">Framework Benefits</p>
-<p>The Framework Handles Everything Else: Error routing, retry logic, user messaging, and execution flow are automatically managed by the framework infrastructure.</p>
-</div>
-<p id="hello-world-orchestrator-guide"><strong>4.4: Orchestrator Guide</strong></p>
-<p>The orchestrator guide teaches the LLM how to plan execution steps and use your capability effectively:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">_create_orchestrator_guide</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">OrchestratorGuide</span><span class="p">]:</span>
-<span class="sd">&quot;&quot;&quot;Guide the orchestrator on how to use this capability.&quot;&quot;&quot;</span>
-<span class="n">example</span> <span class="o">=</span> <span class="n">OrchestratorExample</span><span class="p">(</span>
-          <span class="n">step</span><span class="o">=</span><span class="n">PlannedStep</span><span class="p">(</span>
-              <span class="n">context_key</span><span class="o">=</span><span class="s2">&quot;current_weather&quot;</span><span class="p">,</span>
-              <span class="n">capability</span><span class="o">=</span><span class="s2">&quot;current_weather&quot;</span><span class="p">,</span>
-              <span class="n">task_objective</span><span class="o">=</span><span class="s2">&quot;Get current weather conditions for the specified location&quot;</span><span class="p">,</span>
-              <span class="n">expected_output</span><span class="o">=</span><span class="n">registry</span><span class="o">.</span><span class="n">context_types</span><span class="o">.</span><span class="n">CURRENT_WEATHER</span><span class="p">,</span>
-              <span class="n">success_criteria</span><span class="o">=</span><span class="s2">&quot;Current weather data retrieved with temperature and conditions&quot;</span><span class="p">,</span>
-        <span class="n">inputs</span><span class="o">=</span><span class="p">[]</span>
-          <span class="p">),</span>
-          <span class="n">scenario_description</span><span class="o">=</span><span class="s2">&quot;Getting current weather for a location&quot;</span><span class="p">,</span>
-          <span class="n">notes</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Output stored as </span><span class="si">{</span><span class="n">registry</span><span class="o">.</span><span class="n">context_types</span><span class="o">.</span><span class="n">CURRENT_WEATHER</span><span class="si">}</span><span class="s2"> with live weather data.&quot;</span>
-      <span class="p">)</span>
-
-      <span class="k">return</span> <span class="n">OrchestratorGuide</span><span class="p">(</span>
-          <span class="n">instructions</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;&quot;&quot;**When to plan &quot;current_weather&quot; steps:**</span>
-<span class="s2">  - When users ask for current weather conditions</span>
-<span class="s2">  - For real-time weather information requests</span>
-<span class="s2">  - When location-specific current conditions are needed</span>
-
-<span class="s2">  **Output: </span><span class="si">{</span><span class="n">registry</span><span class="o">.</span><span class="n">context_types</span><span class="o">.</span><span class="n">CURRENT_WEATHER</span><span class="si">}</span><span class="s2">**</span>
-<span class="s2">  - Contains: location, temperature, conditions, timestamp</span>
-<span class="s2">  - Available for immediate display or further analysis</span>
-
-<span class="s2">  **Location Handling:**</span>
-<span class="s2">  - Extracts locations from natural language queries</span>
-<span class="s2">  - Handles variations and common phrasings naturally&quot;&quot;&quot;</span><span class="p">,</span>
-    <span class="n">examples</span><span class="o">=</span><span class="p">[</span><span class="n">example</span><span class="p">],</span>
-    <span class="n">order</span><span class="o">=</span><span class="mi">5</span>
-<span class="p">)</span>
-</pre></div>
-</div>
-<div class="admonition-for-complex-capabilities admonition">
-<p class="admonition-title">For Complex Capabilities</p>
-<p>When building more sophisticated capabilities with multiple steps, dependencies, or complex planning logic, providing comprehensive orchestrator examples becomes crucial. The orchestrator uses these examples to understand when and how to integrate your capability into multi-step execution plans.</p>
-</div>
-<p id="hello-world-classifier-guide"><strong>4.5: Classifier Guide</strong></p>
-<p>The classifier guide teaches the LLM when to activate your capability based on user queries:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">_create_classifier_guide</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">TaskClassifierGuide</span><span class="p">]:</span>
-<span class="w">  </span><span class="sd">&quot;&quot;&quot;Guide the classifier on when to activate this capability.&quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">TaskClassifierGuide</span><span class="p">(</span>
-        <span class="n">instructions</span><span class="o">=</span><span class="s2">&quot;Determine if the task requires current weather information for a specific location.&quot;</span><span class="p">,</span>
-        <span class="n">examples</span><span class="o">=</span><span class="p">[</span>
-            <span class="n">ClassifierExample</span><span class="p">(</span>
-                <span class="n">query</span><span class="o">=</span><span class="s2">&quot;What&#39;s the weather like in San Francisco right now?&quot;</span><span class="p">,</span>
-                <span class="n">result</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-                <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;Request asks for current weather conditions in a specific location.&quot;</span>
-            <span class="p">),</span>
-            <span class="n">ClassifierExample</span><span class="p">(</span>
-                <span class="n">query</span><span class="o">=</span><span class="s2">&quot;How&#39;s the weather today?&quot;</span><span class="p">,</span>
-                <span class="n">result</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-                <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;Current weather request, though location may need to be inferred.&quot;</span>
-            <span class="p">),</span>
-            <span class="n">ClassifierExample</span><span class="p">(</span>
-                <span class="n">query</span><span class="o">=</span><span class="s2">&quot;What was the weather like last week?&quot;</span><span class="p">,</span>
-                <span class="n">result</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-                <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;Request is for historical weather data, not current conditions.&quot;</span>
-            <span class="p">),</span>
-            <span class="n">ClassifierExample</span><span class="p">(</span>
-              <span class="n">query</span><span class="o">=</span><span class="s2">&quot;What tools do you have?&quot;</span><span class="p">,</span>
-              <span class="n">result</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-              <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;Request is for tool information, not weather.&quot;</span>
-            <span class="p">),</span>
-        <span class="p">],</span>
-        <span class="n">actions_if_true</span><span class="o">=</span><span class="n">ClassifierActions</span><span class="p">()</span>
-    <span class="p">)</span>
-</pre></div>
-</div>
-<div class="admonition-quality-examples-matter admonition">
-<p class="admonition-title">Quality Examples Matter</p>
-<p>The classifier’s accuracy depends heavily on the quality and diversity of your examples. Include edge cases, ambiguous queries, and clear negative examples to help the LLM make better classification decisions.</p>
-</div>
-<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
-<summary class="sd-summary-title sd-card-header">
-<span class="sd-summary-text">Complete Current Weather Capability Implementation</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
-<p class="sd-card-text">Full capability showing all required methods and patterns (<a class="reference external" href="https://github.com/als-apg/osprey/blob/main/src/osprey/templates/apps/hello_world_weather/capabilities/current_weather.py.j2">view template on GitHub</a>)</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">Current Weather Capability</span>
-
-<span class="sd">Simple capability to get current weather conditions for a location.</span>
-<span class="sd">&quot;&quot;&quot;</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Optional</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">BaseCapability</span><span class="p">,</span> <span class="n">capability_node</span><span class="p">,</span>
-    <span class="n">OrchestratorGuide</span><span class="p">,</span> <span class="n">OrchestratorExample</span><span class="p">,</span> <span class="n">PlannedStep</span><span class="p">,</span>
-    <span class="n">ClassifierActions</span><span class="p">,</span> <span class="n">ClassifierExample</span><span class="p">,</span> <span class="n">TaskClassifierGuide</span>
-<span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.base.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ErrorClassification</span><span class="p">,</span> <span class="n">ErrorSeverity</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_registry</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">weather_agent.context_classes</span><span class="w"> </span><span class="kn">import</span> <span class="n">CurrentWeatherContext</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">weather_agent.mock_weather_api</span><span class="w"> </span><span class="kn">import</span> <span class="n">weather_api</span>
-
-<span class="n">registry</span> <span class="o">=</span> <span class="n">get_registry</span><span class="p">()</span>
-
-<span class="nd">@capability_node</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">CurrentWeatherCapability</span><span class="p">(</span><span class="n">BaseCapability</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get current weather conditions for a location.&quot;&quot;&quot;</span>
-
-    <span class="c1"># Required class attributes for registry configuration</span>
-    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;current_weather&quot;</span>
-    <span class="n">description</span> <span class="o">=</span> <span class="s2">&quot;Get current weather conditions for a location&quot;</span>
-    <span class="n">provides</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;CURRENT_WEATHER&quot;</span><span class="p">]</span>
-    <span class="n">requires</span> <span class="o">=</span> <span class="p">[]</span>
-
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Execute weather retrieval.&quot;&quot;&quot;</span>
-        <span class="c1"># Get unified logger with automatic streaming support</span>
-        <span class="n">logger</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span>
-
-        <span class="k">try</span><span class="p">:</span>
-            <span class="c1"># Extract location from user&#39;s query</span>
-            <span class="n">query</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_task_objective</span><span class="p">()</span>
-            <span class="n">location</span> <span class="o">=</span> <span class="k">await</span> <span class="n">_parse_location_from_query</span><span class="p">(</span><span class="n">query</span><span class="p">)</span>
-
-            <span class="c1"># Get weather data</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Getting weather for </span><span class="si">{</span><span class="n">location</span><span class="si">}</span><span class="s2">...&quot;</span><span class="p">)</span>
-            <span class="n">weather</span> <span class="o">=</span> <span class="n">weather_api</span><span class="o">.</span><span class="n">get_current_weather</span><span class="p">(</span><span class="n">location</span><span class="p">)</span>
-
-            <span class="c1"># Create context object</span>
-            <span class="n">context</span> <span class="o">=</span> <span class="n">CurrentWeatherContext</span><span class="p">(</span>
-                <span class="n">location</span><span class="o">=</span><span class="n">weather</span><span class="o">.</span><span class="n">location</span><span class="p">,</span>
-                <span class="n">temperature</span><span class="o">=</span><span class="n">weather</span><span class="o">.</span><span class="n">temperature</span><span class="p">,</span>
-                <span class="n">conditions</span><span class="o">=</span><span class="n">weather</span><span class="o">.</span><span class="n">conditions</span><span class="p">,</span>
-                <span class="n">timestamp</span><span class="o">=</span><span class="n">weather</span><span class="o">.</span><span class="n">timestamp</span>
-            <span class="p">)</span>
-
-            <span class="c1"># Store context and return</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Weather retrieved: </span><span class="si">{</span><span class="n">location</span><span class="si">}</span><span class="s2"> - </span><span class="si">{</span><span class="n">weather</span><span class="o">.</span><span class="n">temperature</span><span class="si">}</span><span class="s2">°C&quot;</span><span class="p">)</span>
-            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store_output_context</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
-
-        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Weather retrieval error: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="k">raise</span>
-
-    <span class="nd">@staticmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">classify_error</span><span class="p">(</span><span class="n">exc</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ErrorClassification</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Classify errors for retry decisions.&quot;&quot;&quot;</span>
-        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="p">(</span><span class="ne">ConnectionError</span><span class="p">,</span> <span class="ne">TimeoutError</span><span class="p">)):</span>
-            <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
-                <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">RETRIABLE</span><span class="p">,</span>
-                <span class="n">user_message</span><span class="o">=</span><span class="s2">&quot;Weather service timeout, retrying...&quot;</span><span class="p">,</span>
-                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)}</span>
-            <span class="p">)</span>
-
-        <span class="k">return</span> <span class="n">ErrorClassification</span><span class="p">(</span>
-            <span class="n">severity</span><span class="o">=</span><span class="n">ErrorSeverity</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">,</span>
-            <span class="n">user_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Weather service error: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
-            <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;technical_details&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Error: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">}</span>
-        <span class="p">)</span>
-
-    <span class="nd">@staticmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">get_retry_policy</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Retry policy for weather data retrieval.&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="p">{</span>
-            <span class="s2">&quot;max_attempts&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
-            <span class="s2">&quot;delay_seconds&quot;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">,</span>
-            <span class="s2">&quot;backoff_factor&quot;</span><span class="p">:</span> <span class="mf">1.5</span>
-        <span class="p">}</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">_create_orchestrator_guide</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">OrchestratorGuide</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Guide the orchestrator on how to use this capability.&quot;&quot;&quot;</span>
-        <span class="n">example</span> <span class="o">=</span> <span class="n">OrchestratorExample</span><span class="p">(</span>
-            <span class="n">step</span><span class="o">=</span><span class="n">PlannedStep</span><span class="p">(</span>
-                <span class="n">context_key</span><span class="o">=</span><span class="s2">&quot;current_weather&quot;</span><span class="p">,</span>
-                <span class="n">capability</span><span class="o">=</span><span class="s2">&quot;current_weather&quot;</span><span class="p">,</span>
-                <span class="n">task_objective</span><span class="o">=</span><span class="s2">&quot;Get current weather conditions for the specified location&quot;</span><span class="p">,</span>
-                <span class="n">expected_output</span><span class="o">=</span><span class="n">registry</span><span class="o">.</span><span class="n">context_types</span><span class="o">.</span><span class="n">CURRENT_WEATHER</span><span class="p">,</span>
-                <span class="n">success_criteria</span><span class="o">=</span><span class="s2">&quot;Current weather data retrieved with temperature and conditions&quot;</span><span class="p">,</span>
-                <span class="n">inputs</span><span class="o">=</span><span class="p">[]</span>
-            <span class="p">),</span>
-            <span class="n">scenario_description</span><span class="o">=</span><span class="s2">&quot;Getting current weather for a location&quot;</span><span class="p">,</span>
-            <span class="n">notes</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Output stored as </span><span class="si">{</span><span class="n">registry</span><span class="o">.</span><span class="n">context_types</span><span class="o">.</span><span class="n">CURRENT_WEATHER</span><span class="si">}</span><span class="s2"> with live weather data.&quot;</span>
-        <span class="p">)</span>
-
-        <span class="k">return</span> <span class="n">OrchestratorGuide</span><span class="p">(</span>
-            <span class="n">instructions</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;&quot;&quot;**When to plan &quot;current_weather&quot; steps:**</span>
-<span class="s2">    - When users ask for current weather conditions</span>
-<span class="s2">    - For real-time weather information requests</span>
-<span class="s2">    - When location-specific current conditions are needed</span>
-
-<span class="s2">    **Output: </span><span class="si">{</span><span class="n">registry</span><span class="o">.</span><span class="n">context_types</span><span class="o">.</span><span class="n">CURRENT_WEATHER</span><span class="si">}</span><span class="s2">**</span>
-<span class="s2">    - Contains: location, temperature, conditions, timestamp</span>
-<span class="s2">    - Available for immediate display or further analysis</span>
-
-<span class="s2">    **Location Handling:**</span>
-<span class="s2">    - Extracts locations from natural language queries</span>
-<span class="s2">    - Handles variations and common phrasings naturally&quot;&quot;&quot;</span><span class="p">,</span>
-            <span class="n">examples</span><span class="o">=</span><span class="p">[</span><span class="n">example</span><span class="p">],</span>
-            <span class="n">order</span><span class="o">=</span><span class="mi">5</span>
-        <span class="p">)</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">_create_classifier_guide</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">TaskClassifierGuide</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Guide the classifier on when to activate this capability.&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="n">TaskClassifierGuide</span><span class="p">(</span>
-            <span class="n">instructions</span><span class="o">=</span><span class="s2">&quot;Determine if the task requires current weather information for a specific location.&quot;</span><span class="p">,</span>
-            <span class="n">examples</span><span class="o">=</span><span class="p">[</span>
-                <span class="n">ClassifierExample</span><span class="p">(</span>
-                    <span class="n">query</span><span class="o">=</span><span class="s2">&quot;What&#39;s the weather like in San Francisco right now?&quot;</span><span class="p">,</span>
-                    <span class="n">result</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-                    <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;Request asks for current weather conditions in a specific location.&quot;</span>
-                <span class="p">),</span>
-                <span class="n">ClassifierExample</span><span class="p">(</span>
-                    <span class="n">query</span><span class="o">=</span><span class="s2">&quot;How&#39;s the weather today?&quot;</span><span class="p">,</span>
-                    <span class="n">result</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-                    <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;Current weather request, though location may need to be inferred.&quot;</span>
-                <span class="p">),</span>
-                <span class="n">ClassifierExample</span><span class="p">(</span>
-                    <span class="n">query</span><span class="o">=</span><span class="s2">&quot;What was the weather like last week?&quot;</span><span class="p">,</span>
-                    <span class="n">result</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-                    <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;Request is for historical weather data, not current conditions.&quot;</span>
-                <span class="p">),</span>
-                <span class="n">ClassifierExample</span><span class="p">(</span>
-                    <span class="n">query</span><span class="o">=</span><span class="s2">&quot;What tools do you have?&quot;</span><span class="p">,</span>
-                    <span class="n">result</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-                    <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;Request is for tool information, not weather.&quot;</span>
-                <span class="p">),</span>
-            <span class="p">],</span>
-            <span class="n">actions_if_true</span><span class="o">=</span><span class="n">ClassifierActions</span><span class="p">()</span>
-        <span class="p">)</span>
-</pre></div>
-</div>
-</div>
-</details></section>
-<section id="step-5-domain-adaptation">
-<h3>Step 5: Domain Adaptation<a class="headerlink" href="#step-5-domain-adaptation" title="Link to this heading">#</a></h3>
-<p>Weather applications need to synthesize information from multi-turn conversations where location, time, and weather concerns are mentioned across different exchanges. The generated project includes <code class="docutils literal notranslate"><span class="pre">framework_prompts.py</span></code> with weather-specific examples that teach the framework how to identify and combine these domain-specific elements.</p>
-<p><strong>The Problem</strong></p>
-<p>Consider this conversation:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>User: I&#39;m planning a trip and need to check weather patterns
-Agent: I can help with weather patterns for your trip! Which destination are you considering?
-User: I&#39;m thinking about New York
-Agent: Great! When are you planning to visit New York?
-User: Next weekend, and I&#39;m particularly concerned about rain
-</pre></div>
-</div>
-<p>The final message should extract a complete weather query: <strong>“Get weather forecast for New York for next weekend with focus on precipitation.”</strong> This requires understanding that:</p>
-<ul class="simple">
-<li><p>Location (“New York”) was mentioned two exchanges ago</p></li>
-<li><p>Time (“next weekend”) was just specified</p></li>
-<li><p>“Concerned about rain” → emphasize precipitation data (weather-domain knowledge)</p></li>
-</ul>
-<p>Without domain-specific examples, the framework might not recognize that “concerned about rain” should translate into prioritizing precipitation information - this is weather-specific context that doesn’t apply to other domains.</p>
-<p><strong>The Solution</strong></p>
-<p>The project includes a custom prompt builder that extends the framework’s task extraction with 8 weather-specific examples:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">WeatherTaskExtractionPromptBuilder</span><span class="p">(</span><span class="n">DefaultTaskExtractionPromptBuilder</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Weather-specific task extraction with domain examples.&quot;&quot;&quot;</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">include_default_examples</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_add_weather_examples</span><span class="p">()</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">get_role</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-        <span class="k">return</span> <span class="s2">&quot;You are a weather assistant task extraction specialist...&quot;</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">_add_weather_examples</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="c1"># Location carry-forward example</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">examples</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">TaskExtractionExample</span><span class="p">(</span>
-            <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;What&#39;s the weather in San Francisco?&quot;</span><span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_assistant_message</span><span class="p">(</span><span class="s2">&quot;Tonight in SF...&quot;</span><span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;What about tomorrow?&quot;</span><span class="p">),</span>
-            <span class="p">],</span>
-            <span class="n">expected_output</span><span class="o">=</span><span class="n">ExtractedTask</span><span class="p">(</span>
-                <span class="n">task</span><span class="o">=</span><span class="s2">&quot;Get weather forecast for San Francisco for tomorrow&quot;</span><span class="p">,</span>
-                <span class="n">depends_on_chat_history</span><span class="o">=</span><span class="kc">True</span>
-            <span class="p">)</span>
-        <span class="p">))</span>
-        <span class="c1"># ... 7 more examples</span>
-</pre></div>
-</div>
-<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
-<summary class="sd-summary-title sd-card-header">
-<span class="sd-summary-text">Complete Framework Prompts Implementation</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
-<p class="sd-card-text">Full custom prompt builder with 8 weather-specific examples (<a class="reference external" href="https://github.com/als-apg/osprey/blob/main/src/osprey/templates/apps/hello_world_weather/framework_prompts.py.j2">view template on GitHub</a>)</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">&quot;&quot;&quot;Weather Agent Framework Prompt Customizations.&quot;&quot;&quot;</span>
-
-<span class="kn">import</span><span class="w"> </span><span class="nn">textwrap</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.prompts.defaults</span><span class="w"> </span><span class="kn">import</span> <span class="n">DefaultTaskExtractionPromptBuilder</span><span class="p">,</span> <span class="n">TaskExtractionExample</span><span class="p">,</span> <span class="n">ExtractedTask</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">MessageUtils</span><span class="p">,</span> <span class="n">UserMemories</span>
-
-
-<span class="k">class</span><span class="w"> </span><span class="nc">WeatherTaskExtractionPromptBuilder</span><span class="p">(</span><span class="n">DefaultTaskExtractionPromptBuilder</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Weather-specific task extraction prompt builder.&quot;&quot;&quot;</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize with weather-specific examples only.&quot;&quot;&quot;</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">include_default_examples</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_add_weather_examples</span><span class="p">()</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">get_role</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the weather-specific role definition.&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="s2">&quot;You are a weather assistant task extraction specialist that analyzes conversations to extract actionable weather-related tasks.&quot;</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">get_instructions</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the weather-specific task extraction instructions.&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="n">textwrap</span><span class="o">.</span><span class="n">dedent</span><span class="p">(</span><span class="s2">&quot;&quot;&quot;</span>
-<span class="s2">        Your job is to:</span>
-<span class="s2">        1. Understand what the user is asking for in the context of weather information</span>
-<span class="s2">        2. Extract a clear, actionable task related to weather queries</span>
-<span class="s2">        3. Determine if the task depends on chat history context</span>
-<span class="s2">        4. Determine if the task depends on user memory</span>
-
-<span class="s2">        ## Weather-Specific Guidelines:</span>
-<span class="s2">        - Create self-contained task descriptions executable without conversation context</span>
-<span class="s2">        - Resolve temporal references (&quot;tomorrow&quot;, &quot;next week&quot;) to specific time periods</span>
-<span class="s2">        - Carry forward location references from previous messages</span>
-<span class="s2">        - Extract specific locations, times, and weather parameters from previous responses</span>
-<span class="s2">        - Understand weather-specific concerns (&quot;rain&quot; → precipitation, &quot;good for walking&quot; → temperature + conditions)</span>
-<span class="s2">        - Set depends_on_chat_history=True if task references previous messages</span>
-<span class="s2">        - Set depends_on_user_memory=True only when task needs specific information from user memory</span>
-<span class="s2">        &quot;&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">_add_weather_examples</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Add weather-specific examples.&quot;&quot;&quot;</span>
-
-        <span class="c1"># Example 1: Multi-turn progressive refinement - weather planning context</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">examples</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">TaskExtractionExample</span><span class="p">(</span>
-            <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;I&#39;m planning a trip and need to check weather patterns&quot;</span><span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_assistant_message</span><span class="p">(</span>
-                    <span class="s2">&quot;I can help with weather patterns for your trip! Which destination are you considering?&quot;</span>
-                <span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;I&#39;m thinking about New York&quot;</span><span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_assistant_message</span><span class="p">(</span>
-                    <span class="s2">&quot;Great! When are you planning to visit New York? I can check the forecast.&quot;</span>
-                <span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;Next weekend, and I&#39;m particularly concerned about rain&quot;</span><span class="p">),</span>
-            <span class="p">],</span>
-            <span class="n">user_memory</span><span class="o">=</span><span class="n">UserMemories</span><span class="p">(</span><span class="n">entries</span><span class="o">=</span><span class="p">[]),</span>
-            <span class="n">expected_output</span><span class="o">=</span><span class="n">ExtractedTask</span><span class="p">(</span>
-                <span class="n">task</span><span class="o">=</span><span class="s2">&quot;Get weather forecast for New York for next weekend with focus on precipitation probability&quot;</span><span class="p">,</span>
-                <span class="n">depends_on_chat_history</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-                <span class="n">depends_on_user_memory</span><span class="o">=</span><span class="kc">False</span>
-            <span class="p">)</span>
-        <span class="p">))</span>
-
-        <span class="c1"># Example 2: Location carry-forward with temporal change</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">examples</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">TaskExtractionExample</span><span class="p">(</span>
-            <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;What&#39;s the weather like in San Francisco tonight?&quot;</span><span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_assistant_message</span><span class="p">(</span>
-                    <span class="s2">&quot;Tonight in San Francisco, expect partly cloudy skies with temperatures &quot;</span>
-                    <span class="s2">&quot;around 13°C. Light winds from the west at 12 km/h.&quot;</span>
-                <span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;What about tomorrow?&quot;</span><span class="p">),</span>
-            <span class="p">],</span>
-            <span class="n">user_memory</span><span class="o">=</span><span class="n">UserMemories</span><span class="p">(</span><span class="n">entries</span><span class="o">=</span><span class="p">[]),</span>
-            <span class="n">expected_output</span><span class="o">=</span><span class="n">ExtractedTask</span><span class="p">(</span>
-                <span class="n">task</span><span class="o">=</span><span class="s2">&quot;Get weather forecast for San Francisco for tomorrow&quot;</span><span class="p">,</span>
-                <span class="n">depends_on_chat_history</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-                <span class="n">depends_on_user_memory</span><span class="o">=</span><span class="kc">False</span>
-            <span class="p">)</span>
-        <span class="p">))</span>
-
-        <span class="c1"># Example 3: Location switching</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">examples</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">TaskExtractionExample</span><span class="p">(</span>
-            <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;How&#39;s the weather in Prague?&quot;</span><span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_assistant_message</span><span class="p">(</span>
-                    <span class="s2">&quot;The current weather in Prague shows 8°C with rainy conditions. &quot;</span>
-                    <span class="s2">&quot;Humidity is at 85% with moderate winds.&quot;</span>
-                <span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;What about in Paris?&quot;</span><span class="p">),</span>
-            <span class="p">],</span>
-            <span class="n">user_memory</span><span class="o">=</span><span class="n">UserMemories</span><span class="p">(</span><span class="n">entries</span><span class="o">=</span><span class="p">[]),</span>
-            <span class="n">expected_output</span><span class="o">=</span><span class="n">ExtractedTask</span><span class="p">(</span>
-                <span class="n">task</span><span class="o">=</span><span class="s2">&quot;Get current weather conditions for Paris&quot;</span><span class="p">,</span>
-                <span class="n">depends_on_chat_history</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-                <span class="n">depends_on_user_memory</span><span class="o">=</span><span class="kc">False</span>
-            <span class="p">)</span>
-        <span class="p">))</span>
-
-        <span class="c1"># Example 4: Implicit location reference (&quot;there&quot;)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">examples</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">TaskExtractionExample</span><span class="p">(</span>
-            <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;What&#39;s the current weather in Paris?&quot;</span><span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_assistant_message</span><span class="p">(</span>
-                    <span class="s2">&quot;Paris is currently experiencing clear weather at 16°C with &quot;</span>
-                    <span class="s2">&quot;light winds and good visibility.&quot;</span>
-                <span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;How about tomorrow there?&quot;</span><span class="p">),</span>
-            <span class="p">],</span>
-            <span class="n">user_memory</span><span class="o">=</span><span class="n">UserMemories</span><span class="p">(</span><span class="n">entries</span><span class="o">=</span><span class="p">[]),</span>
-            <span class="n">expected_output</span><span class="o">=</span><span class="n">ExtractedTask</span><span class="p">(</span>
-                <span class="n">task</span><span class="o">=</span><span class="s2">&quot;Get weather forecast for Paris for tomorrow&quot;</span><span class="p">,</span>
-                <span class="n">depends_on_chat_history</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-                <span class="n">depends_on_user_memory</span><span class="o">=</span><span class="kc">False</span>
-            <span class="p">)</span>
-        <span class="p">))</span>
-
-        <span class="c1"># Example 5: Weather-specific comparison (domain knowledge)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">examples</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">TaskExtractionExample</span><span class="p">(</span>
-            <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;What&#39;s the weather in San Francisco?&quot;</span><span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_assistant_message</span><span class="p">(</span>
-                    <span class="s2">&quot;San Francisco currently has clear skies at 18°C with light winds.&quot;</span>
-                <span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;What about Prague?&quot;</span><span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_assistant_message</span><span class="p">(</span>
-                    <span class="s2">&quot;Prague is experiencing rainy conditions at 10°C with moderate winds.&quot;</span>
-                <span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;Which one is better for an outdoor walk?&quot;</span><span class="p">),</span>
-            <span class="p">],</span>
-            <span class="n">user_memory</span><span class="o">=</span><span class="n">UserMemories</span><span class="p">(</span><span class="n">entries</span><span class="o">=</span><span class="p">[]),</span>
-            <span class="n">expected_output</span><span class="o">=</span><span class="n">ExtractedTask</span><span class="p">(</span>
-                <span class="n">task</span><span class="o">=</span><span class="s2">&quot;Compare San Francisco and Prague weather conditions to determine which is better for outdoor walking (considering temperature, precipitation, and wind)&quot;</span><span class="p">,</span>
-                <span class="n">depends_on_chat_history</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-                <span class="n">depends_on_user_memory</span><span class="o">=</span><span class="kc">False</span>
-            <span class="p">)</span>
-        <span class="p">))</span>
-
-        <span class="c1"># Example 6: Simple temporal follow-up</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">examples</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">TaskExtractionExample</span><span class="p">(</span>
-            <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;What&#39;s the current weather in Paris?&quot;</span><span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_assistant_message</span><span class="p">(</span>
-                    <span class="s2">&quot;The current weather in Paris is 15°C with overcast skies and light rain. &quot;</span>
-                    <span class="s2">&quot;Wind speed is 12 km/h from the northwest.&quot;</span>
-                <span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;What was it like 3 hours ago?&quot;</span><span class="p">),</span>
-            <span class="p">],</span>
-            <span class="n">user_memory</span><span class="o">=</span><span class="n">UserMemories</span><span class="p">(</span><span class="n">entries</span><span class="o">=</span><span class="p">[]),</span>
-            <span class="n">expected_output</span><span class="o">=</span><span class="n">ExtractedTask</span><span class="p">(</span>
-                <span class="n">task</span><span class="o">=</span><span class="s2">&quot;Get historical weather conditions for Paris from 3 hours ago&quot;</span><span class="p">,</span>
-                <span class="n">depends_on_chat_history</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-                <span class="n">depends_on_user_memory</span><span class="o">=</span><span class="kc">False</span>
-            <span class="p">)</span>
-        <span class="p">))</span>
-
-        <span class="c1"># Example 7: Conversational query</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">examples</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">TaskExtractionExample</span><span class="p">(</span>
-            <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;Hi, what weather information can you provide?&quot;</span><span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_assistant_message</span><span class="p">(</span>
-                    <span class="s2">&quot;I can help you check current weather conditions and forecasts for various cities! &quot;</span>
-                    <span class="s2">&quot;I can tell you about temperature, precipitation, wind, and general conditions.&quot;</span>
-                <span class="p">),</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;Which cities do you cover?&quot;</span><span class="p">),</span>
-            <span class="p">],</span>
-            <span class="n">user_memory</span><span class="o">=</span><span class="n">UserMemories</span><span class="p">(</span><span class="n">entries</span><span class="o">=</span><span class="p">[]),</span>
-            <span class="n">expected_output</span><span class="o">=</span><span class="n">ExtractedTask</span><span class="p">(</span>
-                <span class="n">task</span><span class="o">=</span><span class="s2">&quot;List the cities available for weather queries&quot;</span><span class="p">,</span>
-                <span class="n">depends_on_chat_history</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-                <span class="n">depends_on_user_memory</span><span class="o">=</span><span class="kc">False</span>
-            <span class="p">)</span>
-        <span class="p">))</span>
-
-        <span class="c1"># Example 8: Fresh request (no conversation context)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">examples</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">TaskExtractionExample</span><span class="p">(</span>
-            <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
-                <span class="n">MessageUtils</span><span class="o">.</span><span class="n">create_user_message</span><span class="p">(</span><span class="s2">&quot;Can you check the weather in New York?&quot;</span><span class="p">),</span>
-            <span class="p">],</span>
-            <span class="n">user_memory</span><span class="o">=</span><span class="n">UserMemories</span><span class="p">(</span><span class="n">entries</span><span class="o">=</span><span class="p">[]),</span>
-            <span class="n">expected_output</span><span class="o">=</span><span class="n">ExtractedTask</span><span class="p">(</span>
-                <span class="n">task</span><span class="o">=</span><span class="s2">&quot;Get current weather conditions for New York&quot;</span><span class="p">,</span>
-                <span class="n">depends_on_chat_history</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-                <span class="n">depends_on_user_memory</span><span class="o">=</span><span class="kc">False</span>
-            <span class="p">)</span>
-        <span class="p">))</span>
-</pre></div>
-</div>
-</div>
-</details></section>
-<section id="step-6-understanding-the-registry">
-<h3>Step 6: Understanding the Registry<a class="headerlink" href="#step-6-understanding-the-registry" title="Link to this heading">#</a></h3>
-<p>The registry system is how the framework discovers and manages your application’s components. It uses a simple pattern where your application provides a configuration that tells the framework what capabilities and context classes you’ve defined.</p>
-<div class="admonition-registry-purpose admonition">
-<p class="admonition-title">Registry Purpose</p>
-<p>The registry enables loose coupling and lazy loading - the framework can discover your components without importing them until needed, improving startup performance and modularity. The framework provides <code class="docutils literal notranslate"><span class="pre">extend_framework_registry()</span></code> helper that lets you declare which framework capabilities your agent needs via <code class="docutils literal notranslate"><span class="pre">include_capabilities</span></code> and add your custom ones alongside them.</p>
-</div>
-<p><strong>The Registry Pattern</strong></p>
-<p>The registry uses a class-based provider pattern. Here’s the structure:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">extend_framework_registry</span><span class="p">,</span>
-    <span class="n">CapabilityRegistration</span><span class="p">,</span>
-    <span class="n">ContextClassRegistration</span><span class="p">,</span>
-    <span class="n">FrameworkPromptProviderRegistration</span><span class="p">,</span>
-    <span class="n">ExtendedRegistryConfig</span><span class="p">,</span>
-    <span class="n">RegistryConfigProvider</span>
-<span class="p">)</span>
-
-<span class="k">class</span><span class="w"> </span><span class="nc">WeatherAgentRegistryProvider</span><span class="p">(</span><span class="n">RegistryConfigProvider</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Registry provider for the weather application.&quot;&quot;&quot;</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">get_registry_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ExtendedRegistryConfig</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">extend_framework_registry</span><span class="p">(</span>
-            <span class="c1"># Only include these framework capabilities</span>
-            <span class="n">include_capabilities</span><span class="o">=</span><span class="p">[</span>
-                <span class="s2">&quot;respond&quot;</span><span class="p">,</span> <span class="s2">&quot;clarify&quot;</span><span class="p">,</span> <span class="s2">&quot;memory&quot;</span><span class="p">,</span>
-                <span class="s2">&quot;time_range_parsing&quot;</span><span class="p">,</span> <span class="s2">&quot;python&quot;</span><span class="p">,</span> <span class="s2">&quot;state_manager&quot;</span><span class="p">,</span>
-            <span class="p">],</span>
-            <span class="c1"># Weather-specific capability</span>
-            <span class="n">capabilities</span><span class="o">=</span><span class="p">[</span>
-               <span class="n">CapabilityRegistration</span><span class="p">(</span>
-                   <span class="n">name</span><span class="o">=</span><span class="s2">&quot;current_weather&quot;</span><span class="p">,</span>
-                   <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;weather_agent.capabilities.current_weather&quot;</span><span class="p">,</span>
-                   <span class="n">class_name</span><span class="o">=</span><span class="s2">&quot;CurrentWeatherCapability&quot;</span><span class="p">,</span>
-                   <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Get current weather conditions&quot;</span><span class="p">,</span>
-                   <span class="n">provides</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;CURRENT_WEATHER&quot;</span><span class="p">],</span>
-                   <span class="n">requires</span><span class="o">=</span><span class="p">[]</span>
-               <span class="p">)</span>
-            <span class="p">],</span>
-            <span class="n">context_classes</span><span class="o">=</span><span class="p">[</span>
-                <span class="n">ContextClassRegistration</span><span class="p">(</span>
-                    <span class="n">context_type</span><span class="o">=</span><span class="s2">&quot;CURRENT_WEATHER&quot;</span><span class="p">,</span>
-                    <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;weather_agent.context_classes&quot;</span><span class="p">,</span>
-                    <span class="n">class_name</span><span class="o">=</span><span class="s2">&quot;CurrentWeatherContext&quot;</span>
-                <span class="p">)</span>
-            <span class="p">],</span>
-            <span class="n">framework_prompt_providers</span><span class="o">=</span><span class="p">[</span>
-                <span class="n">FrameworkPromptProviderRegistration</span><span class="p">(</span>
-                    <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;weather_agent.framework_prompts&quot;</span><span class="p">,</span>
-                    <span class="n">prompt_builders</span><span class="o">=</span><span class="p">{</span>
-                        <span class="s2">&quot;task_extraction&quot;</span><span class="p">:</span> <span class="s2">&quot;WeatherTaskExtractionPromptBuilder&quot;</span>
-                    <span class="p">}</span>
-                <span class="p">)</span>
-            <span class="p">]</span>
-        <span class="p">)</span>
-</pre></div>
-</div>
-<div class="tip admonition">
-<p class="admonition-title">Advanced Registry Patterns</p>
-<p>The <code class="docutils literal notranslate"><span class="pre">include_capabilities</span></code> parameter provides a clean whitelist of which framework capabilities your agent needs. For advanced use cases requiring complete control over component registration, see <a class="reference internal" href="../developer-guides/03_core-framework-systems/03_registry-and-discovery.html"><span class="doc">Registry and Discovery</span></a> for alternative patterns including Standalone Mode and <a class="reference internal" href="../developer-guides/03_core-framework-systems/03_registry-and-discovery.html#excluding-overriding-components"><span class="std std-ref">custom component exclusion</span></a>.</p>
-</div>
-<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
-<summary class="sd-summary-title sd-card-header">
-<span class="sd-summary-text">Complete Registry Implementation</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
-<p class="sd-card-text">Complete registry file using <code class="docutils literal notranslate"><span class="pre">extend_framework_registry()</span></code> (<a class="reference external" href="https://github.com/als-apg/osprey/blob/main/src/osprey/templates/apps/hello_world_weather/registry.py.j2">view template on GitHub</a>)</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="w"> </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd"> Weather Application Registry</span>
-
-<span class="sd">Registry configuration using extend_framework_registry() to automatically</span>
-<span class="sd"> include framework components and add weather-specific components.</span>
-<span class="sd">&quot;&quot;&quot;</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">extend_framework_registry</span><span class="p">,</span>
-    <span class="n">CapabilityRegistration</span><span class="p">,</span>
-    <span class="n">ContextClassRegistration</span><span class="p">,</span>
-     <span class="n">FrameworkPromptProviderRegistration</span><span class="p">,</span>
-    <span class="n">ExtendedRegistryConfig</span><span class="p">,</span>
-    <span class="n">RegistryConfigProvider</span>
-<span class="p">)</span>
-
-<span class="k">class</span><span class="w"> </span><span class="nc">WeatherAgentRegistryProvider</span><span class="p">(</span><span class="n">RegistryConfigProvider</span><span class="p">):</span>
-<span class="w">   </span><span class="sd">&quot;&quot;&quot;Registry provider for weather tutorial application.&quot;&quot;&quot;</span>
-
-   <span class="k">def</span><span class="w"> </span><span class="nf">get_registry_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ExtendedRegistryConfig</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Provide registry configuration with framework + weather components.&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="n">extend_framework_registry</span><span class="p">(</span>
-            <span class="c1"># Only include these framework capabilities</span>
-            <span class="n">include_capabilities</span><span class="o">=</span><span class="p">[</span>
-                <span class="s2">&quot;respond&quot;</span><span class="p">,</span>
-                <span class="s2">&quot;clarify&quot;</span><span class="p">,</span>
-                <span class="s2">&quot;memory&quot;</span><span class="p">,</span>
-                <span class="s2">&quot;time_range_parsing&quot;</span><span class="p">,</span>
-                <span class="s2">&quot;python&quot;</span><span class="p">,</span>
-                <span class="s2">&quot;state_manager&quot;</span><span class="p">,</span>
-            <span class="p">],</span>
-
-            <span class="c1"># Add weather-specific capability</span>
-            <span class="n">capabilities</span><span class="o">=</span><span class="p">[</span>
-                <span class="n">CapabilityRegistration</span><span class="p">(</span>
-                    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;current_weather&quot;</span><span class="p">,</span>
-                    <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;weather_agent.capabilities.current_weather&quot;</span><span class="p">,</span>
-                    <span class="n">class_name</span><span class="o">=</span><span class="s2">&quot;CurrentWeatherCapability&quot;</span><span class="p">,</span>
-                    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Get current weather conditions for a location&quot;</span><span class="p">,</span>
-                    <span class="n">provides</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;CURRENT_WEATHER&quot;</span><span class="p">],</span>
-                    <span class="n">requires</span><span class="o">=</span><span class="p">[]</span>
-                <span class="p">)</span>
-            <span class="p">],</span>
-
-            <span class="c1"># Add weather-specific context class</span>
-            <span class="n">context_classes</span><span class="o">=</span><span class="p">[</span>
-                <span class="n">ContextClassRegistration</span><span class="p">(</span>
-                    <span class="n">context_type</span><span class="o">=</span><span class="s2">&quot;CURRENT_WEATHER&quot;</span><span class="p">,</span>
-                    <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;weather_agent.context_classes&quot;</span><span class="p">,</span>
-                    <span class="n">class_name</span><span class="o">=</span><span class="s2">&quot;CurrentWeatherContext&quot;</span>
-                <span class="p">)</span>
-             <span class="p">],</span>
-
-             <span class="c1"># Add weather-specific prompt customizations</span>
-             <span class="n">framework_prompt_providers</span><span class="o">=</span><span class="p">[</span>
-                 <span class="n">FrameworkPromptProviderRegistration</span><span class="p">(</span>
-                     <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;weather_agent.framework_prompts&quot;</span><span class="p">,</span>
-                     <span class="n">prompt_builders</span><span class="o">=</span><span class="p">{</span>
-                         <span class="s2">&quot;task_extraction&quot;</span><span class="p">:</span> <span class="s2">&quot;WeatherTaskExtractionPromptBuilder&quot;</span>
-                     <span class="p">}</span>
-                 <span class="p">)</span>
-            <span class="p">]</span>
-         <span class="p">)</span>
-</pre></div>
-</div>
-<p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">include_capabilities</span></code> parameter whitelists only the framework capabilities your agent needs, keeping your weather agent focused. Your weather-specific components are added alongside them.</p>
-</div>
-</details></section>
-<section id="step-7-application-configuration">
-<h3>Step 7: Application Configuration<a class="headerlink" href="#step-7-application-configuration" title="Link to this heading">#</a></h3>
-<p>The generated project includes a complete, self-contained <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> file in the project root with all necessary settings pre-configured. Everything is in one place - no need to edit multiple configuration files.</p>
-<p><strong>Key Configuration Sections:</strong></p>
-<p>The <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> includes:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># Project name</span>
-<span class="nt">project_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;weather-agent&quot;</span>
-
-<span class="c1"># Registry discovery - tells framework where your application code is</span>
-<span class="nt">registry_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">src/weather_agent/registry.py</span>
-
-<span class="c1"># Model configurations</span>
-<span class="nt">models</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">orchestrator</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic</span>
-<span class="w">    </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-haiku-4-20251015</span>
-</pre></div>
-</div>
-<div class="tip admonition">
-<p class="admonition-title">Model Recommendation</p>
-<p><strong>We recommend Claude Haiku 4.5</strong> for the best experience. It provides excellent performance, low latency, and works very well with the framework’s structured outputs. However, any OpenAI-compatible provider works - including institutional services like LBNL CBorg, Stanford AI Playground, or ANL Argo.</p>
-</div>
-<p><strong>Customization:</strong></p>
-<p>You can customize the configuration by editing <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
-<ol class="arabic simple">
-<li><p><strong>Change model providers</strong> - Update <code class="docutils literal notranslate"><span class="pre">provider</span></code> fields under <code class="docutils literal notranslate"><span class="pre">models</span></code></p></li>
-<li><p><strong>API keys</strong> - Set in <code class="docutils literal notranslate"><span class="pre">.env</span></code> file (not in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>)</p></li>
-</ol>
 </section>
-<section id="step-8-run-your-agent">
-<span id="hello-world-deploy-test"></span><h3>Step 8: Run Your Agent<a class="headerlink" href="#step-8-run-your-agent" title="Link to this heading">#</a></h3>
-<p>Now that you understand the components, let’s run and test your agent!</p>
-<p><strong>1. Configure Your API Key</strong></p>
-<p>Set up your <code class="docutils literal notranslate"><span class="pre">.env</span></code> file with your API key:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Copy the template</span>
-cp<span class="w"> </span>.env.example<span class="w"> </span>.env
-
-<span class="c1"># Edit .env and add your API key</span>
-<span class="c1"># ANTHROPIC_API_KEY=your-key-here     # If using Anthropic (recommended)</span>
-<span class="c1"># CBORG_API_KEY=your-key-here         # If using LBNL CBorg</span>
-<span class="c1"># STANFORD_API_KEY=your-key-here      # If using Stanford AI Playground</span>
-<span class="c1"># ARGO_API_KEY=your-key-here          # If using ANL Argo</span>
-<span class="c1"># OPENAI_API_KEY=your-key-here        # If using OpenAI</span>
-<span class="c1"># GOOGLE_API_KEY=your-key-here        # If using Google</span>
+<section id="step-3-start-the-agent">
+<h2>Step 3: Start the Agent<a class="headerlink" href="#step-3-start-the-agent" title="Link to this heading">#</a></h2>
+<p>From your project directory:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>claude
 </pre></div>
 </div>
-<div class="tip admonition">
-<p class="admonition-title">Model Recommendation</p>
-<p><strong>We recommend Claude Haiku 4.5</strong> for the best experience. It provides excellent performance, low latency, and works exceptionally well with the framework’s structured outputs. However, the framework works with any provider - including institutional services like LBNL CBorg, Stanford AI Playground, ANL Argo, or commercial providers like OpenAI and Google.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>On first run, Claude Code will ask you to trust the MCP servers in this
+project. Accept to allow Claude to use the control system tools.</p>
+<p>Claude connects to the <code class="docutils literal notranslate"><span class="pre">control_system</span></code> MCP server and is ready to accept
+queries.</p>
 </div>
-<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
-<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
-<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-key" viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 0a5.499 5.499 0 1 1-1.288 10.848l-.932.932a.749.749 0 0 1-.53.22H7v.75a.749.749 0 0 1-.22.53l-.5.5a.749.749 0 0 1-.53.22H5v.75a.749.749 0 0 1-.22.53l-.5.5a.749.749 0 0 1-.53.22h-2A1.75 1.75 0 0 1 0 14.25v-2c0-.199.079-.389.22-.53l4.932-4.932A5.5 5.5 0 0 1 10.5 0Zm-4 5.5c-.001.431.069.86.205 1.269a.75.75 0 0 1-.181.768L1.5 12.56v1.69c0 .138.112.25.25.25h1.69l.06-.06v-1.19a.75.75 0 0 1 .75-.75h1.19l.06-.06v-1.19a.75.75 0 0 1 .75-.75h1.19l1.023-1.025a.75.75 0 0 1 .768-.18A4 4 0 1 0 6.5 5.5ZM11 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text"><strong>Where do I get an API key?</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
-<p class="sd-card-text">Choose your provider for instructions on obtaining an API key:</p>
-<p class="sd-card-text"><strong>Anthropic (Claude)</strong> - Recommended</p>
-<ol class="arabic simple">
-<li><p class="sd-card-text">Visit: <a class="reference external" href="https://console.anthropic.com/">https://console.anthropic.com/</a></p></li>
-<li><p class="sd-card-text">Sign up or log in with your account</p></li>
-<li><p class="sd-card-text">Navigate to ‘API Keys’ in the settings</p></li>
-<li><p class="sd-card-text">Click ‘Create Key’ and name your key</p></li>
-<li><p class="sd-card-text">Copy the key (shown only once!)</p></li>
-</ol>
-<p class="sd-card-text"><strong>OpenAI (GPT)</strong></p>
-<ol class="arabic simple">
-<li><p class="sd-card-text">Visit: <a class="reference external" href="https://platform.openai.com/api-keys">https://platform.openai.com/api-keys</a></p></li>
-<li><p class="sd-card-text">Sign up or log in to your OpenAI account</p></li>
-<li><p class="sd-card-text">Add billing information if not already set up</p></li>
-<li><p class="sd-card-text">Click ‘+ Create new secret key’</p></li>
-<li><p class="sd-card-text">Name your key and copy it (shown only once!)</p></li>
-</ol>
-<p class="sd-card-text"><strong>Google (Gemini)</strong></p>
-<ol class="arabic simple">
-<li><p class="sd-card-text">Visit: <a class="reference external" href="https://aistudio.google.com/app/apikey">https://aistudio.google.com/app/apikey</a></p></li>
-<li><p class="sd-card-text">Sign in with your Google account</p></li>
-<li><p class="sd-card-text">Click ‘Create API key’</p></li>
-<li><p class="sd-card-text">Select a Google Cloud project or create a new one</p></li>
-<li><p class="sd-card-text">Copy the generated API key</p></li>
-</ol>
-<p class="sd-card-text"><strong>LBNL CBorg</strong></p>
-<ol class="arabic simple">
-<li><p class="sd-card-text">Visit: <a class="reference external" href="https://cborg.lbl.gov">https://cborg.lbl.gov</a></p></li>
-<li><p class="sd-card-text">As a Berkeley Lab employee, click ‘Request API Key’</p></li>
-<li><p class="sd-card-text">Create an API key ($50/month per user allocation)</p></li>
-<li><p class="sd-card-text">Copy the key provided</p></li>
-</ol>
-<p class="sd-card-text"><strong>Stanford AI Playground</strong></p>
-<ol class="arabic simple">
-<li><p class="sd-card-text">Visit: <a class="reference external" href="https://uit.stanford.edu/service/ai-api-gateway">https://uit.stanford.edu/service/ai-api-gateway</a></p></li>
-<li><p class="sd-card-text">Requires Stanford University affiliation</p></li>
-<li><p class="sd-card-text">Go to ‘Get Started’ → ‘Request the creation of a new API key’</p></li>
-<li><p class="sd-card-text">Log in with your Stanford credentials and complete the form</p></li>
-<li><p class="sd-card-text">Once approved, copy the API key from the notification email</p></li>
-</ol>
-<p class="sd-card-text"><strong>ANL Argo</strong></p>
-<ol class="arabic simple">
-<li><p class="sd-card-text">Requires Argonne National Laboratory affiliation</p></li>
-<li><p class="sd-card-text">Argo uses your ANL username (automatically obtained from the $USER environment variable)</p></li>
-<li><p class="sd-card-text">Contact your ANL IT department for access to the Argo proxy service</p></li>
-<li><p class="sd-card-text">Base URL: <a class="reference external" href="https://argo-bridge.cels.anl.gov">https://argo-bridge.cels.anl.gov</a></p></li>
-</ol>
-<p class="sd-card-text"><strong>Ollama (Local Models)</strong></p>
-<p class="sd-card-text">Ollama runs locally and does not require an API key. Simply install Ollama and ensure it’s running.</p>
-</div>
-</details><p><strong>2. Start the Chat Interface</strong></p>
-<p>Launch the interactive chat using <a class="reference internal" href="../developer-guides/02_quick-start-patterns/00_cli-reference.html"><span class="doc">osprey chat</span></a>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>chat
-</pre></div>
-</div>
-<p><strong>3. Test Your Agent</strong></p>
-<p>Ask weather-related questions:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: What&#39;s the weather in San Francisco?
-You: How&#39;s the weather in Prague?
-You: Tell me the current conditions in New York
-You: What&#39;s the weather like?
-</pre></div>
-</div>
-<p>When you run your agent, you’ll see the framework’s decision-making process in action. Here are the key phases to watch for:</p>
-<p><strong>Phase 1: Framework Initialization</strong></p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>🔄 Initializing framework...
-INFO Registry: Registry initialization complete!
-     Components loaded:
-        • 7 capabilities: memory, time_range_parsing, python, respond, clarify, current_weather, state_manager
-        • X context types: MEMORY_CONTEXT, TIME_RANGE, CURRENT_WEATHER ...
-✅ Framework initialized!
-</pre></div>
-</div>
-<div class="important admonition">
-<p class="admonition-title">What’s Happening</p>
-<p>The framework loads all available capabilities, including your <code class="docutils literal notranslate"><span class="pre">current_weather</span></code> capability and <code class="docutils literal notranslate"><span class="pre">CURRENT_WEATHER</span></code> context type. This modular loading system allows you to see exactly which components are active in your agent.</p>
-</div>
-<p><strong>Phase 2: Task Processing Pipeline</strong></p>
-<p>The user query “What’s the weather in San Francisco right now?” is processed by the framework.</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>🔄 Processing: What&#39;s the weather in San Francisco right now?
-🔄 Extracting actionable task from conversation
-INFO Task_Extraction: * Extracted: &#39;Get the current weather conditions in San Francisco...&#39;
-🔄 Analyzing task requirements...
-INFO Classifier: &gt;&gt;&gt; Capability &#39;current_weather&#39; &gt;&gt;&gt; True
-🔄 Generating execution plan...
-</pre></div>
-</div>
-<div class="important admonition">
-<p class="admonition-title">What’s Happening</p>
-<p>This is the <strong>core decision-making process</strong>:</p>
-<ol class="arabic simple">
-<li><p><strong>Task Extraction</strong>: Complete chat history gets converted to an actionable task</p></li>
-<li><p><strong>Classification</strong>: Each capability is checked if it is needed to complete the current task. Notice how your capability gets activated (<code class="docutils literal notranslate"><span class="pre">&gt;&gt;&gt;</span> <span class="pre">True</span></code>).</p></li>
-<li><p><strong>Planning</strong>: An execution strategy is formulated, taking the active capabilities into account</p></li>
-</ol>
-</div>
-<p><strong>Phase 3: Execution Planning</strong></p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>INFO Orchestrator: ==================================================
-INFO Orchestrator:  &lt;&lt; Step 1
-INFO Orchestrator:  &lt;&lt; ├───── id: &#39;sf_weather&#39;
-INFO Orchestrator:  &lt;&lt; ├─── node: &#39;current_weather&#39;
-INFO Orchestrator:  &lt;&lt; ├─── task: &#39;Retrieve current weather conditions for San Francisco
-                       including temperature, conditions, and timestamp&#39;
-INFO Orchestrator:  &lt;&lt; └─ inputs: &#39;[]&#39;
-INFO Orchestrator:  &lt;&lt; Step 2
-INFO Orchestrator:  &lt;&lt; ├───── id: &#39;weather_response&#39;
-INFO Orchestrator:  &lt;&lt; ├─── node: &#39;respond&#39;
-INFO Orchestrator:  &lt;&lt; ├─── task: &#39;Present the current weather conditions for San Francisco to
-                       the user in a clear and readable format&#39;
-INFO Orchestrator:  &lt;&lt; └─ inputs: &#39;[{&#39;CURRENT_WEATHER&#39;: &#39;sf_weather&#39;}]&#39;
-INFO Orchestrator: ==================================================
-✅ Orchestrator: Final execution plan ready with 2 steps
-</pre></div>
-</div>
-<div class="important admonition">
-<p class="admonition-title">What’s Happening</p>
-<p>The orchestrator breaks down the task into logical steps:</p>
-<ul class="simple">
-<li><p><strong>Step 1</strong>: Use your <code class="docutils literal notranslate"><span class="pre">current_weather</span></code> capability to get data and store it under the key <code class="docutils literal notranslate"><span class="pre">sf_weather</span></code></p></li>
-<li><p><strong>Step 2</strong>: Use the <code class="docutils literal notranslate"><span class="pre">respond</span></code> capability to format results and use the <code class="docutils literal notranslate"><span class="pre">sf_weather</span></code> context as input, knowing that its a <code class="docutils literal notranslate"><span class="pre">CURRENT_WEATHER</span></code> context type.</p></li>
-</ul>
-<p>This demonstrates how capabilities work together in a coordinated workflow.</p>
-</div>
-<p><strong>Phase 4: Real-Time Execution</strong></p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>🔄 Executing current_weather... (10%)
-🔄 Extracting location from query...
-🔄 Getting weather for San Francisco...
-🔄 Weather retrieved: San Francisco - 21.0°C
-🔄 Generating response...
-</pre></div>
-</div>
-<div class="important admonition">
-<p class="admonition-title">What’s Happening</p>
-<p>Your capability is now running! The status messages come from your <code class="docutils literal notranslate"><span class="pre">streamer.status()</span></code> and <code class="docutils literal notranslate"><span class="pre">logger.info()</span></code> calls, providing real-time feedback as your business logic executes.</p>
-</div>
-<p><strong>Final Result</strong></p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>🤖 According to the [CURRENT_WEATHER.sf_weather] data, the weather conditions in San Francisco
-for 2025-08-04 are 21.0°C and Partly Cloudy.
-</pre></div>
-</div>
-<div class="important admonition">
-<p class="admonition-title">Success Indicators</p>
-<ul class="simple">
-<li><p>Your weather data was successfully retrieved and stored as <code class="docutils literal notranslate"><span class="pre">[CURRENT_WEATHER.sf_weather]</span></code></p></li>
-<li><p>The context reference shows the framework is using your structured data</p></li>
-<li><p>The response is formatted professionally using the framework’s response capability</p></li>
-</ul>
-</div>
-<p><strong>What You’ve Built</strong></p>
-<p>By completing this tutorial, you’ve created an agentic system that demonstrates:</p>
-<ul class="simple">
-<li><p><strong>Modular Architecture</strong>: Your capability integrates seamlessly with framework components</p></li>
-<li><p><strong>Scalable Orchestration</strong>: The framework can handle multiple capabilities and context types</p></li>
-<li><p><strong>Structured Data Flow</strong>: Information flows through context classes to enable capability coordination</p></li>
-<li><p><strong>Informative UX</strong>: Real-time status updates and structured responses</p></li>
-</ul>
 </section>
+<section id="step-4-try-it-out">
+<h2>Step 4: Try It Out<a class="headerlink" href="#step-4-try-it-out" title="Link to this heading">#</a></h2>
+<p>Try these queries to see the mock control system in action:</p>
+<p><strong>Read a single channel:</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Read channel SR:BEAM:CURRENT
+</pre></div>
+</div>
+<p>Expected output:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Channel: SR:BEAM:CURRENT
+Value:   250.3 mA
+Status:  OK
+</pre></div>
+</div>
+<p>The mock connector returns synthetic beam current data. It generates
+realistic values based on the channel name.</p>
+<p><strong>Ask what’s available:</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: What channels are available?
+</pre></div>
+</div>
+<p>The agent explains it can read any channel name — the mock connector accepts
+all PV names without needing a real control system.</p>
+<p><strong>Read multiple channels:</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Read SR:VAC:PRESSURE:01 and SR:MAG:QF:01:CURRENT:RB
+</pre></div>
+</div>
+<p>Claude calls the <code class="docutils literal notranslate"><span class="pre">channel_read</span></code> tool for each channel and presents the
+results together — vacuum pressure and magnet readback values.</p>
 </section>
+<section id="step-5-safety-limits">
+<h2>Step 5: Safety &amp; Limits<a class="headerlink" href="#step-5-safety-limits" title="Link to this heading">#</a></h2>
+<p>OSPREY enforces safety at two levels: <strong>limits checking</strong> (automatic) and
+<strong>human approval</strong> (interactive). This step walks through both.</p>
+<p><strong>1. Enable writes</strong></p>
+<p>Edit <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> to allow write operations:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mock</span>
+<span class="w">  </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># Changed from false</span>
+</pre></div>
+</div>
+<p><strong>2. Write within limits</strong> (succeeds with approval)</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Write 150.0 to SR:MAG:QF:01:CURRENT:SP
+</pre></div>
+</div>
+<p>The value 150.0 is within the allowed range for this channel (0–300 A in the
+limits database). The approval hook prompts you before executing:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>⚠ Write requested: SR:MAG:QF:01:CURRENT:SP = 150.0
+Approve? [y/N]
+</pre></div>
+</div>
+<p>Type <code class="docutils literal notranslate"><span class="pre">y</span></code> to approve. The mock connector accepts the write and confirms.</p>
+<p><strong>3. Write outside limits</strong> (blocked)</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Write 500.0 to SR:MAG:QF:01:CURRENT:SP
+</pre></div>
+</div>
+<p>The value 500.0 exceeds the maximum of 300.0 defined in
+<code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code>. The limits hook blocks the write before it
+reaches the connector — no approval prompt appears.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>✗ Write blocked: 500.0 exceeds max=300.0 for SR:MAG:QF:01:CURRENT:SP
+</pre></div>
+</div>
+<p><strong>4. Write to a read-only channel</strong> (blocked)</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Write 1.0 to SR:BEAM:CURRENT
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">SR:BEAM:CURRENT</span></code> is marked as read-only in <code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code>.
+The limits hook blocks the write regardless of the value:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>✗ Write blocked: SR:BEAM:CURRENT is read-only
+</pre></div>
+</div>
+</section>
+<section id="step-6-understand-the-flow">
+<h2>Step 6: Understand the Flow<a class="headerlink" href="#step-6-understand-the-flow" title="Link to this heading">#</a></h2>
+<p>Here’s what happens when you ask “Read channel SR:BEAM:CURRENT”:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You ──→ Claude Code ──→ channel_read MCP tool
+                                 │
+                           Mock Connector
+                                 │
+                        Synthetic data ──→ Claude formats response ──→ You
+</pre></div>
+</div>
+<ol class="arabic simple">
+<li><p>You type a natural language query</p></li>
+<li><p>Claude decides to call the <code class="docutils literal notranslate"><span class="pre">channel_read</span></code> MCP tool</p></li>
+<li><p>The MCP server receives the call and routes it to the <strong>mock connector</strong></p></li>
+<li><p>The mock connector generates synthetic data (realistic noise, naming-based values)</p></li>
+<li><p>Claude formats the response and presents it to you</p></li>
+</ol>
+<p><strong>This is the same flow in production</strong> — just with <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">epics</span></code> instead of
+<code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">mock</span></code>. The connector handles the difference; your agent and queries
+stay the same.</p>
+</section>
+<section id="step-7-customize">
+<h2>Step 7: Customize<a class="headerlink" href="#step-7-customize" title="Link to this heading">#</a></h2>
+<p><strong>Change agent behavior</strong> by editing <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>:</p>
+<p>Add a line like “Always report values with 4 decimal places” or “When reading
+magnet channels, also explain what the magnet does.” Restart Claude to see
+the effect.</p>
+<p><strong>Add new channels to the limits database</strong> by editing
+<code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code>:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;SR:MAG:CORR:01:CURRENT:SP&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;min_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-5.0</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;max_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">5.0</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;writable&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>This lets you define safe operating ranges for additional channels. Any write
+to a channel listed here is checked against its <code class="docutils literal notranslate"><span class="pre">min_value</span></code>/<code class="docutils literal notranslate"><span class="pre">max_value</span></code>
+range before the approval prompt.</p>
 <section id="next-steps">
-<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">#</a></h2>
-<section id="experiment-with-your-agent">
-<h3>Experiment with Your Agent<a class="headerlink" href="#experiment-with-your-agent" title="Link to this heading">#</a></h3>
-<p>Now that you have a working agent, try these experiments:</p>
-<p><strong>Test framework-provided capabilities:</strong></p>
+<h3>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">#</a></h3>
+<p>You’ve built a working agent with one MCP server and a mock control system.
+Here’s where to go from here:</p>
 <ul class="simple">
-<li><p>“Save the current weather in Prague to my memories”</p></li>
-<li><p>“Calculate the square root of the temperature in San Francisco”</p></li>
+<li><p><strong>Production deployment</strong>: The <a class="reference internal" href="control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a> template adds channel
+finder, electronic logbook search, archiver access, and a web terminal</p></li>
+<li><p><strong>Architecture deep dive</strong>: The <a class="reference internal" href="conceptual-tutorial.html"><span class="doc">Conceptual Tutorial</span></a> explains the
+MCP server architecture, connector system, and safety mechanisms</p></li>
+<li><p><strong>CLI reference</strong>: See <a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a> for all <code class="docutils literal notranslate"><span class="pre">osprey</span></code> commands</p></li>
 </ul>
-<p><strong>Try human-in-the-loop mechanics:</strong></p>
-<ul class="simple">
-<li><p>“/planning What’s the weather in Prague?” - See the execution plan before it runs</p></li>
-</ul>
-<p><strong>Modify your capability:</strong></p>
-<ul class="simple">
-<li><p>Add support for more cities</p></li>
-<li><p>Add new weather attributes (humidity, wind speed)</p></li>
-<li><p>Try different response formats</p></li>
-</ul>
-</section>
-<section id="scale-to-production">
-<h3>Scale to Production<a class="headerlink" href="#scale-to-production" title="Link to this heading">#</a></h3>
-<p>Ready to see Osprey at production scale? The <a class="reference internal" href="control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a>
-demonstrates a complete industrial control system with 8+ capabilities working
-together, complex orchestration patterns, and production deployment with a web UI.</p>
-<p>This is where you’ll see the modular architecture patterns from the
-<a class="reference internal" href="conceptual-tutorial.html"><span class="doc">Conceptual Tutorial</span></a> applied to a real-world application.</p>
 </section>
 </section>
 </section>
@@ -1689,11 +675,11 @@ together, complex orchestration patterns, and production deployment with a web U
       </div>
     </a>
     <a class="right-next"
-       href="control-assistant.html"
+       href="build-interview.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Production Control Systems Tutorial</p>
+        <p class="prev-next-title">Guided Project Setup (Build Interview)</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1716,20 +702,14 @@ together, complex orchestration patterns, and production deployment with a web U
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-you-ll-build">What You’ll Build</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-create-the-project">Step 1: Create the Project</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-the-mock-data-source">Step 2: The Mock Data Source</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-define-the-context-class">Step 3: Define the Context Class</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-building-the-weather-capability">Step 4: Building the Weather Capability</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-5-domain-adaptation">Step 5: Domain Adaptation</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-6-understanding-the-registry">Step 6: Understanding the Registry</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-7-application-configuration">Step 7: Application Configuration</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-8-run-your-agent">Step 8: Run Your Agent</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#experiment-with-your-agent">Experiment with Your Agent</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#scale-to-production">Scale to Production</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-create-the-project">Step 1: Create the Project</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-understand-what-was-generated">Step 2: Understand What Was Generated</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-start-the-agent">Step 3: Start the Agent</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-try-it-out">Step 4: Try It Out</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-5-safety-limits">Step 5: Safety &amp; Limits</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-6-understand-the-flow">Step 6: Understand the Flow</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-7-customize">Step 7: Customize</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
 </ul>
 </li>
 </ul>
@@ -1776,7 +756,7 @@ together, complex orchestration patterns, and production deployment with a web U
 
   <p class="copyright">
     
-      © Copyright 2025, Osprey Developer Team.
+      © Copyright 2026, Osprey Developer Team.
       <br/>
     
   </p>

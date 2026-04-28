@@ -14,5 +14,10 @@
     "name": "v0.11.4",
     "version": "0.11.4",
     "url": "https://als-apg.github.io/osprey/v0.11.4/"
+  },
+  {
+    "name": "latest (development)",
+    "version": "dev",
+    "url": "https://als-apg.github.io/osprey/latest/"
   }
 ]

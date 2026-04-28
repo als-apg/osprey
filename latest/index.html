@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Osprey Framework Documentation &#8212; Osprey Framework 0.11.5 documentation</title>
+    <title>Osprey Framework Documentation &#8212; Osprey Framework 2026.5.0 documentation</title>
   
   
   
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=0e61e42f"></script>
+    <script src="_static/documentation_options.js?v=955835e8"></script>
     <script src="_static/doctools.js?v=fd6eb6e6"></script>
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,11 +53,10 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.11.5';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.5.0';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             false;
         </script>
-    <script src="_static/js/execution_plan_viewer.js?v=09b61639"></script>
     <link rel="icon" href="_static/logo.svg"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
@@ -65,7 +64,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Mar 23, 2026"/>
+    <meta name="docbuild:last-update" content="Apr 28, 2026"/>
   </head>
   
   
@@ -149,22 +148,15 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="developer-guides/index.html">
-    Developer Guides
+  <a class="nav-link nav-internal" href="architecture/index.html">
+    Architecture Overview
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="api_reference/index.html">
-    API Reference
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="example-applications/index.html">
-    Example Applications
+  <a class="nav-link nav-internal" href="how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
@@ -294,22 +286,15 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="developer-guides/index.html">
-    Developer Guides
+  <a class="nav-link nav-internal" href="architecture/index.html">
+    Architecture Overview
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="api_reference/index.html">
-    API Reference
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="example-applications/index.html">
-    Example Applications
+  <a class="nav-link nav-internal" href="how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
@@ -408,41 +393,16 @@
                   
   <section id="osprey-framework-documentation">
 <h1>Osprey Framework Documentation<a class="headerlink" href="#osprey-framework-documentation" title="Link to this heading">#</a></h1>
-<div class="warning admonition">
-<p class="admonition-title">🚧 Early Access Documentation</p>
-<p><strong>Current Release</strong>: v0.11.5 Early Access</p>
-<p>This documentation is part of an early access release and is <strong>under active development</strong>.
-Many sections are still being written, edited, or reorganized.
-Expect <strong>inconsistencies</strong>, missing content, outdated references, and broken cross-links.</p>
-<p>We welcome feedback! If you find issues or have suggestions, please open an issue on our GitHub page.</p>
-</div>
-<section id="what-is-osprey-framework">
-<h2>What is Osprey Framework?<a class="headerlink" href="#what-is-osprey-framework" title="Link to this heading">#</a></h2>
-<p>The <strong>Osprey Framework</strong> is a production-ready architecture for deploying agentic AI in large-scale, safety-critical control system environments. Built on <a class="reference internal" href="developer-guides/01_understanding-the-framework/03_langgraph-integration.html"><span class="doc">LangGraph’s StateGraph foundation</span></a>, it transforms natural language inputs into transparent, auditable multi-step workflows designed for operational safety and reliability.</p>
-<p>Developed for scientific facilities managing complex technical infrastructure such as particle accelerators, fusion experiments, beamlines, and large telescopes, Osprey addresses control-specific challenges: <a class="reference internal" href="getting-started/control-assistant-part2-channel-finder.html"><span class="doc">semantic addressing across large channel namespaces</span></a>, <a class="reference internal" href="developer-guides/01_understanding-the-framework/04_orchestration-architecture.html"><span class="doc">flexible orchestration</span></a> (plan-first and reactive modes) with hardware-write detection, <a class="reference internal" href="developer-guides/05_production-systems/06_control-system-integration.html"><span class="doc">protocol-agnostic integration with control stacks</span></a> (EPICS, LabVIEW, Tango), <a class="reference internal" href="developer-guides/05_production-systems/07_logbook-search-service/index.html"><span class="doc">intelligent logbook search</span></a> across facility electronic logbooks, and <a class="reference internal" href="developer-guides/05_production-systems/01_human-approval-workflows.html"><span class="doc">mandatory human oversight for safety-critical operations</span></a>.</p>
+<p><strong>An agentic interface for safety-critical control systems.</strong></p>
+<p>The <strong>Osprey Framework</strong> is an agentic interface and harness for scientific facilities managing complex technical infrastructure — particle accelerators, fusion experiments, beamlines, and large telescopes. It wraps a coding agent in an operator-facing safety policy, a hook-based approval chain, and an MCP-server multiplexer, so the agent layer, the underlying LLM, and the compute backend are each replaceable without changing what the operator sees. The current reference implementation is a browser-based operator workstation; other surfaces (control-room consoles, chat clients, headless services) are possible.</p>
+<p>Osprey addresses control-specific challenges: semantic addressing across large channel namespaces, <a class="reference internal" href="how-to/add-connector.html"><span class="doc">protocol-agnostic integration with control stacks</span></a> (EPICS, LabVIEW, Tango), <a class="reference internal" href="how-to/ariel/index.html"><span class="doc">intelligent logbook search</span></a> across facility electronic logbooks, and mandatory human oversight for safety-critical operations.</p>
 <figure class="align-center" id="id1">
-<a class="reference internal image-reference" href="_images/architecture_overview.pdf"><img alt="Osprey Framework Architecture" src="_images/architecture_overview.pdf" style="width: 100%;" />
+<a class="reference internal image-reference" href="_images/architecture.png"><img alt="Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line." src="_images/architecture.png" style="width: 100%;" />
 </a>
 <figcaption>
-<p><span class="caption-text">Osprey provides agentic orchestration with human-in-the-loop safety review, translating natural language requests into approved, isolated execution on facility control systems. For a detailed view of the pipeline workflow and component interactions, see <a class="reference internal" href="developer-guides/01_understanding-the-framework/index.html"><span class="doc">Understanding Osprey</span></a>.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
+<p><span class="caption-text">Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line. For a detailed view, see <a class="reference internal" href="architecture/index.html"><span class="doc">Architecture</span></a>.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
 </figcaption>
 </figure>
-</section>
-<section id="key-features">
-<h2>Key Features<a class="headerlink" href="#key-features" title="Link to this heading">#</a></h2>
-<ul class="simple">
-<li><p><strong>Dual-Mode Orchestration</strong>: <a class="reference internal" href="developer-guides/04_infrastructure-components/04_orchestrator-planning.html"><span class="doc">Plan-first and reactive (ReAct) execution modes</span></a> — create complete plans upfront or decide one step at a time — with operator review, explicit dependencies, and full audit trails</p></li>
-<li><p><strong>Control-System Awareness</strong>: Pattern detection and static analysis identify hardware writes; <a class="reference internal" href="developer-guides/05_production-systems/06_control-system-integration.html"><span class="doc">PV boundary checking</span></a> validates setpoints against facility-defined limits before execution</p></li>
-<li><p><strong>Protocol-Agnostic Integration</strong>: <a class="reference internal" href="developer-guides/05_production-systems/06_control-system-integration.html"><span class="doc">Pluggable connectors</span></a> for EPICS, LabVIEW, Tango, and mock environments enable development without hardware and seamless production migration through configuration</p></li>
-<li><p><strong>Scalable Capability Management</strong>: <a class="reference internal" href="developer-guides/04_infrastructure-components/03_classification-and-routing.html"><span class="doc">Dynamic classification</span></a> selects relevant capabilities from large inventories, preventing prompt explosion as facilities expand toolsets</p></li>
-<li><p><strong>Secure Code Execution</strong>: <a class="reference internal" href="developer-guides/05_production-systems/03_python-execution-service/index.html"><span class="doc">Containerized Python generation and execution</span></a> with read-only and write-enabled environments, static analysis, and mandatory approval for hardware-interacting scripts</p></li>
-<li><p><strong>Facility Data Integration</strong>: <a class="reference internal" href="developer-guides/05_production-systems/02_data-source-integration.html"><span class="doc">Automatic retrieval from archiver appliances, channel databases, and knowledge bases</span></a> with intelligent downsampling for large time-series datasets</p></li>
-<li><p><strong>Logbook Search (ARIEL)</strong>: <a class="reference internal" href="developer-guides/05_production-systems/07_logbook-search-service/index.html"><span class="doc">Intelligent search over facility electronic logbooks</span></a> with keyword, semantic, RAG, and agentic retrieval modes, pluggable ingestion adapters for any facility, and a built-in web interface</p></li>
-<li><p><strong>LangGraph Foundation</strong>: Native StateGraph workflows with <a class="reference internal" href="developer-guides/01_understanding-the-framework/03_langgraph-integration.html"><span class="doc">checkpoints, interrupts</span></a>, and <a class="reference internal" href="developer-guides/03_core-framework-systems/01_state-management-architecture.html"><span class="doc">persistent state management</span></a></p></li>
-<li><p><strong>Safety-First Design</strong>: <a class="reference internal" href="getting-started/control-assistant-part3-production.html#planning-mode-example"><span class="std std-ref">Transparent execution plans</span></a> with <a class="reference internal" href="developer-guides/05_production-systems/01_human-approval-workflows.html"><span class="doc">human approval workflows</span></a> and network-level isolation for control room deployment</p></li>
-<li><p><strong>Proven in Production</strong>: Deployed at <a class="reference internal" href="example-applications/als-assistant.html"><span class="doc">Lawrence Berkeley National Laboratory’s Advanced Light Source</span></a> managing tens of thousands of control channels across accelerator operations</p></li>
-</ul>
-</section>
 <section id="documentation-structure">
 <h2>Documentation Structure<a class="headerlink" href="#documentation-structure" title="Link to this heading">#</a></h2>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
@@ -451,8 +411,9 @@ Expect <strong>inconsistencies</strong>, missing content, outdated references, a
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-🚀 Getting Started</div>
-<p class="sd-card-text">Complete implementation guide from environment setup to production deployment, including tutorial applications.</p>
+Getting Started</div>
+<p class="sd-card-text">Install Osprey, create your first project, and deploy a control assistant
+with a coding agent and MCP servers.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="getting-started/index.html"><span class="doc">Getting Started</span></a></div>
 </div>
@@ -460,44 +421,38 @@ Expect <strong>inconsistencies</strong>, missing content, outdated references, a
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-🧠 Developer Guides</div>
-<p class="sd-card-text">Architectural concepts and implementation patterns for deploying agentic AI in control system environments.</p>
+Architecture</div>
+<p class="sd-card-text">Core concepts: agentic orchestration, MCP servers, connectors,
+human-in-the-loop safety, and the runtime API.</p>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="developer-guides/index.html"><span class="doc">Developer Guides</span></a></div>
-</div>
-</div>
-</div>
-<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
-<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-3 sd-row-cols-lg-3 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-📚 API Reference</div>
-<p class="sd-card-text">Complete technical reference for all framework components and interfaces.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="api_reference/index.html"><span class="doc">API Reference</span></a></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="architecture/index.html"><span class="doc">Architecture Overview</span></a></div>
 </div>
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-💡 Applications</div>
-<p class="sd-card-text">Reference implementations demonstrating framework usage across different domains.</p>
+How-To Guides</div>
+<p class="sd-card-text">Task-oriented recipes for adding connectors, configuring providers,
+deploying projects, and customising MCP servers.</p>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="example-applications/index.html"><span class="doc">Example Applications</span></a></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="how-to/index.html"><span class="doc">How-To Guides</span></a></div>
 </div>
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-🤝 Contributing</div>
-<p class="sd-card-text">Framework internals, development guidelines, and contribution workflows.</p>
+Contributing</div>
+<p class="sd-card-text">Development setup, coding standards, testing guidelines, and the
+contribution workflow.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="contributing/index.html"><span class="doc">Contributing to Osprey</span></a></div>
 </div>
 </div>
 </div>
+</section>
+<section id="proven-in-production">
+<h2>Proven in Production<a class="headerlink" href="#proven-in-production" title="Link to this heading">#</a></h2>
+<p>Osprey is deployed at Lawrence Berkeley National Laboratory’s Advanced Light Source, managing tens of thousands of control channels across accelerator operations.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-quote" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.75 2.5h10.5a.75.75 0 0 1 0 1.5H1.75a.75.75 0 0 1 0-1.5Zm4 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2.5 7.75v6a.75.75 0 0 1-1.5 0v-6a.75.75 0 0 1 1.5 0Z"></path></svg></span><span class="sd-summary-text">Citation</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -560,9 +515,8 @@ Expect <strong>inconsistencies</strong>, missing content, outdated references, a
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-is-osprey-framework">What is Osprey Framework?</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#key-features">Key Features</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#documentation-structure">Documentation Structure</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#proven-in-production">Proven in Production</a></li>
 </ul>
   </nav></div>
 
@@ -607,7 +561,7 @@ Expect <strong>inconsistencies</strong>, missing content, outdated references, a
 
   <p class="copyright">
     
-      © Copyright 2025, Osprey Developer Team.
+      © Copyright 2026, Osprey Developer Team.
       <br/>
     
   </p>

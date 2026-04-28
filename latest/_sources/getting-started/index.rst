@@ -52,20 +52,30 @@ By following this comprehensive learning path, you'll have:
       **Outcome:**
       Prepared mind for your Osprey journey
 
-.. grid:: 1 1 3 3
+.. grid:: 1 1 2 2
    :gutter: 3
 
-   .. grid-item-card:: 🌤️ 2. Hello World
+   .. grid-item-card:: 🔧 2. Hello World
       :link: hello-world-tutorial
       :link-type: doc
       :class-header: bg-success text-white
 
-      Build a weather agent with natural language queries and mock API integration.
+      Build your first agent with a mock control system — one MCP server, zero complexity.
 
       **Outcome:**
       Your first working agent
 
-   .. grid-item-card:: 🎛️ 3. Control Systems
+   .. grid-item-card:: 🎯 3. Guided Build Interview
+      :link: build-interview
+      :link-type: doc
+      :class-header: bg-success text-white
+
+      Generate a project profile for your own detector, beamline, or accelerator subsystem through a guided conversation.
+
+      **Outcome:**
+      A tailored project for your facility
+
+   .. grid-item-card:: 🎛️ 4. Control Systems
       :link: control-assistant
       :link-type: doc
       :class-header: bg-info text-white
@@ -75,38 +85,29 @@ By following this comprehensive learning path, you'll have:
       **Outcome:**
       Enterprise integration patterns
 
-   .. grid-item-card:: 💡 4. Explore Examples
-      :link: ../example-applications/index
+   .. grid-item-card:: 💡 5. How-To Guides
+      :link: ../how-to/index
       :link-type: doc
       :class-header: bg-primary text-white
 
-      See production applications like ALS Assistant for advanced patterns.
+      Task-oriented guides for connectors, MCP servers, providers, and more.
 
       **Outcome:**
-      Real-world inspiration
+      Practical recipes
 
 .. grid:: 1 1 2 2
    :gutter: 3
 
-   .. grid-item-card:: ⚡ 5. Framework Mastery
-      :link: ../developer-guides/02_quick-start-patterns/index
+   .. grid-item-card:: ⚡ 5. Architecture
+      :link: ../architecture/index
       :link-type: doc
       :class-header: bg-warning text-white
 
-      Master essential development patterns: capabilities, state management, and testing workflows.
+      Understand the Claude Code + MCP architecture, data flow, and key concepts.
 
       **Outcome:**
-      Framework expertise
+      Architecture understanding
 
-   .. grid-item-card:: 📚 6. API Reference
-      :link: ../api_reference/index
-      :link-type: doc
-      :class-header: bg-dark text-white
-
-      Complete method documentation, parameters, and return values for daily development.
-
-      **Outcome:**
-      Development reference
 
 .. toctree::
    :hidden:
@@ -114,4 +115,5 @@ By following this comprehensive learning path, you'll have:
    installation
    conceptual-tutorial
    hello-world-tutorial
+   build-interview
    control-assistant
