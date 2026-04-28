@@ -3,7 +3,7 @@ name: Release to PyPI
 on:
   push:
     tags:
-      - 'v*.*.*'  # Triggers on version tags like v0.9.8
+      - 'v*.*.*'  # Triggers on version tags like v2026.5.0
 
 permissions:
   contents: write  # Required for creating GitHub releases
