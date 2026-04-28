@@ -13,38 +13,160 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [2026.5.0] - 2026-04-29
 
+This release retires the LangGraph-based orchestration that powered Osprey
+through the 0.x series and rebuilds the framework on top of Claude Code
+plus a small fleet of MCP servers. Roughly 475 commits touched almost
+every subsystem; the entries below summarize the result rather than each
+step. Versioning also changes: Osprey adopts CalVer (`YYYY.MM.MICRO`).
+The release machinery is scheme-blind, but downstream parsers that
+assume `MAJOR.MINOR.PATCH` semantics need updating.
+
+### Highlights
+- **Claude Code + MCP orchestration.** The LangGraph agent graph,
+  pipelines, and supporting plumbing are gone. Agents now run under
+  Claude Code, consuming five FastMCP servers (`control_system`,
+  `python_executor`, `workspace`, `accelpapers`, `matlab`) and a registry
+  of native tools. Hardware writes still require human approval through
+  the Claude Code prompt surface.
+- **Unified `osprey build`.** `osprey init`, `osprey migrate`, the init
+  wizard, `osprey config set-models`, and `osprey tasks` are retired.
+  A single `osprey build <name> --preset <preset>` (or
+  `osprey build <name> <profile.yml>`) scaffolds projects, with `-O FILE`
+  overlays and `--set KEY.PATH=VALUE` overrides composing the final
+  profile. Profiles support `extends:` inheritance and a `lifecycle:`
+  section for build-time commands.
+- **First-class skills.** `build-interview` and `osprey-build-deploy`
+  ship as installable Claude Code skills via `osprey skills install`. New
+  `lattice-evaluation` skill orchestrates nonlinear-dynamics analysis
+  (resonance diagram, dynamic aperture, frequency map).
+- **Agent-agnostic framing.** Documentation, the landing page, and the
+  architecture diagrams are rewritten around the Claude-Code-plus-MCP
+  story. ALS-specific agents and servers moved out to facility profiles.
+
+### Breaking changes
+- LangGraph removed entirely — source, dependencies, CI hooks, templates,
+  and tests. There is no compatibility shim; downstream projects pinning
+  LangGraph nodes will not import.
+- `osprey init`, `osprey migrate`, `osprey tasks`, `osprey config
+  set-models`, and the interactive init wizard are removed. Use
+  `osprey build` for all scaffolding.
+- `lattice_design` template removed. Build profiles strictly accept
+  `{hello_world, control_assistant}`.
+- `migrate-legacy` skill removed; the legacy-project migration flow is
+  now a path inside `build-interview`.
+- Generators / code-generator concept, Karma analytics, the Grafana/OTEL
+  monitoring stack, the DePlot service, the graph-analyst agent, and the
+  direct-channel-finder MCP server are retired or archived.
+- `archivertools` dependency dropped in favor of direct HTTP to the
+  EPICS Archiver Appliance.
+- Manifest schema → 1.2.0. `.osprey-manifest.json` records `build_args`
+  (renamed from `init_args`) with a `source: "preset"|"profile"`
+  discriminator; `creation.registry_style` is removed. No reader shim.
+- Versioning: SemVer → CalVer (`YYYY.MM.MICRO`).
+- Default LLM provider: `cborg` (LBNL-only) → `anthropic`.
+- Workspace and agent-data directories unified under `_agent_data`
+  (`agent_data.base_dir`); the previous `osprey-workspace/` layout is
+  gone.
+
+### Migration guide
+- **Existing 0.x project →** run `build-interview` in Claude Code to
+  reverse-engineer a build profile from the project, then
+  `osprey build <name> <profile.yml>`. The build-interview migration
+  phase walks per-service decomposition (jupyter, open-webui, pipelines,
+  postgres, ariel) and ends with a smoke-import + `osprey audit` check.
+- **Custom LangGraph nodes →** rewrite as MCP tools. The
+  `python_executor`, `workspace`, and `control_system` servers are the
+  intended extension surfaces.
+- **Custom connectors →** override `write_multiple_channels()` if you
+  need atomic batch semantics; the default is sequential.
+- **Pinning models →** prefer tier names (`haiku` / `sonnet` / `opus`)
+  in config; `resolve_model_id()` maps them to provider-specific IDs at
+  runtime.
+
 ### Added
-- **Versioning**: Switched from SemVer to CalVer (`YYYY.MM.MICRO`). The first segment identifies the release window; the micro segment increments for hotfixes. Compatibility is documented in release notes, not encoded in the version string. The release machinery is scheme-blind (`lstrip("v")`, `cut -d'"' -f2`) and required no code changes beyond the version literal.
-- **CI**: Doc-executability gate (`.github/workflows/validate-install-docs.yml`) builds a wheel from the current SHA, installs it via `uv tool` on a clean Ubuntu runner, and runs the bash blocks extracted from `installation.rst` / `build-interview.rst`. `release.yml` now gates `publish-to-pypi` on this check via `workflow_call`, catching doc-vs-released-wheel drift before tag. New `scripts/extract_doc_bash.py` is a regex-based RST extractor that filters by tab-item label (linux only) and per-block `# skip-ci` markers.
-- **Connectors**: Add `write_multiple_channels()` to `ControlSystemConnector` base class for batch write support. Default implementation writes sequentially; custom connectors can override for atomic batch semantics (e.g., disabling lattice recalculation in simulators). MCP `channel_write` tool and `osprey.runtime.write_channels()` now dispatch to this method for multi-channel writes.
-- **Vendor**: `osprey vendor fetch --insecure` (or `OSPREY_VENDOR_INSECURE=1`) skips TLS cert verification — safe because every download is verified against its manifest SHA256. Unblocks installs behind corporate proxies (e.g. Squid) that intercept TLS with a self-signed CA. SSL errors now surface a clear hint pointing at this flag and at `SSL_CERT_FILE`.
-- **Skills**: `osprey-build-deploy` is now a second installable skill alongside `build-interview`. Relocated from the orphaned `templates/facility/` wrapper to `templates/skills/osprey-build-deploy/`, parallel to `build-interview`.
-- **Skills**: `osprey skills install --target PATH` installs a bundled skill into a specific `.claude/skills/` directory (e.g., project-local) instead of the default `~/.claude/skills/`. Target path is `expanduser()`-ed and `resolve()`-d. Used by `build-interview` Phase 8 to drop `osprey-build-deploy` into the freshly generated profile repo so `/osprey-build-deploy` is available whenever Claude Code opens the repo.
-- **build-interview**: New Phase 8 installs the deploy skill into the profile repo and spawns three parallel verification agents (file inventory, frontmatter, discoverability) to confirm the install before surfacing the Phase 1/Phase 2 summary.
-- **build-interview**: Friction log capture across phases. Passive observer logs colleague hesitation, mid-flow clarifying questions, and contradictions to `build-profile/.interview-notes.md` (lazy-created, dot-prefixed so it stays out of the deliverable). Explicit `log this:` / `for the log:` triggers capture verbatim colleague notes. Phase 0 sets expectations up front; Phase 5 re-surfaces the trigger; Phase 9b auto-includes colleague notes in the feedback email and offers an opt-in for observed entries before sending. Best-effort writes — silent on failure, never blocks the interview.
-- **build-interview**: Migration content from the retired `migrate-legacy` skill folded in. `references/migration-guide.md` gains a per-service decomposition table (jupyter / open-webui / pipelines / postgres / ariel) and a "secrets — never copy values" callout. Phase 8's example profile now shows `services:`/`env:`/`dependencies:` blocks (`web_panels:` too) and points at `extends:` for preset-derived profiles, and migration runs end with a smoke-import + `osprey audit` verification step. Description triggers expanded to cover "upgrade from langgraph", "legacy migration", "extract profile", and "reverse-engineer build profile". `references/osprey-config-reference.md` rewritten for the `--preset`/`-O`/`--set` CLI surface (was still pointing at `osprey init --example`).
+- **Build & deploy.** `osprey build` with preset overlays and profile
+  inheritance, relocatable builds (`--runtime-root`), background
+  deployment (`--detach` / `osprey web stop`), CI-friendly flags
+  (`--skip-deps`, `--stream`), per-step lifecycle timeouts,
+  `requires_osprey_version` profile field, `.env.template` generation,
+  auto-install of profile dependencies, and `osprey audit` for project
+  safety auditing.
+- **Connectors.** `write_multiple_channels()` batch-write hook;
+  defense-in-depth `writes_enabled` enforcement via `__init_subclass__`;
+  protocol-aware safety rules covering 15 protocols; centralized
+  connector type strings; EPICS Archiver Appliance via direct HTTP.
+- **Channel Finder.** Web UI with tree preview, multi-select sector
+  chips, inline description editing, delete-impact dialog, feedback
+  management with pending-review workflow, address resolution, DuckDB
+  and Google Sheets backends, and a device-info endpoint.
+- **Lattice design.** Interactive lattice dashboard with live optics
+  visualization, drag-and-drop panel layout, theme-aware Plotly
+  rendering, configurable settings sidebar; bisection-based LMA with
+  12-sector auto-detection; ALS-U accumulator ring lattice; nonlinear
+  dynamics skills (`resonance-diagram`, `dynamic-aperture`,
+  `frequency-map`) and the `lattice-evaluation` orchestration skill.
+- **Web Terminal.** PTY session pool for fast switching, session
+  persistence and resume, theme system, memory panel and prompt gallery,
+  activity diagnostics panel (agent / log / summary / chat), safety
+  guidelines page, agent timeline, REST `/api/chat` endpoint, welcome
+  modal with version display, and effort-level control via config and
+  CLI.
+- **Custom panels.** Template-driven panel configuration; WebSocket and
+  reverse-proxy support for containerized companion servers; iframe
+  embedding contract via `basePath` and `X-Forwarded-Prefix`;
+  `list_panels` / `switch_panel` MCP tools.
+- **ARIEL.** Bidirectional facility-adapter writes (atomic local JSON
+  append, olog RPC POST); per-user OLOG credentials via web form;
+  multi-artifact compose with model tiers; `logbook-search` sub-agent;
+  artifact-to-attachment converter registry; sync command and publish
+  tool.
+- **MCP servers.** MATLAB Middle Layer server; `python_executor`
+  `execute_file` tool; `workspace` `data_context_read` and
+  `artifact_get`; HTTP / SSE / streamable-http transport support; native
+  textbook file access replacing the prior textbooks MCP server.
+- **Skills.** `build-interview` (with friction-log capture, migration
+  path, and Phase 8 install verification), `osprey-build-deploy`,
+  `lattice-evaluation`, `analyze-working-point`, `demo-gallery`, and a
+  `setup-mode` diagnostic.
+- **Providers.** AMSC; per-project Claude Code provider isolation;
+  OpenAI-compatible-only providers; tier-name resolution
+  (`haiku` / `sonnet` / `opus`); provider-registry overhaul.
+- **Vendor & offline.** Manifest-driven vendor assets via
+  `osprey vendor fetch`; CDN by default with `OSPREY_OFFLINE=1` opt-in
+  for firewalled deployments; `--insecure` for corporate proxies
+  (verified against per-asset SHA256); bundled Google Fonts.
+- **Safety & permissions.** Per-tool approval policies; structured
+  limits errors; facility-configurable `settings.json` permissions with
+  drag-and-drop editor; memory-guard hook; configurable artifact
+  categories per build profile; `OSPREY_HOOK_DEBUG` activity logging.
+- **CI.** Doc-executability gate that builds a wheel from the current
+  SHA, installs it on a clean Ubuntu runner, and runs the bash blocks
+  extracted from `installation.rst` / `build-interview.rst`. Tiered MCP
+  boot-smoke and preset-agentic test pyramid.
 
 ### Changed
-- **Vendor assets default to CDN**: Web interfaces now load xterm.js, Plotly, highlight.js, KaTeX, and marked directly from `cdn.jsdelivr.net` / `cdn.plot.ly`. Fresh `uv sync` just works — no `osprey vendor fetch` needed. Set `OSPREY_OFFLINE=1` (or `offline: true` in `config.yml`) to use locally bundled assets, as required for firewalled deployments like the LBL control room; then run `osprey vendor fetch` to populate `static/vendor/`. Previously the interfaces hard-coded `/static/vendor/...` paths and silently rendered blank pages when the dirs were empty.
-- **Workspace**: Unify `osprey-workspace/` and `_agent_data/` into single configurable `_agent_data` directory (config key: `agent_data.base_dir`)
-- **Build profile validation**: unknown top-level keys now emit a warning instead of being silently accepted. Catches typos like `mcp_server:` (singular). Will become a hard error in a future release.
-- **Documentation**: `docs/source/how-to/build-profiles.rst` "CLI Reference" section rewritten for the post-refactor surface (`--preset`, `-O`, `--set`).
-- **Internal**: `FACILITY_PRESETS` (EPICS gateway connection-string registry) renamed to `FACILITY_GATEWAYS` to disambiguate from build-profile presets.
+- Documentation rewritten around the MCP architecture (installation,
+  tutorial, architecture, deploy, MCP servers, build profiles); landing
+  page and data-flow diagram refreshed.
+- AccelPapers search migrated from SQLite FTS5 to Typesense (hybrid
+  BM25 + vector); embedding URL / model / key configurable via env.
+- Stores moved to `osprey.stores/`; MCP servers consolidated under
+  `mcp_server/`; large modules (`web_terminal/routes.py`,
+  `registry/manager.py`, `deployment/container_manager.py`,
+  `cli/templates.py`, `cli/interactive_menu.py`) split into focused
+  packages.
+- Build-profile validation: unknown top-level keys warn (will hard-fail
+  in a future release); unknown `web_panels` hard-fail today.
+- CBORG model IDs pinned to versioned aliases so Claude Code negotiates
+  the correct API schema.
 
 ### Fixed
-- **Web Terminal**: In offline mode, `osprey web` fails fast with a clear error pointing at `osprey vendor fetch` when `static/vendor/` is empty or corrupt, instead of silently serving a blank page. In default CDN mode the preflight check is skipped.
-- **Claude Code / CBORG**: Pin CBORG model IDs to specific versions (`claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-7`) in the resolver fallback and in `api.providers.cborg.models` templates. Unversioned aliases like `anthropic/claude-opus` disabled Claude Code's capability detection, causing it to send the legacy `thinking.type.enabled` schema which Vertex-backed Opus 4.7 rejects with HTTP 400.
-- **`osprey build`**: unknown `--preset` names now exit with status 2 (usage error) instead of 1, matching the documented contract.
-- **CI**: `.github/workflows/ci.yml` updated for the retired `osprey init` command.
-- **README**: Quick Start install command changed from `uv pip install osprey-framework` to `uv tool install osprey-framework`, matching `docs/source/getting-started/installation.rst`. The `pip install` form left users without a reliably-on-`PATH` `osprey` command; `tool install` shims the CLI properly.
-- **Tests**: Three `tests/cli/test_claude_regen.py` call sites still passed the dropped `registry_style="extend"` arg to `TemplateManager.generate_manifest`, which leaked into the `context` parameter and crashed at `manifest.py:436` with `AttributeError: 'str' object has no attribute 'get'`. Removing the stale arg restores 3 tests; missed by commit `4e94e033`.
-
-### Removed (BREAKING)
-- **`osprey migrate` command removed.** The legacy config-migration workflow is retired; users on older configs should run `osprey init` fresh or hand-edit.
-- **`lattice_design` template removed.** `osprey init --template lattice_design` and `data_bundle: lattice_design` in build profiles are no longer valid. Build profiles now strictly accept `{hello_world, control_assistant}`.
-- **`osprey init` retired and merged into `osprey build --preset`.** The `init` command is gone. Use `osprey build <name> --preset <hello-world|control-assistant|...>` for bundled scaffolding, or `osprey build <name> <profile.yml>` for a custom profile. Override files via `-O FILE` (repeatable, deep-merge in declaration order) and key-value overrides via `--set KEY.PATH=VALUE` (YAML-typed RHS). The retired `osprey init` flag set (`--provider`, `--model`, `--channel-finder-mode`, `--example`, `--examples`, `--interactive`) is folded into the profile-and-overlay model. The `lattice_design` template is gone. The `osprey config set-models` subcommand and the interactive init wizard are also retired.
-- **`migrate-legacy` skill removed.** The legacy-project migration flow is now a path inside `build-interview` (Phase 1 Q3 → Migration Scan → Phase 5.5 → Phase 8 with `services:`/`env:`/`dependencies:` overlays). The corresponding `PromptArtifact("skills/migrate-legacy", …)` entry in `services/prompts/catalog.py` is dropped, and the eval cases were ported into `templates/skills/build-interview/evals/evals.json`. Trigger phrases like "/migrate-legacy", "upgrade from langgraph", and "extract profile" now activate `build-interview`.
-- **Manifest schema bumped to 1.2.0.** `.osprey-manifest.json` now records `build_args` (renamed from `init_args`), with a `source: "preset"|"profile"` discriminator and a `preset` or `profile_path` field so `reproducible_command` renders the matching CLI form. `creation.template` now carries the actual preset name (hyphenated) rather than duplicating `data_bundle`. The `creation.registry_style` field is removed (the standalone branch was dead). No backward-compat shim — readers must accept the new keys.
+- Datetime normalization, NaN sanitization in archiver and artifact
+  responses, and async-safe PV reads (carried over from the 0.11.5 line).
+- Numerous web-terminal panel-proxy edge cases for iframe embedding,
+  WebSocket forwarding, and corporate-proxy bypass.
+- `osprey build` now exits with status 2 (usage error) for unknown
+  presets, matching the documented contract.
 
 ## [0.11.5] - 2026-03-13
 
