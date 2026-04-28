@@ -447,4 +447,3 @@ function handleSelect(colIdx, value) {
     loadLevel(colIdx + 1);
   }
 }
-
