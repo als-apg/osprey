@@ -45,6 +45,14 @@ Compatibility is documented in release notes, not encoded in the version string.
   (`pyproject.toml` reads from `src/osprey/__init__.py`, no manual edit
   needed). Now installable via `osprey skills install osprey-release`.
 
+### Fixed
+- **Release-blocking workflow drift after the `build-interview` rename.**
+  Four references to the old skill name in `.github/workflows/ci.yml` and
+  `.github/workflows/validate-install-docs.yml` would have caused the
+  next CalVer tag push to hard-fail at the `validate-install-docs` step
+  (a `needs:` dep of `publish-to-pypi` in `release.yml`). Stale SemVer
+  examples in workflow comments (`v0.9.8`, `v0.11.4`) updated to CalVer.
+
 ### Removed (BREAKING)
 - **`build-interview` renamed to `osprey-build-interview`.** Skill name,
   directory (`templates/skills/osprey-build-interview/`), slash command

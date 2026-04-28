@@ -318,7 +318,7 @@ jobs:
         # Switch default provider to cborg (CI only has CBORG_API_KEY).
         sed -i 's|^  provider: anthropic$|  provider: cborg|' config.yml
         sed -i 's|^  default_model: claude-haiku-4-5$|  default_model: anthropic/claude-haiku|' config.yml
-        uv run osprey skills install build-interview
+        uv run osprey skills install osprey-build-interview
         ls -la
 
     - name: Deploy pipelines container

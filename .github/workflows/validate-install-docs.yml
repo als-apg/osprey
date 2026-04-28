@@ -1,14 +1,14 @@
 name: Validate Install Docs
 
 # Builds a wheel from the current SHA, installs it via `uv tool`, and runs
-# the bash blocks extracted from installation.rst and build-interview.rst.
+# the bash blocks extracted from installation.rst and osprey-build-interview.rst.
 # This catches doc-vs-wheel drift before it reaches a release tag.
 
 on:
   pull_request:
     paths:
       - 'docs/source/getting-started/installation.rst'
-      - 'docs/source/getting-started/build-interview.rst'
+      - 'docs/source/getting-started/osprey-build-interview.rst'
       - 'scripts/extract_doc_bash.py'
       - '.github/workflows/validate-install-docs.yml'
       - 'src/osprey/cli/skills_cmd.py'
@@ -43,11 +43,11 @@ jobs:
           cat /tmp/install.sh
           bash /tmp/install.sh
 
-      - name: Extract and run build-interview.rst bash blocks
+      - name: Extract and run osprey-build-interview.rst bash blocks
         run: |
-          python scripts/extract_doc_bash.py docs/source/getting-started/build-interview.rst > /tmp/interview.sh
+          python scripts/extract_doc_bash.py docs/source/getting-started/osprey-build-interview.rst > /tmp/interview.sh
           cat /tmp/interview.sh
           bash /tmp/interview.sh
 
-      - name: Verify build-interview skill installed
-        run: test -f ~/.claude/skills/build-interview/SKILL.md
+      - name: Verify osprey-build-interview skill installed
+        run: test -f ~/.claude/skills/osprey-build-interview/SKILL.md
