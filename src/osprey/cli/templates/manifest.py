@@ -18,6 +18,7 @@ logger = logging.getLogger("osprey.cli.templates")
 class ManifestError(ValueError):
     """Raised when a template manifest references unknown artifacts or panels."""
 
+
 # Manifest schema version for future compatibility
 MANIFEST_SCHEMA_VERSION = "1.2.0"
 

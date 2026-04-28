@@ -9,6 +9,8 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
+from osprey.cli.templates import claude_code, manifest
+from osprey.cli.templates.manager import TemplateManager
 
 # All CLI tests below build the hello-world preset with deps + lifecycle skipped.
 # Centralised so future flag changes are one-line edits.
@@ -17,10 +19,6 @@ _BUILD_FLAGS = ["--preset", "hello-world", "--skip-deps", "--skip-lifecycle"]
 
 def _build_args(name: str, output_dir: str, *extra: str) -> list[str]:
     return [name, *_BUILD_FLAGS, "--output-dir", output_dir, *extra]
-
-
-from osprey.cli.templates import claude_code, manifest
-from osprey.cli.templates.manager import TemplateManager
 
 
 class TestTemplateManager:

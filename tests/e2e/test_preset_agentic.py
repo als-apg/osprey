@@ -124,17 +124,12 @@ async def test_hello_world_canonical_flow(tmp_path: Path, llm_judge: LLMJudge) -
     preset wiring breaks, this fires within 5 min instead of the nested
     Claude Code session hanging on missing tools.
     """
-    project = init_project(
-        tmp_path, "hello_demo", template="hello_world", provider="cborg"
-    )
+    project = init_project(tmp_path, "hello_demo", template="hello_world", provider="cborg")
     query = "Read the example channel and tell me its current value."
     result = await run_sdk_query(project, query, max_turns=4, max_budget_usd=0.25)
 
-    assert any(
-        t.name == "mcp__controls__channel_read" for t in result.tool_traces
-    ), (
-        f"agent did not call mcp__controls__channel_read. "
-        f"Tools called: {result.tool_names}"
+    assert any(t.name == "mcp__controls__channel_read" for t in result.tool_traces), (
+        f"agent did not call mcp__controls__channel_read. Tools called: {result.tool_names}"
     )
 
     eval = await llm_judge.evaluate(
@@ -149,17 +144,13 @@ async def test_hello_world_canonical_flow(tmp_path: Path, llm_judge: LLMJudge) -
 
 
 @pytest.mark.asyncio
-async def test_control_assistant_channel_finder_flow(
-    tmp_path: Path, llm_judge: LLMJudge
-) -> None:
+async def test_control_assistant_channel_finder_flow(tmp_path: Path, llm_judge: LLMJudge) -> None:
     """Control-assistant preset: agent uses the channel-finder pipeline.
 
     Soft assertion (the channel-finder backend differs by preset config) —
     we only require that *some* ``mcp__channel-finder__*`` tool was used.
     """
-    project = init_project(
-        tmp_path, "ca_demo", template="control_assistant", provider="cborg"
-    )
+    project = init_project(tmp_path, "ca_demo", template="control_assistant", provider="cborg")
     cf_server = _channel_finder_server_name(project)
     if cf_server is None:
         pytest.skip("control-assistant preset has no channel-finder server")
@@ -169,8 +160,7 @@ async def test_control_assistant_channel_finder_flow(
 
     cf_tool_calls = [t for t in result.tool_traces if t.name.startswith("mcp__channel-finder__")]
     assert cf_tool_calls, (
-        f"agent did not call any mcp__channel-finder__* tool. "
-        f"Tools called: {result.tool_names}"
+        f"agent did not call any mcp__channel-finder__* tool. Tools called: {result.tool_names}"
     )
 
     eval = await llm_judge.evaluate(
@@ -188,9 +178,7 @@ async def test_control_assistant_channel_finder_flow(
 @pytest.mark.asyncio
 async def test_hello_world_write_triggers_approval_hook(tmp_path: Path) -> None:
     """Hello-world write probe: agent sets a mock channel; approval hook fires."""
-    project = init_project(
-        tmp_path, "hw_write", template="hello_world", provider="cborg"
-    )
+    project = init_project(tmp_path, "hw_write", template="hello_world", provider="cborg")
     await _assert_approval_hook_fires(
         project,
         "Set the example channel to 1.5.",
@@ -201,9 +189,7 @@ async def test_hello_world_write_triggers_approval_hook(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_control_assistant_write_triggers_approval_hook(tmp_path: Path) -> None:
     """Control-assistant write probe: same contract on the heavier preset."""
-    project = init_project(
-        tmp_path, "ca_write", template="control_assistant", provider="cborg"
-    )
+    project = init_project(tmp_path, "ca_write", template="control_assistant", provider="cborg")
     await _assert_approval_hook_fires(
         project,
         "Set the BPM offset channel for sector 5 to 0.0.",
