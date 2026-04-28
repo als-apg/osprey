@@ -3,11 +3,19 @@
 All notable changes to the Osprey Framework will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+and this project adheres to [Calendar Versioning](https://calver.org/).
+
+Versions follow `YYYY.MM.MICRO`. Year and month identify the release window;
+the micro segment increments for hotfixes and same-month follow-up releases.
+Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+## [2026.5.0] - 2026-04-29
+
 ### Added
+- **Versioning**: Switched from SemVer to CalVer (`YYYY.MM.MICRO`). The first segment identifies the release window; the micro segment increments for hotfixes. Compatibility is documented in release notes, not encoded in the version string. The release machinery is scheme-blind (`lstrip("v")`, `cut -d'"' -f2`) and required no code changes beyond the version literal.
+- **CI**: Doc-executability gate (`.github/workflows/validate-install-docs.yml`) builds a wheel from the current SHA, installs it via `uv tool` on a clean Ubuntu runner, and runs the bash blocks extracted from `installation.rst` / `build-interview.rst`. `release.yml` now gates `publish-to-pypi` on this check via `workflow_call`, catching doc-vs-released-wheel drift before tag. New `scripts/extract_doc_bash.py` is a regex-based RST extractor that filters by tab-item label (linux only) and per-block `# skip-ci` markers.
 - **Connectors**: Add `write_multiple_channels()` to `ControlSystemConnector` base class for batch write support. Default implementation writes sequentially; custom connectors can override for atomic batch semantics (e.g., disabling lattice recalculation in simulators). MCP `channel_write` tool and `osprey.runtime.write_channels()` now dispatch to this method for multi-channel writes.
 - **Vendor**: `osprey vendor fetch --insecure` (or `OSPREY_VENDOR_INSECURE=1`) skips TLS cert verification — safe because every download is verified against its manifest SHA256. Unblocks installs behind corporate proxies (e.g. Squid) that intercept TLS with a self-signed CA. SSL errors now surface a clear hint pointing at this flag and at `SSL_CERT_FILE`.
 - **Skills**: `osprey-build-deploy` is now a second installable skill alongside `build-interview`. Relocated from the orphaned `templates/facility/` wrapper to `templates/skills/osprey-build-deploy/`, parallel to `build-interview`.

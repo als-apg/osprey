@@ -2,7 +2,7 @@
 
 Reads Claude Code state JSON from stdin and emits a single colored line:
 
-    Sonnet | 45% 90k/200K | my-project (main) | v2.0.0 | osprey-v0.11.5
+    Sonnet | 45% 90k/200K | my-project (main) | v2.0.0 | osprey-v2026.5.0
 
 Design notes:
     - Matches the style of .claude/hooks/osprey_*.py (stdin JSON, graceful

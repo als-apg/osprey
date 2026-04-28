@@ -728,7 +728,7 @@ def _create_project_venv(project_path: Path, profile: Any) -> None:
     The ``osprey_install`` profile field controls where osprey comes from:
       - ``"local"`` (default): install from the source tree running this build
       - ``"pip"``: install ``osprey-framework`` from PyPI
-      - anything else: treated as a PEP 508 spec (e.g. ``"osprey-framework==0.11.5"``)
+      - anything else: treated as a PEP 508 spec (e.g. ``"osprey-framework==2026.5.0"``)
     """
     import sys
 

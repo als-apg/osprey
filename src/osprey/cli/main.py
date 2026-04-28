@@ -32,7 +32,7 @@ if sys.platform == "win32":
 try:
     from osprey import __version__
 except ImportError:
-    __version__ = "0.11.5"
+    __version__ = "2026.5.0"
 
 
 class LazyGroup(click.Group):

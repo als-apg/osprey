@@ -177,7 +177,7 @@ jobs:
 
         # 2. All deployed versioned snapshots (skip latest — already listed as root)
         for tag in tags:
-            version_dir = deployment_dir / tag  # e.g., deployment/v0.11.5
+            version_dir = deployment_dir / tag  # e.g., deployment/v2026.5.0
             if version_dir.is_dir():
                 if tags and tag == tags[0]:
                     continue  # Latest is already the root entry
