@@ -221,4 +221,3 @@ All ARIEL functionality is available through the ``osprey ariel`` command group:
 
 See Also
 ========
-

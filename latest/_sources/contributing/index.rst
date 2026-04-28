@@ -51,28 +51,16 @@ Git and GitHub Workflow
 Branch Strategy
 ^^^^^^^^^^^^^^^
 
-Osprey follows a **release-train** model with two long-lived branches:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 15 25 60
-
-   * - Branch
-     - Role
-     - What lands here
-   * - ``next``
-     - Rolling integration / development
-     - All day-to-day work: features, fixes, docs, refactors. This is the **default target** for pull requests.
-   * - ``main``
-     - Released code only
-     - Receives merges from ``next`` at release time, immediately followed by a version bump and a ``vYYYY.M.P`` tag (CalVer). No ad-hoc commits between releases.
+Osprey follows **GitHub Flow**: a single long-lived branch (``main``) with
+short-lived topic branches that PR back into it. Releases are CalVer tags
+(``vYYYY.M.P``) on ``main`` — no separate release branch.
 
 **What this means for contributors:**
 
-- Branch your work off ``next``, and open your PR against ``next``.
-- ``main`` always reflects the most recent tagged release, so users installing from ``main`` get a stable, versioned snapshot.
-- The version picker in the docs (top-right) lets users switch between released versions; ``next`` is built and published as the *latest (development)* entry.
-- Release cuts (``next`` → ``main`` + tag) are handled by maintainers via the release workflow — contributors do not need to merge to ``main`` directly.
+- Branch your work off ``main``, and open your PR against ``main``.
+- ``main`` is always the integration target. CI gates every PR; protected status checks must pass before merge.
+- Releases are cut by maintainers tagging a commit on ``main``; the PyPI publish workflow runs on ``v*.*.*`` tags.
+- Hotfixes follow the same path: branch from the tag (or ``main``), PR back, tag again as ``vYYYY.M.P+1``. No special hotfix branches.
 
 Branch Naming
 ^^^^^^^^^^^^^
@@ -105,7 +93,7 @@ Making Changes
    ./scripts/ci_check.sh
 
    # Tier 3: Pre-merge check -- before creating a PR (compare against your PR target)
-   ./scripts/premerge_check.sh next
+   ./scripts/premerge_check.sh main
 
 **4. Commit changes** using conventional commit format:
 

@@ -238,4 +238,3 @@ build directory; check ``DEV_MODE`` env var inside the container.
 
    :doc:`../cli-reference/index`
        CLI command reference
-

@@ -458,37 +458,15 @@ uv<span class="w"> </span>add<span class="w"> </span>&lt;package&gt;
 <h2>Git and GitHub Workflow<a class="headerlink" href="#git-and-github-workflow" title="Link to this heading">#</a></h2>
 <section id="branch-strategy">
 <h3>Branch Strategy<a class="headerlink" href="#branch-strategy" title="Link to this heading">#</a></h3>
-<p>Osprey follows a <strong>release-train</strong> model with two long-lived branches:</p>
-<div class="pst-scrollable-table-container"><table class="table">
-<colgroup>
-<col style="width: 15.0%" />
-<col style="width: 25.0%" />
-<col style="width: 60.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Branch</p></th>
-<th class="head"><p>Role</p></th>
-<th class="head"><p>What lands here</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">next</span></code></p></td>
-<td><p>Rolling integration / development</p></td>
-<td><p>All day-to-day work: features, fixes, docs, refactors. This is the <strong>default target</strong> for pull requests.</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">main</span></code></p></td>
-<td><p>Released code only</p></td>
-<td><p>Receives merges from <code class="docutils literal notranslate"><span class="pre">next</span></code> at release time, immediately followed by a version bump and a <code class="docutils literal notranslate"><span class="pre">vYYYY.M.P</span></code> tag (CalVer). No ad-hoc commits between releases.</p></td>
-</tr>
-</tbody>
-</table>
-</div>
+<p>Osprey follows <strong>GitHub Flow</strong>: a single long-lived branch (<code class="docutils literal notranslate"><span class="pre">main</span></code>) with
+short-lived topic branches that PR back into it. Releases are CalVer tags
+(<code class="docutils literal notranslate"><span class="pre">vYYYY.M.P</span></code>) on <code class="docutils literal notranslate"><span class="pre">main</span></code> — no separate release branch.</p>
 <p><strong>What this means for contributors:</strong></p>
 <ul class="simple">
-<li><p>Branch your work off <code class="docutils literal notranslate"><span class="pre">next</span></code>, and open your PR against <code class="docutils literal notranslate"><span class="pre">next</span></code>.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">main</span></code> always reflects the most recent tagged release, so users installing from <code class="docutils literal notranslate"><span class="pre">main</span></code> get a stable, versioned snapshot.</p></li>
-<li><p>The version picker in the docs (top-right) lets users switch between released versions; <code class="docutils literal notranslate"><span class="pre">next</span></code> is built and published as the <em>latest (development)</em> entry.</p></li>
-<li><p>Release cuts (<code class="docutils literal notranslate"><span class="pre">next</span></code> → <code class="docutils literal notranslate"><span class="pre">main</span></code> + tag) are handled by maintainers via the release workflow — contributors do not need to merge to <code class="docutils literal notranslate"><span class="pre">main</span></code> directly.</p></li>
+<li><p>Branch your work off <code class="docutils literal notranslate"><span class="pre">main</span></code>, and open your PR against <code class="docutils literal notranslate"><span class="pre">main</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">main</span></code> is always the integration target. CI gates every PR; protected status checks must pass before merge.</p></li>
+<li><p>Releases are cut by maintainers tagging a commit on <code class="docutils literal notranslate"><span class="pre">main</span></code>; the PyPI publish workflow runs on <code class="docutils literal notranslate"><span class="pre">v*.*.*</span></code> tags.</p></li>
+<li><p>Hotfixes follow the same path: branch from the tag (or <code class="docutils literal notranslate"><span class="pre">main</span></code>), PR back, tag again as <code class="docutils literal notranslate"><span class="pre">vYYYY.M.P+1</span></code>. No special hotfix branches.</p></li>
 </ul>
 </section>
 <section id="branch-naming">
@@ -516,7 +494,7 @@ uv<span class="w"> </span>add<span class="w"> </span>&lt;package&gt;
 ./scripts/ci_check.sh
 
 <span class="c1"># Tier 3: Pre-merge check -- before creating a PR (compare against your PR target)</span>
-./scripts/premerge_check.sh<span class="w"> </span>next
+./scripts/premerge_check.sh<span class="w"> </span>main
 </pre></div>
 </div>
 <p><strong>4. Commit changes</strong> using conventional commit format:</p>
