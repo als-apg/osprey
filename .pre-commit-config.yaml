@@ -20,10 +20,8 @@ repos:
     hooks:
       # Remove trailing whitespace
       - id: trailing-whitespace
-        exclude: ^tests/cassettes/
       # Ensure files end with a newline
       - id: end-of-file-fixer
-        exclude: ^tests/cassettes/
       # Check for merge conflict markers
       - id: check-merge-conflict
       # Check YAML syntax
@@ -42,7 +40,6 @@ repos:
       - id: detect-private-key
       # Check JSON syntax
       - id: check-json
-        exclude: ^tests/cassettes/
       # Check for debugger imports
       - id: debug-statements
 
