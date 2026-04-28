@@ -95,7 +95,7 @@ The database defines levels and a naming pattern:
      "tree": { }
    }
 
-Advanced features (v0.9.4+): navigation-only levels, friendly names via
+Advanced features: navigation-only levels, friendly names via
 ``_channel_part``, optional levels with ``_is_leaf``, and custom separators
 via ``_separator``.
 

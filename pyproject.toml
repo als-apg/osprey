@@ -147,8 +147,6 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "pytest-cov",  # Code coverage reporting
-    "pytest-vcr",  # Optional: For recording/replaying API interactions
-    "vcrpy",
     "mypy",
     "pre-commit",
     "ruff",
@@ -271,7 +269,6 @@ markers = [
     "requires_cborg: Tests that require CBORG API key",
     "requires_ollama: Tests that require local Ollama service",
     "asyncio: Async test marker",
-    "vcr: VCR cassette recording/replay marker",
     "e2e_services: E2E tests requiring local MCP service infrastructure (PostgreSQL, AccelPapers, etc.)",
 ]
 

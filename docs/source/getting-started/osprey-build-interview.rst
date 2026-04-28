@@ -1,11 +1,12 @@
-======================================
-Guided Project Setup (Build Interview)
-======================================
+====================
+Guided Project Setup
+====================
 
 If you're setting up OSPREY for a specific detector, beamline, or accelerator
-subsystem, the **build interview** walks you through a guided conversation that
-generates a ready-to-build project profile tailored to your system. It also
-handles **migration from existing OSPREY projects** — point it at your old
+subsystem, the ``/osprey-build-interview`` skill walks you through a guided
+conversation that generates a ready-to-build project profile tailored to your
+system. It also handles **migration from existing OSPREY projects** — point
+it at your old
 project directory and it will scan, classify, and extract everything reusable.
 
 The whole interview takes about 10--15 minutes.

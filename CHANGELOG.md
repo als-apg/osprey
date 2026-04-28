@@ -52,6 +52,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   next CalVer tag push to hard-fail at the `validate-install-docs` step
   (a `needs:` dep of `publish-to-pypi` in `release.yml`). Stale SemVer
   examples in workflow comments (`v0.9.8`, `v0.11.4`) updated to CalVer.
+- `README.md`: broken `TESTING_GUIDE.md` link repointed to `tests/e2e/README.md` and the Contributing Guide.
+
+### Removed
+- `scripts/start_typesense.sh` — dev helper with zero callers; live Typesense lives in `als-profiles/services/typesense/`.
+- `tests/cassettes/` — only contained a README; no cassettes were ever recorded. Also dropped `pytest-vcr`, `vcrpy`, the `vcr` pytest marker, and three pre-commit excludes for the directory.
+- `.github/pull_request_template.md` — predates GitHub Flow; PR descriptions are drafted by the `osprey-contribute` skill now.
+- Pre-CalVer SemVer markers: `versionchanged:: 0.10.7` directive in `deploy-project.rst` (now baseline); `(v0.9.x+)` qualifiers in `use-channel-finder.rst`, `tests/e2e/README.md`, and the `osprey-build-interview.rst` page-title parenthetical; two `>=0.12.0` examples in `build-profiles.rst` bumped to `>=2026.5.0`.
 
 ### Removed (BREAKING)
 - **`build-interview` renamed to `osprey-build-interview`.** Skill name,

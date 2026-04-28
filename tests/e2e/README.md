@@ -118,8 +118,7 @@ Some E2E tests require additional dependencies:
 # For MCP capability generation tests
 pip install fastmcp
 
-# Claude Code generator is included in core (v0.9.6+)
-# No additional installation needed
+# Claude Code generator is included in core — no additional installation needed
 ```
 
 ### Test Options
