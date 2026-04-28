@@ -63,7 +63,7 @@ pytest tests/ --ignore=tests/e2e -v
 pytest tests/e2e/ -v
 ```
 
-See [TESTING_GUIDE.md](TESTING_GUIDE.md) and [tests/e2e/README.md](tests/e2e/README.md) for details.
+See [tests/e2e/README.md](tests/e2e/README.md) and the [Contributing Guide](https://als-apg.github.io/osprey/contributing/) for details.
 
 
 ## Key Features
