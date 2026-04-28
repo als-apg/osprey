@@ -398,7 +398,7 @@ Tell the user what to do next:
 > Next steps:
 >
 > 1. **Fill in `.env`** with your actual secrets (it's gitignored, so it never leaves your machine).
-> 2. **Author your build profile**: run `/build-interview` to walk through creating a `profile.yml`. That's a separate skill — different concerns.
+> 2. **Author your build profile**: run `/osprey-build-interview` to walk through creating a `profile.yml`. That's a separate skill — different concerns.
 > 3. **Scaffold deploy infrastructure**: tell me 'scaffold the deploy infra' and I'll generate `docker-compose.yml`, `.gitlab-ci.yml`, `scripts/deploy.sh`, and `scripts/verify.sh` from the templates, parameterized by your config.
 > 4. **Review the generated files** — they're plain text, fully editable. The skill regenerates them from `facility-config.yml` whenever you change values.
 > 5. **First push and deploy**: `git push`, watch CI, trigger the release job, run `deploy.sh` on the server."

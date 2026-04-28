@@ -217,7 +217,7 @@ OSPREY is installed and ready to use. Here's what to do next:
       complexity. Takes about 10 minutes.
 
    .. grid-item-card:: **Guided Build Interview**
-      :link: build-interview
+      :link: osprey-build-interview
       :link-type: doc
 
       Set OSPREY up for your own detector, beamline, or accelerator subsystem.

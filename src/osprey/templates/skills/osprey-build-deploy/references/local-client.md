@@ -2,7 +2,7 @@
 
 A "client" build produces a Claude Code project on a developer's laptop that talks to **remotely deployed MCP services** on `${config.deploy.host}` instead of running its own containers. Useful for developers who need the full assistant without standing up the whole stack locally.
 
-This file documents the build + run workflow. It assumes the `${config.facility.prefix}-client.yml` profile already exists in the repo. Authoring or modifying that profile is the job of `/build-interview`, not this skill.
+This file documents the build + run workflow. It assumes the `${config.facility.prefix}-client.yml` profile already exists in the repo. Authoring or modifying that profile is the job of `/osprey-build-interview`, not this skill.
 
 ---
 
@@ -178,8 +178,8 @@ You don't need to rebuild when:
 
 This file documents the build + run workflow once `${config.facility.prefix}-client.yml` already exists. It does NOT cover:
 
-- **Authoring or modifying `${config.facility.prefix}-client.yml`** — that's `/build-interview`'s job. If the client profile needs new MCP server entries, agent definitions, env vars, or overlay paths, hand the user off to `/build-interview` and stop.
+- **Authoring or modifying `${config.facility.prefix}-client.yml`** — that's `/osprey-build-interview`'s job. If the client profile needs new MCP server entries, agent definitions, env vars, or overlay paths, hand the user off to `/osprey-build-interview` and stop.
 - **Running the deploy server's MCP services locally** — use the prod profile and a local container stack instead, or ask the deploy operator for shell access on the server.
 - **Setting up VPN or network access** — IT problem; this skill assumes the laptop can reach `${config.deploy.fqdn}`.
 
-If a developer's "client build doesn't work" problem turns out to be a profile gap (missing MCP server, wrong overlay), refer them to `/build-interview` to update the profile, then come back here for the build mechanics.
+If a developer's "client build doesn't work" problem turns out to be a profile gap (missing MCP server, wrong overlay), refer them to `/osprey-build-interview` to update the profile, then come back here for the build mechanics.

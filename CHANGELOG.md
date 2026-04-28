@@ -45,6 +45,17 @@ Compatibility is documented in release notes, not encoded in the version string.
   (`pyproject.toml` reads from `src/osprey/__init__.py`, no manual edit
   needed). Now installable via `osprey skills install osprey-release`.
 
+### Removed (BREAKING)
+- **`build-interview` renamed to `osprey-build-interview`.** Skill name,
+  directory (`templates/skills/osprey-build-interview/`), slash command
+  (`/osprey-build-interview`), and install command (`osprey skills install
+  osprey-build-interview`) all use the new name for consistency with the
+  other `osprey-*` skills. No deprecation alias — the old name fails fast.
+  **Upgrade**: replace `osprey skills install build-interview` with
+  `osprey skills install osprey-build-interview` and re-install if you
+  previously had `~/.claude/skills/build-interview/` (the new install lands
+  in `~/.claude/skills/osprey-build-interview/`).
+
 ## [2026.5.0] - 2026-04-29
 
 This release retires the LangGraph-based orchestration that powered Osprey

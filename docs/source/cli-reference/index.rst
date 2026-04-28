@@ -407,18 +407,18 @@ can be installed either globally or into a specific project's
 
    Currently supported skills:
 
-   * ``build-interview`` — guided project-profile generation (see
-     :doc:`/getting-started/build-interview`). Typically installed globally
+   * ``osprey-build-interview`` — guided project-profile generation (see
+     :doc:`/getting-started/osprey-build-interview`). Typically installed globally
      so it is available in any Claude Code session.
    * ``osprey-build-deploy`` — CI/CD setup, deploy-server operations, and
      release workflow for a facility profile repo. Typically installed
      project-locally (into the profile repo's ``.claude/skills/``) by the
-     last phase of the ``build-interview`` skill, so ``/osprey-build-deploy``
+     last phase of the ``osprey-build-interview`` skill, so ``/osprey-build-deploy``
      is available wherever the profile repo is cloned.
 
 .. code-block:: bash
 
-   osprey skills install build-interview
+   osprey skills install osprey-build-interview
    osprey skills install osprey-build-deploy --target build-profile/.claude/skills/
 
 osprey vendor
