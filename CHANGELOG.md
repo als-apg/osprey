@@ -60,6 +60,19 @@ Compatibility is documented in release notes, not encoded in the version string.
   needed). Now installable via `osprey skills install osprey-release`.
 
 ### Fixed
+- **Release-blocking E2E suite (`tests/e2e/claude_code/`) green for the first
+  time since it landed in Feb 2026.** `init_project()` in
+  `tests/e2e/sdk_helpers.py` defaulted to `provider="anthropic"`, but CI
+  exposes only `CBORG_API_KEY`, so the bundled Claude CLI started with
+  `apiKeySource: 'none'` and the suite died with `Invalid API key · Please
+  run /login`. The failure was invisible to maintainers because (a) CI gates
+  E2E to same-repo PRs, so pushes to `main` skip it, and (b) any developer
+  with Claude Code logged in locally got the green path via stored
+  `~/.claude` credentials — classic "works on my machine". Default switched
+  to `cborg`, matching the only sibling E2E test (`test_preset_agentic.py`)
+  that has been green throughout. No call site needed to change; the
+  separate `init_project` shim in `test_claude_code_build_integration.py`
+  is unaffected.
 - **Release-blocking workflow drift after the `build-interview` rename.**
   Four references to the old skill name in `.github/workflows/ci.yml` and
   `.github/workflows/validate-install-docs.yml` would have caused the
