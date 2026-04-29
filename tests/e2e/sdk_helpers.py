@@ -72,11 +72,18 @@ def init_project(
     tmp_path: Path,
     name: str,
     template: str = "control_assistant",
-    provider: str = "anthropic",
+    provider: str = "cborg",
     model: str = "haiku",
     channel_finder_mode: str | None = None,
 ) -> Path:
-    """Create a project via ``osprey build --preset <template>``, return project_dir."""
+    """Create a project via ``osprey build --preset <template>``, return project_dir.
+
+    Defaults to ``provider="cborg"`` because that is the only provider whose
+    secret (``CBORG_API_KEY``) is wired into CI. With ``provider="anthropic"``,
+    the bundled Claude CLI silently falls back to whatever credentials happen
+    to live in ``~/.claude`` on the developer machine — which makes tests pass
+    locally and fail in CI's clean HOME.
+    """
     runner = CliRunner()
     args = [
         name,
