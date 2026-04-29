@@ -61,18 +61,40 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 - **Release-blocking E2E suite (`tests/e2e/claude_code/`) green for the first
-  time since it landed in Feb 2026.** `init_project()` in
-  `tests/e2e/sdk_helpers.py` defaulted to `provider="anthropic"`, but CI
-  exposes only `CBORG_API_KEY`, so the bundled Claude CLI started with
-  `apiKeySource: 'none'` and the suite died with `Invalid API key · Please
-  run /login`. The failure was invisible to maintainers because (a) CI gates
-  E2E to same-repo PRs, so pushes to `main` skip it, and (b) any developer
-  with Claude Code logged in locally got the green path via stored
-  `~/.claude` credentials — classic "works on my machine". Default switched
-  to `cborg`, matching the only sibling E2E test (`test_preset_agentic.py`)
-  that has been green throughout. No call site needed to change; the
-  separate `init_project` shim in `test_claude_code_build_integration.py`
-  is unaffected.
+  time since it landed in Feb 2026.** Two stacked invisible failures: first,
+  `init_project()` in `tests/e2e/sdk_helpers.py` defaulted to
+  `provider="anthropic"` while CI exposes neither `ANTHROPIC_API_KEY` nor
+  stored `~/.claude` credentials, so the bundled Claude CLI died with
+  `Invalid API key · Please run /login`. Switching the default to
+  `provider="cborg"` revealed the deeper problem — CBORG enforces an IP
+  allowlist that does not cover GitHub Actions egress ranges, so every
+  CI-routed cborg call returned `403 ip_not_authorized`. **Resolution:**
+  default switched again to `provider="als-apg"` (LBL ALS Accelerator
+  Physics Group's AWS Bedrock proxy at `llm.gianlucamartino.com`), which
+  serves Claude models via Bedrock and is reachable from any IP.
+  `CBORG_API_KEY` removed from CI; `ALS_APG_API_KEY` added. Local
+  development with cborg continues to work (pass `provider="cborg"` from an
+  allowlisted IP). The failure mode was double-invisible because (a) CI
+  gates E2E to same-repo PRs, so pushes to `main` skip it, and (b) any
+  developer with Claude Code logged in locally got the green path via
+  stored `~/.claude` credentials — classic "works on my machine". A
+  pre-flight reachability probe was added to the `agentic-per-preset` and
+  `e2e-tests` jobs so any future endpoint regression surfaces in 5 seconds
+  with a clear diagnostic, instead of buried under 200+ confusing 4xx
+  errors after a 5-minute test run.
+- **`tests/fixtures/ariel/test_config.yml` and ARIEL e2e tests migrated
+  from cborg to als-apg** for consistency with the CI auth path. The
+  `requires_cborg` pytest marker is retained (still useful for
+  IP-allowlisted local runs) and a new `requires_als_apg` marker added;
+  `test_preset_agentic.py` and `test_ariel_e2e_pipeline.py` now use the
+  latter. The LLM judge default also flipped (`als-apg` /
+  `claude-haiku-4-5-20251001`), so judge calls in CI hit a working endpoint.
+- **Brittle sed-based provider switch in the `deploy-e2e` job replaced with
+  `osprey build --set provider=als-apg --set model=haiku`.** The sed
+  pattern depended on the exact whitespace and key order in the generated
+  `config.yml`; it would silently no-op if the template touched those
+  formatting details. The `--set` form makes the contract explicit and
+  survives template re-formatting.
 - **Release-blocking workflow drift after the `build-interview` rename.**
   Four references to the old skill name in `.github/workflows/ci.yml` and
   `.github/workflows/validate-install-docs.yml` would have caused the

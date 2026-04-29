@@ -89,10 +89,10 @@ def llm_judge(request):
     """Fixture providing an LLM judge for evaluation.
 
     Can be configured via pytest command line:
-        pytest --judge-provider=cborg --judge-model=anthropic/claude-haiku
+        pytest --judge-provider=als-apg --judge-model=claude-haiku-4-5-20251001
     """
-    provider = request.config.getoption("--judge-provider", default="cborg")
-    model = request.config.getoption("--judge-model", default="anthropic/claude-haiku")
+    provider = request.config.getoption("--judge-provider", default="als-apg")
+    model = request.config.getoption("--judge-model", default="claude-haiku-4-5-20251001")
     verbose = request.config.getoption("--judge-verbose", default=False)
 
     return LLMJudge(provider=provider, model=model, verbose=verbose)
@@ -103,13 +103,13 @@ def pytest_addoption(parser):
     parser.addoption(
         "--judge-provider",
         action="store",
-        default="cborg",
+        default="als-apg",
         help="AI provider to use for LLM judge evaluation",
     )
     parser.addoption(
         "--judge-model",
         action="store",
-        default="anthropic/claude-haiku",
+        default="claude-haiku-4-5-20251001",
         help="Model to use for LLM judge evaluation",
     )
     parser.addoption(

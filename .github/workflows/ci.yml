@@ -219,7 +219,7 @@ jobs:
   agentic-per-preset:
     name: Tier 3 — Agentic flow (${{ matrix.preset }}) [advisory]
     runs-on: ubuntu-latest
-    # Only run on PRs from same repo (CBORG_API_KEY unavailable on forks)
+    # Only run on PRs from same repo (ALS_APG_API_KEY unavailable on forks)
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     continue-on-error: true
     strategy:
@@ -242,9 +242,38 @@ jobs:
     - name: Install dependencies
       run: uv sync --extra dev
 
+    - name: Pre-flight LLM endpoint reachability check
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      run: |
+        # Defense in depth: surface "secret unset" or "GitHub Actions IP not
+        # allowlisted" failures clearly here, instead of buried under confusing
+        # 4xx errors flooding pytest output 5+ minutes later.
+        # See CHANGELOG entry on the cborg → ALS-APG CI swap for full context.
+        if [ -z "${ALS_APG_API_KEY:-}" ]; then
+          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
+          echo "   (Check repo secrets; required for the agentic-per-preset job.)"
+          exit 1
+        fi
+        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
+          -X POST https://llm.gianlucamartino.com/v1/messages \
+          -H "Content-Type: application/json" \
+          -H "anthropic-version: 2023-06-01" \
+          -H "Authorization: Bearer $ALS_APG_API_KEY" \
+          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+        if [ "$HTTP_CODE" != "200" ]; then
+          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
+          echo "   Body (first 500 chars):"
+          head -c 500 /tmp/probe.txt; echo
+          echo "   If 401/403: rotate ALS_APG_API_KEY or check IP allowlist."
+          echo "   If 5xx: ALS-APG outage — retry, or contact the proxy admin."
+          exit 1
+        fi
+        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+
     - name: Run Tier 3 agentic test for preset
       env:
-        CBORG_API_KEY: ${{ secrets.CBORG_API_KEY }}
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
         PRESET: ${{ matrix.preset }}
       run: |
         # template names use snake_case in init_project (e.g. hello_world);
@@ -276,9 +305,31 @@ jobs:
     - name: Install dependencies
       run: uv sync --extra dev
 
+    - name: Pre-flight LLM endpoint reachability check
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      run: |
+        # Same probe as agentic-per-preset; see comment there for rationale.
+        if [ -z "${ALS_APG_API_KEY:-}" ]; then
+          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
+          exit 1
+        fi
+        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
+          -X POST https://llm.gianlucamartino.com/v1/messages \
+          -H "Content-Type: application/json" \
+          -H "anthropic-version: 2023-06-01" \
+          -H "Authorization: Bearer $ALS_APG_API_KEY" \
+          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+        if [ "$HTTP_CODE" != "200" ]; then
+          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
+          head -c 500 /tmp/probe.txt; echo
+          exit 1
+        fi
+        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+
     - name: Run E2E tests
       env:
-        CBORG_API_KEY: ${{ secrets.CBORG_API_KEY }}
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
         # Tier 3 per-preset agentic flows live in their own matrix job
         # (agentic-per-preset). Exclude here to avoid double-execution.
@@ -313,17 +364,20 @@ jobs:
 
     - name: Create hello_world project
       run: |
-        uv run osprey build hello-world-test --preset hello-world --skip-deps --skip-lifecycle
+        # CI only has ALS_APG_API_KEY (cborg's IP allowlist excludes GitHub
+        # Actions runners). Drive provider selection through `osprey build
+        # --set` instead of post-build sed surgery — keeps the contract
+        # explicit and survives template re-formatting.
+        uv run osprey build hello-world-test --preset hello-world \
+          --skip-deps --skip-lifecycle \
+          --set provider=als-apg --set model=haiku
         cd hello-world-test
-        # Switch default provider to cborg (CI only has CBORG_API_KEY).
-        sed -i 's|^  provider: anthropic$|  provider: cborg|' config.yml
-        sed -i 's|^  default_model: claude-haiku-4-5$|  default_model: anthropic/claude-haiku|' config.yml
         uv run osprey skills install osprey-build-interview
         ls -la
 
     - name: Deploy pipelines container
       env:
-        CBORG_API_KEY: ${{ secrets.CBORG_API_KEY }}
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
         cd hello-world-test
         uv run osprey deploy up -d --dev

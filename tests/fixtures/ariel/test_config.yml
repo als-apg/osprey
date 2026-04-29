@@ -10,9 +10,9 @@ registry_path: null
 # API Configuration for LLM calls
 api:
   providers:
-    cborg:
-      api_key: ${CBORG_API_KEY}
-      base_url: https://api.cborg.lbl.gov/v1
+    als-apg:
+      api_key: ${ALS_APG_API_KEY}
+      base_url: https://llm.gianlucamartino.com/v1
     ollama:
       api_key: ollama
       base_url: http://localhost:11434
@@ -20,8 +20,8 @@ api:
 # Minimal model config for RAG
 models:
   response:
-    provider: cborg
-    model_id: anthropic/claude-haiku
+    provider: als-apg
+    model_id: claude-haiku-4-5-20251001
 
 # ARIEL configuration (matches my-control-assistant)
 # Provider credentials are defined in api.providers above.
@@ -57,7 +57,7 @@ ariel:
   # LLM config for RAG answer generation and agent reasoning
   # provider references api.providers for credentials
   reasoning:
-    provider: cborg  # References api.providers.cborg
-    model_id: anthropic/claude-haiku
+    provider: als-apg  # References api.providers.als-apg
+    model_id: claude-haiku-4-5-20251001
     max_iterations: 5
     temperature: 0.1
