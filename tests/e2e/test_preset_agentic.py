@@ -33,7 +33,7 @@ from tests.e2e.sdk_helpers import (
 
 pytestmark = [
     pytest.mark.e2e,
-    pytest.mark.requires_cborg,
+    pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
     pytest.mark.skipif(not is_claude_code_available(), reason="claude CLI not available"),
 ]
@@ -124,7 +124,7 @@ async def test_hello_world_canonical_flow(tmp_path: Path, llm_judge: LLMJudge) -
     preset wiring breaks, this fires within 5 min instead of the nested
     Claude Code session hanging on missing tools.
     """
-    project = init_project(tmp_path, "hello_demo", template="hello_world", provider="cborg")
+    project = init_project(tmp_path, "hello_demo", template="hello_world", provider="als-apg")
     query = "Read the example channel and tell me its current value."
     result = await run_sdk_query(project, query, max_turns=4, max_budget_usd=0.25)
 
@@ -150,7 +150,7 @@ async def test_control_assistant_channel_finder_flow(tmp_path: Path, llm_judge: 
     Soft assertion (the channel-finder backend differs by preset config) —
     we only require that *some* ``mcp__channel-finder__*`` tool was used.
     """
-    project = init_project(tmp_path, "ca_demo", template="control_assistant", provider="cborg")
+    project = init_project(tmp_path, "ca_demo", template="control_assistant", provider="als-apg")
     cf_server = _channel_finder_server_name(project)
     if cf_server is None:
         pytest.skip("control-assistant preset has no channel-finder server")
@@ -178,7 +178,7 @@ async def test_control_assistant_channel_finder_flow(tmp_path: Path, llm_judge: 
 @pytest.mark.asyncio
 async def test_hello_world_write_triggers_approval_hook(tmp_path: Path) -> None:
     """Hello-world write probe: agent sets a mock channel; approval hook fires."""
-    project = init_project(tmp_path, "hw_write", template="hello_world", provider="cborg")
+    project = init_project(tmp_path, "hw_write", template="hello_world", provider="als-apg")
     await _assert_approval_hook_fires(
         project,
         "Set the example channel to 1.5.",
@@ -189,7 +189,7 @@ async def test_hello_world_write_triggers_approval_hook(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_control_assistant_write_triggers_approval_hook(tmp_path: Path) -> None:
     """Control-assistant write probe: same contract on the heavier preset."""
-    project = init_project(tmp_path, "ca_write", template="control_assistant", provider="cborg")
+    project = init_project(tmp_path, "ca_write", template="control_assistant", provider="als-apg")
     await _assert_approval_hook_fires(
         project,
         "Set the BPM offset channel for sector 5 to 0.0.",
