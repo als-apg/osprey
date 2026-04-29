@@ -103,7 +103,10 @@ Tests hierarchical channel finder performance and accuracy:
 E2E tests require API access. Set the appropriate environment variable:
 
 ```bash
-# For CBORG (default)
+# For ALS-APG (CI default — AWS Bedrock proxy reachable from anywhere)
+export ALS_APG_API_KEY="your-key"
+
+# For CBORG (local dev only — IP allowlist blocks GitHub Actions runners)
 export CBORG_API_KEY="your-key"
 
 # Or for Anthropic
@@ -143,7 +146,7 @@ import pytest
 
 @pytest.mark.e2e
 @pytest.mark.slow
-@pytest.mark.requires_cborg
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_my_workflow(e2e_project_factory):
     """Test description."""
@@ -190,7 +193,7 @@ jobs:
     steps:
       - run: pytest tests/e2e/ -v
     env:
-      CBORG_API_KEY: ${{ secrets.CBORG_API_KEY }}
+      ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
 ```
 
 ## Troubleshooting

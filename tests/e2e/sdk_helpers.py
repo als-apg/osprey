@@ -72,17 +72,21 @@ def init_project(
     tmp_path: Path,
     name: str,
     template: str = "control_assistant",
-    provider: str = "cborg",
+    provider: str = "als-apg",
     model: str = "haiku",
     channel_finder_mode: str | None = None,
 ) -> Path:
     """Create a project via ``osprey build --preset <template>``, return project_dir.
 
-    Defaults to ``provider="cborg"`` because that is the only provider whose
-    secret (``CBORG_API_KEY``) is wired into CI. With ``provider="anthropic"``,
-    the bundled Claude CLI silently falls back to whatever credentials happen
-    to live in ``~/.claude`` on the developer machine — which makes tests pass
-    locally and fail in CI's clean HOME.
+    Defaults to ``provider="als-apg"`` because the ALS-APG AWS Bedrock proxy
+    is the only Anthropic-compatible endpoint reachable from GitHub Actions
+    runners. CBORG enforces an IP allowlist that does not cover the GitHub
+    Actions egress range, so any cborg-routed CI test 403s with
+    ``ip_not_authorized``. With ``provider="anthropic"``, the bundled Claude
+    CLI silently falls back to whatever credentials happen to live in
+    ``~/.claude`` on the developer machine — making tests pass locally and
+    fail in CI's clean HOME. Local development with cborg still works:
+    pass ``provider="cborg"`` explicitly when running from an allowlisted IP.
     """
     runner = CliRunner()
     args = [
