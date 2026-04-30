@@ -570,6 +570,11 @@ async def _run_single_query(project_dir, query_entry: dict, *, use_cache: bool =
         "num_turns": result.num_turns,
         "eval_meta": eval_meta,
     }
+    # Attach the full agent response on non-perfect queries so the JSON
+    # artifact is self-sufficient for diagnosing MISSes / PARTIALs without
+    # re-running. Perfect queries skip this to keep the artifact lean.
+    if f1 < 1.0:
+        entry["response_text"] = get_response_text(result)
 
     # Diagnostic output. With alias groups, "missing" is per-group (canonical
     # form) and "extra" is any predicted channel that didn't land in any group.
