@@ -66,7 +66,7 @@ By following this comprehensive learning path, you'll have:
       Your first working agent
 
    .. grid-item-card:: 🎯 3. Guided Build Interview
-      :link: build-interview
+      :link: osprey-build-interview
       :link-type: doc
       :class-header: bg-success text-white
 
@@ -115,5 +115,5 @@ By following this comprehensive learning path, you'll have:
    installation
    conceptual-tutorial
    hello-world-tutorial
-   build-interview
+   osprey-build-interview
    control-assistant

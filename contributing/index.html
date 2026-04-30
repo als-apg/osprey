@@ -523,9 +523,39 @@ git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </sp
 <ol class="arabic simple">
 <li><p>Push your branch: <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">push</span> <span class="pre">origin</span> <span class="pre">feature/your-feature-name</span></code></p></li>
 <li><p>Open a PR on GitHub with a description, related issues, and testing performed.</p></li>
-<li><p>PR requirements: pass all CI checks, receive maintainer approval, include CHANGELOG entries, have appropriate tests.</p></li>
+<li><p>PR requirements: pass all eight required CI checks, include a <code class="docutils literal notranslate"><span class="pre">CHANGELOG.md</span></code> entry for any user-visible change, and add appropriate tests. Internal-mode contributors with push access self-merge after CI is green (the ruleset does not require human approval); fork-mode contributions wait for a maintainer to merge.</p></li>
 <li><p>During review: respond to feedback promptly, make requested changes, ask questions if unclear.</p></li>
 </ol>
+</section>
+<section id="branch-protection-on-main">
+<h3>Branch Protection on <code class="docutils literal notranslate"><span class="pre">main</span></code><a class="headerlink" href="#branch-protection-on-main" title="Link to this heading">#</a></h3>
+<p>Direct pushes to <code class="docutils literal notranslate"><span class="pre">main</span></code> are rejected. All changes land via PR. The ruleset
+enforces:</p>
+<ul class="simple">
+<li><p>All eight required CI checks must pass (no admin bypass).</p></li>
+<li><p>Linear history (use <code class="docutils literal notranslate"><span class="pre">gh</span> <span class="pre">pr</span> <span class="pre">merge</span> <span class="pre">--rebase</span></code>; merge commits are rejected).</p></li>
+<li><p>Force-pushes and branch deletion on <code class="docutils literal notranslate"><span class="pre">main</span></code> are denied.</p></li>
+</ul>
+<p>If a required check turns out to be wrong, fix it forward — there is no
+escape hatch.</p>
+</section>
+<section id="claude-code-workflow-skill">
+<h3>Claude Code Workflow Skill<a class="headerlink" href="#claude-code-workflow-skill" title="Link to this heading">#</a></h3>
+<p>If you use <a class="reference external" href="https://docs.claude.com/en/docs/claude-code">Claude Code</a>,
+install the bundled <code class="docutils literal notranslate"><span class="pre">osprey-contribute</span></code> skill to get guided help following
+this workflow:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-contribute
+</pre></div>
+</div>
+<p>The skill walks you through branching, commits, push, PR, and CI iteration,
+auto-detecting whether you have push access to <code class="docutils literal notranslate"><span class="pre">als-apg/osprey</span></code> or are
+contributing from a fork. It composes with the other bundled skills:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey-pre-commit</span></code> – standalone validation runs</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">commit-organize</span></code> – splits a messy working tree into atomic commits</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey-release</span></code> – the release-cutting flow for maintainers</p></li>
+</ul>
+<p>List all installable skills with <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">osprey</span> <span class="pre">skills</span> <span class="pre">install</span> <span class="pre">--help</span></code>.</p>
 </section>
 </section>
 <hr class="docutils" />
@@ -698,6 +728,8 @@ The marker-based approach causes registry state leaks and service conflicts.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#making-changes">Making Changes</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#commit-message-format">Commit Message Format</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pull-request-process">Pull Request Process</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#branch-protection-on-main">Branch Protection on <code class="docutils literal notranslate"><span class="pre">main</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-workflow-skill">Claude Code Workflow Skill</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#code-standards">Code Standards</a><ul class="visible nav section-nav flex-column">

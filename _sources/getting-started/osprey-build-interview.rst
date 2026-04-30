@@ -1,11 +1,12 @@
-======================================
-Guided Project Setup (Build Interview)
-======================================
+====================
+Guided Project Setup
+====================
 
 If you're setting up OSPREY for a specific detector, beamline, or accelerator
-subsystem, the **build interview** walks you through a guided conversation that
-generates a ready-to-build project profile tailored to your system. It also
-handles **migration from existing OSPREY projects** — point it at your old
+subsystem, the ``/osprey-build-interview`` skill walks you through a guided
+conversation that generates a ready-to-build project profile tailored to your
+system. It also handles **migration from existing OSPREY projects** — point
+it at your old
 project directory and it will scan, classify, and extract everything reusable.
 
 The whole interview takes about 10--15 minutes.
@@ -18,7 +19,7 @@ The whole interview takes about 10--15 minutes.
 
    * **OSPREY installed** — follow :doc:`installation` if you haven't yet.
    * **Claude Code** — the interview runs inside a Claude Code session via the
-     ``/build-interview`` command. Install it from
+     ``/osprey-build-interview`` command. Install it from
      `claude.ai/code <https://claude.ai/code>`_ and make sure ``claude --version``
      works in your terminal.
    * **An Anthropic API key** (or any provider Claude Code is configured to use) —
@@ -44,12 +45,12 @@ Install the interview skill with the OSPREY CLI:
 
 .. code-block:: bash
 
-   osprey skills install build-interview
+   osprey skills install osprey-build-interview
 
-This copies the skill into ``~/.claude/skills/build-interview`` and makes the
-``/build-interview`` command available in any Claude Code session. Re-running
+This copies the skill into ``~/.claude/skills/osprey-build-interview`` and makes the
+``/osprey-build-interview`` command available in any Claude Code session. Re-running
 the command preserves your previous copy under
-``~/.claude/skills/build-interview.bak.<timestamp>``.
+``~/.claude/skills/osprey-build-interview.bak.<timestamp>``.
 
 Run the interview
 =================
@@ -67,7 +68,7 @@ In the Claude Code session, type:
 
 .. code-block:: text
 
-   /build-interview
+   /osprey-build-interview
 
 Claude will walk you through:
 
@@ -171,7 +172,7 @@ Send feedback
 =============
 
 After you've tested your project, you can send feedback to the OSPREY team by
-starting a Claude Code session and typing ``/build-interview feedback``. It takes
+starting a Claude Code session and typing ``/osprey-build-interview feedback``. It takes
 about 30 seconds and helps us improve the process.
 
 See :doc:`/how-to/build-profiles` for the full build profile reference.

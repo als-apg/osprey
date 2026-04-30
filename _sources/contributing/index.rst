@@ -122,8 +122,42 @@ Pull Request Process
 
 1. Push your branch: ``git push origin feature/your-feature-name``
 2. Open a PR on GitHub with a description, related issues, and testing performed.
-3. PR requirements: pass all CI checks, receive maintainer approval, include CHANGELOG entries, have appropriate tests.
+3. PR requirements: pass all eight required CI checks, include a ``CHANGELOG.md`` entry for any user-visible change, and add appropriate tests. Internal-mode contributors with push access self-merge after CI is green (the ruleset does not require human approval); fork-mode contributions wait for a maintainer to merge.
 4. During review: respond to feedback promptly, make requested changes, ask questions if unclear.
+
+Branch Protection on ``main``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Direct pushes to ``main`` are rejected. All changes land via PR. The ruleset
+enforces:
+
+- All eight required CI checks must pass (no admin bypass).
+- Linear history (use ``gh pr merge --rebase``; merge commits are rejected).
+- Force-pushes and branch deletion on ``main`` are denied.
+
+If a required check turns out to be wrong, fix it forward — there is no
+escape hatch.
+
+Claude Code Workflow Skill
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If you use `Claude Code <https://docs.claude.com/en/docs/claude-code>`_,
+install the bundled ``osprey-contribute`` skill to get guided help following
+this workflow:
+
+.. code-block:: bash
+
+   uv run osprey skills install osprey-contribute
+
+The skill walks you through branching, commits, push, PR, and CI iteration,
+auto-detecting whether you have push access to ``als-apg/osprey`` or are
+contributing from a fork. It composes with the other bundled skills:
+
+- ``osprey-pre-commit`` -- standalone validation runs
+- ``commit-organize`` -- splits a messy working tree into atomic commits
+- ``osprey-release`` -- the release-cutting flow for maintainers
+
+List all installable skills with ``uv run osprey skills install --help``.
 
 ----
 

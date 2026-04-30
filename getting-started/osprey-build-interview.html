@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Guided Project Setup (Build Interview) &#8212; Osprey Framework 2026.5.0 documentation</title>
+    <title>Guided Project Setup &#8212; Osprey Framework 2026.5.0 documentation</title>
   
   
   
@@ -49,7 +49,7 @@
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../_static/copybutton.js?v=30646c52"></script>
     <script src="../_static/design-tabs.js?v=f930bc37"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'getting-started/build-interview';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'getting-started/osprey-build-interview';</script>
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
@@ -371,7 +371,7 @@
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation &amp; Setup</a></li>
 <li class="toctree-l1"><a class="reference internal" href="conceptual-tutorial.html">Conceptual Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hello-world-tutorial.html">Hello World Tutorial</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Guided Project Setup (Build Interview)</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Guided Project Setup</a></li>
 <li class="toctree-l1"><a class="reference internal" href="control-assistant.html">Production Control Systems Tutorial</a></li>
 </ul>
 </div>
@@ -416,7 +416,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">Getting Started</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Guided Project Setup (Build Interview)</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Guided Project Setup</span></li>
   </ul>
 </nav>
 </div>
@@ -433,12 +433,13 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="guided-project-setup-build-interview">
-<h1>Guided Project Setup (Build Interview)<a class="headerlink" href="#guided-project-setup-build-interview" title="Link to this heading">#</a></h1>
+  <section id="guided-project-setup">
+<h1>Guided Project Setup<a class="headerlink" href="#guided-project-setup" title="Link to this heading">#</a></h1>
 <p>If you’re setting up OSPREY for a specific detector, beamline, or accelerator
-subsystem, the <strong>build interview</strong> walks you through a guided conversation that
-generates a ready-to-build project profile tailored to your system. It also
-handles <strong>migration from existing OSPREY projects</strong> — point it at your old
+subsystem, the <code class="docutils literal notranslate"><span class="pre">/osprey-build-interview</span></code> skill walks you through a guided
+conversation that generates a ready-to-build project profile tailored to your
+system. It also handles <strong>migration from existing OSPREY projects</strong> — point
+it at your old
 project directory and it will scan, classify, and extract everything reusable.</p>
 <p>The whole interview takes about 10–15 minutes.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
@@ -448,7 +449,7 @@ project directory and it will scan, classify, and extract everything reusable.</
 <ul class="simple">
 <li><p class="sd-card-text"><strong>OSPREY installed</strong> — follow <a class="reference internal" href="installation.html"><span class="doc">Installation &amp; Setup</span></a> if you haven’t yet.</p></li>
 <li><p class="sd-card-text"><strong>Claude Code</strong> — the interview runs inside a Claude Code session via the
-<code class="docutils literal notranslate"><span class="pre">/build-interview</span></code> command. Install it from
+<code class="docutils literal notranslate"><span class="pre">/osprey-build-interview</span></code> command. Install it from
 <a class="reference external" href="https://claude.ai/code">claude.ai/code</a> and make sure <code class="docutils literal notranslate"><span class="pre">claude</span> <span class="pre">--version</span></code>
 works in your terminal.</p></li>
 <li><p class="sd-card-text"><strong>An Anthropic API key</strong> (or any provider Claude Code is configured to use) —
@@ -471,13 +472,13 @@ directory ready to paste.</p></li>
 </details><section id="install-the-interview-skill">
 <h2>Install the interview skill<a class="headerlink" href="#install-the-interview-skill" title="Link to this heading">#</a></h2>
 <p>Install the interview skill with the OSPREY CLI:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>build-interview
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-build-interview
 </pre></div>
 </div>
-<p>This copies the skill into <code class="docutils literal notranslate"><span class="pre">~/.claude/skills/build-interview</span></code> and makes the
-<code class="docutils literal notranslate"><span class="pre">/build-interview</span></code> command available in any Claude Code session. Re-running
+<p>This copies the skill into <code class="docutils literal notranslate"><span class="pre">~/.claude/skills/osprey-build-interview</span></code> and makes the
+<code class="docutils literal notranslate"><span class="pre">/osprey-build-interview</span></code> command available in any Claude Code session. Re-running
 the command preserves your previous copy under
-<code class="docutils literal notranslate"><span class="pre">~/.claude/skills/build-interview.bak.&lt;timestamp&gt;</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">~/.claude/skills/osprey-build-interview.bak.&lt;timestamp&gt;</span></code>.</p>
 </section>
 <section id="run-the-interview">
 <h2>Run the interview<a class="headerlink" href="#run-the-interview" title="Link to this heading">#</a></h2>
@@ -489,7 +490,7 @@ claude
 </pre></div>
 </div>
 <p>In the Claude Code session, type:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/build-interview
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/osprey-build-interview
 </pre></div>
 </div>
 <p>Claude will walk you through:</p>
@@ -580,7 +581,7 @@ osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="
 <section id="send-feedback">
 <h2>Send feedback<a class="headerlink" href="#send-feedback" title="Link to this heading">#</a></h2>
 <p>After you’ve tested your project, you can send feedback to the OSPREY team by
-starting a Claude Code session and typing <code class="docutils literal notranslate"><span class="pre">/build-interview</span> <span class="pre">feedback</span></code>. It takes
+starting a Claude Code session and typing <code class="docutils literal notranslate"><span class="pre">/osprey-build-interview</span> <span class="pre">feedback</span></code>. It takes
 about 30 seconds and helps us improve the process.</p>
 <p>See <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> for the full build profile reference.</p>
 </section>
@@ -648,7 +649,7 @@ about 30 seconds and helps us improve the process.</p>
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/getting-started/build-interview.rst">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/getting-started/osprey-build-interview.rst">
       <i class="fa-solid fa-pencil"></i>
       
       

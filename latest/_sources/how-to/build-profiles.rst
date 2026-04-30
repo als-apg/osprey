@@ -62,7 +62,7 @@ Create a minimal profile and build:
    base_template: control_assistant
    provider: anthropic
    model: sonnet
-   requires_osprey_version: ">=0.12.0"
+   requires_osprey_version: ">=2026.5.0"
 
    config:
      control_system.type: mock
@@ -138,7 +138,7 @@ Profile YAML Schema
    * - ``requires_osprey_version``
      - string
      - ``None``
-     - PEP 440 version specifier (e.g. ``>=0.12.0``). Build aborts if not satisfied.
+     - PEP 440 version specifier (e.g. ``>=2026.5.0``). Build aborts if not satisfied.
    * - ``osprey_install``
      - string
      - ``local``

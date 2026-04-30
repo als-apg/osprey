@@ -601,10 +601,8 @@ define the shared network (<code class="docutils literal notranslate"><span clas
 </section>
 <section id="network-binding-and-security">
 <h2>Network Binding and Security<a class="headerlink" href="#network-binding-and-security" title="Link to this heading">#</a></h2>
-<div class="versionchanged">
-<p><span class="versionmodified changed">Changed in version 0.10.7: </span>Services now bind to <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> by default (previously <code class="docutils literal notranslate"><span class="pre">0.0.0.0</span></code>).</p>
-</div>
-<p>Use <code class="docutils literal notranslate"><span class="pre">--expose</span></code> only when you have authentication and firewalling in place.
+<p>Services bind to <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> by default. Use <code class="docutils literal notranslate"><span class="pre">--expose</span></code> only when you
+have authentication and firewalling in place.
 You can also set <code class="docutils literal notranslate"><span class="pre">deployment.bind_address</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
 <p>Container networking uses service names as hostnames (e.g.,
 <code class="docutils literal notranslate"><span class="pre">http://pipelines:9099</span></code>). For host access from containers, use

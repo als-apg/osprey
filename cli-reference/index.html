@@ -764,18 +764,18 @@ project-local <code class="docutils literal notranslate"><span class="pre">.clau
 (e.g., <code class="docutils literal notranslate"><span class="pre">build-profile/.claude/skills/</span></code>). Omit for the global install.</p>
 <p>Currently supported skills:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">build-interview</span></code> — guided project-profile generation (see
-<a class="reference internal" href="../getting-started/build-interview.html"><span class="doc">Guided Project Setup (Build Interview)</span></a>). Typically installed globally
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey-build-interview</span></code> — guided project-profile generation (see
+<a class="reference internal" href="../getting-started/osprey-build-interview.html"><span class="doc">Guided Project Setup</span></a>). Typically installed globally
 so it is available in any Claude Code session.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">osprey-build-deploy</span></code> — CI/CD setup, deploy-server operations, and
 release workflow for a facility profile repo. Typically installed
 project-locally (into the profile repo’s <code class="docutils literal notranslate"><span class="pre">.claude/skills/</span></code>) by the
-last phase of the <code class="docutils literal notranslate"><span class="pre">build-interview</span></code> skill, so <code class="docutils literal notranslate"><span class="pre">/osprey-build-deploy</span></code>
+last phase of the <code class="docutils literal notranslate"><span class="pre">osprey-build-interview</span></code> skill, so <code class="docutils literal notranslate"><span class="pre">/osprey-build-deploy</span></code>
 is available wherever the profile repo is cloned.</p></li>
 </ul>
 </dd>
 </dl>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>build-interview
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-build-interview
 osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-build-deploy<span class="w"> </span>--target<span class="w"> </span>build-profile/.claude/skills/
 </pre></div>
 </div>
