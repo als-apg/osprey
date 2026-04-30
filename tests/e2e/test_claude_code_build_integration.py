@@ -56,17 +56,17 @@ def is_claude_code_available() -> bool:
         return False
 
 
-def has_anthropic_api_key() -> bool:
-    """Check if ANTHROPIC_API_KEY is set."""
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+def has_als_apg_api_key() -> bool:
+    """Check if ALS_APG_API_KEY is set (CI-default Bedrock proxy auth)."""
+    return bool(os.environ.get("ALS_APG_API_KEY"))
 
 
 def init_project(
     tmp_path: Path,
     name: str,
     template: str = "control_assistant",
-    provider: str = "anthropic",
-    model: str = "claude-haiku-4-5-20251001",
+    provider: str = "als-apg",
+    model: str = "haiku",
 ) -> Path:
     """Create a project via ``osprey build --preset <template>``, return project_dir.
 
@@ -376,10 +376,10 @@ class TestClaudeExecutesArchiverAndPlots:
 
     @pytest.mark.slow
     @pytest.mark.requires_api
-    @pytest.mark.requires_anthropic
+    @pytest.mark.requires_als_apg
     @pytest.mark.skipif(
-        not has_anthropic_api_key(),
-        reason="ANTHROPIC_API_KEY not set",
+        not has_als_apg_api_key(),
+        reason="ALS_APG_API_KEY not set",
     )
     def test_claude_executes_archiver_and_plots(self, tmp_path):
         project_dir = init_project(tmp_path, "archiver-plot-test")
@@ -477,10 +477,10 @@ class TestClaudeFullBpmAnalysisPipeline:
 
     @pytest.mark.slow
     @pytest.mark.requires_api
-    @pytest.mark.requires_anthropic
+    @pytest.mark.requires_als_apg
     @pytest.mark.skipif(
-        not has_anthropic_api_key(),
-        reason="ANTHROPIC_API_KEY not set",
+        not has_als_apg_api_key(),
+        reason="ALS_APG_API_KEY not set",
     )
     def test_claude_full_bpm_analysis_pipeline(self, tmp_path):
         project_dir = init_project(tmp_path, "bpm-pipeline-test")

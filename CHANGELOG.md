@@ -59,6 +59,38 @@ Compatibility is documented in release notes, not encoded in the version string.
   (`pyproject.toml` reads from `src/osprey/__init__.py`, no manual edit
   needed). Now installable via `osprey skills install osprey-release`.
 
+### Changed
+- **E2E claude_code/ skip-gate flipped from `ANTHROPIC_API_KEY` to
+  `ALS_APG_API_KEY`.** Until now the entire `tests/e2e/claude_code/`
+  subdir was silently skipped in CI because the gate checked for an
+  Anthropic key the runner doesn't have, while `init_project()` actually
+  defaults to `provider="als-apg"` since 8c541cc9. New
+  `has_als_apg_api_key()` helper added to `tests/e2e/sdk_helpers.py`
+  alongside the legacy `has_anthropic_api_key()`. Same flip applied in
+  `tests/e2e/test_claude_code_build_integration.py`, whose local
+  `init_project()` was still defaulting to anthropic and gating on the
+  same wrong key.
+- **Safety E2E tests converted from LLM-phrasing keyword checks to
+  tool-trace assertions.** Four hook-chain tests
+  (`test_safety_error_guidance_e2e`, `test_safety_kill_switch`,
+  `test_safety_writes`, `test_safety_approval_e2e`) used to assert on
+  brittle keyword constants (`RETRY_KEYWORDS`,
+  `WRITES_DISABLED_KEYWORDS`, `DENY_KEYWORDS`) checking whether Claude's
+  text response happened to mention "denied" / "let me retry" / etc. —
+  the assertion failed any time the LLM picked a synonym. The actual
+  safety invariant is "no successful write tool result reached the
+  control system" (or for retry: "no second invocation of the failed
+  tool"), which the SDK's `ToolTrace` records exactly. All four
+  conversions preserve the safety contract while removing the brittle
+  surface.
+- **`als-apg` added to E2E provider matrices.**
+  `test_llm_providers.MODEL_MATRIX` and
+  `test_llm_channel_namer.providers_to_check` now exercise the
+  als-apg/Bedrock proxy alongside cborg/amsc/anthropic. The
+  `test_llm_channel_namer` skip message previously said "Requires
+  CBORG_API_KEY or ANTHROPIC_API_KEY" but the code accepts AMSC too
+  (and now ALS-APG); message corrected to list all four.
+
 ### Fixed
 - **`osprey deploy up` regression on `hello-world` preset (and any preset
   with no `deployed_services`).** Failed identically every CI run since

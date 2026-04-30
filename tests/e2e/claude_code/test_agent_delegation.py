@@ -13,11 +13,26 @@ Covers 6 agents with no prior E2E coverage:
 
 These tests use real API calls via the Claude Agent SDK — zero mocking.
 
-Requires:
-- Claude Code CLI installed
-- claude_agent_sdk Python package installed
-- ANTHROPIC_API_KEY environment variable set
-- Respective backend services running locally (tests skip if unavailable)
+**LOCAL-ONLY E2E.** Skipped in CI; the per-agent backends are not
+provisioned on GitHub Actions runners. To run locally you need ALL of:
+
+- Claude Code CLI installed (`brew install claude`)
+- `claude_agent_sdk` Python package installed
+- `ALS_APG_API_KEY` (see `tests/e2e/sdk_helpers.init_project` for why
+  als-apg is the CI-default; locally cborg/anthropic also work if their
+  keys are set)
+- ARIEL Postgres reachable at ``localhost:5432`` with the ``ariel`` DB
+  populated (used by logbook-search, logbook-deep-research)
+- AccelPapers SQLite DB at ``$ACCELPAPERS_DB`` or
+  ``~/.accelpapers/papers.db`` (literature-search)
+- DePlot HTTP service at ``http://127.0.0.1:8095`` (graph-analyst)
+- ``$CONFLUENCE_ACCESS_TOKEN`` set (wiki-search)
+- MATLAB MML SQLite DB at ``$MATLAB_MML_DB`` or ``~/.matlab-mml/mml.db``
+  (matlab-search)
+
+Each test is gated on its specific backend's availability and skips
+cleanly when missing — see ``tests/e2e/README.md`` for the full
+local-only test inventory.
 """
 
 from __future__ import annotations
