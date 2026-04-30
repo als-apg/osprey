@@ -12,7 +12,6 @@ import pytest
 
 from tests.e2e.sdk_helpers import run_sdk_query_with_hooks
 
-
 # ---------------------------------------------------------------------------
 # Scenario 2: Write within limits
 # ---------------------------------------------------------------------------
