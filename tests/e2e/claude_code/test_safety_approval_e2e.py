@@ -16,7 +16,6 @@ import pytest
 
 from tests.e2e.sdk_helpers import run_sdk_query_with_hooks
 
-
 # ---------------------------------------------------------------------------
 # 2a: channel_write triggers approval callback (selective + auto-approve)
 # ---------------------------------------------------------------------------
