@@ -60,6 +60,21 @@ Compatibility is documented in release notes, not encoded in the version string.
   needed). Now installable via `osprey skills install osprey-release`.
 
 ### Fixed
+- **`osprey deploy up` regression on `hello-world` preset (and any preset
+  with no `deployed_services`).** Failed identically every CI run since
+  2026-04-26 with `'services/docker-compose.yml.j2' not found in search
+  path`. Two coordinated changes restore it: `_copy_service_templates` now
+  always copies the root compose template (was gated behind a `not deployed`
+  early-return that ran *before* the copy), and `deploy_up` exits cleanly
+  with a "no services configured" notice when `deployed_services` is empty
+  instead of letting `prepare_compose_files` recursively crash on
+  `TemplateNotFound`. The dead parallel `get_templates()` function in
+  `compose_generator.py` (exported but never called) was deleted to remove
+  a misleading code path. The CI `deploy-e2e` job's OpenWebUI Pipelines
+  curl-POST steps were also dropped — port 9099 is not referenced anywhere
+  in the source tree and no Claude-Code-era preset spawns it; the job now
+  asserts on the `osprey deploy up` / `osprey deploy down` lifecycle
+  itself, which is the actual smoke surface.
 - **Release-blocking E2E suite (`tests/e2e/claude_code/`) green for the first
   time since it landed in Feb 2026.** Two stacked invisible failures: first,
   `init_project()` in `tests/e2e/sdk_helpers.py` defaulted to

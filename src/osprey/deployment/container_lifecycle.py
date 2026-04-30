@@ -37,6 +37,13 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     """
     config, compose_files = prepare_compose_files(config_path, dev_mode, expose_network)
 
+    if not config.get("deployed_services"):
+        logger.key_info(
+            "No services configured for this project — deployed_services is empty in "
+            "config.yml. Skipping osprey deploy up."
+        )
+        return
+
     # Verify container runtime is actually running
     is_running, error_msg = verify_runtime_is_running(config)
     if not is_running:
