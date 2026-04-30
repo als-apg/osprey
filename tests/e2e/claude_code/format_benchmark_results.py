@@ -106,6 +106,16 @@ def _format_misses(results: dict[str, dict[str, Any]]) -> list[str]:
         meta = entry.get("eval_meta", {})
         if meta.get("evaluation"):
             lines.append(f"- **Eval mode:** {meta['evaluation']}")
+        text = entry.get("response_text")
+        if text:
+            lines.append("")
+            lines.append("<details><summary>Agent response</summary>")
+            lines.append("")
+            lines.append("```")
+            lines.append(text.strip())
+            lines.append("```")
+            lines.append("")
+            lines.append("</details>")
         lines.append("")
     return lines
 
