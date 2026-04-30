@@ -82,6 +82,10 @@ class ChannelDatabase(FlatChannelDatabase):
             "channel_descriptions": {  # optional, per-sub-channel descriptions
                 "SetPoint": "Specific description for {instance:02d} SetPoint",
                 "ReadBack": "Specific description for {instance:02d} ReadBack"
+            },
+            "suffix_map": {  # optional, sub_channel name -> address suffix
+                "CurrentSetPoint": "SP",
+                "CurrentReadBack": "RB"
             }
         }
         """
@@ -92,6 +96,9 @@ class ChannelDatabase(FlatChannelDatabase):
         generic_description = tmpl.get("description", "")
         address_pattern = tmpl.get("address_pattern", "{base}{instance:02d}{suffix}")
         channel_descriptions = tmpl.get("channel_descriptions", {})
+        # Optional: translate sub_channel names to address suffixes
+        # (e.g. "CurrentSetPoint" -> "SP"). Missing entries fall through unchanged.
+        suffix_map = tmpl.get("suffix_map", {})
 
         # If no sub_channels, use empty string so loop executes once
         if not sub_channels:
@@ -112,11 +119,18 @@ class ChannelDatabase(FlatChannelDatabase):
                         channel_name = f"{base_name}{instance_num:02d}{suffix}"
                         actual_suffix = suffix
 
-                    # Build address (use pattern if provided, else same as channel name)
-                    # When address_pattern has {axis}, use plain suffix; otherwise use actual_suffix
-                    pattern_suffix = (
-                        suffix if (axis and "{axis}" in address_pattern) else actual_suffix
-                    )
+                    # Build address (use pattern if provided, else same as channel name).
+                    # The address suffix may be remapped via suffix_map; the channel
+                    # alias above keeps the raw sub_channel name.
+                    address_suffix = suffix_map.get(suffix, suffix)
+                    if axis and "{axis}" in address_pattern:
+                        # Multi-axis pattern handles {axis} separately
+                        pattern_suffix = address_suffix
+                    elif axis:
+                        # Multi-axis without {axis} placeholder: prepend axis
+                        pattern_suffix = f"{axis}{address_suffix}"
+                    else:
+                        pattern_suffix = address_suffix
                     address = address_pattern.format(
                         base=base_name,
                         instance=instance_num,
