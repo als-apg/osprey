@@ -11,6 +11,20 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Fixed
+- **Channel-finder template renderer honors `suffix_map`.** Templates in
+  `in_context.json` (and any project DB using the same schema) declare
+  `suffix_map` to translate display-name sub-channels (e.g.
+  `CurrentSetPoint`) into EPICS address suffixes (e.g. `SP`). The renderer
+  was ignoring this field and using the raw sub-channel name as the
+  address suffix, producing addresses like
+  `SR:MAG:DIPOLE:B05:CURRENT:CurrentSetPoint` instead of
+  `SR:MAG:DIPOLE:B05:CURRENT:SP`. Affects every project scaffolded with
+  `osprey init --channel-finder-mode=in_context` whose templates declare
+  `suffix_map` (the four magnet templates in the shipped
+  `control_assistant` app: dipoles, focusing quads, horizontal/vertical
+  correctors). Channel aliases (the human-readable names) are unchanged.
+
 ### Changed
 - **Branch strategy: adopt GitHub Flow.** The short-lived `next` integration
   branch is retired in favour of trunk-based development on `main`. CI now
