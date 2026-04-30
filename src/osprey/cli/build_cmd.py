@@ -947,10 +947,6 @@ def _copy_service_templates(project_path: Path) -> int:
     with open(config_path) as fh:
         config = yaml.load(fh)
 
-    deployed = config.get("deployed_services", [])
-    if not deployed:
-        return 0
-
     # Locate the package's service templates directory
     try:
         import osprey.templates
@@ -963,14 +959,21 @@ def _copy_service_templates(project_path: Path) -> int:
         logger.warning("Service templates directory not found — skipping")
         return 0
 
-    services_config = config.get("services", {})
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
 
-    # Copy the root services compose template (shared network definition)
+    # Always copy the root compose template so `osprey deploy up` works even
+    # for presets with no deployed_services (the renderer references it
+    # unconditionally; without it deploy fails with TemplateNotFound).
     root_template = pkg_services / "docker-compose.yml.j2"
     if root_template.exists():
         shutil.copy2(root_template, dest_services_root / "docker-compose.yml.j2")
+
+    deployed = config.get("deployed_services", [])
+    if not deployed:
+        return 0
+
+    services_config = config.get("services", {})
 
     count = 0
     for service_name in deployed:

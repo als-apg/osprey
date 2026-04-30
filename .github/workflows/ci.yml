@@ -337,7 +337,7 @@ jobs:
           --ignore=tests/e2e/test_preset_agentic.py
 
   deploy-e2e:
-    name: Deploy E2E Test (Pipelines Container)
+    name: Deploy E2E Test (build + deploy pipeline)
     runs-on: ubuntu-latest
     # Only run on PRs from same repo (secrets unavailable on forks)
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -375,77 +375,17 @@ jobs:
         uv run osprey skills install osprey-build-interview
         ls -la
 
-    - name: Deploy pipelines container
+    - name: osprey deploy up (graceful no-op for hello-world)
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
         cd hello-world-test
+        # hello-world declares no deployed_services, so deploy up should
+        # exit 0 with a "no services configured" notice rather than
+        # crashing on TemplateNotFound.
         uv run osprey deploy up -d --dev
 
-    - name: Wait for pipelines to be ready
-      run: |
-        echo "Waiting for pipelines container to install packages and start..."
-        for i in {1..30}; do
-          # Check if container is responding
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -X POST http://localhost:9099/v1/chat/completions \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer 0p3n-w3bu!" \
-            -d '{"model":"main","messages":[{"role":"user","content":"ping"}],"stream":false}' \
-            --max-time 10 || echo "000")
-
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ Pipelines ready after $((i * 10)) seconds"
-            exit 0
-          fi
-
-          echo "Attempt $i/30: HTTP $HTTP_CODE - waiting 10s..."
-          sleep 10
-        done
-
-        echo "❌ Pipelines failed to become ready within 5 minutes"
-        docker logs pipelines || true
-        exit 1
-
-    - name: Test agent query
-      run: |
-        echo "Sending test query to agent..."
-        RESPONSE=$(curl -s -X POST http://localhost:9099/v1/chat/completions \
-          -H "Content-Type: application/json" \
-          -H "Authorization: Bearer 0p3n-w3bu!" \
-          -d '{"model":"main","messages":[{"role":"user","content":"What is the weather in San Francisco?"}],"stream":false}' \
-          --max-time 300)
-
-        echo "Response:"
-        echo "$RESPONSE" | head -c 2000
-
-        # Check for error in response
-        if echo "$RESPONSE" | grep -qi '"error"'; then
-          echo ""
-          echo "❌ Agent returned an error"
-          exit 1
-        fi
-
-        # Check we got some response content
-        if [ -z "$RESPONSE" ] || [ "$RESPONSE" = "{}" ]; then
-          echo ""
-          echo "❌ Empty response from agent"
-          exit 1
-        fi
-
-        echo ""
-        echo "✅ Agent responded successfully"
-
-    - name: Show container logs on failure
-      if: failure()
-      run: |
-        echo "=== Docker containers ==="
-        docker ps -a
-        echo ""
-        echo "=== Pipelines logs ==="
-        docker logs pipelines 2>&1 | tail -200 || true
-
-    - name: Cleanup
+    - name: osprey deploy down
       if: always()
       run: |
         cd hello-world-test
