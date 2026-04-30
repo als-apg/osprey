@@ -149,6 +149,7 @@ Compatibility is documented in release notes, not encoded in the version string.
   (a `needs:` dep of `publish-to-pypi` in `release.yml`). Stale SemVer
   examples in workflow comments (`v0.9.8`, `v0.11.4`) updated to CalVer.
 - `README.md`: broken `TESTING_GUIDE.md` link repointed to `tests/e2e/README.md` and the Contributing Guide.
+- **InContext channel-finder benchmark scoring (`tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py`).** The 10 InContext queries asserted on descriptive names (`StorageRing_BeamCurrent_ReadBack`), but the MCP pipeline now returns control-system addresses (`SR:DIAG:DCCT:MAIN:CURRENT:RB`) — every query was scoring 0.0 regardless of agent quality. Each `expected` entry is now an alias group (descriptive name + rendered address); a hit on either form counts. `compute_f1` walks groups instead of doing flat set intersection, so an agent that legitimately surfaces both forms scores perfectly instead of being penalized 0.5 precision. Hierarchical and middle-layer queries continue to use plain-string expected entries unchanged.
 
 ### Removed
 - `scripts/start_typesense.sh` — dev helper with zero callers; live Typesense lives in `als-profiles/services/typesense/`.
