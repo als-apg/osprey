@@ -147,3 +147,4 @@ src/osprey/interfaces/artifacts/static/css/vendor/
 src/osprey/interfaces/web_terminal/static/vendor/
 src/osprey/interfaces/tuning/static/vendor/
 src/osprey/interfaces/lattice_dashboard/static/vendor/
+tests/e2e/claude_code/benchmark_results/

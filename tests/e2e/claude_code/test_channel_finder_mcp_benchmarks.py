@@ -483,6 +483,45 @@ def score_benchmark(
 _results_cache: dict[str, dict] = {}
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _dump_benchmark_results():
+    """Persist per-query results + per-pipeline aggregates as JSON at session
+    end so the run produces a real artifact, not just stdout. Path is
+    overridable via OSPREY_BENCHMARK_RESULTS_PATH; default is
+    tests/e2e/claude_code/benchmark_results/<UTC-timestamp>.json.
+    """
+    yield
+    if not _results_cache:
+        return
+    import datetime
+    from pathlib import Path
+
+    pipelines = {
+        "hierarchical": [q["id"] for q in HIERARCHICAL_QUERIES],
+        "middle_layer": [q["id"] for q in MIDDLE_LAYER_QUERIES],
+        "in_context": [q["id"] for q in IN_CONTEXT_QUERIES],
+    }
+    aggregates = {
+        name: score_benchmark([_results_cache[qid] for qid in ids if qid in _results_cache])
+        for name, ids in pipelines.items()
+    }
+    payload = {
+        "run_timestamp_utc": datetime.datetime.now(datetime.UTC).isoformat(),
+        "aggregates": aggregates,
+        "results": _results_cache,
+    }
+
+    override = os.environ.get("OSPREY_BENCHMARK_RESULTS_PATH")
+    if override:
+        out_path = Path(override)
+    else:
+        ts = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
+        out_path = Path(__file__).parent / "benchmark_results" / f"{ts}.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, indent=2, default=str))
+    print(f"\n  Benchmark results written to: {out_path}")
+
+
 # ---------------------------------------------------------------------------
 # Shared runner
 # ---------------------------------------------------------------------------
