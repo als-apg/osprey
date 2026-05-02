@@ -2,12 +2,30 @@
   "_comment": "Accelerator Control System - Hierarchical Channel Database. Uses unified 6-level naming: RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD. SYSTEM and FAMILY are semantic tree categories, DEVICE is an instance expansion level, and FIELD/SUBFIELD describe physical properties and access modes.",
   "hierarchy": {
     "levels": [
-      {"name": "ring", "type": "tree"},
-      {"name": "system", "type": "tree"},
-      {"name": "family", "type": "tree"},
-      {"name": "device", "type": "instances"},
-      {"name": "field", "type": "tree"},
-      {"name": "subfield", "type": "tree"}
+      {
+        "name": "ring",
+        "type": "tree"
+      },
+      {
+        "name": "system",
+        "type": "tree"
+      },
+      {
+        "name": "family",
+        "type": "tree"
+      },
+      {
+        "name": "device",
+        "type": "instances"
+      },
+      {
+        "name": "field",
+        "type": "tree"
+      },
+      {
+        "name": "subfield",
+        "type": "tree"
+      }
     ],
     "naming_pattern": "{ring}:{system}:{family}:{device}:{field}:{subfield}"
   },
@@ -22,15 +40,18 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "B{:02d}",
-              "_range": [1, 24]
+              "_range": [
+                1,
+                24
+              ]
             },
             "CURRENT": {
-              "_description": "Magnet Excitation Current (Amperes): Current through dipole coil windings. Directly proportional to magnetic bending field via Ampere's law (B ∝ I). Typically 50-500A depending on ring energy. Tightly regulated by precision power supplies to maintain stable beam energy and trajectory.",
+              "_description": "Magnet Excitation Current (Amperes): Current through dipole coil windings. Directly proportional to magnetic bending field via Ampere's law (B \u221d I). Typically 50-500A depending on ring energy. Tightly regulated by precision power supplies to maintain stable beam energy and trajectory.",
               "SP": {
                 "_description": "Current Setpoint (read-write): Commanded dipole current for desired bending field. Operators or high-level software set this to control beam energy. Power supply servo loop regulates output to match setpoint."
               },
               "RB": {
-                "_description": "Current Readback (read-only): Actual measured dipole current from DCCT. High-accuracy measurement (±0.01%) essential for field reproducibility. Used in power supply feedback loop and archived for orbit analysis."
+                "_description": "Current Readback (read-only): Actual measured dipole current from DCCT. High-accuracy measurement (\u00b10.01%) essential for field reproducibility. Used in power supply feedback loop and archived for orbit analysis."
               },
               "GOLDEN": {
                 "_description": "Golden Setpoint (read-only): Reference setpoint for optimal beam operation. Stored golden values represent known good operating conditions. Read-only - used for comparison and restore operations."
@@ -56,19 +77,34 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "QD{:02d}",
-              "_range": [1, 16]
+              "_range": [
+                1,
+                16
+              ]
             },
             "CURRENT": {
               "_description": "Quadrupole Excitation Current (Amperes): Current through QD coil windings. Proportional to negative field gradient. Typically 0-200A.",
-              "SP": { "_description": "Setpoint (read-write): Commanded defocusing current for tune correction." },
-              "RB": { "_description": "Readback (read-only): Measured defocusing current." },
-              "GOLDEN": { "_description": "Golden Setpoint (read-only): Reference defocusing current for optimal tune." }
+              "SP": {
+                "_description": "Setpoint (read-write): Commanded defocusing current for tune correction."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured defocusing current."
+              },
+              "GOLDEN": {
+                "_description": "Golden Setpoint (read-only): Reference defocusing current for optimal tune."
+              }
             },
             "STATUS": {
               "_description": "Operational status for defocusing quadrupole.",
-              "READY": { "_description": "Ready (read-only): Power supply ready." },
-              "ON": { "_description": "On (read-only): Power supply energized." },
-              "FAULT": { "_description": "Fault (read-only): Fault condition detected." }
+              "READY": {
+                "_description": "Ready (read-only): Power supply ready."
+              },
+              "ON": {
+                "_description": "On (read-only): Power supply energized."
+              },
+              "FAULT": {
+                "_description": "Fault (read-only): Fault condition detected."
+              }
             }
           }
         },
@@ -78,19 +114,34 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "QF{:02d}",
-              "_range": [1, 16]
+              "_range": [
+                1,
+                16
+              ]
             },
             "CURRENT": {
               "_description": "Quadrupole Excitation Current (Amperes): Current through QF coil windings. Proportional to positive field gradient. Typically 0-200A.",
-              "SP": { "_description": "Setpoint (read-write): Commanded focusing current for tune correction." },
-              "RB": { "_description": "Readback (read-only): Measured focusing current." },
-              "GOLDEN": { "_description": "Golden Setpoint (read-only): Reference focusing current for optimal tune." }
+              "SP": {
+                "_description": "Setpoint (read-write): Commanded focusing current for tune correction."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured focusing current."
+              },
+              "GOLDEN": {
+                "_description": "Golden Setpoint (read-only): Reference focusing current for optimal tune."
+              }
             },
             "STATUS": {
               "_description": "Operational status for focusing quadrupole.",
-              "READY": { "_description": "Ready (read-only): Power supply ready." },
-              "ON": { "_description": "On (read-only): Power supply energized." },
-              "FAULT": { "_description": "Fault (read-only): Fault condition detected." }
+              "READY": {
+                "_description": "Ready (read-only): Power supply ready."
+              },
+              "ON": {
+                "_description": "On (read-only): Power supply energized."
+              },
+              "FAULT": {
+                "_description": "Fault (read-only): Fault condition detected."
+              }
             }
           }
         },
@@ -100,18 +151,31 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "H{:02d}",
-              "_range": [1, 20]
+              "_range": [
+                1,
+                20
+              ]
             },
             "CURRENT": {
-              "_description": "Corrector Current (Amperes): Bipolar current for horizontal steering. Range typically ±10A.",
-              "SP": { "_description": "Setpoint (read-write): Commanded horizontal corrector current." },
-              "RB": { "_description": "Readback (read-only): Measured horizontal corrector current." },
-              "GOLDEN": { "_description": "Golden Setpoint (read-only): Reference orbit correction value." }
+              "_description": "Corrector Current (Amperes): Bipolar current for horizontal steering. Range typically \u00b110A.",
+              "SP": {
+                "_description": "Setpoint (read-write): Commanded horizontal corrector current."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured horizontal corrector current."
+              },
+              "GOLDEN": {
+                "_description": "Golden Setpoint (read-only): Reference orbit correction value."
+              }
             },
             "STATUS": {
               "_description": "Corrector magnet operational status.",
-              "READY": { "_description": "Ready (read-only): Corrector power supply ready." },
-              "ON": { "_description": "On (read-only): Corrector energized and regulating." }
+              "READY": {
+                "_description": "Ready (read-only): Corrector power supply ready."
+              },
+              "ON": {
+                "_description": "On (read-only): Corrector energized and regulating."
+              }
             }
           }
         },
@@ -121,18 +185,31 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "V{:02d}",
-              "_range": [1, 20]
+              "_range": [
+                1,
+                20
+              ]
             },
             "CURRENT": {
               "_description": "Corrector Current (Amperes): Bipolar current for vertical steering.",
-              "SP": { "_description": "Setpoint (read-write): Commanded vertical corrector current." },
-              "RB": { "_description": "Readback (read-only): Measured vertical corrector current." },
-              "GOLDEN": { "_description": "Golden Setpoint (read-only): Reference vertical correction value." }
+              "SP": {
+                "_description": "Setpoint (read-write): Commanded vertical corrector current."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured vertical corrector current."
+              },
+              "GOLDEN": {
+                "_description": "Golden Setpoint (read-only): Reference vertical correction value."
+              }
             },
             "STATUS": {
               "_description": "Corrector magnet operational status.",
-              "READY": { "_description": "Ready (read-only): Corrector power supply ready." },
-              "ON": { "_description": "On (read-only): Corrector energized and regulating." }
+              "READY": {
+                "_description": "Ready (read-only): Corrector power supply ready."
+              },
+              "ON": {
+                "_description": "On (read-only): Corrector energized and regulating."
+              }
             }
           }
         },
@@ -142,19 +219,34 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "SF{:02d}",
-              "_range": [1, 12]
+              "_range": [
+                1,
+                12
+              ]
             },
             "CURRENT": {
               "_description": "Sextupole Excitation Current (Amperes): Current through SF coil windings. Proportional to sextupole field strength. Typically 0-150A.",
-              "SP": { "_description": "Setpoint (read-write): Commanded focusing sextupole current for chromaticity correction." },
-              "RB": { "_description": "Readback (read-only): Measured focusing sextupole current." },
-              "GOLDEN": { "_description": "Golden Setpoint (read-only): Reference sextupole current for optimal chromaticity." }
+              "SP": {
+                "_description": "Setpoint (read-write): Commanded focusing sextupole current for chromaticity correction."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured focusing sextupole current."
+              },
+              "GOLDEN": {
+                "_description": "Golden Setpoint (read-only): Reference sextupole current for optimal chromaticity."
+              }
             },
             "STATUS": {
               "_description": "Operational status for focusing sextupole.",
-              "READY": { "_description": "Ready (read-only): Power supply ready." },
-              "ON": { "_description": "On (read-only): Power supply energized." },
-              "FAULT": { "_description": "Fault (read-only): Fault condition detected." }
+              "READY": {
+                "_description": "Ready (read-only): Power supply ready."
+              },
+              "ON": {
+                "_description": "On (read-only): Power supply energized."
+              },
+              "FAULT": {
+                "_description": "Fault (read-only): Fault condition detected."
+              }
             }
           }
         },
@@ -164,19 +256,34 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "SD{:02d}",
-              "_range": [1, 12]
+              "_range": [
+                1,
+                12
+              ]
             },
             "CURRENT": {
               "_description": "Sextupole Excitation Current (Amperes): Current through SD coil windings. Proportional to sextupole field strength with negative polarity. Typically 0-150A.",
-              "SP": { "_description": "Setpoint (read-write): Commanded defocusing sextupole current for chromaticity correction." },
-              "RB": { "_description": "Readback (read-only): Measured defocusing sextupole current." },
-              "GOLDEN": { "_description": "Golden Setpoint (read-only): Reference sextupole current for optimal chromaticity." }
+              "SP": {
+                "_description": "Setpoint (read-write): Commanded defocusing sextupole current for chromaticity correction."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured defocusing sextupole current."
+              },
+              "GOLDEN": {
+                "_description": "Golden Setpoint (read-only): Reference sextupole current for optimal chromaticity."
+              }
             },
             "STATUS": {
               "_description": "Operational status for defocusing sextupole.",
-              "READY": { "_description": "Ready (read-only): Power supply ready." },
-              "ON": { "_description": "On (read-only): Power supply energized." },
-              "FAULT": { "_description": "Fault (read-only): Fault condition detected." }
+              "READY": {
+                "_description": "Ready (read-only): Power supply ready."
+              },
+              "ON": {
+                "_description": "On (read-only): Power supply energized."
+              },
+              "FAULT": {
+                "_description": "Fault (read-only): Fault condition detected."
+              }
             }
           }
         }
@@ -189,25 +296,40 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "SR{:02d}",
-              "_range": [1, 6]
+              "_range": [
+                1,
+                6
+              ]
             },
             "PRESSURE": {
-              "_description": "Vacuum Pressure (Torr): Local chamber pressure calculated from pump current. Target: <1×10^-9 Torr.",
-              "RB": { "_description": "Pressure Readback (read-only): Calculated vacuum pressure from pump current." }
+              "_description": "Vacuum Pressure (Torr): Local chamber pressure calculated from pump current. Target: <1\u00d710^-9 Torr.",
+              "RB": {
+                "_description": "Pressure Readback (read-only): Calculated vacuum pressure from pump current."
+              }
             },
             "VOLTAGE": {
               "_description": "High Voltage Supply (Volts): Operating voltage for ion pump (typically 3-7 kV).",
-              "RB": { "_description": "Voltage Readback (read-only): Actual measured ion pump operating voltage." },
-              "SP": { "_description": "Voltage Setpoint (read-write): Commanded ion pump high voltage." }
+              "RB": {
+                "_description": "Voltage Readback (read-only): Actual measured ion pump operating voltage."
+              },
+              "SP": {
+                "_description": "Voltage Setpoint (read-write): Commanded ion pump high voltage."
+              }
             },
             "CURRENT": {
-              "_description": "Ion Pump Current (microAmperes): Current proportional to gas pumping rate. Low current (<1 μA) indicates good vacuum.",
-              "RB": { "_description": "Current Readback (read-only): Measured ion pump current." }
+              "_description": "Ion Pump Current (microAmperes): Current proportional to gas pumping rate. Low current (<1 \u03bcA) indicates good vacuum.",
+              "RB": {
+                "_description": "Current Readback (read-only): Measured ion pump current."
+              }
             },
             "STATUS": {
               "_description": "Pump Operational Status: Health and fault monitoring.",
-              "ON": { "_description": "On Status (read-only): Pump high voltage enabled." },
-              "FAULT": { "_description": "Fault Status (read-only): Pump fault detected." }
+              "ON": {
+                "_description": "On Status (read-only): Pump high voltage enabled."
+              },
+              "FAULT": {
+                "_description": "Fault Status (read-only): Pump fault detected."
+              }
             }
           }
         },
@@ -216,16 +338,29 @@
           "DEVICE": {
             "_expansion": {
               "_type": "list",
-              "_instances": ["SR01A", "SR01B", "SR02A", "SR02B", "SR03A", "SR03B"]
+              "_instances": [
+                "SR01A",
+                "SR01B",
+                "SR02A",
+                "SR02B",
+                "SR03A",
+                "SR03B"
+              ]
             },
             "PRESSURE": {
               "_description": "Measured Pressure (Torr): Direct pressure reading from ionization gauge.",
-              "RB": { "_description": "Pressure Readback (read-only): Direct gauge measurement of local vacuum pressure." }
+              "RB": {
+                "_description": "Pressure Readback (read-only): Direct gauge measurement of local vacuum pressure."
+              }
             },
             "STATUS": {
               "_description": "Gauge Operational Status: Health and validity monitoring.",
-              "ON": { "_description": "On Status (read-only): Gauge powered and measuring." },
-              "VALID": { "_description": "Valid Status (read-only): Pressure reading is valid and within range." }
+              "ON": {
+                "_description": "On Status (read-only): Gauge powered and measuring."
+              },
+              "VALID": {
+                "_description": "Valid Status (read-only): Pressure reading is valid and within range."
+              }
             }
           }
         },
@@ -235,22 +370,37 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "V{:02d}",
-              "_range": [1, 12]
+              "_range": [
+                1,
+                12
+              ]
             },
             "POSITION": {
               "_description": "Valve Position State: Current valve position (open/closed).",
-              "OPEN": { "_description": "Open Status (read-only): Valve fully open limit switch active." },
-              "CLOSED": { "_description": "Closed Status (read-only): Valve fully closed limit switch active." }
+              "OPEN": {
+                "_description": "Open Status (read-only): Valve fully open limit switch active."
+              },
+              "CLOSED": {
+                "_description": "Closed Status (read-only): Valve fully closed limit switch active."
+              }
             },
             "CONTROL": {
               "_description": "Valve Control Commands: Commands to actuate valve.",
-              "OPEN": { "_description": "Open Command (write): Command to open valve." },
-              "CLOSE": { "_description": "Close Command (write): Command to close valve." }
+              "OPEN": {
+                "_description": "Open Command (write): Command to open valve."
+              },
+              "CLOSE": {
+                "_description": "Close Command (write): Command to close valve."
+              }
             },
             "STATUS": {
               "_description": "Valve Operational Status: Ready and fault monitoring.",
-              "READY": { "_description": "Ready Status (read-only): Valve controller ready." },
-              "FAULT": { "_description": "Fault Status (read-only): Valve fault or timeout condition." }
+              "READY": {
+                "_description": "Ready Status (read-only): Valve controller ready."
+              },
+              "FAULT": {
+                "_description": "Fault Status (read-only): Valve fault or timeout condition."
+              }
             }
           }
         }
@@ -262,39 +412,70 @@
           "DEVICE": {
             "_expansion": {
               "_type": "list",
-              "_instances": ["C1", "C2"]
+              "_instances": [
+                "C1",
+                "C2"
+              ]
             },
             "POWER": {
               "_description": "RF Power (Kilowatts): Electromagnetic power in RF transmission system.",
-              "FWD": { "_description": "Forward Power (read-only): RF power traveling from klystron toward cavity." },
-              "REV": { "_description": "Reflected Power (read-only): Power bouncing back from cavity." },
-              "NET": { "_description": "Net Power (read-only): Actual power delivered to cavity (FWD - REV)." }
+              "FWD": {
+                "_description": "Forward Power (read-only): RF power traveling from klystron toward cavity."
+              },
+              "REV": {
+                "_description": "Reflected Power (read-only): Power bouncing back from cavity."
+              },
+              "NET": {
+                "_description": "Net Power (read-only): Actual power delivered to cavity (FWD - REV)."
+              }
             },
             "VOLTAGE": {
               "_description": "Cavity Gap Voltage (Megavolts): Peak RF voltage across accelerating gap. Typical: 0.5-3 MV.",
-              "RB": { "_description": "Voltage Readback (read-only): Measured cavity gap voltage." },
-              "SP": { "_description": "Voltage Setpoint (read-write): Commanded cavity gap voltage." },
-              "GOLDEN": { "_description": "Golden Voltage (read-only): Reference gap voltage for nominal operation." }
+              "RB": {
+                "_description": "Voltage Readback (read-only): Measured cavity gap voltage."
+              },
+              "SP": {
+                "_description": "Voltage Setpoint (read-write): Commanded cavity gap voltage."
+              },
+              "GOLDEN": {
+                "_description": "Golden Voltage (read-only): Reference gap voltage for nominal operation."
+              }
             },
             "FREQUENCY": {
               "_description": "RF Frequency (MHz): Operating frequency of RF system. Must match harmonic of beam revolution frequency.",
-              "RB": { "_description": "Frequency Readback (read-only): Measured RF frequency." },
-              "SP": { "_description": "Frequency Setpoint (read-write): Commanded RF frequency." }
+              "RB": {
+                "_description": "Frequency Readback (read-only): Measured RF frequency."
+              },
+              "SP": {
+                "_description": "Frequency Setpoint (read-write): Commanded RF frequency."
+              }
             },
             "TEMPERATURE": {
               "_description": "Cavity Temperature (Celsius): Body temperature of RF cavity.",
-              "RB": { "_description": "Temperature Readback (read-only): Measured cavity temperature." }
+              "RB": {
+                "_description": "Temperature Readback (read-only): Measured cavity temperature."
+              }
             },
             "TUNER": {
               "_description": "Cavity Tuner Position (Centimeters): Mechanical tuner adjusts cavity resonant frequency.",
-              "RB": { "_description": "Position Readback (read-only): Current tuner position." },
-              "SP": { "_description": "Position Setpoint (read-write): Commanded tuner position." }
+              "RB": {
+                "_description": "Position Readback (read-only): Current tuner position."
+              },
+              "SP": {
+                "_description": "Position Setpoint (read-write): Commanded tuner position."
+              }
             },
             "STATUS": {
               "_description": "RF System Status: Cavity and low-level RF system health.",
-              "READY": { "_description": "Ready Status (read-only): RF system ready for operation." },
-              "INTERLOCK": { "_description": "Interlock Status (read-only): RF interlocks satisfied." },
-              "FAULT": { "_description": "Fault Status (read-only): RF system fault detected." }
+              "READY": {
+                "_description": "Ready Status (read-only): RF system ready for operation."
+              },
+              "INTERLOCK": {
+                "_description": "Interlock Status (read-only): RF interlocks satisfied."
+              },
+              "FAULT": {
+                "_description": "Fault Status (read-only): RF system fault detected."
+              }
             }
           }
         },
@@ -303,22 +484,37 @@
           "DEVICE": {
             "_expansion": {
               "_type": "list",
-              "_instances": ["K1", "K2"]
+              "_instances": [
+                "K1",
+                "K2"
+              ]
             },
             "POWER": {
               "_description": "Klystron Output Power (Kilowatts): RF power produced by klystron.",
-              "RB": { "_description": "Power Readback (read-only): Measured klystron output power." }
+              "RB": {
+                "_description": "Power Readback (read-only): Measured klystron output power."
+              }
             },
             "VOLTAGE": {
               "_description": "Beam Voltage (kiloVolts): High voltage accelerating electrons in klystron. Typically 50-150 kV.",
-              "RB": { "_description": "Voltage Readback (read-only): Measured klystron beam voltage." },
-              "SP": { "_description": "Voltage Setpoint (read-write): Commanded beam voltage." }
+              "RB": {
+                "_description": "Voltage Readback (read-only): Measured klystron beam voltage."
+              },
+              "SP": {
+                "_description": "Voltage Setpoint (read-write): Commanded beam voltage."
+              }
             },
             "STATUS": {
               "_description": "Klystron Operational Status: Health and safety monitoring.",
-              "ON": { "_description": "On Status (read-only): Klystron high voltage on." },
-              "READY": { "_description": "Ready Status (read-only): Klystron ready." },
-              "FAULT": { "_description": "Fault Status (read-only): Klystron fault." }
+              "ON": {
+                "_description": "On Status (read-only): Klystron high voltage on."
+              },
+              "READY": {
+                "_description": "Ready Status (read-only): Klystron ready."
+              },
+              "FAULT": {
+                "_description": "Fault Status (read-only): Klystron fault."
+              }
             }
           }
         }
@@ -331,27 +527,46 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "BPM{:02d}",
-              "_range": [1, 20]
+              "_range": [
+                1,
+                20
+              ]
             },
             "POSITION": {
               "_description": "Beam Position (millimeters): Measured transverse beam position.",
-              "X": { "_description": "Horizontal Position (read-only): Beam X position at this BPM location." },
-              "Y": { "_description": "Vertical Position (read-only): Beam Y position at this BPM location." }
+              "X": {
+                "_description": "Horizontal Position (read-only): Beam X position at this BPM location."
+              },
+              "Y": {
+                "_description": "Vertical Position (read-only): Beam Y position at this BPM location."
+              }
             },
             "GOLDEN": {
               "_description": "Golden Orbit Reference (millimeters): Stored reference orbit positions.",
-              "X": { "_description": "Golden X Position (read-only): Reference horizontal position." },
-              "Y": { "_description": "Golden Y Position (read-only): Reference vertical position." }
+              "X": {
+                "_description": "Golden X Position (read-only): Reference horizontal position."
+              },
+              "Y": {
+                "_description": "Golden Y Position (read-only): Reference vertical position."
+              }
             },
             "OFFSET": {
               "_description": "Position Offset from Golden (millimeters): Difference between measured and golden orbit.",
-              "X": { "_description": "Horizontal Offset (read-only): X position error from golden orbit." },
-              "Y": { "_description": "Vertical Offset (read-only): Y position error from golden orbit." }
+              "X": {
+                "_description": "Horizontal Offset (read-only): X position error from golden orbit."
+              },
+              "Y": {
+                "_description": "Vertical Offset (read-only): Y position error from golden orbit."
+              }
             },
             "STATUS": {
               "_description": "BPM System Status: Data validity and connection monitoring.",
-              "VALID": { "_description": "Valid Data (read-only): BPM reading is valid." },
-              "CONNECTED": { "_description": "Connected Status (read-only): BPM electronics responding." }
+              "VALID": {
+                "_description": "Valid Data (read-only): BPM reading is valid."
+              },
+              "CONNECTED": {
+                "_description": "Connected Status (read-only): BPM electronics responding."
+              }
             }
           }
         },
@@ -360,15 +575,21 @@
           "DEVICE": {
             "_expansion": {
               "_type": "list",
-              "_instances": ["MAIN"]
+              "_instances": [
+                "MAIN"
+              ]
             },
             "CURRENT": {
               "_description": "Beam Current (milliAmperes): Total circulating electron current. Typical range: 1-500 mA.",
-              "RB": { "_description": "Current Readback (read-only): Standard beam current measurement." }
+              "RB": {
+                "_description": "Current Readback (read-only): Standard beam current measurement."
+              }
             },
             "STATUS": {
               "_description": "DCCT Operational Status: Measurement validity.",
-              "VALID": { "_description": "Valid Status (read-only): DCCT measurement is valid and calibrated." }
+              "VALID": {
+                "_description": "Valid Status (read-only): DCCT measurement is valid and calibrated."
+              }
             }
           }
         },
@@ -378,18 +599,31 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "NEUT{:02d}",
-              "_range": [1, 4]
+              "_range": [
+                1,
+                4
+              ]
             },
             "DOSE_RATE": {
               "_description": "Neutron Dose Rate (mrem/hour): Neutron radiation intensity measurement.",
-              "INST": { "_description": "Instantaneous (read-only): Real-time neutron dose rate." },
-              "AVG_1MIN": { "_description": "1-Minute Average (read-only): Neutron dose rate averaged over 1 minute." },
-              "AVG_1HR": { "_description": "1-Hour Average (read-only): Neutron dose rate averaged over 1 hour." }
+              "INST": {
+                "_description": "Instantaneous (read-only): Real-time neutron dose rate."
+              },
+              "AVG_1MIN": {
+                "_description": "1-Minute Average (read-only): Neutron dose rate averaged over 1 minute."
+              },
+              "AVG_1HR": {
+                "_description": "1-Hour Average (read-only): Neutron dose rate averaged over 1 hour."
+              }
             },
             "STATUS": {
               "_description": "Neutron Monitor Status: Data validity and alarm conditions.",
-              "VALID": { "_description": "Valid Data (read-only): Monitor reading is valid." },
-              "ALARM": { "_description": "Alarm Status (read-only): Radiation level exceeds safety threshold." }
+              "VALID": {
+                "_description": "Valid Data (read-only): Monitor reading is valid."
+              },
+              "ALARM": {
+                "_description": "Alarm Status (read-only): Radiation level exceeds safety threshold."
+              }
             }
           }
         },
@@ -399,18 +633,31 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "GAMM{:02d}",
-              "_range": [1, 4]
+              "_range": [
+                1,
+                4
+              ]
             },
             "DOSE_RATE": {
               "_description": "Gamma Dose Rate (mrem/hour): Gamma radiation intensity measurement.",
-              "INST": { "_description": "Instantaneous (read-only): Real-time gamma dose rate." },
-              "AVG_1MIN": { "_description": "1-Minute Average (read-only): Gamma dose rate averaged over 1 minute." },
-              "AVG_1HR": { "_description": "1-Hour Average (read-only): Gamma dose rate averaged over 1 hour." }
+              "INST": {
+                "_description": "Instantaneous (read-only): Real-time gamma dose rate."
+              },
+              "AVG_1MIN": {
+                "_description": "1-Minute Average (read-only): Gamma dose rate averaged over 1 minute."
+              },
+              "AVG_1HR": {
+                "_description": "1-Hour Average (read-only): Gamma dose rate averaged over 1 hour."
+              }
             },
             "STATUS": {
               "_description": "Gamma Monitor Status: Operational health and alarm state.",
-              "VALID": { "_description": "Valid Data (read-only): Monitor is operational." },
-              "ALARM": { "_description": "Alarm Status (read-only): Gamma level exceeds safety limit." }
+              "VALID": {
+                "_description": "Valid Data (read-only): Monitor is operational."
+              },
+              "ALARM": {
+                "_description": "Alarm Status (read-only): Gamma level exceeds safety limit."
+              }
             }
           }
         }
@@ -426,17 +673,28 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "B{:02d}",
-              "_range": [1, 8]
+              "_range": [
+                1,
+                8
+              ]
             },
             "CURRENT": {
               "_description": "Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration.",
-              "SP": { "_description": "Current Setpoint (read-write): Programmed ramp profile for acceleration." },
-              "RB": { "_description": "Current Readback (read-only): Measured dipole current during ramping." }
+              "SP": {
+                "_description": "Current Setpoint (read-write): Programmed ramp profile for acceleration."
+              },
+              "RB": {
+                "_description": "Current Readback (read-only): Measured dipole current during ramping."
+              }
             },
             "STATUS": {
               "_description": "Dipole power supply status.",
-              "READY": { "_description": "Ready (read-only): Power supply ready for ramping." },
-              "FAULT": { "_description": "Fault (read-only): Power supply fault detected." }
+              "READY": {
+                "_description": "Ready (read-only): Power supply ready for ramping."
+              },
+              "FAULT": {
+                "_description": "Fault (read-only): Power supply fault detected."
+              }
             }
           }
         },
@@ -446,17 +704,28 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "QF{:02d}",
-              "_range": [1, 4]
+              "_range": [
+                1,
+                4
+              ]
             },
             "CURRENT": {
               "_description": "Quadrupole current (Amperes). Ramped during acceleration.",
-              "SP": { "_description": "Setpoint (read-write): Programmed current waveform." },
-              "RB": { "_description": "Readback (read-only): Measured current." }
+              "SP": {
+                "_description": "Setpoint (read-write): Programmed current waveform."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured current."
+              }
             },
             "STATUS": {
               "_description": "Power supply status.",
-              "READY": { "_description": "Ready (read-only): Power supply ready." },
-              "FAULT": { "_description": "Fault (read-only): Fault detected." }
+              "READY": {
+                "_description": "Ready (read-only): Power supply ready."
+              },
+              "FAULT": {
+                "_description": "Fault (read-only): Fault detected."
+              }
             }
           }
         },
@@ -466,17 +735,28 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "QD{:02d}",
-              "_range": [1, 4]
+              "_range": [
+                1,
+                4
+              ]
             },
             "CURRENT": {
               "_description": "Quadrupole current (Amperes). Ramped during acceleration.",
-              "SP": { "_description": "Setpoint (read-write): Programmed current waveform." },
-              "RB": { "_description": "Readback (read-only): Measured current." }
+              "SP": {
+                "_description": "Setpoint (read-write): Programmed current waveform."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured current."
+              }
             },
             "STATUS": {
               "_description": "Power supply status.",
-              "READY": { "_description": "Ready (read-only): Power supply ready." },
-              "FAULT": { "_description": "Fault (read-only): Fault detected." }
+              "READY": {
+                "_description": "Ready (read-only): Power supply ready."
+              },
+              "FAULT": {
+                "_description": "Fault (read-only): Fault detected."
+              }
             }
           }
         }
@@ -489,16 +769,25 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "BPM{:02d}",
-              "_range": [1, 8]
+              "_range": [
+                1,
+                8
+              ]
             },
             "POSITION": {
               "_description": "Beam position during booster cycle (millimeters).",
-              "X": { "_description": "Horizontal Position (read-only): Beam X position." },
-              "Y": { "_description": "Vertical Position (read-only): Beam Y position." }
+              "X": {
+                "_description": "Horizontal Position (read-only): Beam X position."
+              },
+              "Y": {
+                "_description": "Vertical Position (read-only): Beam Y position."
+              }
             },
             "STATUS": {
               "_description": "BPM status.",
-              "VALID": { "_description": "Valid Data (read-only): BPM reading is valid." }
+              "VALID": {
+                "_description": "Valid Data (read-only): BPM reading is valid."
+              }
             }
           }
         },
@@ -507,15 +796,21 @@
           "DEVICE": {
             "_expansion": {
               "_type": "list",
-              "_instances": ["MAIN"]
+              "_instances": [
+                "MAIN"
+              ]
             },
             "CURRENT": {
               "_description": "Beam current (milliAmperes) during booster cycle.",
-              "RB": { "_description": "Current Readback (read-only): Beam current during acceleration." }
+              "RB": {
+                "_description": "Current Readback (read-only): Beam current during acceleration."
+              }
             },
             "STATUS": {
               "_description": "DCCT status.",
-              "VALID": { "_description": "Valid (read-only): Measurement valid." }
+              "VALID": {
+                "_description": "Valid (read-only): Measurement valid."
+              }
             }
           }
         }
@@ -531,16 +826,25 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "H{:02d}",
-              "_range": [1, 6]
+              "_range": [
+                1,
+                6
+              ]
             },
             "CURRENT": {
               "_description": "Corrector current (Amperes).",
-              "SP": { "_description": "Setpoint (read-write): Commanded corrector current." },
-              "RB": { "_description": "Readback (read-only): Measured corrector current." }
+              "SP": {
+                "_description": "Setpoint (read-write): Commanded corrector current."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured corrector current."
+              }
             },
             "STATUS": {
               "_description": "Power supply status.",
-              "READY": { "_description": "Ready (read-only): Power supply ready." }
+              "READY": {
+                "_description": "Ready (read-only): Power supply ready."
+              }
             }
           }
         },
@@ -550,16 +854,25 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "V{:02d}",
-              "_range": [1, 6]
+              "_range": [
+                1,
+                6
+              ]
             },
             "CURRENT": {
               "_description": "Corrector current (Amperes).",
-              "SP": { "_description": "Setpoint (read-write): Commanded corrector current." },
-              "RB": { "_description": "Readback (read-only): Measured corrector current." }
+              "SP": {
+                "_description": "Setpoint (read-write): Commanded corrector current."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured corrector current."
+              }
             },
             "STATUS": {
               "_description": "Power supply status.",
-              "READY": { "_description": "Ready (read-only): Power supply ready." }
+              "READY": {
+                "_description": "Ready (read-only): Power supply ready."
+              }
             }
           }
         },
@@ -569,16 +882,25 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "QF{:02d}",
-              "_range": [1, 6]
+              "_range": [
+                1,
+                6
+              ]
             },
             "CURRENT": {
               "_description": "Quadrupole current (Amperes).",
-              "SP": { "_description": "Setpoint (read-write): Commanded current." },
-              "RB": { "_description": "Readback (read-only): Measured current." }
+              "SP": {
+                "_description": "Setpoint (read-write): Commanded current."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured current."
+              }
             },
             "STATUS": {
               "_description": "Power supply status.",
-              "READY": { "_description": "Ready (read-only): Power supply ready." }
+              "READY": {
+                "_description": "Ready (read-only): Power supply ready."
+              }
             }
           }
         }
@@ -591,16 +913,25 @@
             "_expansion": {
               "_type": "range",
               "_pattern": "BPM{:02d}",
-              "_range": [1, 6]
+              "_range": [
+                1,
+                6
+              ]
             },
             "POSITION": {
               "_description": "Beam position in transfer line (millimeters).",
-              "X": { "_description": "Horizontal Position (read-only): Beam X position." },
-              "Y": { "_description": "Vertical Position (read-only): Beam Y position." }
+              "X": {
+                "_description": "Horizontal Position (read-only): Beam X position."
+              },
+              "Y": {
+                "_description": "Vertical Position (read-only): Beam Y position."
+              }
             },
             "STATUS": {
               "_description": "BPM status.",
-              "VALID": { "_description": "Valid Data (read-only): BPM reading is valid." }
+              "VALID": {
+                "_description": "Valid Data (read-only): BPM reading is valid."
+              }
             }
           }
         }
