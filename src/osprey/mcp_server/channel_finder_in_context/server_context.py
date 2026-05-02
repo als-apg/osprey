@@ -25,8 +25,15 @@ from typing import Any
 import yaml
 
 from osprey.services.channel_finder.core.base_database import BaseDatabase
+from osprey.services.channel_finder.rate_limiter import configure_rate_limiter
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_in_context.server_context")
+
+PROVIDER_RPM: dict[str, int | None] = {
+    "cborg": 18,
+    "anthropic": None,
+    "als-apg": None,
+}
 
 
 class ChannelFinderICContext:
@@ -43,6 +50,10 @@ class ChannelFinderICContext:
         self._raw_config: dict[str, Any] = {}
         self._database: BaseDatabase | None = None
         self._facility_name: str = "control system"
+        self._subagent_model_id: str = ""
+        self._subagent_provider: str = ""
+        self._system_prompt_with_db: str = ""
+        self._system_prompt_input_tokens: int = 0
         self._initialized = False
 
     def initialize(self) -> None:
@@ -90,8 +101,87 @@ class ChannelFinderICContext:
         facility = self._raw_config.get("facility", {})
         self._facility_name = facility.get("name", "control system")
 
+        # Resolve subagent model and provider
+        cc_config = self._raw_config.get("claude_code", {})
+        ic_model = ic_config.get("subagent_model")
+        cc_model = cc_config.get("model")
+        if ic_model:
+            self._subagent_model_id = ic_model
+        elif cc_model:
+            self._subagent_model_id = cc_model
+        else:
+            raise RuntimeError(
+                "No subagent model configured. Set either "
+                "'channel_finder.pipelines.in_context.subagent_model' or "
+                "'claude_code.model' in config.yml."
+            )
+
+        # Provider precedence: explicit pipelines.in_context.subagent_provider wins,
+        # else fall back to claude_code.provider. The override exists because the
+        # outer agent's provider (often an OpenAI-compatible router like cborg)
+        # cannot dispatch every model the inner subagent might run — e.g. an
+        # ollama/* model must reach a local Ollama daemon, not cborg's /chat/completions.
+        ic_provider = ic_config.get("subagent_provider")
+        self._subagent_provider = ic_provider if ic_provider else cc_config.get("provider", "")
+
+        # Arm rate limiter for providers with a known RPM cap
+        rpm_cap = PROVIDER_RPM.get(self._subagent_provider)
+        if rpm_cap is not None:
+            configure_rate_limiter(rpm_cap, window=60.0)
+            logger.info(
+                "ChannelFinderICContext: rate limiter armed for provider '%s' (%d rpm)",
+                self._subagent_provider,
+                rpm_cap,
+            )
+
+        # Build and cache system prompt with serialized channel database
+        if self._database is not None:
+            channels = self._database.get_all_channels()
+            lines = []
+            for ch in channels:
+                name = ch.get("channel", ch.get("name", ""))
+                addr = ch.get("address", "")
+                desc = ch.get("description", "")
+                lines.append(f"{name} | {addr} | {desc}")
+            db_text = "\n".join(lines)
+        else:
+            db_text = "(no channel database loaded)"
+
+        self._system_prompt_with_db = (
+            "You are a channel-finder assistant. Below is the complete list of "
+            "available control-system channels in the format:\n"
+            "  CHANNEL_NAME | ADDRESS | DESCRIPTION\n\n"
+            f"{db_text}\n\n"
+            "Answer the user's query by identifying the most relevant channels. "
+            "Wrap your final answer in <final> and </final> XML tags, like:\n"
+            "<final>YOUR ANSWER HERE</final>"
+        )
+
+        # Pre-count system-prompt tokens once. The system prompt is identical
+        # across every query in a cell — counting it per-query would waste
+        # work on a 24k-token tier-3 prompt. Per-query input_tokens is then
+        # this base + a small count for the user query.
+        try:
+            import litellm
+
+            self._system_prompt_input_tokens = litellm.token_counter(
+                model=self._subagent_model_id,
+                text=self._system_prompt_with_db,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "ChannelFinderICContext: token_counter failed for model %s "
+                "(%s) — input_tokens will be reported as user-query tokens only",
+                self._subagent_model_id,
+                exc,
+            )
+            self._system_prompt_input_tokens = 0
+
         self._initialized = True
-        logger.info("ChannelFinderICContext: initialized")
+        logger.info(
+            "ChannelFinderICContext: initialized (system_prompt_tokens=%d)",
+            self._system_prompt_input_tokens,
+        )
 
     @property
     def database(self) -> BaseDatabase:
@@ -111,6 +201,30 @@ class ChannelFinderICContext:
     def facility_name(self) -> str:
         """Name of the facility from config."""
         return self._facility_name
+
+    @property
+    def subagent_model_id(self) -> str:
+        """Resolved model ID for the inner LLM call."""
+        return self._subagent_model_id
+
+    @property
+    def subagent_provider(self) -> str:
+        """Provider name for the inner LLM call."""
+        return self._subagent_provider
+
+    @property
+    def system_prompt_with_db(self) -> str:
+        """Cached system prompt with the serialized channel database."""
+        return self._system_prompt_with_db
+
+    @property
+    def system_prompt_input_tokens(self) -> int:
+        """Tokens in the system prompt, counted once at init for the configured model.
+
+        Used by query_channels to compute per-query input_tokens without
+        re-tokenizing the (large) channel-database prompt on every call.
+        """
+        return self._system_prompt_input_tokens
 
     @property
     def raw_config(self) -> dict[str, Any]:
