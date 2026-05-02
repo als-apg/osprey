@@ -46,34 +46,28 @@ dependencies = [
     "ruamel.yaml>=0.18.0",  # Comment-preserving YAML for config updates
     "Jinja2>=3.1.6",
     "requests>=2.32.3",
-
     # Container runtime (Docker or Podman) must be installed separately via system package managers
     # Framework uses CLI tools (docker/podman commands), not Python packages
     # Install Docker Desktop 4.0+ OR Podman 4.0+:
     #   - Docker: https://docs.docker.com/get-docker/
     #   - Podman: https://podman.io/getting-started/installation
-
     # Jupyter notebook support
     "nbformat>=5.0.0",
     "nbclient",
     "nbconvert>=7.0.0",
-
     # AI/ML provider integrations
     "litellm>=1.56.0",  # Unified LLM provider interface (100+ providers)
     "openai>=2",
     "anthropic",
     "google-generativeai",
     "ollama>=0.5.1",
-
     # Advanced code generation
     "claude-agent-sdk==0.1.26",  # Claude Code SDK - pinned; 0.1.27+ bundled CLI breaks CBORG API
-
     # Data processing - required for archiver connectors and data handling
     # Archiver connectors return pandas DataFrames for time-series data
     "pandas>=2.2.3",
     "numpy>=2.2.6",  # Required by pandas
     "matplotlib>=3.10.3",  # Required for Python capability visualization (core use case)
-
     # Networking and protocols
     "aiohttp>=3.10",  # Required by litellm (ConnectionTimeoutError added in 3.10)
     "websocket-client>=1.7.0",
@@ -83,12 +77,9 @@ dependencies = [
     "idna>=3.10",
     "MarkupSafe>=3.0.2",
     "markdown>=3.5",  # Markdown-to-HTML rendering for artifact converters
-
     "aiofiles>=24.1.0",  # Async file I/O for non-blocking Python executor
-
     # MCP server development (for building MCP servers)
-    "fastmcp>=2.0.0",
-
+    "fastmcp>=3.0.0",
     # Scientific computing stack - for Python execution capability
     "scipy>=1.15.3",
     "seaborn",
@@ -97,35 +88,27 @@ dependencies = [
     "bokeh>=3.0",  # Interactive dashboards (data-visualizer agent)
     "playwright>=1.40.0",
     "ipywidgets",  # Interactive widgets for Jupyter notebooks
-
     # Natural language processing
     "nltk>=3.8.1",
-
     # ARIEL Web Interface (FastAPI server)
     "fastapi>=0.109.0",
     "uvicorn[standard]>=0.27.0",
-
     # Utilities
     "unique-namer>=0.1.0",
-
     # Control system simulation (soft IOC generation)
     "caproto",
-
     # PostgreSQL (required for native logbook_search capability and checkpointing)
     "psycopg[binary,pool]>=3.1.0,<4.0.0",
     "psycopg-pool>=3.1.0,<4.0.0",
-
     # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
     "aiohttp-socks>=0.8.0",
-
     # File system monitoring for web terminal
     "watchdog>=3.0.0",
-
     # Async HTTP client for tuning panel reverse proxy
     "httpx>=0.27.0",
-
     # Lattice physics (Accelerator Toolbox for lattice dashboard)
     "accelerator-toolbox[plot]",
+    "duckdb>=1.5.1",
 ]
 
 [project.optional-dependencies]
