@@ -63,10 +63,15 @@ def create_server() -> FastMCP:
         list_channels,
         list_families,
         list_systems,
-        query_channels,
         statistics,
         validate,
     )
+
+    # query_channels requires duckdb (optional dependency)
+    try:
+        from osprey.mcp_server.channel_finder_middle_layer.tools import query_channels  # noqa: F401
+    except ImportError:
+        logger.info("query_channels tool unavailable (duckdb not installed)")
 
     logger.info("Channel Finder MML MCP server initialised with all tools registered")
     return mcp
