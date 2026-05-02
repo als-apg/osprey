@@ -5,6 +5,7 @@ Provides the 'osprey channel-finder' command group with subcommands:
 - Validate database (osprey channel-finder validate)
 - Preview database (osprey channel-finder preview)
 - Web interface (osprey channel-finder web)
+- Benchmark (osprey channel-finder benchmark)
 """
 
 import os
@@ -322,3 +323,350 @@ def web(ctx, host: str, port: int):
     console.print(f"Starting Channel Finder at http://{host}:{port}", style=Styles.SUCCESS)
     app = create_app()
     uvicorn.run(app, host=host, port=port, log_level="info")
+
+
+@channel_finder.command("generate")
+@click.option(
+    "--output-dir",
+    type=click.Path(file_okay=False),
+    default="data/channel_databases",
+    help="Output directory for generated databases (default: data/channel_databases/)",
+)
+@click.option(
+    "--source",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Source hierarchical database (default: built-in template)",
+)
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["in_context", "hierarchical", "middle_layer", "all"]),
+    default="all",
+    help="Format(s) to generate (default: all)",
+)
+@click.option(
+    "--tier",
+    type=click.Choice(["1", "2", "3", "none"]),
+    default="none",
+    help="Tier filter: 1, 2, 3, or none for all channels (default: none)",
+)
+@click.option(
+    "--validate",
+    "do_validate",
+    is_flag=True,
+    default=False,
+    help="Verify generated databases load correctly through pipeline database classes",
+)
+def generate(output_dir: str, source: str | None, fmt: str, tier: str, do_validate: bool):
+    """Generate channel databases from a hierarchical template.
+
+    Produces database files from a hierarchical channel template.
+    By default, generates all three formats with all channels (no tier
+    filtering).
+
+    \b
+      - in_context.json    (flat format with aliases)
+      - hierarchical.json  (tree format)
+      - middle_layer.json  (MML-style with setup blocks)
+
+    Examples:
+
+    \b
+      osprey channel-finder generate
+      osprey channel-finder generate --tier 1 --format in_context
+      osprey channel-finder generate --source my_channels.json
+      osprey channel-finder generate --validate
+    """
+    import json
+    from pathlib import Path
+
+    from osprey.services.channel_finder.benchmarks.generator import (
+        TIER_1,
+        TIER_2,
+        TIER_3,
+        TierSpec,
+        format_hierarchical,
+        format_in_context,
+        format_middle_layer,
+        load_template,
+    )
+
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    source_path = Path(source) if source else None
+    tree_data, channels = load_template(source_path)
+
+    if tier == "none":
+        all_rings = frozenset(ch["ring"] for ch in channels)
+        tier_spec = TierSpec(
+            name="all",
+            rings=all_rings,
+            families=None,
+            allowed_subfields=None,
+            target_count=len(channels),
+        )
+    else:
+        tier_spec = {"1": TIER_1, "2": TIER_2, "3": TIER_3}[tier]
+
+    format_map = {
+        "in_context.json": lambda: format_in_context(channels, tier_spec),
+        "hierarchical.json": lambda: format_hierarchical(tree_data, tier_spec),
+        "middle_layer.json": lambda: format_middle_layer(channels, tier_spec),
+    }
+
+    if fmt != "all":
+        filename = f"{fmt}.json"
+        format_map = {filename: format_map[filename]}
+
+    for filename, builder in format_map.items():
+        path = out / filename
+        path.write_text(json.dumps(builder(), indent=2), encoding="utf-8")
+        console.print(f"  Generated {path}", style=Styles.SUCCESS)
+
+    console.print(f"\n{len(format_map)} database(s) generated in {out}/", style=Styles.SUCCESS)
+
+    if do_validate:
+        console.print("\nValidating generated databases...", style=Styles.INFO)
+
+        from osprey.services.channel_finder.databases.flat import ChannelDatabase
+        from osprey.services.channel_finder.databases.hierarchical import (
+            HierarchicalChannelDatabase,
+        )
+        from osprey.services.channel_finder.databases.middle_layer import (
+            MiddleLayerDatabase,
+        )
+
+        validators = {
+            "in_context.json": ChannelDatabase,
+            "hierarchical.json": HierarchicalChannelDatabase,
+            "middle_layer.json": MiddleLayerDatabase,
+        }
+
+        all_valid = True
+        for filename in format_map:
+            db_class = validators[filename]
+            path = out / filename
+            try:
+                db = db_class(str(path))
+                db.load_database()
+                stats = db.get_statistics()
+                console.print(
+                    f"  {filename}: OK ({stats.get('total_channels', '?')} channels)",
+                    style=Styles.SUCCESS,
+                )
+            except Exception as e:
+                console.print(f"  {filename}: FAILED - {e}", style="bold red")
+                all_valid = False
+
+        if not all_valid:
+            raise click.ClickException("Validation failed for one or more databases")
+        console.print("\nAll databases validated successfully!", style=Styles.SUCCESS)
+
+
+def _parse_query_indices(queries_spec: str, total: int) -> list[int]:
+    """Parse a query index specification into a list of indices.
+
+    Supports:
+      - ``"all"`` -> all indices ``[0, 1, ..., total-1]``
+      - ``"0:10"`` -> slice indices ``[0, 1, ..., 9]``
+      - ``"0,5,10"`` -> explicit indices ``[0, 5, 10]``
+
+    Args:
+        queries_spec: The query specification string.
+        total: Total number of available queries.
+
+    Returns:
+        Sorted list of integer indices.
+
+    Raises:
+        click.BadParameter: If the specification cannot be parsed.
+    """
+    if queries_spec == "all":
+        return list(range(total))
+    if ":" in queries_spec:
+        parts = queries_spec.split(":")
+        if len(parts) != 2:
+            raise click.BadParameter(f"Invalid slice format: {queries_spec!r}. Use start:stop.")
+        start = int(parts[0])
+        stop = int(parts[1])
+        return list(range(start, min(stop, total)))
+    # Comma-separated indices
+    try:
+        return sorted(int(i) for i in queries_spec.split(","))
+    except ValueError:
+        raise click.BadParameter(
+            f"Cannot parse query indices: {queries_spec!r}. Use 'all', 'start:stop', or 'i,j,k'."
+        ) from None
+
+
+@channel_finder.command("benchmark")
+@click.option(
+    "--model",
+    default="anthropic/claude-haiku",
+    help="Model identifier (default: anthropic/claude-haiku)",
+)
+@click.option(
+    "--queries",
+    default="all",
+    help="all, or indices like 0:10 or 0,5,10",
+)
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    default=False,
+    help="Enable verbose benchmark logging",
+)
+@click.option(
+    "--runs-per-query",
+    default=1,
+    type=int,
+    help="Number of benchmark runs (default: 1)",
+)
+@click.option(
+    "--concurrency",
+    default=5,
+    type=int,
+    help="Max concurrent queries (default: 5)",
+)
+@click.option(
+    "--output-dir",
+    default=None,
+    help="Directory to save result JSON files (default: data/benchmarks/results/)",
+)
+@click.option(
+    "--queries-path",
+    default=None,
+    help="Override benchmark dataset path from config",
+)
+@click.option(
+    "--tier",
+    default=0,
+    type=int,
+    help="Tier label for this benchmark run (default: 0)",
+)
+@click.pass_context
+def benchmark(
+    ctx,
+    model: str,
+    queries: str,
+    verbose: bool,
+    runs_per_query: int,
+    concurrency: int,
+    output_dir: str | None,
+    queries_path: str | None,
+    tier: int,
+):
+    """Run channel finder benchmarks against the current project.
+
+    Evaluates channel finder accuracy using the Claude Agent SDK.
+    Reads the pipeline mode and benchmark dataset from the project's
+    config.yml.
+
+    Examples:
+
+    \b
+      osprey channel-finder benchmark
+      osprey channel-finder benchmark --queries 0:5 --model anthropic/claude-haiku
+      osprey channel-finder benchmark --runs-per-query 3 --concurrency 10
+      osprey channel-finder benchmark --verbose
+    """
+    import asyncio
+    import logging
+    from pathlib import Path
+
+    from osprey.services.channel_finder.benchmarks.models import (
+        BenchmarkSuite,
+    )
+    from osprey.services.channel_finder.benchmarks.runner import (
+        BenchmarkRunner,
+    )
+
+    # Resolve project directory
+    project_dir = Path(ctx.obj.get("project") or os.getcwd())
+    config_path = project_dir / "config.yml"
+    if not config_path.exists():
+        raise click.ClickException(
+            f"config.yml not found in {project_dir}\n"
+            "Run this from an OSPREY project directory or use --project."
+        )
+
+    out_directory = (
+        Path(output_dir) if output_dir else project_dir / "data" / "benchmarks" / "results"
+    )
+
+    runner = BenchmarkRunner(
+        project_dir,
+        model=model,
+        tier=tier,
+        max_concurrent=concurrency,
+        verbose=verbose,
+        queries_override=Path(queries_path) if queries_path else None,
+    )
+
+    # Load queries and parse index spec
+    all_queries = runner.load_queries()
+    indices = _parse_query_indices(queries, len(all_queries))
+
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+        logging.getLogger("osprey").setLevel(logging.DEBUG)
+
+    console.print(
+        f"Benchmark: {len(indices)} query/queries "
+        f"x {runs_per_query} run(s) | model={model} | concurrency={concurrency}",
+        style=Styles.INFO,
+    )
+
+    try:
+        all_runs = []
+        for run_idx in range(runs_per_query):
+            if runs_per_query > 1:
+                console.print(
+                    f"\n--- Run {run_idx + 1}/{runs_per_query} ---",
+                    style=Styles.INFO,
+                )
+            run = asyncio.run(
+                runner.run_queries(
+                    query_indices=indices if queries != "all" else None,
+                    output_dir=out_directory,
+                )
+            )
+            all_runs.append(run)
+
+        # Print summary
+        console.print(
+            f"\n[bold]Benchmark complete:[/bold] {len(all_runs)} run(s) executed",
+            style=Styles.SUCCESS,
+        )
+        for run in all_runs:
+            failed_msg = f"  failed={run.num_failed}" if run.num_failed > 0 else ""
+            console.print(
+                f"  {run.paradigm}: "
+                f"F1={run.aggregate_f1:.3f}  "
+                f"P={run.aggregate_precision:.3f}  "
+                f"R={run.aggregate_recall:.3f}  "
+                f"cost=${run.total_cost_usd:.4f}  "
+                f"latency={run.avg_latency_s:.1f}s"
+                f"{failed_msg}",
+            )
+
+        # Save combined suite
+        combined = BenchmarkSuite(
+            runs=all_runs,
+            metadata={
+                "model": model,
+                "runs_per_query": runs_per_query,
+                "query_count": len(indices),
+            },
+        )
+        out_directory.mkdir(parents=True, exist_ok=True)
+        suite_path = out_directory / "suite_latest.json"
+        combined.to_json(suite_path)
+        console.print(f"\nResults saved to {suite_path}", style=Styles.SUCCESS)
+
+    except Exception as e:
+        console.print(f"\n{Messages.error(str(e))}")
+        raise click.Abort() from None

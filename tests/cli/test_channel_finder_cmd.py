@@ -4,14 +4,17 @@ Tests the Click command group including:
 - Command structure and help output
 - Build-database, validate, preview subcommands
 - Config/project resolution
+- _parse_query_indices parsing
+- Benchmark subcommand
 """
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
+import click
 import pytest
 from click.testing import CliRunner
 
-from osprey.cli.channel_finder_cmd import channel_finder
+from osprey.cli.channel_finder_cmd import _parse_query_indices, channel_finder
 
 
 @pytest.fixture
@@ -365,3 +368,123 @@ class TestCLIErrorPaths:
                 )
         assert result.exit_code == 0
         assert "VALID" in result.output
+
+
+# ============================================================================
+# _parse_query_indices Tests
+# ============================================================================
+
+
+class TestParseQueryIndices:
+    """Tests for the _parse_query_indices helper."""
+
+    def test_all(self):
+        assert _parse_query_indices("all", 10) == list(range(10))
+
+    def test_all_zero_total(self):
+        assert _parse_query_indices("all", 0) == []
+
+    def test_slice(self):
+        assert _parse_query_indices("0:5", 10) == [0, 1, 2, 3, 4]
+
+    def test_slice_clamped(self):
+        assert _parse_query_indices("0:100", 10) == list(range(10))
+
+    def test_slice_empty(self):
+        assert _parse_query_indices("5:5", 10) == []
+
+    def test_comma_separated(self):
+        assert _parse_query_indices("0,5,10", 20) == [0, 5, 10]
+
+    def test_single_index(self):
+        assert _parse_query_indices("3", 10) == [3]
+
+    def test_comma_sorted(self):
+        assert _parse_query_indices("10,5,0", 20) == [0, 5, 10]
+
+    def test_invalid_text(self):
+        with pytest.raises(click.BadParameter):
+            _parse_query_indices("abc", 10)
+
+    def test_invalid_triple_colon(self):
+        with pytest.raises(click.BadParameter):
+            _parse_query_indices("1:2:3", 10)
+
+
+# ============================================================================
+# Benchmark Subcommand Tests
+# ============================================================================
+
+
+class TestBenchmarkSubcommand:
+    """Tests for the 'benchmark' subcommand."""
+
+    def test_benchmark_help(self, runner):
+        """benchmark --help shows expected options."""
+        result = runner.invoke(channel_finder, ["benchmark", "--help"])
+        assert result.exit_code == 0
+        assert "--model" in result.output
+        assert "--queries" in result.output
+        assert "--tier" in result.output
+
+    def test_benchmark_missing_config(self, runner, tmp_path):
+        """benchmark without config.yml shows error."""
+        result = runner.invoke(
+            channel_finder,
+            ["--project", str(tmp_path), "benchmark"],
+        )
+        assert result.exit_code != 0
+        assert "not found" in result.output or "Error" in result.output
+
+    def test_benchmark_smoke(self, runner, tmp_path):
+        """benchmark with mocked runner executes successfully."""
+        import yaml
+
+        from osprey.services.channel_finder.benchmarks.models import BenchmarkRun
+
+        # Create minimal config
+        config = {
+            "channel_finder": {
+                "pipeline_mode": "in_context",
+                "pipelines": {
+                    "in_context": {
+                        "database": {"path": "db.json"},
+                        "benchmark": {"dataset_path": "queries.json"},
+                    },
+                },
+            },
+        }
+        (tmp_path / "config.yml").write_text(yaml.dump(config))
+
+        # Create dummy queries file
+        import json
+
+        (tmp_path / "queries.json").write_text(
+            json.dumps([{"user_query": "test", "targeted_pv": ["A"]}])
+        )
+
+        canned_run = BenchmarkRun(
+            paradigm="in_context",
+            tier=0,
+            model="test-model",
+            timestamp="2026-01-01T00:00:00",
+            query_results=[],
+            aggregate_f1=0.5,
+            aggregate_precision=0.5,
+            aggregate_recall=0.5,
+        )
+
+        with patch(
+            "osprey.services.channel_finder.benchmarks.runner.BenchmarkRunner"
+        ) as MockRunner:
+            mock_instance = MockRunner.return_value
+            mock_instance.load_queries.return_value = [{"user_query": "test", "targeted_pv": ["A"]}]
+            mock_instance.run_queries = AsyncMock(return_value=canned_run)
+
+            result = runner.invoke(
+                channel_finder,
+                ["--project", str(tmp_path), "benchmark"],
+            )
+
+        assert result.exit_code == 0
+        assert "Benchmark complete" in result.output
