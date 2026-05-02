@@ -139,6 +139,9 @@ my-control-assistant/
 my-lattice-assistant/
 my-agent/_audit/
 
+# Generated benchmark databases (regenerate: uv run python scripts/generate_benchmark_suite.py)
+data/benchmarks/cross_paradigm/tier*/
+
 # OSPREY workspace (runtime data, not tracked — now covered by _agent_data/* above)
 
 # Vendor assets (fetched at build time via `osprey vendor fetch`)
@@ -148,3 +151,6 @@ src/osprey/interfaces/web_terminal/static/vendor/
 src/osprey/interfaces/tuning/static/vendor/
 src/osprey/interfaces/lattice_dashboard/static/vendor/
 tests/e2e/claude_code/benchmark_results/
+
+# Playwright MCP browser-session cache (page snapshots, console logs)
+.playwright-mcp/

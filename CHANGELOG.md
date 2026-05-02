@@ -12,6 +12,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 ## [Unreleased]
 
 ### Added
+- **Channel Finder**: `osprey channel-finder generate` subcommand produces 3 template databases from the canonical hierarchical source — `in_context.json` (Tier 1, 205 channels with aliases), `hierarchical.json` (Tier 3, 1210 channels), `middle_layer.json` (Tier 3, 1210 channels with setup blocks)
+- **Benchmarks**: Tier-specific query sets (`tier1_queries.json`/`tier2_queries.json`/`tier3_queries.json`) with 21/38/58 queries covering cross-ring, ambiguity, and sector-based categories
 - **`osprey-contribute` skill.** A new installable skill that walks
   contributors through the GitHub Flow contribution journey end-to-end:
   orient → branch → commit → push → PR → watch CI → merge. Auto-detects
@@ -325,6 +327,19 @@ assume `MAJOR.MINOR.PATCH` semantics need updating.
   WebSocket forwarding, and corporate-proxy bypass.
 - `osprey build` now exits with status 2 (usage error) for unknown
   presets, matching the documented contract.
+
+### Changed (Benchmarks)
+- **Benchmarks**: `format_in_context()` now returns `{_metadata, channels}` envelope with auto-generated aliases (`channel`) and PV addresses (`address`) instead of a plain list — **breaking change** for code that directly parses the in-context JSON as a list
+- **Benchmarks**: `format_middle_layer()` now generates `_setup` blocks (`CommonNames`, `DeviceList`, `ElementList`) for every family, enabling sector filtering
+- **Benchmarks**: `validate_queries()` supports per-tier validation via `tier_queries` parameter; backward-compatible with single-file mode
+- **Benchmarks**: `BenchmarkRun.paradigm` / `tier` now `Optional` (defaults `None`) — single-backend consumers no longer need synthetic labels
+- **Benchmarks**: `BenchmarkSuite` slimmed to bundle role; `AggregatedCell` and matrix-aggregation helpers (`aggregate_by_cell`, `to_table`, `MODEL_PRICES_PER_MTOK`, `infer_cost_usd`) moved to companion paper repo
+- **Benchmarks**: `evaluate_response()` and `BenchmarkRunner` gain `use_llm_judge` flag (default `False`) — Stage 2 LLM precision judge is now true opt-in
+
+### Removed (Benchmarks paper-split)
+- **Benchmarks**: Cross-paradigm orchestration scripts, tier datasets, and archived result artifacts moved to companion paper repo (`~/LBL/ML/osprey-cf-paper`)
+- **Benchmarks**: 9 dev-residue benchmark/debug scripts (`bench_test*`, `bench_matrix`, `bench_warmth`, `debug_benchmark_scaffold`, `trace_single_query`, `migrate_benchmark_filenames`, `analyze_test_coverage`, `backfill_in_context_tokens`)
+- **Tooling**: `scripts/capture_ariel_screenshots.py` → `docs/tooling/` (documentation utility, not a runtime script)
 
 ## [0.11.5] - 2026-03-13
 
