@@ -218,7 +218,7 @@ def execute_litellm_completion(
     if provider == "ollama":
         return _execute_ollama_completion(
             model_id=model_id,
-            message=message,
+            messages=messages,
             base_url=completion_kwargs.get("api_base", "http://localhost:11434"),
             max_tokens=max_tokens,
         )
@@ -414,7 +414,7 @@ def _clean_json_response(text: str) -> str:
 
 def _execute_ollama_completion(
     model_id: str,
-    message: str,
+    messages: list[dict],
     base_url: str,
     max_tokens: int,
 ) -> str:
@@ -425,7 +425,12 @@ def _execute_ollama_completion(
     the model includes a 'thinking' field, but LiteLLM fails to extract it.
 
     :param model_id: Ollama model identifier
-    :param message: User message
+    :param messages: Full chat-message list ({role, content} dicts) — system,
+        user, assistant turns are all preserved. Earlier versions of this
+        function took a single user-message string and silently dropped any
+        system prompt that callers built via ``chat_request`` — this caused
+        every multi-turn / system-prompted ollama call to receive an empty
+        prompt and hallucinate.
     :param base_url: Ollama server URL
     :param max_tokens: Maximum tokens to generate
     :return: Response text
@@ -442,7 +447,7 @@ def _execute_ollama_completion(
         url,
         json={
             "model": model_id,
-            "messages": [{"role": "user", "content": message}],
+            "messages": messages,
             "stream": False,
             "options": {"num_predict": effective_max_tokens},
         },
