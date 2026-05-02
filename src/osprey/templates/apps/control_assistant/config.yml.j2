@@ -303,6 +303,9 @@ channel_finder:
       benchmark:
         dataset_path: data/benchmarks/datasets/in_context_benchmark.json
         # In-context pipeline benchmark using UCSB FEL channels (30 queries)
+
+      # Inner LLM model for the query_channels subagent tool (set per benchmark cell at runtime)
+      subagent_model: null
 {% endif %}
 {% if enable_hierarchical %}
     # Hierarchical Pipeline (Structured Navigation)
