@@ -113,7 +113,6 @@ class BenchmarkRunner:
         project_dir: Path,
         *,
         model: str = "anthropic/claude-haiku",
-        tier: int = 0,
         max_turns: int = 25,
         max_budget_per_query: float = 2.0,
         max_concurrent: int = 5,
@@ -125,7 +124,6 @@ class BenchmarkRunner:
     ) -> None:
         self.project_dir = Path(project_dir)
         self.model = model
-        self.tier = tier
         self.max_turns = max_turns
         self.max_budget_per_query = max_budget_per_query
         self.max_concurrent = max_concurrent
@@ -348,7 +346,6 @@ class BenchmarkRunner:
 
         return BenchmarkRun.from_query_results(
             paradigm=pipeline_mode,
-            tier=self.tier,
             model=self.model,
             results=results,
             channel_count=channel_count,
