@@ -1,176 +1,338 @@
 [
-    {
-        "user_query": "What's the beam current right now?",
-        "targeted_pv": ["StorageRing_BeamCurrent_ReadBack"],
-        "details": "Testing colloquial language: 'right now' should match readback value, not setpoint"
-    },
-    {
-        "user_query": "Show me all the horizontal BPM positions",
-        "targeted_pv": [
-            "BPM_Position01X", "BPM_Position02X", "BPM_Position03X", "BPM_Position04X",
-            "BPM_Position05X", "BPM_Position06X", "BPM_Position07X", "BPM_Position08X",
-            "BPM_Position09X", "BPM_Position10X", "BPM_Position11X", "BPM_Position12X",
-            "BPM_Position13X", "BPM_Position14X", "BPM_Position15X", "BPM_Position16X",
-            "BPM_Position17X", "BPM_Position18X", "BPM_Position19X", "BPM_Position20X"
-        ],
-        "details": "Testing aggregate query for all BPM horizontal positions from template expansion"
-    },
-    {
-        "user_query": "What are the vacuum levels in the storage ring?",
-        "targeted_pv": ["VacuumIonPump01_Pressure_ReadBack", "VacuumIonPump02_Pressure_ReadBack", "VacuumIonPump03_Pressure_ReadBack"],
-        "details": "Testing synonym matching: 'vacuum levels' should match pressure readings"
-    },
-    {
-        "user_query": "Give me the RF cavity 1 power levels",
-        "targeted_pv": ["RF_Cavity1_ForwardPower_ReadBack", "RF_Cavity1_ReflectedPower_ReadBack"],
-        "details": "Testing RF system query: 'power levels' should return both forward and reflected power"
-    },
-    {
-        "user_query": "What are the dipole magnet setpoints for the first three?",
-        "targeted_pv": ["DipoleMagnet01CurrentSetPoint", "DipoleMagnet02CurrentSetPoint", "DipoleMagnet03CurrentSetPoint"],
-        "details": "Testing range query understanding for template instances, setpoint selection"
-    },
-    {
-        "user_query": "Check the beam lifetime",
-        "targeted_pv": ["StorageRing_BeamLifetime_ReadBack"],
-        "details": "Testing semantic understanding: beam lifetime is from DCCT measurement"
-    },
-    {
-        "user_query": "What's the RF frequency setting?",
-        "targeted_pv": ["RF_Cavity1_Frequency_SetPoint"],
-        "details": "Testing synonym: 'setting' implies setpoint, RF frequency from cavity"
-    },
-    {
-        "user_query": "Show me all vertical BPM positions",
-        "targeted_pv": [
-            "BPM_Position01Y", "BPM_Position02Y", "BPM_Position03Y", "BPM_Position04Y",
-            "BPM_Position05Y", "BPM_Position06Y", "BPM_Position07Y", "BPM_Position08Y",
-            "BPM_Position09Y", "BPM_Position10Y", "BPM_Position11Y", "BPM_Position12Y",
-            "BPM_Position13Y", "BPM_Position14Y", "BPM_Position15Y", "BPM_Position16Y",
-            "BPM_Position17Y", "BPM_Position18Y", "BPM_Position19Y", "BPM_Position20Y"
-        ],
-        "details": "Testing axis selection: vertical = Y for template instances"
-    },
-    {
-        "user_query": "What's the setpoint for dipole magnet 5?",
-        "targeted_pv": ["DipoleMagnet05CurrentSetPoint"],
-        "details": "Testing template instance recognition: specific numbered device with setpoint"
-    },
-    {
-        "user_query": "Give me quadrupole magnet 3 readback",
-        "targeted_pv": ["FocusingQuad03CurrentReadBack"],
-        "details": "Testing template instance recognition with readback specification"
-    },
-    {
-        "user_query": "Show me all focusing quad 4 values",
-        "targeted_pv": ["FocusingQuad04CurrentSetPoint", "FocusingQuad04CurrentReadBack"],
-        "details": "Testing template instance query without specifying set/readback - should return both"
-    },
-    {
-        "user_query": "What are the first three dipole magnet setpoints?",
-        "targeted_pv": ["DipoleMagnet01CurrentSetPoint", "DipoleMagnet02CurrentSetPoint", "DipoleMagnet03CurrentSetPoint"],
-        "details": "Testing range query understanding for template instances"
-    },
-    {
-        "user_query": "Give me horizontal corrector 7 setpoint",
-        "targeted_pv": ["HorizontalCorrectorMagnet07CurrentSetPoint"],
-        "details": "Testing horizontal corrector with both instance number and setpoint"
-    },
-    {
-        "user_query": "What's the readback for vertical corrector 3?",
-        "targeted_pv": ["VerticalCorrectorMagnet03CurrentReadBack"],
-        "details": "Testing vertical corrector with readback specification"
-    },
-    {
-        "user_query": "Show me all horizontal corrector 5 values",
-        "targeted_pv": ["HorizontalCorrectorMagnet05CurrentSetPoint", "HorizontalCorrectorMagnet05CurrentReadBack"],
-        "details": "Testing multi-field aggregate: should return both SetPoint and ReadBack for specified instance"
-    },
-    {
-        "user_query": "Is the DCCT measurement valid?",
-        "targeted_pv": ["StorageRing_DCCT_Valid"],
-        "details": "Testing DCCT status query for measurement validity"
-    },
-    {
-        "user_query": "What's the RF cavity 2 voltage?",
-        "targeted_pv": ["RF_Cavity2_Voltage_ReadBack"],
-        "details": "Testing specific cavity with voltage readback"
-    },
-    {
-        "user_query": "Show me the cavity temperatures",
-        "targeted_pv": ["RF_Cavity1_Temperature_ReadBack", "RF_Cavity2_Temperature_ReadBack"],
-        "details": "Testing aggregate query across both cavities for temperature"
-    },
-    {
-        "user_query": "What are the vacuum gauge pressures?",
-        "targeted_pv": ["VacuumGauge_SR01A_Pressure_ReadBack", "VacuumGauge_SR01B_Pressure_ReadBack"],
-        "details": "Testing vacuum gauge pressure readback for all gauges"
-    },
-    {
-        "user_query": "Is vacuum valve 1 open?",
-        "targeted_pv": ["VacuumValve01_Position_Open"],
-        "details": "Testing valve position status query"
-    },
-    {
-        "user_query": "What's the neutron monitor alarm status?",
-        "targeted_pv": ["NeutronMonitor01_Alarm"],
-        "details": "Testing radiation monitor alarm status"
-    },
-    {
-        "user_query": "Give me all the dipole magnet readbacks",
-        "targeted_pv": [
-            "DipoleMagnet01CurrentReadBack", "DipoleMagnet02CurrentReadBack", "DipoleMagnet03CurrentReadBack",
-            "DipoleMagnet04CurrentReadBack", "DipoleMagnet05CurrentReadBack", "DipoleMagnet06CurrentReadBack",
-            "DipoleMagnet07CurrentReadBack", "DipoleMagnet08CurrentReadBack", "DipoleMagnet09CurrentReadBack",
-            "DipoleMagnet10CurrentReadBack", "DipoleMagnet11CurrentReadBack", "DipoleMagnet12CurrentReadBack"
-        ],
-        "details": "Testing aggregate query across all dipole instances for readback"
-    },
-    {
-        "user_query": "What are the klystron output powers?",
-        "targeted_pv": ["Klystron1_OutputPower_ReadBack", "Klystron2_OutputPower_ReadBack"],
-        "details": "Testing klystron power query across both klystrons"
-    },
-    {
-        "user_query": "Show me the last two dipole magnet readbacks",
-        "targeted_pv": ["DipoleMagnet11CurrentReadBack", "DipoleMagnet12CurrentReadBack"],
-        "details": "Testing edge case: 'last two' means highest numbered instances (11 and 12, since dipoles go 1-12)"
-    },
-    {
-        "user_query": "Give me focusing quads 6 through 8",
-        "targeted_pv": [
-            "FocusingQuad06CurrentSetPoint", "FocusingQuad06CurrentReadBack",
-            "FocusingQuad07CurrentSetPoint", "FocusingQuad07CurrentReadBack",
-            "FocusingQuad08CurrentSetPoint", "FocusingQuad08CurrentReadBack"
-        ],
-        "details": "Testing explicit range query with both set and readback for each instance"
-    },
-    {
-        "user_query": "Open vacuum valve 1",
-        "targeted_pv": ["VacuumValve01_Control_Open"],
-        "details": "Testing command intent: 'open' verb should map to control command, not position status"
-    },
-    {
-        "user_query": "Show me the RF cavity voltages",
-        "targeted_pv": ["RF_Cavity1_Voltage_ReadBack", "RF_Cavity2_Voltage_ReadBack"],
-        "details": "Testing aggregate query for all cavity voltage readbacks"
-    },
-    {
-        "user_query": "What's beam position at BPM 5?",
-        "targeted_pv": ["BPM_Position05X", "BPM_Position05Y"],
-        "details": "Testing BPM position query: both X and Y axes for specific instance"
-    },
-    {
-        "user_query": "Show me all corrector magnet setpoints for the first 3",
-        "targeted_pv": [
-            "HorizontalCorrectorMagnet01CurrentSetPoint", "HorizontalCorrectorMagnet02CurrentSetPoint", "HorizontalCorrectorMagnet03CurrentSetPoint",
-            "VerticalCorrectorMagnet01CurrentSetPoint", "VerticalCorrectorMagnet02CurrentSetPoint", "VerticalCorrectorMagnet03CurrentSetPoint"
-        ],
-        "details": "Testing family group: correctors = HCM and VCM, setpoint = SetPoint"
-    },
-    {
-        "user_query": "What are the gamma radiation levels?",
-        "targeted_pv": ["GammaMonitor01_DoseRate_Instantaneous"],
-        "details": "Testing radiation monitoring: gamma dose rate"
-    }
+  {
+    "user_query": "What's the beam current right now?",
+    "targeted_pv": [
+      "StorageRing_DCCT_01_Current_Readback"
+    ],
+    "tier": 1,
+    "details": "Testing colloquial language: 'right now' should match readback value, not setpoint"
+  },
+  {
+    "user_query": "Show me all the horizontal BPM positions",
+    "targeted_pv": [
+      "StorageRing_BPM_01_Position_X",
+      "StorageRing_BPM_02_Position_X",
+      "StorageRing_BPM_03_Position_X",
+      "StorageRing_BPM_04_Position_X",
+      "StorageRing_BPM_05_Position_X",
+      "StorageRing_BPM_06_Position_X",
+      "StorageRing_BPM_07_Position_X",
+      "StorageRing_BPM_08_Position_X",
+      "StorageRing_BPM_09_Position_X",
+      "StorageRing_BPM_10_Position_X",
+      "StorageRing_BPM_11_Position_X",
+      "StorageRing_BPM_12_Position_X",
+      "StorageRing_BPM_13_Position_X",
+      "StorageRing_BPM_14_Position_X",
+      "StorageRing_BPM_15_Position_X",
+      "StorageRing_BPM_16_Position_X",
+      "StorageRing_BPM_17_Position_X",
+      "StorageRing_BPM_18_Position_X",
+      "StorageRing_BPM_19_Position_X",
+      "StorageRing_BPM_20_Position_X"
+    ],
+    "tier": 1,
+    "details": "Testing aggregate query for all BPM horizontal positions from template expansion"
+  },
+  {
+    "user_query": "What are the vacuum levels in the storage ring?",
+    "targeted_pv": [
+      "StorageRing_IonPump_01_Pressure_Readback",
+      "StorageRing_IonPump_02_Pressure_Readback",
+      "StorageRing_IonPump_03_Pressure_Readback"
+    ],
+    "tier": 2,
+    "details": "Testing synonym matching: 'vacuum levels' should match pressure readings"
+  },
+  {
+    "user_query": "Give me the RF cavity 1 power levels",
+    "targeted_pv": [
+      "StorageRing_Cavity_01_Power_Forward",
+      "StorageRing_Cavity_01_Power_Reverse"
+    ],
+    "tier": 2,
+    "details": "Testing RF system query: 'power levels' should return both forward and reflected power"
+  },
+  {
+    "user_query": "What are the dipole magnet setpoints for the first three?",
+    "targeted_pv": [
+      "StorageRing_Dipole_01_Current_Setpoint",
+      "StorageRing_Dipole_02_Current_Setpoint",
+      "StorageRing_Dipole_03_Current_Setpoint"
+    ],
+    "tier": 1,
+    "details": "Testing range query understanding for template instances, setpoint selection"
+  },
+  {
+    "user_query": "Check the beam lifetime",
+    "targeted_pv": [
+      "StorageRing_DCCT_01_Lifetime_Readback"
+    ],
+    "tier": 2,
+    "details": "Testing semantic understanding: beam lifetime is from DCCT measurement"
+  },
+  {
+    "user_query": "What's the RF frequency setting?",
+    "targeted_pv": [
+      "StorageRing_Cavity_01_Frequency_Setpoint"
+    ],
+    "tier": 2,
+    "details": "Testing synonym: 'setting' implies setpoint, RF frequency from cavity"
+  },
+  {
+    "user_query": "Show me all vertical BPM positions",
+    "targeted_pv": [
+      "StorageRing_BPM_01_Position_Y",
+      "StorageRing_BPM_02_Position_Y",
+      "StorageRing_BPM_03_Position_Y",
+      "StorageRing_BPM_04_Position_Y",
+      "StorageRing_BPM_05_Position_Y",
+      "StorageRing_BPM_06_Position_Y",
+      "StorageRing_BPM_07_Position_Y",
+      "StorageRing_BPM_08_Position_Y",
+      "StorageRing_BPM_09_Position_Y",
+      "StorageRing_BPM_10_Position_Y",
+      "StorageRing_BPM_11_Position_Y",
+      "StorageRing_BPM_12_Position_Y",
+      "StorageRing_BPM_13_Position_Y",
+      "StorageRing_BPM_14_Position_Y",
+      "StorageRing_BPM_15_Position_Y",
+      "StorageRing_BPM_16_Position_Y",
+      "StorageRing_BPM_17_Position_Y",
+      "StorageRing_BPM_18_Position_Y",
+      "StorageRing_BPM_19_Position_Y",
+      "StorageRing_BPM_20_Position_Y"
+    ],
+    "tier": 1,
+    "details": "Testing axis selection: vertical = Y for template instances"
+  },
+  {
+    "user_query": "What's the setpoint for dipole magnet 5?",
+    "targeted_pv": [
+      "StorageRing_Dipole_05_Current_Setpoint"
+    ],
+    "tier": 1,
+    "details": "Testing template instance recognition: specific numbered device with setpoint"
+  },
+  {
+    "user_query": "Give me quadrupole magnet 3 readback",
+    "targeted_pv": [
+      "StorageRing_QuadFocus_03_Current_Readback"
+    ],
+    "tier": 1,
+    "details": "Testing template instance recognition with readback specification"
+  },
+  {
+    "user_query": "Show me all focusing quad 4 values",
+    "targeted_pv": [
+      "StorageRing_QuadFocus_04_Current_Setpoint",
+      "StorageRing_QuadFocus_04_Current_Readback"
+    ],
+    "tier": 1,
+    "details": "Testing template instance query without specifying set/readback - should return both"
+  },
+  {
+    "user_query": "What are the first three dipole magnet setpoints?",
+    "targeted_pv": [
+      "StorageRing_Dipole_01_Current_Setpoint",
+      "StorageRing_Dipole_02_Current_Setpoint",
+      "StorageRing_Dipole_03_Current_Setpoint"
+    ],
+    "tier": 1,
+    "details": "Testing range query understanding for template instances"
+  },
+  {
+    "user_query": "Give me horizontal corrector 7 setpoint",
+    "targeted_pv": [
+      "StorageRing_HorizCorr_07_Current_Setpoint"
+    ],
+    "tier": 1,
+    "details": "Testing horizontal corrector with both instance number and setpoint"
+  },
+  {
+    "user_query": "What's the readback for vertical corrector 3?",
+    "targeted_pv": [
+      "StorageRing_VertCorr_03_Current_Readback"
+    ],
+    "tier": 1,
+    "details": "Testing vertical corrector with readback specification"
+  },
+  {
+    "user_query": "Show me all horizontal corrector 5 values",
+    "targeted_pv": [
+      "StorageRing_HorizCorr_05_Current_Setpoint",
+      "StorageRing_HorizCorr_05_Current_Readback"
+    ],
+    "tier": 1,
+    "details": "Testing multi-field aggregate: should return both SetPoint and ReadBack for specified instance"
+  },
+  {
+    "user_query": "Is the DCCT measurement valid?",
+    "targeted_pv": [
+      "StorageRing_DCCT_01_Status_Valid"
+    ],
+    "tier": 3,
+    "details": "Testing DCCT status query for measurement validity"
+  },
+  {
+    "user_query": "What's the RF cavity 2 voltage?",
+    "targeted_pv": [
+      "StorageRing_Cavity_02_Voltage_Readback"
+    ],
+    "tier": 1,
+    "details": "Testing specific cavity with voltage readback"
+  },
+  {
+    "user_query": "Show me the cavity temperatures",
+    "targeted_pv": [
+      "StorageRing_Cavity_01_Temperature_Readback",
+      "StorageRing_Cavity_02_Temperature_Readback"
+    ],
+    "tier": 2,
+    "details": "Testing aggregate query across both cavities for temperature"
+  },
+  {
+    "user_query": "What are the vacuum gauge pressures?",
+    "targeted_pv": [
+      "StorageRing_VacGauge_01_Pressure_Readback",
+      "StorageRing_VacGauge_02_Pressure_Readback",
+      "StorageRing_VacGauge_03_Pressure_Readback",
+      "StorageRing_VacGauge_04_Pressure_Readback",
+      "StorageRing_VacGauge_05_Pressure_Readback",
+      "StorageRing_VacGauge_06_Pressure_Readback",
+      "StorageRing_VacGauge_07_Pressure_Readback",
+      "StorageRing_VacGauge_08_Pressure_Readback",
+      "StorageRing_VacGauge_09_Pressure_Readback",
+      "StorageRing_VacGauge_10_Pressure_Readback",
+      "StorageRing_VacGauge_11_Pressure_Readback",
+      "StorageRing_VacGauge_12_Pressure_Readback"
+    ],
+    "tier": 2,
+    "details": "Testing vacuum gauge pressure readback for all gauges"
+  },
+  {
+    "user_query": "Is vacuum valve 1 open?",
+    "targeted_pv": [
+      "StorageRing_GateValve_01_Position_Open"
+    ],
+    "tier": 3,
+    "details": "Testing valve position status query"
+  },
+  {
+    "user_query": "What's the neutron monitor alarm status?",
+    "targeted_pv": [
+      "StorageRing_NeutronDet_01_Status_Alarm"
+    ],
+    "tier": 3,
+    "details": "Testing radiation monitor alarm status"
+  },
+  {
+    "user_query": "Give me all the dipole magnet readbacks",
+    "targeted_pv": [
+      "StorageRing_Dipole_01_Current_Readback",
+      "StorageRing_Dipole_02_Current_Readback",
+      "StorageRing_Dipole_03_Current_Readback",
+      "StorageRing_Dipole_04_Current_Readback",
+      "StorageRing_Dipole_05_Current_Readback",
+      "StorageRing_Dipole_06_Current_Readback",
+      "StorageRing_Dipole_07_Current_Readback",
+      "StorageRing_Dipole_08_Current_Readback",
+      "StorageRing_Dipole_09_Current_Readback",
+      "StorageRing_Dipole_10_Current_Readback",
+      "StorageRing_Dipole_11_Current_Readback",
+      "StorageRing_Dipole_12_Current_Readback",
+      "StorageRing_Dipole_13_Current_Readback",
+      "StorageRing_Dipole_14_Current_Readback",
+      "StorageRing_Dipole_15_Current_Readback",
+      "StorageRing_Dipole_16_Current_Readback",
+      "StorageRing_Dipole_17_Current_Readback",
+      "StorageRing_Dipole_18_Current_Readback",
+      "StorageRing_Dipole_19_Current_Readback",
+      "StorageRing_Dipole_20_Current_Readback",
+      "StorageRing_Dipole_21_Current_Readback",
+      "StorageRing_Dipole_22_Current_Readback",
+      "StorageRing_Dipole_23_Current_Readback",
+      "StorageRing_Dipole_24_Current_Readback"
+    ],
+    "tier": 1,
+    "details": "Testing aggregate query across all dipole instances for readback"
+  },
+  {
+    "user_query": "What are the klystron output powers?",
+    "targeted_pv": [
+      "StorageRing_Klystron_01_Power_Readback",
+      "StorageRing_Klystron_02_Power_Readback"
+    ],
+    "tier": 2,
+    "details": "Testing klystron power query across both klystrons"
+  },
+  {
+    "user_query": "Show me the last two dipole magnet readbacks",
+    "targeted_pv": [
+      "StorageRing_Dipole_23_Current_Readback",
+      "StorageRing_Dipole_24_Current_Readback"
+    ],
+    "tier": 1,
+    "details": "Testing edge case: 'last two' means highest numbered instances (11 and 12, since dipoles go 1-12)"
+  },
+  {
+    "user_query": "Give me focusing quads 6 through 8",
+    "targeted_pv": [
+      "StorageRing_QuadFocus_06_Current_Setpoint",
+      "StorageRing_QuadFocus_06_Current_Readback",
+      "StorageRing_QuadFocus_07_Current_Setpoint",
+      "StorageRing_QuadFocus_07_Current_Readback",
+      "StorageRing_QuadFocus_08_Current_Setpoint",
+      "StorageRing_QuadFocus_08_Current_Readback"
+    ],
+    "tier": 1,
+    "details": "Testing explicit range query with both set and readback for each instance"
+  },
+  {
+    "user_query": "Open vacuum valve 1",
+    "targeted_pv": [
+      "StorageRing_GateValve_01_Control_Open"
+    ],
+    "tier": 3,
+    "details": "Testing command intent: 'open' verb should map to control command, not position status"
+  },
+  {
+    "user_query": "Show me the RF cavity voltages",
+    "targeted_pv": [
+      "StorageRing_Cavity_01_Voltage_Readback",
+      "StorageRing_Cavity_02_Voltage_Readback"
+    ],
+    "tier": 1,
+    "details": "Testing aggregate query for all cavity voltage readbacks"
+  },
+  {
+    "user_query": "What's beam position at BPM 5?",
+    "targeted_pv": [
+      "StorageRing_BPM_05_Position_X",
+      "StorageRing_BPM_05_Position_Y"
+    ],
+    "tier": 1,
+    "details": "Testing BPM position query: both X and Y axes for specific instance"
+  },
+  {
+    "user_query": "Show me all corrector magnet setpoints for the first 3",
+    "targeted_pv": [
+      "StorageRing_HorizCorr_01_Current_Setpoint",
+      "StorageRing_HorizCorr_02_Current_Setpoint",
+      "StorageRing_HorizCorr_03_Current_Setpoint",
+      "StorageRing_VertCorr_01_Current_Setpoint",
+      "StorageRing_VertCorr_02_Current_Setpoint",
+      "StorageRing_VertCorr_03_Current_Setpoint"
+    ],
+    "tier": 1,
+    "details": "Testing family group: correctors = HCM and VCM, setpoint = SetPoint"
+  },
+  {
+    "user_query": "What are the gamma radiation levels?",
+    "targeted_pv": [
+      "StorageRing_GammaDet_01_DoseRate_Instantaneous"
+    ],
+    "tier": 2,
+    "details": "Testing radiation monitoring: gamma dose rate"
+  }
 ]

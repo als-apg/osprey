@@ -1,292 +1,438 @@
 [
-    {
-        "user_query": "Show me all horizontal BPM positions",
-        "targeted_pv": [
-            "SR:DIAG:BPM:01:POSITION:X", "SR:DIAG:BPM:02:POSITION:X",
-            "SR:DIAG:BPM:03:POSITION:X", "SR:DIAG:BPM:04:POSITION:X",
-            "SR:DIAG:BPM:05:POSITION:X", "SR:DIAG:BPM:06:POSITION:X",
-            "SR:DIAG:BPM:07:POSITION:X", "SR:DIAG:BPM:08:POSITION:X",
-            "SR:DIAG:BPM:09:POSITION:X", "SR:DIAG:BPM:10:POSITION:X",
-            "SR:DIAG:BPM:11:POSITION:X", "SR:DIAG:BPM:12:POSITION:X",
-            "SR:DIAG:BPM:13:POSITION:X", "SR:DIAG:BPM:14:POSITION:X",
-            "SR:DIAG:BPM:15:POSITION:X", "SR:DIAG:BPM:16:POSITION:X",
-            "SR:DIAG:BPM:17:POSITION:X", "SR:DIAG:BPM:18:POSITION:X",
-            "SR:DIAG:BPM:19:POSITION:X", "SR:DIAG:BPM:20:POSITION:X",
-            "SR:DIAG:BPM:21:POSITION:X", "SR:DIAG:BPM:22:POSITION:X",
-            "SR:DIAG:BPM:23:POSITION:X", "SR:DIAG:BPM:24:POSITION:X"
-        ],
-        "details": "Family-level aggregate: all horizontal BPM readbacks in first 2 sectors (24 of 96)"
-    },
-    {
-        "user_query": "Show all vertical BPM positions",
-        "targeted_pv": [
-            "SR:DIAG:BPM:01:POSITION:Y", "SR:DIAG:BPM:02:POSITION:Y",
-            "SR:DIAG:BPM:03:POSITION:Y", "SR:DIAG:BPM:04:POSITION:Y",
-            "SR:DIAG:BPM:05:POSITION:Y", "SR:DIAG:BPM:06:POSITION:Y",
-            "SR:DIAG:BPM:07:POSITION:Y", "SR:DIAG:BPM:08:POSITION:Y",
-            "SR:DIAG:BPM:09:POSITION:Y", "SR:DIAG:BPM:10:POSITION:Y",
-            "SR:DIAG:BPM:11:POSITION:Y", "SR:DIAG:BPM:12:POSITION:Y",
-            "SR:DIAG:BPM:13:POSITION:Y", "SR:DIAG:BPM:14:POSITION:Y",
-            "SR:DIAG:BPM:15:POSITION:Y", "SR:DIAG:BPM:16:POSITION:Y",
-            "SR:DIAG:BPM:17:POSITION:Y", "SR:DIAG:BPM:18:POSITION:Y",
-            "SR:DIAG:BPM:19:POSITION:Y", "SR:DIAG:BPM:20:POSITION:Y",
-            "SR:DIAG:BPM:21:POSITION:Y", "SR:DIAG:BPM:22:POSITION:Y",
-            "SR:DIAG:BPM:23:POSITION:Y", "SR:DIAG:BPM:24:POSITION:Y"
-        ],
-        "details": "Family-level aggregate: all vertical BPM readbacks in first 2 sectors"
-    },
-    {
-        "user_query": "What are all the horizontal corrector readbacks?",
-        "targeted_pv": [
-            "SR:MAG:HCM:01:CURRENT:RB", "SR:MAG:HCM:02:CURRENT:RB",
-            "SR:MAG:HCM:03:CURRENT:RB", "SR:MAG:HCM:04:CURRENT:RB",
-            "SR:MAG:HCM:05:CURRENT:RB", "SR:MAG:HCM:06:CURRENT:RB",
-            "SR:MAG:HCM:07:CURRENT:RB", "SR:MAG:HCM:08:CURRENT:RB",
-            "SR:MAG:HCM:09:CURRENT:RB", "SR:MAG:HCM:10:CURRENT:RB",
-            "SR:MAG:HCM:11:CURRENT:RB", "SR:MAG:HCM:12:CURRENT:RB"
-        ],
-        "details": "Family-level aggregate: all HCM current readbacks in first sector (12 of 72)"
-    },
-    {
-        "user_query": "Show all vertical corrector setpoints",
-        "targeted_pv": [
-            "SR:MAG:VCM:01:CURRENT:SP", "SR:MAG:VCM:02:CURRENT:SP",
-            "SR:MAG:VCM:03:CURRENT:SP", "SR:MAG:VCM:04:CURRENT:SP",
-            "SR:MAG:VCM:05:CURRENT:SP", "SR:MAG:VCM:06:CURRENT:SP",
-            "SR:MAG:VCM:07:CURRENT:SP", "SR:MAG:VCM:08:CURRENT:SP",
-            "SR:MAG:VCM:09:CURRENT:SP", "SR:MAG:VCM:10:CURRENT:SP",
-            "SR:MAG:VCM:11:CURRENT:SP", "SR:MAG:VCM:12:CURRENT:SP"
-        ],
-        "details": "Family-level aggregate: all VCM current setpoints in first sector"
-    },
-    {
-        "user_query": "Read all the gauge pressures",
-        "targeted_pv": [
-            "SR:VAC:GAUGE:01:PRESSURE:RB", "SR:VAC:GAUGE:02:PRESSURE:RB",
-            "SR:VAC:GAUGE:03:PRESSURE:RB", "SR:VAC:GAUGE:04:PRESSURE:RB",
-            "SR:VAC:GAUGE:05:PRESSURE:RB", "SR:VAC:GAUGE:06:PRESSURE:RB",
-            "SR:VAC:GAUGE:07:PRESSURE:RB", "SR:VAC:GAUGE:08:PRESSURE:RB",
-            "SR:VAC:GAUGE:09:PRESSURE:RB", "SR:VAC:GAUGE:10:PRESSURE:RB",
-            "SR:VAC:GAUGE:11:PRESSURE:RB", "SR:VAC:GAUGE:12:PRESSURE:RB"
-        ],
-        "details": "Family-level aggregate: all gauge pressure readbacks in first sector"
-    },
-    {
-        "user_query": "What are the focusing quad currents?",
-        "targeted_pv": [
-            "SR:MAG:QF:01:CURRENT:RB", "SR:MAG:QF:02:CURRENT:RB",
-            "SR:MAG:QF:03:CURRENT:RB", "SR:MAG:QF:04:CURRENT:RB",
-            "SR:MAG:QF:05:CURRENT:RB", "SR:MAG:QF:06:CURRENT:RB"
-        ],
-        "details": "Family-level aggregate: QF readbacks for first 6 quads"
-    },
-    {
-        "user_query": "What is the current of dipole 5?",
-        "targeted_pv": ["SR:MAG:DIPOLE:05:CURRENT:RB"],
-        "details": "Specific device: single dipole current readback by number"
-    },
-    {
-        "user_query": "Read horizontal BPM 42 position",
-        "targeted_pv": ["SR:DIAG:BPM:42:POSITION:X"],
-        "details": "Specific device: single BPM horizontal position by number"
-    },
-    {
-        "user_query": "What's the setpoint of horizontal corrector 10?",
-        "targeted_pv": ["SR:MAG:HCM:10:CURRENT:SP"],
-        "details": "Specific device: single HCM setpoint by number"
-    },
-    {
-        "user_query": "Get defocusing quad 7 current readback",
-        "targeted_pv": ["SR:MAG:QD:07:CURRENT:RB"],
-        "details": "Specific device: single QD current readback"
-    },
-    {
-        "user_query": "What is ion pump 15 pressure?",
-        "targeted_pv": ["SR:VAC:ION-PUMP:15:PRESSURE:RB"],
-        "details": "Specific device: single ion pump pressure reading"
-    },
-    {
-        "user_query": "Check focusing sextupole 3 setpoint",
-        "targeted_pv": ["SR:MAG:SF:03:CURRENT:SP"],
-        "details": "Specific device: single SF sextupole current setpoint"
-    },
-    {
-        "user_query": "Show beam current and RF voltage",
-        "targeted_pv": [
-            "SR:DIAG:DCCT:01:CURRENT:RB",
-            "SR:RF:CAVITY:01:VOLTAGE:RB", "SR:RF:CAVITY:02:VOLTAGE:RB"
-        ],
-        "details": "Cross-family: DCCT beam current + RF cavity voltage readbacks"
-    },
-    {
-        "user_query": "What are the beam position and lifetime?",
-        "targeted_pv": [
-            "SR:DIAG:BPM:01:POSITION:X", "SR:DIAG:BPM:01:POSITION:Y",
-            "SR:DIAG:DCCT:01:LIFETIME:RB"
-        ],
-        "details": "Cross-family: BPM positions at first monitor + DCCT lifetime"
-    },
-    {
-        "user_query": "Show me RF power and cavity temperature",
-        "targeted_pv": [
-            "SR:RF:CAVITY:01:POWER:FWD", "SR:RF:CAVITY:02:POWER:FWD",
-            "SR:RF:CAVITY:01:POWER:REV", "SR:RF:CAVITY:02:POWER:REV",
-            "SR:RF:CAVITY:01:TEMPERATURE:RB", "SR:RF:CAVITY:02:TEMPERATURE:RB"
-        ],
-        "details": "Cross-family: RF forward/reflected power and cavity temperatures"
-    },
-    {
-        "user_query": "Give me vacuum and beam current readings",
-        "targeted_pv": [
-            "SR:VAC:GAUGE:01:PRESSURE:RB", "SR:VAC:GAUGE:02:PRESSURE:RB",
-            "SR:VAC:GAUGE:03:PRESSURE:RB",
-            "SR:DIAG:DCCT:01:CURRENT:RB"
-        ],
-        "details": "Cross-family: gauge pressures + DCCT beam current"
-    },
-    {
-        "user_query": "What is the orbit correction status?",
-        "targeted_pv": [
-            "SR:MAG:HCM:01:CURRENT:RB", "SR:MAG:HCM:01:CURRENT:SP",
-            "SR:MAG:VCM:01:CURRENT:RB", "SR:MAG:VCM:01:CURRENT:SP",
-            "SR:DIAG:BPM:01:POSITION:X", "SR:DIAG:BPM:01:POSITION:Y"
-        ],
-        "details": "Cross-family: corrector readbacks/setpoints + BPM positions for orbit overview"
-    },
-    {
-        "user_query": "Turn on horizontal corrector 3",
-        "targeted_pv": ["SR:MAG:HCM:03:CONTROL:ON"],
-        "details": "Status/control: HCM on-control command"
-    },
-    {
-        "user_query": "Is horizontal corrector 5 ready?",
-        "targeted_pv": ["SR:MAG:HCM:05:STATUS:READY"],
-        "details": "Status/control: HCM ready status query"
-    },
-    {
-        "user_query": "Check if dipole 12 is ready",
-        "targeted_pv": ["SR:MAG:DIPOLE:12:STATUS:READY"],
-        "details": "Status/control: dipole ready status query"
-    },
-    {
-        "user_query": "What's the status of QF 4?",
-        "targeted_pv": ["SR:MAG:QF:04:STATUS:READY"],
-        "details": "Status/control: focusing quad ready status"
-    },
-    {
-        "user_query": "Is vertical corrector 8 ready?",
-        "targeted_pv": ["SR:MAG:VCM:08:STATUS:READY"],
-        "details": "Status/control: VCM ready status query"
-    },
-    {
-        "user_query": "Show dipole setpoints 1 through 6",
-        "targeted_pv": [
-            "SR:MAG:DIPOLE:01:CURRENT:SP", "SR:MAG:DIPOLE:02:CURRENT:SP",
-            "SR:MAG:DIPOLE:03:CURRENT:SP", "SR:MAG:DIPOLE:04:CURRENT:SP",
-            "SR:MAG:DIPOLE:05:CURRENT:SP", "SR:MAG:DIPOLE:06:CURRENT:SP"
-        ],
-        "details": "Range query: dipole current setpoints for devices 1-6"
-    },
-    {
-        "user_query": "Get BPM sum signals for monitors 10 to 15",
-        "targeted_pv": [
-            "SR:DIAG:BPM:10:SIGNAL:SUM", "SR:DIAG:BPM:11:SIGNAL:SUM",
-            "SR:DIAG:BPM:12:SIGNAL:SUM", "SR:DIAG:BPM:13:SIGNAL:SUM",
-            "SR:DIAG:BPM:14:SIGNAL:SUM", "SR:DIAG:BPM:15:SIGNAL:SUM"
-        ],
-        "details": "Range query: BPM sum signals for a contiguous range"
-    },
-    {
-        "user_query": "Read ion pump pressures 20 through 25",
-        "targeted_pv": [
-            "SR:VAC:ION-PUMP:20:PRESSURE:RB", "SR:VAC:ION-PUMP:21:PRESSURE:RB",
-            "SR:VAC:ION-PUMP:22:PRESSURE:RB", "SR:VAC:ION-PUMP:23:PRESSURE:RB",
-            "SR:VAC:ION-PUMP:24:PRESSURE:RB", "SR:VAC:ION-PUMP:25:PRESSURE:RB"
-        ],
-        "details": "Range query: ion pump pressures for a contiguous range"
-    },
-    {
-        "user_query": "What are the sextupole SF setpoints 1 to 6?",
-        "targeted_pv": [
-            "SR:MAG:SF:01:CURRENT:SP", "SR:MAG:SF:02:CURRENT:SP",
-            "SR:MAG:SF:03:CURRENT:SP", "SR:MAG:SF:04:CURRENT:SP",
-            "SR:MAG:SF:05:CURRENT:SP", "SR:MAG:SF:06:CURRENT:SP"
-        ],
-        "details": "Range query: focusing sextupole setpoints for first 6 devices"
-    },
-    {
-        "user_query": "Show defocusing quad readbacks 1 through 6",
-        "targeted_pv": [
-            "SR:MAG:QD:01:CURRENT:RB", "SR:MAG:QD:02:CURRENT:RB",
-            "SR:MAG:QD:03:CURRENT:RB", "SR:MAG:QD:04:CURRENT:RB",
-            "SR:MAG:QD:05:CURRENT:RB", "SR:MAG:QD:06:CURRENT:RB"
-        ],
-        "details": "Range query: defocusing quad current readbacks for devices 1-6"
-    },
-    {
-        "user_query": "How do I steer the beam horizontally?",
-        "targeted_pv": [
-            "SR:MAG:HCM:01:CURRENT:SP", "SR:MAG:HCM:02:CURRENT:SP",
-            "SR:MAG:HCM:03:CURRENT:SP", "SR:MAG:HCM:04:CURRENT:SP",
-            "SR:MAG:HCM:05:CURRENT:SP", "SR:MAG:HCM:06:CURRENT:SP"
-        ],
-        "details": "Semantic/synonym: 'steer beam' maps to horizontal corrector setpoints"
-    },
-    {
-        "user_query": "What controls the beam energy?",
-        "targeted_pv": [
-            "SR:MAG:DIPOLE:01:CURRENT:SP", "SR:MAG:DIPOLE:02:CURRENT:SP",
-            "SR:MAG:DIPOLE:03:CURRENT:SP"
-        ],
-        "details": "Semantic/synonym: beam energy controlled by dipole magnets"
-    },
-    {
-        "user_query": "How do I adjust the tune?",
-        "targeted_pv": [
-            "SR:MAG:QF:01:CURRENT:SP", "SR:MAG:QF:02:CURRENT:SP",
-            "SR:MAG:QD:01:CURRENT:SP", "SR:MAG:QD:02:CURRENT:SP"
-        ],
-        "details": "Semantic/synonym: betatron tune adjustment via focusing/defocusing quads"
-    },
-    {
-        "user_query": "What sets the chromaticity?",
-        "targeted_pv": [
-            "SR:MAG:SF:01:CURRENT:SP", "SR:MAG:SF:02:CURRENT:SP",
-            "SR:MAG:SD:01:CURRENT:SP", "SR:MAG:SD:02:CURRENT:SP"
-        ],
-        "details": "Semantic/synonym: chromaticity correction via SF/SD sextupoles"
-    },
-    {
-        "user_query": "What are the vacuum readings in the ring?",
-        "targeted_pv": [
-            "SR:VAC:GAUGE:01:PRESSURE:RB", "SR:VAC:GAUGE:02:PRESSURE:RB",
-            "SR:VAC:GAUGE:03:PRESSURE:RB", "SR:VAC:GAUGE:04:PRESSURE:RB",
-            "SR:VAC:GAUGE:05:PRESSURE:RB", "SR:VAC:GAUGE:06:PRESSURE:RB",
-            "SR:VAC:ION-PUMP:01:PRESSURE:RB", "SR:VAC:ION-PUMP:02:PRESSURE:RB",
-            "SR:VAC:ION-PUMP:03:PRESSURE:RB", "SR:VAC:ION-PUMP:04:PRESSURE:RB",
-            "SR:VAC:ION-PUMP:05:PRESSURE:RB", "SR:VAC:ION-PUMP:06:PRESSURE:RB"
-        ],
-        "details": "Diagnostic: vacuum system overview combining gauge and ion pump pressures"
-    },
-    {
-        "user_query": "Check the beam lifetime",
-        "targeted_pv": ["SR:DIAG:DCCT:01:LIFETIME:RB"],
-        "details": "Diagnostic: beam lifetime from DCCT measurement"
-    },
-    {
-        "user_query": "What is the RF frequency?",
-        "targeted_pv": [
-            "SR:RF:CAVITY:01:FREQUENCY:RB", "SR:RF:CAVITY:02:FREQUENCY:RB"
-        ],
-        "details": "Diagnostic: RF cavity frequency readbacks"
-    },
-    {
-        "user_query": "Show me the ion pump voltages",
-        "targeted_pv": [
-            "SR:VAC:ION-PUMP:01:VOLTAGE:RB", "SR:VAC:ION-PUMP:02:VOLTAGE:RB",
-            "SR:VAC:ION-PUMP:03:VOLTAGE:RB", "SR:VAC:ION-PUMP:04:VOLTAGE:RB",
-            "SR:VAC:ION-PUMP:05:VOLTAGE:RB", "SR:VAC:ION-PUMP:06:VOLTAGE:RB"
-        ],
-        "details": "Diagnostic: ion pump high-voltage readbacks for vacuum system health"
-    }
+  {
+    "user_query": "Show me all horizontal BPM positions",
+    "targeted_pv": [
+      "SR:DIAG:BPM:01:POSITION:X",
+      "SR:DIAG:BPM:02:POSITION:X",
+      "SR:DIAG:BPM:03:POSITION:X",
+      "SR:DIAG:BPM:04:POSITION:X",
+      "SR:DIAG:BPM:05:POSITION:X",
+      "SR:DIAG:BPM:06:POSITION:X",
+      "SR:DIAG:BPM:07:POSITION:X",
+      "SR:DIAG:BPM:08:POSITION:X",
+      "SR:DIAG:BPM:09:POSITION:X",
+      "SR:DIAG:BPM:10:POSITION:X",
+      "SR:DIAG:BPM:11:POSITION:X",
+      "SR:DIAG:BPM:12:POSITION:X",
+      "SR:DIAG:BPM:13:POSITION:X",
+      "SR:DIAG:BPM:14:POSITION:X",
+      "SR:DIAG:BPM:15:POSITION:X",
+      "SR:DIAG:BPM:16:POSITION:X",
+      "SR:DIAG:BPM:17:POSITION:X",
+      "SR:DIAG:BPM:18:POSITION:X",
+      "SR:DIAG:BPM:19:POSITION:X",
+      "SR:DIAG:BPM:20:POSITION:X",
+      "SR:DIAG:BPM:21:POSITION:X",
+      "SR:DIAG:BPM:22:POSITION:X",
+      "SR:DIAG:BPM:23:POSITION:X",
+      "SR:DIAG:BPM:24:POSITION:X"
+    ],
+    "tier": 1,
+    "details": "Family-level aggregate: all horizontal BPM readbacks in first 2 sectors (24 of 96)"
+  },
+  {
+    "user_query": "Show all vertical BPM positions",
+    "targeted_pv": [
+      "SR:DIAG:BPM:01:POSITION:Y",
+      "SR:DIAG:BPM:02:POSITION:Y",
+      "SR:DIAG:BPM:03:POSITION:Y",
+      "SR:DIAG:BPM:04:POSITION:Y",
+      "SR:DIAG:BPM:05:POSITION:Y",
+      "SR:DIAG:BPM:06:POSITION:Y",
+      "SR:DIAG:BPM:07:POSITION:Y",
+      "SR:DIAG:BPM:08:POSITION:Y",
+      "SR:DIAG:BPM:09:POSITION:Y",
+      "SR:DIAG:BPM:10:POSITION:Y",
+      "SR:DIAG:BPM:11:POSITION:Y",
+      "SR:DIAG:BPM:12:POSITION:Y",
+      "SR:DIAG:BPM:13:POSITION:Y",
+      "SR:DIAG:BPM:14:POSITION:Y",
+      "SR:DIAG:BPM:15:POSITION:Y",
+      "SR:DIAG:BPM:16:POSITION:Y",
+      "SR:DIAG:BPM:17:POSITION:Y",
+      "SR:DIAG:BPM:18:POSITION:Y",
+      "SR:DIAG:BPM:19:POSITION:Y",
+      "SR:DIAG:BPM:20:POSITION:Y",
+      "SR:DIAG:BPM:21:POSITION:Y",
+      "SR:DIAG:BPM:22:POSITION:Y",
+      "SR:DIAG:BPM:23:POSITION:Y",
+      "SR:DIAG:BPM:24:POSITION:Y"
+    ],
+    "tier": 1,
+    "details": "Family-level aggregate: all vertical BPM readbacks in first 2 sectors"
+  },
+  {
+    "user_query": "What are all the horizontal corrector readbacks?",
+    "targeted_pv": [
+      "SR:MAG:HCM:01:CURRENT:RB",
+      "SR:MAG:HCM:02:CURRENT:RB",
+      "SR:MAG:HCM:03:CURRENT:RB",
+      "SR:MAG:HCM:04:CURRENT:RB",
+      "SR:MAG:HCM:05:CURRENT:RB",
+      "SR:MAG:HCM:06:CURRENT:RB",
+      "SR:MAG:HCM:07:CURRENT:RB",
+      "SR:MAG:HCM:08:CURRENT:RB",
+      "SR:MAG:HCM:09:CURRENT:RB",
+      "SR:MAG:HCM:10:CURRENT:RB",
+      "SR:MAG:HCM:11:CURRENT:RB",
+      "SR:MAG:HCM:12:CURRENT:RB"
+    ],
+    "tier": 1,
+    "details": "Family-level aggregate: all HCM current readbacks in first sector (12 of 72)"
+  },
+  {
+    "user_query": "Show all vertical corrector setpoints",
+    "targeted_pv": [
+      "SR:MAG:VCM:01:CURRENT:SP",
+      "SR:MAG:VCM:02:CURRENT:SP",
+      "SR:MAG:VCM:03:CURRENT:SP",
+      "SR:MAG:VCM:04:CURRENT:SP",
+      "SR:MAG:VCM:05:CURRENT:SP",
+      "SR:MAG:VCM:06:CURRENT:SP",
+      "SR:MAG:VCM:07:CURRENT:SP",
+      "SR:MAG:VCM:08:CURRENT:SP",
+      "SR:MAG:VCM:09:CURRENT:SP",
+      "SR:MAG:VCM:10:CURRENT:SP",
+      "SR:MAG:VCM:11:CURRENT:SP",
+      "SR:MAG:VCM:12:CURRENT:SP"
+    ],
+    "tier": 1,
+    "details": "Family-level aggregate: all VCM current setpoints in first sector"
+  },
+  {
+    "user_query": "Read all the gauge pressures",
+    "targeted_pv": [
+      "SR:VAC:GAUGE:01:PRESSURE:RB",
+      "SR:VAC:GAUGE:02:PRESSURE:RB",
+      "SR:VAC:GAUGE:03:PRESSURE:RB",
+      "SR:VAC:GAUGE:04:PRESSURE:RB",
+      "SR:VAC:GAUGE:05:PRESSURE:RB",
+      "SR:VAC:GAUGE:06:PRESSURE:RB",
+      "SR:VAC:GAUGE:07:PRESSURE:RB",
+      "SR:VAC:GAUGE:08:PRESSURE:RB",
+      "SR:VAC:GAUGE:09:PRESSURE:RB",
+      "SR:VAC:GAUGE:10:PRESSURE:RB",
+      "SR:VAC:GAUGE:11:PRESSURE:RB",
+      "SR:VAC:GAUGE:12:PRESSURE:RB"
+    ],
+    "tier": 2,
+    "details": "Family-level aggregate: all gauge pressure readbacks in first sector"
+  },
+  {
+    "user_query": "What are the focusing quad currents?",
+    "targeted_pv": [
+      "SR:MAG:QF:01:CURRENT:RB",
+      "SR:MAG:QF:02:CURRENT:RB",
+      "SR:MAG:QF:03:CURRENT:RB",
+      "SR:MAG:QF:04:CURRENT:RB",
+      "SR:MAG:QF:05:CURRENT:RB",
+      "SR:MAG:QF:06:CURRENT:RB"
+    ],
+    "tier": 1,
+    "details": "Family-level aggregate: QF readbacks for first 6 quads"
+  },
+  {
+    "user_query": "What is the current of dipole 5?",
+    "targeted_pv": [
+      "SR:MAG:DIPOLE:05:CURRENT:RB"
+    ],
+    "tier": 1,
+    "details": "Specific device: single dipole current readback by number"
+  },
+  {
+    "user_query": "Read horizontal BPM 42 position",
+    "targeted_pv": [
+      "SR:DIAG:BPM:42:POSITION:X"
+    ],
+    "tier": 1,
+    "details": "Specific device: single BPM horizontal position by number"
+  },
+  {
+    "user_query": "What's the setpoint of horizontal corrector 10?",
+    "targeted_pv": [
+      "SR:MAG:HCM:10:CURRENT:SP"
+    ],
+    "tier": 1,
+    "details": "Specific device: single HCM setpoint by number"
+  },
+  {
+    "user_query": "Get defocusing quad 7 current readback",
+    "targeted_pv": [
+      "SR:MAG:QD:07:CURRENT:RB"
+    ],
+    "tier": 2,
+    "details": "Specific device: single QD current readback"
+  },
+  {
+    "user_query": "What is ion pump 15 pressure?",
+    "targeted_pv": [
+      "SR:VAC:ION-PUMP:15:PRESSURE:RB"
+    ],
+    "tier": 2,
+    "details": "Specific device: single ion pump pressure reading"
+  },
+  {
+    "user_query": "Check focusing sextupole 3 setpoint",
+    "targeted_pv": [
+      "SR:MAG:SF:03:CURRENT:SP"
+    ],
+    "tier": 2,
+    "details": "Specific device: single SF sextupole current setpoint"
+  },
+  {
+    "user_query": "Show beam current and RF voltage",
+    "targeted_pv": [
+      "SR:DIAG:DCCT:01:CURRENT:RB",
+      "SR:RF:CAVITY:01:VOLTAGE:RB",
+      "SR:RF:CAVITY:02:VOLTAGE:RB"
+    ],
+    "tier": 1,
+    "details": "Cross-family: DCCT beam current + RF cavity voltage readbacks"
+  },
+  {
+    "user_query": "What are the beam position and lifetime?",
+    "targeted_pv": [
+      "SR:DIAG:BPM:01:POSITION:X",
+      "SR:DIAG:BPM:01:POSITION:Y",
+      "SR:DIAG:DCCT:01:LIFETIME:RB"
+    ],
+    "tier": 2,
+    "details": "Cross-family: BPM positions at first monitor + DCCT lifetime"
+  },
+  {
+    "user_query": "Show me RF power and cavity temperature",
+    "targeted_pv": [
+      "SR:RF:CAVITY:01:POWER:FWD",
+      "SR:RF:CAVITY:02:POWER:FWD",
+      "SR:RF:CAVITY:01:POWER:REV",
+      "SR:RF:CAVITY:02:POWER:REV",
+      "SR:RF:CAVITY:01:TEMPERATURE:RB",
+      "SR:RF:CAVITY:02:TEMPERATURE:RB"
+    ],
+    "tier": 2,
+    "details": "Cross-family: RF forward/reflected power and cavity temperatures"
+  },
+  {
+    "user_query": "Give me vacuum and beam current readings",
+    "targeted_pv": [
+      "SR:VAC:GAUGE:01:PRESSURE:RB",
+      "SR:VAC:GAUGE:02:PRESSURE:RB",
+      "SR:VAC:GAUGE:03:PRESSURE:RB",
+      "SR:DIAG:DCCT:01:CURRENT:RB"
+    ],
+    "tier": 2,
+    "details": "Cross-family: gauge pressures + DCCT beam current"
+  },
+  {
+    "user_query": "What is the orbit correction status?",
+    "targeted_pv": [
+      "SR:MAG:HCM:01:CURRENT:RB",
+      "SR:MAG:HCM:01:CURRENT:SP",
+      "SR:MAG:VCM:01:CURRENT:RB",
+      "SR:MAG:VCM:01:CURRENT:SP",
+      "SR:DIAG:BPM:01:POSITION:X",
+      "SR:DIAG:BPM:01:POSITION:Y"
+    ],
+    "tier": 1,
+    "details": "Cross-family: corrector readbacks/setpoints + BPM positions for orbit overview"
+  },
+  {
+    "user_query": "Turn on horizontal corrector 3",
+    "targeted_pv": [
+      "SR:MAG:HCM:03:CONTROL:ON"
+    ],
+    "tier": 3,
+    "details": "Status/control: HCM on-control command"
+  },
+  {
+    "user_query": "Is horizontal corrector 5 ready?",
+    "targeted_pv": [
+      "SR:MAG:HCM:05:STATUS:READY"
+    ],
+    "tier": 3,
+    "details": "Status/control: HCM ready status query"
+  },
+  {
+    "user_query": "Check if dipole 12 is ready",
+    "targeted_pv": [
+      "SR:MAG:DIPOLE:12:STATUS:READY"
+    ],
+    "tier": 3,
+    "details": "Status/control: dipole ready status query"
+  },
+  {
+    "user_query": "What's the status of QF 4?",
+    "targeted_pv": [
+      "SR:MAG:QF:04:STATUS:READY"
+    ],
+    "tier": 3,
+    "details": "Status/control: focusing quad ready status"
+  },
+  {
+    "user_query": "Is vertical corrector 8 ready?",
+    "targeted_pv": [
+      "SR:MAG:VCM:08:STATUS:READY"
+    ],
+    "tier": 3,
+    "details": "Status/control: VCM ready status query"
+  },
+  {
+    "user_query": "Show dipole setpoints 1 through 6",
+    "targeted_pv": [
+      "SR:MAG:DIPOLE:01:CURRENT:SP",
+      "SR:MAG:DIPOLE:02:CURRENT:SP",
+      "SR:MAG:DIPOLE:03:CURRENT:SP",
+      "SR:MAG:DIPOLE:04:CURRENT:SP",
+      "SR:MAG:DIPOLE:05:CURRENT:SP",
+      "SR:MAG:DIPOLE:06:CURRENT:SP"
+    ],
+    "tier": 1,
+    "details": "Range query: dipole current setpoints for devices 1-6"
+  },
+  {
+    "user_query": "Get BPM sum signals for monitors 10 to 15",
+    "targeted_pv": [
+      "SR:DIAG:BPM:10:SIGNAL:SUM",
+      "SR:DIAG:BPM:11:SIGNAL:SUM",
+      "SR:DIAG:BPM:12:SIGNAL:SUM",
+      "SR:DIAG:BPM:13:SIGNAL:SUM",
+      "SR:DIAG:BPM:14:SIGNAL:SUM",
+      "SR:DIAG:BPM:15:SIGNAL:SUM"
+    ],
+    "tier": 3,
+    "details": "Range query: BPM sum signals for a contiguous range"
+  },
+  {
+    "user_query": "Read ion pump pressures 20 through 25",
+    "targeted_pv": [
+      "SR:VAC:ION-PUMP:20:PRESSURE:RB",
+      "SR:VAC:ION-PUMP:21:PRESSURE:RB",
+      "SR:VAC:ION-PUMP:22:PRESSURE:RB",
+      "SR:VAC:ION-PUMP:23:PRESSURE:RB",
+      "SR:VAC:ION-PUMP:24:PRESSURE:RB",
+      "SR:VAC:ION-PUMP:25:PRESSURE:RB"
+    ],
+    "tier": 2,
+    "details": "Range query: ion pump pressures for a contiguous range"
+  },
+  {
+    "user_query": "What are the sextupole SF setpoints 1 to 6?",
+    "targeted_pv": [
+      "SR:MAG:SF:01:CURRENT:SP",
+      "SR:MAG:SF:02:CURRENT:SP",
+      "SR:MAG:SF:03:CURRENT:SP",
+      "SR:MAG:SF:04:CURRENT:SP",
+      "SR:MAG:SF:05:CURRENT:SP",
+      "SR:MAG:SF:06:CURRENT:SP"
+    ],
+    "tier": 2,
+    "details": "Range query: focusing sextupole setpoints for first 6 devices"
+  },
+  {
+    "user_query": "Show defocusing quad readbacks 1 through 6",
+    "targeted_pv": [
+      "SR:MAG:QD:01:CURRENT:RB",
+      "SR:MAG:QD:02:CURRENT:RB",
+      "SR:MAG:QD:03:CURRENT:RB",
+      "SR:MAG:QD:04:CURRENT:RB",
+      "SR:MAG:QD:05:CURRENT:RB",
+      "SR:MAG:QD:06:CURRENT:RB"
+    ],
+    "tier": 2,
+    "details": "Range query: defocusing quad current readbacks for devices 1-6"
+  },
+  {
+    "user_query": "How do I steer the beam horizontally?",
+    "targeted_pv": [
+      "SR:MAG:HCM:01:CURRENT:SP",
+      "SR:MAG:HCM:02:CURRENT:SP",
+      "SR:MAG:HCM:03:CURRENT:SP",
+      "SR:MAG:HCM:04:CURRENT:SP",
+      "SR:MAG:HCM:05:CURRENT:SP",
+      "SR:MAG:HCM:06:CURRENT:SP"
+    ],
+    "tier": 1,
+    "details": "Semantic/synonym: 'steer beam' maps to horizontal corrector setpoints"
+  },
+  {
+    "user_query": "What controls the beam energy?",
+    "targeted_pv": [
+      "SR:MAG:DIPOLE:01:CURRENT:SP",
+      "SR:MAG:DIPOLE:02:CURRENT:SP",
+      "SR:MAG:DIPOLE:03:CURRENT:SP"
+    ],
+    "tier": 1,
+    "details": "Semantic/synonym: beam energy controlled by dipole magnets"
+  },
+  {
+    "user_query": "How do I adjust the tune?",
+    "targeted_pv": [
+      "SR:MAG:QF:01:CURRENT:SP",
+      "SR:MAG:QF:02:CURRENT:SP",
+      "SR:MAG:QD:01:CURRENT:SP",
+      "SR:MAG:QD:02:CURRENT:SP"
+    ],
+    "tier": 2,
+    "details": "Semantic/synonym: betatron tune adjustment via focusing/defocusing quads"
+  },
+  {
+    "user_query": "What sets the chromaticity?",
+    "targeted_pv": [
+      "SR:MAG:SF:01:CURRENT:SP",
+      "SR:MAG:SF:02:CURRENT:SP",
+      "SR:MAG:SD:01:CURRENT:SP",
+      "SR:MAG:SD:02:CURRENT:SP"
+    ],
+    "tier": 2,
+    "details": "Semantic/synonym: chromaticity correction via SF/SD sextupoles"
+  },
+  {
+    "user_query": "What are the vacuum readings in the ring?",
+    "targeted_pv": [
+      "SR:VAC:GAUGE:01:PRESSURE:RB",
+      "SR:VAC:GAUGE:02:PRESSURE:RB",
+      "SR:VAC:GAUGE:03:PRESSURE:RB",
+      "SR:VAC:GAUGE:04:PRESSURE:RB",
+      "SR:VAC:GAUGE:05:PRESSURE:RB",
+      "SR:VAC:GAUGE:06:PRESSURE:RB",
+      "SR:VAC:ION-PUMP:01:PRESSURE:RB",
+      "SR:VAC:ION-PUMP:02:PRESSURE:RB",
+      "SR:VAC:ION-PUMP:03:PRESSURE:RB",
+      "SR:VAC:ION-PUMP:04:PRESSURE:RB",
+      "SR:VAC:ION-PUMP:05:PRESSURE:RB",
+      "SR:VAC:ION-PUMP:06:PRESSURE:RB"
+    ],
+    "tier": 2,
+    "details": "Diagnostic: vacuum system overview combining gauge and ion pump pressures"
+  },
+  {
+    "user_query": "Check the beam lifetime",
+    "targeted_pv": [
+      "SR:DIAG:DCCT:01:LIFETIME:RB"
+    ],
+    "tier": 2,
+    "details": "Diagnostic: beam lifetime from DCCT measurement"
+  },
+  {
+    "user_query": "What is the RF frequency?",
+    "targeted_pv": [
+      "SR:RF:CAVITY:01:FREQUENCY:RB",
+      "SR:RF:CAVITY:02:FREQUENCY:RB"
+    ],
+    "tier": 2,
+    "details": "Diagnostic: RF cavity frequency readbacks"
+  },
+  {
+    "user_query": "Show me the ion pump voltages",
+    "targeted_pv": [
+      "SR:VAC:ION-PUMP:01:VOLTAGE:RB",
+      "SR:VAC:ION-PUMP:02:VOLTAGE:RB",
+      "SR:VAC:ION-PUMP:03:VOLTAGE:RB",
+      "SR:VAC:ION-PUMP:04:VOLTAGE:RB",
+      "SR:VAC:ION-PUMP:05:VOLTAGE:RB",
+      "SR:VAC:ION-PUMP:06:VOLTAGE:RB"
+    ],
+    "tier": 2,
+    "details": "Diagnostic: ion pump high-voltage readbacks for vacuum system health"
+  }
 ]

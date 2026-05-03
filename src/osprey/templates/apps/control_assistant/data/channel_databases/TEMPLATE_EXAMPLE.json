@@ -36,7 +36,7 @@
     {
       "_comment": "=== DEVICE FAMILY TEMPLATE EXAMPLE (Simple) ===",
       "_comment2": "Use for device families with multiple instances and sub-channels",
-      "_comment3": "This creates: BPM01XPosition, BPM01YPosition, BPM02XPosition, BPM02YPosition, ...",
+      "_comment3": "This creates: BPM01_XPosition, BPM01_YPosition, BPM02_XPosition, BPM02_YPosition, ...",
       "template": true,
       "base_name": "BPM",
       "instances": [1, 10],

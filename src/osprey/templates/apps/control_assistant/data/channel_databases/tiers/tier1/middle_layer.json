@@ -1,0 +1,2905 @@
+{
+  "SR": {
+    "_description": "storage ring",
+    "BPM": {
+      "_description": "beam position monitor",
+      "POSITION": {
+        "_description": "position",
+        "X": {
+          "_description": "horizontal",
+          "ChannelNames": [
+            "SR:DIAG:BPM:01:POSITION:X",
+            "SR:DIAG:BPM:02:POSITION:X",
+            "SR:DIAG:BPM:03:POSITION:X",
+            "SR:DIAG:BPM:04:POSITION:X",
+            "SR:DIAG:BPM:05:POSITION:X",
+            "SR:DIAG:BPM:06:POSITION:X",
+            "SR:DIAG:BPM:07:POSITION:X",
+            "SR:DIAG:BPM:08:POSITION:X",
+            "SR:DIAG:BPM:09:POSITION:X",
+            "SR:DIAG:BPM:10:POSITION:X",
+            "SR:DIAG:BPM:11:POSITION:X",
+            "SR:DIAG:BPM:12:POSITION:X",
+            "SR:DIAG:BPM:13:POSITION:X",
+            "SR:DIAG:BPM:14:POSITION:X",
+            "SR:DIAG:BPM:15:POSITION:X",
+            "SR:DIAG:BPM:16:POSITION:X",
+            "SR:DIAG:BPM:17:POSITION:X",
+            "SR:DIAG:BPM:18:POSITION:X",
+            "SR:DIAG:BPM:19:POSITION:X",
+            "SR:DIAG:BPM:20:POSITION:X",
+            "SR:DIAG:BPM:21:POSITION:X",
+            "SR:DIAG:BPM:22:POSITION:X",
+            "SR:DIAG:BPM:23:POSITION:X",
+            "SR:DIAG:BPM:24:POSITION:X",
+            "SR:DIAG:BPM:25:POSITION:X",
+            "SR:DIAG:BPM:26:POSITION:X",
+            "SR:DIAG:BPM:27:POSITION:X",
+            "SR:DIAG:BPM:28:POSITION:X",
+            "SR:DIAG:BPM:29:POSITION:X",
+            "SR:DIAG:BPM:30:POSITION:X",
+            "SR:DIAG:BPM:31:POSITION:X",
+            "SR:DIAG:BPM:32:POSITION:X",
+            "SR:DIAG:BPM:33:POSITION:X",
+            "SR:DIAG:BPM:34:POSITION:X",
+            "SR:DIAG:BPM:35:POSITION:X",
+            "SR:DIAG:BPM:36:POSITION:X",
+            "SR:DIAG:BPM:37:POSITION:X",
+            "SR:DIAG:BPM:38:POSITION:X",
+            "SR:DIAG:BPM:39:POSITION:X",
+            "SR:DIAG:BPM:40:POSITION:X",
+            "SR:DIAG:BPM:41:POSITION:X",
+            "SR:DIAG:BPM:42:POSITION:X",
+            "SR:DIAG:BPM:43:POSITION:X",
+            "SR:DIAG:BPM:44:POSITION:X",
+            "SR:DIAG:BPM:45:POSITION:X",
+            "SR:DIAG:BPM:46:POSITION:X",
+            "SR:DIAG:BPM:47:POSITION:X",
+            "SR:DIAG:BPM:48:POSITION:X",
+            "SR:DIAG:BPM:49:POSITION:X",
+            "SR:DIAG:BPM:50:POSITION:X",
+            "SR:DIAG:BPM:51:POSITION:X",
+            "SR:DIAG:BPM:52:POSITION:X",
+            "SR:DIAG:BPM:53:POSITION:X",
+            "SR:DIAG:BPM:54:POSITION:X",
+            "SR:DIAG:BPM:55:POSITION:X",
+            "SR:DIAG:BPM:56:POSITION:X",
+            "SR:DIAG:BPM:57:POSITION:X",
+            "SR:DIAG:BPM:58:POSITION:X",
+            "SR:DIAG:BPM:59:POSITION:X",
+            "SR:DIAG:BPM:60:POSITION:X",
+            "SR:DIAG:BPM:61:POSITION:X",
+            "SR:DIAG:BPM:62:POSITION:X",
+            "SR:DIAG:BPM:63:POSITION:X",
+            "SR:DIAG:BPM:64:POSITION:X",
+            "SR:DIAG:BPM:65:POSITION:X",
+            "SR:DIAG:BPM:66:POSITION:X",
+            "SR:DIAG:BPM:67:POSITION:X",
+            "SR:DIAG:BPM:68:POSITION:X",
+            "SR:DIAG:BPM:69:POSITION:X",
+            "SR:DIAG:BPM:70:POSITION:X",
+            "SR:DIAG:BPM:71:POSITION:X",
+            "SR:DIAG:BPM:72:POSITION:X",
+            "SR:DIAG:BPM:73:POSITION:X",
+            "SR:DIAG:BPM:74:POSITION:X",
+            "SR:DIAG:BPM:75:POSITION:X",
+            "SR:DIAG:BPM:76:POSITION:X",
+            "SR:DIAG:BPM:77:POSITION:X",
+            "SR:DIAG:BPM:78:POSITION:X",
+            "SR:DIAG:BPM:79:POSITION:X",
+            "SR:DIAG:BPM:80:POSITION:X",
+            "SR:DIAG:BPM:81:POSITION:X",
+            "SR:DIAG:BPM:82:POSITION:X",
+            "SR:DIAG:BPM:83:POSITION:X",
+            "SR:DIAG:BPM:84:POSITION:X",
+            "SR:DIAG:BPM:85:POSITION:X",
+            "SR:DIAG:BPM:86:POSITION:X",
+            "SR:DIAG:BPM:87:POSITION:X",
+            "SR:DIAG:BPM:88:POSITION:X",
+            "SR:DIAG:BPM:89:POSITION:X",
+            "SR:DIAG:BPM:90:POSITION:X",
+            "SR:DIAG:BPM:91:POSITION:X",
+            "SR:DIAG:BPM:92:POSITION:X",
+            "SR:DIAG:BPM:93:POSITION:X",
+            "SR:DIAG:BPM:94:POSITION:X",
+            "SR:DIAG:BPM:95:POSITION:X",
+            "SR:DIAG:BPM:96:POSITION:X"
+          ],
+          "DataType": "double",
+          "HWUnits": "mm"
+        },
+        "Y": {
+          "_description": "vertical",
+          "ChannelNames": [
+            "SR:DIAG:BPM:01:POSITION:Y",
+            "SR:DIAG:BPM:02:POSITION:Y",
+            "SR:DIAG:BPM:03:POSITION:Y",
+            "SR:DIAG:BPM:04:POSITION:Y",
+            "SR:DIAG:BPM:05:POSITION:Y",
+            "SR:DIAG:BPM:06:POSITION:Y",
+            "SR:DIAG:BPM:07:POSITION:Y",
+            "SR:DIAG:BPM:08:POSITION:Y",
+            "SR:DIAG:BPM:09:POSITION:Y",
+            "SR:DIAG:BPM:10:POSITION:Y",
+            "SR:DIAG:BPM:11:POSITION:Y",
+            "SR:DIAG:BPM:12:POSITION:Y",
+            "SR:DIAG:BPM:13:POSITION:Y",
+            "SR:DIAG:BPM:14:POSITION:Y",
+            "SR:DIAG:BPM:15:POSITION:Y",
+            "SR:DIAG:BPM:16:POSITION:Y",
+            "SR:DIAG:BPM:17:POSITION:Y",
+            "SR:DIAG:BPM:18:POSITION:Y",
+            "SR:DIAG:BPM:19:POSITION:Y",
+            "SR:DIAG:BPM:20:POSITION:Y",
+            "SR:DIAG:BPM:21:POSITION:Y",
+            "SR:DIAG:BPM:22:POSITION:Y",
+            "SR:DIAG:BPM:23:POSITION:Y",
+            "SR:DIAG:BPM:24:POSITION:Y",
+            "SR:DIAG:BPM:25:POSITION:Y",
+            "SR:DIAG:BPM:26:POSITION:Y",
+            "SR:DIAG:BPM:27:POSITION:Y",
+            "SR:DIAG:BPM:28:POSITION:Y",
+            "SR:DIAG:BPM:29:POSITION:Y",
+            "SR:DIAG:BPM:30:POSITION:Y",
+            "SR:DIAG:BPM:31:POSITION:Y",
+            "SR:DIAG:BPM:32:POSITION:Y",
+            "SR:DIAG:BPM:33:POSITION:Y",
+            "SR:DIAG:BPM:34:POSITION:Y",
+            "SR:DIAG:BPM:35:POSITION:Y",
+            "SR:DIAG:BPM:36:POSITION:Y",
+            "SR:DIAG:BPM:37:POSITION:Y",
+            "SR:DIAG:BPM:38:POSITION:Y",
+            "SR:DIAG:BPM:39:POSITION:Y",
+            "SR:DIAG:BPM:40:POSITION:Y",
+            "SR:DIAG:BPM:41:POSITION:Y",
+            "SR:DIAG:BPM:42:POSITION:Y",
+            "SR:DIAG:BPM:43:POSITION:Y",
+            "SR:DIAG:BPM:44:POSITION:Y",
+            "SR:DIAG:BPM:45:POSITION:Y",
+            "SR:DIAG:BPM:46:POSITION:Y",
+            "SR:DIAG:BPM:47:POSITION:Y",
+            "SR:DIAG:BPM:48:POSITION:Y",
+            "SR:DIAG:BPM:49:POSITION:Y",
+            "SR:DIAG:BPM:50:POSITION:Y",
+            "SR:DIAG:BPM:51:POSITION:Y",
+            "SR:DIAG:BPM:52:POSITION:Y",
+            "SR:DIAG:BPM:53:POSITION:Y",
+            "SR:DIAG:BPM:54:POSITION:Y",
+            "SR:DIAG:BPM:55:POSITION:Y",
+            "SR:DIAG:BPM:56:POSITION:Y",
+            "SR:DIAG:BPM:57:POSITION:Y",
+            "SR:DIAG:BPM:58:POSITION:Y",
+            "SR:DIAG:BPM:59:POSITION:Y",
+            "SR:DIAG:BPM:60:POSITION:Y",
+            "SR:DIAG:BPM:61:POSITION:Y",
+            "SR:DIAG:BPM:62:POSITION:Y",
+            "SR:DIAG:BPM:63:POSITION:Y",
+            "SR:DIAG:BPM:64:POSITION:Y",
+            "SR:DIAG:BPM:65:POSITION:Y",
+            "SR:DIAG:BPM:66:POSITION:Y",
+            "SR:DIAG:BPM:67:POSITION:Y",
+            "SR:DIAG:BPM:68:POSITION:Y",
+            "SR:DIAG:BPM:69:POSITION:Y",
+            "SR:DIAG:BPM:70:POSITION:Y",
+            "SR:DIAG:BPM:71:POSITION:Y",
+            "SR:DIAG:BPM:72:POSITION:Y",
+            "SR:DIAG:BPM:73:POSITION:Y",
+            "SR:DIAG:BPM:74:POSITION:Y",
+            "SR:DIAG:BPM:75:POSITION:Y",
+            "SR:DIAG:BPM:76:POSITION:Y",
+            "SR:DIAG:BPM:77:POSITION:Y",
+            "SR:DIAG:BPM:78:POSITION:Y",
+            "SR:DIAG:BPM:79:POSITION:Y",
+            "SR:DIAG:BPM:80:POSITION:Y",
+            "SR:DIAG:BPM:81:POSITION:Y",
+            "SR:DIAG:BPM:82:POSITION:Y",
+            "SR:DIAG:BPM:83:POSITION:Y",
+            "SR:DIAG:BPM:84:POSITION:Y",
+            "SR:DIAG:BPM:85:POSITION:Y",
+            "SR:DIAG:BPM:86:POSITION:Y",
+            "SR:DIAG:BPM:87:POSITION:Y",
+            "SR:DIAG:BPM:88:POSITION:Y",
+            "SR:DIAG:BPM:89:POSITION:Y",
+            "SR:DIAG:BPM:90:POSITION:Y",
+            "SR:DIAG:BPM:91:POSITION:Y",
+            "SR:DIAG:BPM:92:POSITION:Y",
+            "SR:DIAG:BPM:93:POSITION:Y",
+            "SR:DIAG:BPM:94:POSITION:Y",
+            "SR:DIAG:BPM:95:POSITION:Y",
+            "SR:DIAG:BPM:96:POSITION:Y"
+          ],
+          "DataType": "double",
+          "HWUnits": "mm"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "BPM 01",
+          "BPM 02",
+          "BPM 03",
+          "BPM 04",
+          "BPM 05",
+          "BPM 06",
+          "BPM 07",
+          "BPM 08",
+          "BPM 09",
+          "BPM 10",
+          "BPM 11",
+          "BPM 12",
+          "BPM 13",
+          "BPM 14",
+          "BPM 15",
+          "BPM 16",
+          "BPM 17",
+          "BPM 18",
+          "BPM 19",
+          "BPM 20",
+          "BPM 21",
+          "BPM 22",
+          "BPM 23",
+          "BPM 24",
+          "BPM 25",
+          "BPM 26",
+          "BPM 27",
+          "BPM 28",
+          "BPM 29",
+          "BPM 30",
+          "BPM 31",
+          "BPM 32",
+          "BPM 33",
+          "BPM 34",
+          "BPM 35",
+          "BPM 36",
+          "BPM 37",
+          "BPM 38",
+          "BPM 39",
+          "BPM 40",
+          "BPM 41",
+          "BPM 42",
+          "BPM 43",
+          "BPM 44",
+          "BPM 45",
+          "BPM 46",
+          "BPM 47",
+          "BPM 48",
+          "BPM 49",
+          "BPM 50",
+          "BPM 51",
+          "BPM 52",
+          "BPM 53",
+          "BPM 54",
+          "BPM 55",
+          "BPM 56",
+          "BPM 57",
+          "BPM 58",
+          "BPM 59",
+          "BPM 60",
+          "BPM 61",
+          "BPM 62",
+          "BPM 63",
+          "BPM 64",
+          "BPM 65",
+          "BPM 66",
+          "BPM 67",
+          "BPM 68",
+          "BPM 69",
+          "BPM 70",
+          "BPM 71",
+          "BPM 72",
+          "BPM 73",
+          "BPM 74",
+          "BPM 75",
+          "BPM 76",
+          "BPM 77",
+          "BPM 78",
+          "BPM 79",
+          "BPM 80",
+          "BPM 81",
+          "BPM 82",
+          "BPM 83",
+          "BPM 84",
+          "BPM 85",
+          "BPM 86",
+          "BPM 87",
+          "BPM 88",
+          "BPM 89",
+          "BPM 90",
+          "BPM 91",
+          "BPM 92",
+          "BPM 93",
+          "BPM 94",
+          "BPM 95",
+          "BPM 96"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            3
+          ],
+          [
+            1,
+            4
+          ],
+          [
+            1,
+            5
+          ],
+          [
+            1,
+            6
+          ],
+          [
+            1,
+            7
+          ],
+          [
+            1,
+            8
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            5
+          ],
+          [
+            2,
+            6
+          ],
+          [
+            2,
+            7
+          ],
+          [
+            2,
+            8
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            3,
+            2
+          ],
+          [
+            3,
+            3
+          ],
+          [
+            3,
+            4
+          ],
+          [
+            3,
+            5
+          ],
+          [
+            3,
+            6
+          ],
+          [
+            3,
+            7
+          ],
+          [
+            3,
+            8
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            4,
+            2
+          ],
+          [
+            4,
+            3
+          ],
+          [
+            4,
+            4
+          ],
+          [
+            4,
+            5
+          ],
+          [
+            4,
+            6
+          ],
+          [
+            4,
+            7
+          ],
+          [
+            4,
+            8
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            5,
+            2
+          ],
+          [
+            5,
+            3
+          ],
+          [
+            5,
+            4
+          ],
+          [
+            5,
+            5
+          ],
+          [
+            5,
+            6
+          ],
+          [
+            5,
+            7
+          ],
+          [
+            5,
+            8
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            6,
+            2
+          ],
+          [
+            6,
+            3
+          ],
+          [
+            6,
+            4
+          ],
+          [
+            6,
+            5
+          ],
+          [
+            6,
+            6
+          ],
+          [
+            6,
+            7
+          ],
+          [
+            6,
+            8
+          ],
+          [
+            7,
+            1
+          ],
+          [
+            7,
+            2
+          ],
+          [
+            7,
+            3
+          ],
+          [
+            7,
+            4
+          ],
+          [
+            7,
+            5
+          ],
+          [
+            7,
+            6
+          ],
+          [
+            7,
+            7
+          ],
+          [
+            7,
+            8
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            2
+          ],
+          [
+            8,
+            3
+          ],
+          [
+            8,
+            4
+          ],
+          [
+            8,
+            5
+          ],
+          [
+            8,
+            6
+          ],
+          [
+            8,
+            7
+          ],
+          [
+            8,
+            8
+          ],
+          [
+            9,
+            1
+          ],
+          [
+            9,
+            2
+          ],
+          [
+            9,
+            3
+          ],
+          [
+            9,
+            4
+          ],
+          [
+            9,
+            5
+          ],
+          [
+            9,
+            6
+          ],
+          [
+            9,
+            7
+          ],
+          [
+            9,
+            8
+          ],
+          [
+            10,
+            1
+          ],
+          [
+            10,
+            2
+          ],
+          [
+            10,
+            3
+          ],
+          [
+            10,
+            4
+          ],
+          [
+            10,
+            5
+          ],
+          [
+            10,
+            6
+          ],
+          [
+            10,
+            7
+          ],
+          [
+            10,
+            8
+          ],
+          [
+            11,
+            1
+          ],
+          [
+            11,
+            2
+          ],
+          [
+            11,
+            3
+          ],
+          [
+            11,
+            4
+          ],
+          [
+            11,
+            5
+          ],
+          [
+            11,
+            6
+          ],
+          [
+            11,
+            7
+          ],
+          [
+            11,
+            8
+          ],
+          [
+            12,
+            1
+          ],
+          [
+            12,
+            2
+          ],
+          [
+            12,
+            3
+          ],
+          [
+            12,
+            4
+          ],
+          [
+            12,
+            5
+          ],
+          [
+            12,
+            6
+          ],
+          [
+            12,
+            7
+          ],
+          [
+            12,
+            8
+          ]
+        ],
+        "ElementList": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96
+        ]
+      }
+    },
+    "DCCT": {
+      "_description": "DC current transformer",
+      "CURRENT": {
+        "_description": "current",
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:DIAG:DCCT:01:CURRENT:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "DCCT 01"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ]
+        ],
+        "ElementList": [
+          1
+        ]
+      }
+    },
+    "DIPOLE": {
+      "_description": "dipole bending magnet",
+      "CURRENT": {
+        "_description": "current",
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:MAG:DIPOLE:01:CURRENT:RB",
+            "SR:MAG:DIPOLE:02:CURRENT:RB",
+            "SR:MAG:DIPOLE:03:CURRENT:RB",
+            "SR:MAG:DIPOLE:04:CURRENT:RB",
+            "SR:MAG:DIPOLE:05:CURRENT:RB",
+            "SR:MAG:DIPOLE:06:CURRENT:RB",
+            "SR:MAG:DIPOLE:07:CURRENT:RB",
+            "SR:MAG:DIPOLE:08:CURRENT:RB",
+            "SR:MAG:DIPOLE:09:CURRENT:RB",
+            "SR:MAG:DIPOLE:10:CURRENT:RB",
+            "SR:MAG:DIPOLE:11:CURRENT:RB",
+            "SR:MAG:DIPOLE:12:CURRENT:RB",
+            "SR:MAG:DIPOLE:13:CURRENT:RB",
+            "SR:MAG:DIPOLE:14:CURRENT:RB",
+            "SR:MAG:DIPOLE:15:CURRENT:RB",
+            "SR:MAG:DIPOLE:16:CURRENT:RB",
+            "SR:MAG:DIPOLE:17:CURRENT:RB",
+            "SR:MAG:DIPOLE:18:CURRENT:RB",
+            "SR:MAG:DIPOLE:19:CURRENT:RB",
+            "SR:MAG:DIPOLE:20:CURRENT:RB",
+            "SR:MAG:DIPOLE:21:CURRENT:RB",
+            "SR:MAG:DIPOLE:22:CURRENT:RB",
+            "SR:MAG:DIPOLE:23:CURRENT:RB",
+            "SR:MAG:DIPOLE:24:CURRENT:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        },
+        "SP": {
+          "_description": "setpoint",
+          "ChannelNames": [
+            "SR:MAG:DIPOLE:01:CURRENT:SP",
+            "SR:MAG:DIPOLE:02:CURRENT:SP",
+            "SR:MAG:DIPOLE:03:CURRENT:SP",
+            "SR:MAG:DIPOLE:04:CURRENT:SP",
+            "SR:MAG:DIPOLE:05:CURRENT:SP",
+            "SR:MAG:DIPOLE:06:CURRENT:SP",
+            "SR:MAG:DIPOLE:07:CURRENT:SP",
+            "SR:MAG:DIPOLE:08:CURRENT:SP",
+            "SR:MAG:DIPOLE:09:CURRENT:SP",
+            "SR:MAG:DIPOLE:10:CURRENT:SP",
+            "SR:MAG:DIPOLE:11:CURRENT:SP",
+            "SR:MAG:DIPOLE:12:CURRENT:SP",
+            "SR:MAG:DIPOLE:13:CURRENT:SP",
+            "SR:MAG:DIPOLE:14:CURRENT:SP",
+            "SR:MAG:DIPOLE:15:CURRENT:SP",
+            "SR:MAG:DIPOLE:16:CURRENT:SP",
+            "SR:MAG:DIPOLE:17:CURRENT:SP",
+            "SR:MAG:DIPOLE:18:CURRENT:SP",
+            "SR:MAG:DIPOLE:19:CURRENT:SP",
+            "SR:MAG:DIPOLE:20:CURRENT:SP",
+            "SR:MAG:DIPOLE:21:CURRENT:SP",
+            "SR:MAG:DIPOLE:22:CURRENT:SP",
+            "SR:MAG:DIPOLE:23:CURRENT:SP",
+            "SR:MAG:DIPOLE:24:CURRENT:SP"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "DIPOLE 01",
+          "DIPOLE 02",
+          "DIPOLE 03",
+          "DIPOLE 04",
+          "DIPOLE 05",
+          "DIPOLE 06",
+          "DIPOLE 07",
+          "DIPOLE 08",
+          "DIPOLE 09",
+          "DIPOLE 10",
+          "DIPOLE 11",
+          "DIPOLE 12",
+          "DIPOLE 13",
+          "DIPOLE 14",
+          "DIPOLE 15",
+          "DIPOLE 16",
+          "DIPOLE 17",
+          "DIPOLE 18",
+          "DIPOLE 19",
+          "DIPOLE 20",
+          "DIPOLE 21",
+          "DIPOLE 22",
+          "DIPOLE 23",
+          "DIPOLE 24"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            3,
+            2
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            4,
+            2
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            5,
+            2
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            6,
+            2
+          ],
+          [
+            7,
+            1
+          ],
+          [
+            7,
+            2
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            2
+          ],
+          [
+            9,
+            1
+          ],
+          [
+            9,
+            2
+          ],
+          [
+            10,
+            1
+          ],
+          [
+            10,
+            2
+          ],
+          [
+            11,
+            1
+          ],
+          [
+            11,
+            2
+          ],
+          [
+            12,
+            1
+          ],
+          [
+            12,
+            2
+          ]
+        ],
+        "ElementList": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24
+        ]
+      }
+    },
+    "HCM": {
+      "_description": "horizontal corrector",
+      "CURRENT": {
+        "_description": "current",
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:MAG:HCM:01:CURRENT:RB",
+            "SR:MAG:HCM:02:CURRENT:RB",
+            "SR:MAG:HCM:03:CURRENT:RB",
+            "SR:MAG:HCM:04:CURRENT:RB",
+            "SR:MAG:HCM:05:CURRENT:RB",
+            "SR:MAG:HCM:06:CURRENT:RB",
+            "SR:MAG:HCM:07:CURRENT:RB",
+            "SR:MAG:HCM:08:CURRENT:RB",
+            "SR:MAG:HCM:09:CURRENT:RB",
+            "SR:MAG:HCM:10:CURRENT:RB",
+            "SR:MAG:HCM:11:CURRENT:RB",
+            "SR:MAG:HCM:12:CURRENT:RB",
+            "SR:MAG:HCM:13:CURRENT:RB",
+            "SR:MAG:HCM:14:CURRENT:RB",
+            "SR:MAG:HCM:15:CURRENT:RB",
+            "SR:MAG:HCM:16:CURRENT:RB",
+            "SR:MAG:HCM:17:CURRENT:RB",
+            "SR:MAG:HCM:18:CURRENT:RB",
+            "SR:MAG:HCM:19:CURRENT:RB",
+            "SR:MAG:HCM:20:CURRENT:RB",
+            "SR:MAG:HCM:21:CURRENT:RB",
+            "SR:MAG:HCM:22:CURRENT:RB",
+            "SR:MAG:HCM:23:CURRENT:RB",
+            "SR:MAG:HCM:24:CURRENT:RB",
+            "SR:MAG:HCM:25:CURRENT:RB",
+            "SR:MAG:HCM:26:CURRENT:RB",
+            "SR:MAG:HCM:27:CURRENT:RB",
+            "SR:MAG:HCM:28:CURRENT:RB",
+            "SR:MAG:HCM:29:CURRENT:RB",
+            "SR:MAG:HCM:30:CURRENT:RB",
+            "SR:MAG:HCM:31:CURRENT:RB",
+            "SR:MAG:HCM:32:CURRENT:RB",
+            "SR:MAG:HCM:33:CURRENT:RB",
+            "SR:MAG:HCM:34:CURRENT:RB",
+            "SR:MAG:HCM:35:CURRENT:RB",
+            "SR:MAG:HCM:36:CURRENT:RB",
+            "SR:MAG:HCM:37:CURRENT:RB",
+            "SR:MAG:HCM:38:CURRENT:RB",
+            "SR:MAG:HCM:39:CURRENT:RB",
+            "SR:MAG:HCM:40:CURRENT:RB",
+            "SR:MAG:HCM:41:CURRENT:RB",
+            "SR:MAG:HCM:42:CURRENT:RB",
+            "SR:MAG:HCM:43:CURRENT:RB",
+            "SR:MAG:HCM:44:CURRENT:RB",
+            "SR:MAG:HCM:45:CURRENT:RB",
+            "SR:MAG:HCM:46:CURRENT:RB",
+            "SR:MAG:HCM:47:CURRENT:RB",
+            "SR:MAG:HCM:48:CURRENT:RB",
+            "SR:MAG:HCM:49:CURRENT:RB",
+            "SR:MAG:HCM:50:CURRENT:RB",
+            "SR:MAG:HCM:51:CURRENT:RB",
+            "SR:MAG:HCM:52:CURRENT:RB",
+            "SR:MAG:HCM:53:CURRENT:RB",
+            "SR:MAG:HCM:54:CURRENT:RB",
+            "SR:MAG:HCM:55:CURRENT:RB",
+            "SR:MAG:HCM:56:CURRENT:RB",
+            "SR:MAG:HCM:57:CURRENT:RB",
+            "SR:MAG:HCM:58:CURRENT:RB",
+            "SR:MAG:HCM:59:CURRENT:RB",
+            "SR:MAG:HCM:60:CURRENT:RB",
+            "SR:MAG:HCM:61:CURRENT:RB",
+            "SR:MAG:HCM:62:CURRENT:RB",
+            "SR:MAG:HCM:63:CURRENT:RB",
+            "SR:MAG:HCM:64:CURRENT:RB",
+            "SR:MAG:HCM:65:CURRENT:RB",
+            "SR:MAG:HCM:66:CURRENT:RB",
+            "SR:MAG:HCM:67:CURRENT:RB",
+            "SR:MAG:HCM:68:CURRENT:RB",
+            "SR:MAG:HCM:69:CURRENT:RB",
+            "SR:MAG:HCM:70:CURRENT:RB",
+            "SR:MAG:HCM:71:CURRENT:RB",
+            "SR:MAG:HCM:72:CURRENT:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        },
+        "SP": {
+          "_description": "setpoint",
+          "ChannelNames": [
+            "SR:MAG:HCM:01:CURRENT:SP",
+            "SR:MAG:HCM:02:CURRENT:SP",
+            "SR:MAG:HCM:03:CURRENT:SP",
+            "SR:MAG:HCM:04:CURRENT:SP",
+            "SR:MAG:HCM:05:CURRENT:SP",
+            "SR:MAG:HCM:06:CURRENT:SP",
+            "SR:MAG:HCM:07:CURRENT:SP",
+            "SR:MAG:HCM:08:CURRENT:SP",
+            "SR:MAG:HCM:09:CURRENT:SP",
+            "SR:MAG:HCM:10:CURRENT:SP",
+            "SR:MAG:HCM:11:CURRENT:SP",
+            "SR:MAG:HCM:12:CURRENT:SP",
+            "SR:MAG:HCM:13:CURRENT:SP",
+            "SR:MAG:HCM:14:CURRENT:SP",
+            "SR:MAG:HCM:15:CURRENT:SP",
+            "SR:MAG:HCM:16:CURRENT:SP",
+            "SR:MAG:HCM:17:CURRENT:SP",
+            "SR:MAG:HCM:18:CURRENT:SP",
+            "SR:MAG:HCM:19:CURRENT:SP",
+            "SR:MAG:HCM:20:CURRENT:SP",
+            "SR:MAG:HCM:21:CURRENT:SP",
+            "SR:MAG:HCM:22:CURRENT:SP",
+            "SR:MAG:HCM:23:CURRENT:SP",
+            "SR:MAG:HCM:24:CURRENT:SP",
+            "SR:MAG:HCM:25:CURRENT:SP",
+            "SR:MAG:HCM:26:CURRENT:SP",
+            "SR:MAG:HCM:27:CURRENT:SP",
+            "SR:MAG:HCM:28:CURRENT:SP",
+            "SR:MAG:HCM:29:CURRENT:SP",
+            "SR:MAG:HCM:30:CURRENT:SP",
+            "SR:MAG:HCM:31:CURRENT:SP",
+            "SR:MAG:HCM:32:CURRENT:SP",
+            "SR:MAG:HCM:33:CURRENT:SP",
+            "SR:MAG:HCM:34:CURRENT:SP",
+            "SR:MAG:HCM:35:CURRENT:SP",
+            "SR:MAG:HCM:36:CURRENT:SP",
+            "SR:MAG:HCM:37:CURRENT:SP",
+            "SR:MAG:HCM:38:CURRENT:SP",
+            "SR:MAG:HCM:39:CURRENT:SP",
+            "SR:MAG:HCM:40:CURRENT:SP",
+            "SR:MAG:HCM:41:CURRENT:SP",
+            "SR:MAG:HCM:42:CURRENT:SP",
+            "SR:MAG:HCM:43:CURRENT:SP",
+            "SR:MAG:HCM:44:CURRENT:SP",
+            "SR:MAG:HCM:45:CURRENT:SP",
+            "SR:MAG:HCM:46:CURRENT:SP",
+            "SR:MAG:HCM:47:CURRENT:SP",
+            "SR:MAG:HCM:48:CURRENT:SP",
+            "SR:MAG:HCM:49:CURRENT:SP",
+            "SR:MAG:HCM:50:CURRENT:SP",
+            "SR:MAG:HCM:51:CURRENT:SP",
+            "SR:MAG:HCM:52:CURRENT:SP",
+            "SR:MAG:HCM:53:CURRENT:SP",
+            "SR:MAG:HCM:54:CURRENT:SP",
+            "SR:MAG:HCM:55:CURRENT:SP",
+            "SR:MAG:HCM:56:CURRENT:SP",
+            "SR:MAG:HCM:57:CURRENT:SP",
+            "SR:MAG:HCM:58:CURRENT:SP",
+            "SR:MAG:HCM:59:CURRENT:SP",
+            "SR:MAG:HCM:60:CURRENT:SP",
+            "SR:MAG:HCM:61:CURRENT:SP",
+            "SR:MAG:HCM:62:CURRENT:SP",
+            "SR:MAG:HCM:63:CURRENT:SP",
+            "SR:MAG:HCM:64:CURRENT:SP",
+            "SR:MAG:HCM:65:CURRENT:SP",
+            "SR:MAG:HCM:66:CURRENT:SP",
+            "SR:MAG:HCM:67:CURRENT:SP",
+            "SR:MAG:HCM:68:CURRENT:SP",
+            "SR:MAG:HCM:69:CURRENT:SP",
+            "SR:MAG:HCM:70:CURRENT:SP",
+            "SR:MAG:HCM:71:CURRENT:SP",
+            "SR:MAG:HCM:72:CURRENT:SP"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "HCM 01",
+          "HCM 02",
+          "HCM 03",
+          "HCM 04",
+          "HCM 05",
+          "HCM 06",
+          "HCM 07",
+          "HCM 08",
+          "HCM 09",
+          "HCM 10",
+          "HCM 11",
+          "HCM 12",
+          "HCM 13",
+          "HCM 14",
+          "HCM 15",
+          "HCM 16",
+          "HCM 17",
+          "HCM 18",
+          "HCM 19",
+          "HCM 20",
+          "HCM 21",
+          "HCM 22",
+          "HCM 23",
+          "HCM 24",
+          "HCM 25",
+          "HCM 26",
+          "HCM 27",
+          "HCM 28",
+          "HCM 29",
+          "HCM 30",
+          "HCM 31",
+          "HCM 32",
+          "HCM 33",
+          "HCM 34",
+          "HCM 35",
+          "HCM 36",
+          "HCM 37",
+          "HCM 38",
+          "HCM 39",
+          "HCM 40",
+          "HCM 41",
+          "HCM 42",
+          "HCM 43",
+          "HCM 44",
+          "HCM 45",
+          "HCM 46",
+          "HCM 47",
+          "HCM 48",
+          "HCM 49",
+          "HCM 50",
+          "HCM 51",
+          "HCM 52",
+          "HCM 53",
+          "HCM 54",
+          "HCM 55",
+          "HCM 56",
+          "HCM 57",
+          "HCM 58",
+          "HCM 59",
+          "HCM 60",
+          "HCM 61",
+          "HCM 62",
+          "HCM 63",
+          "HCM 64",
+          "HCM 65",
+          "HCM 66",
+          "HCM 67",
+          "HCM 68",
+          "HCM 69",
+          "HCM 70",
+          "HCM 71",
+          "HCM 72"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            3
+          ],
+          [
+            1,
+            4
+          ],
+          [
+            1,
+            5
+          ],
+          [
+            1,
+            6
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            5
+          ],
+          [
+            2,
+            6
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            3,
+            2
+          ],
+          [
+            3,
+            3
+          ],
+          [
+            3,
+            4
+          ],
+          [
+            3,
+            5
+          ],
+          [
+            3,
+            6
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            4,
+            2
+          ],
+          [
+            4,
+            3
+          ],
+          [
+            4,
+            4
+          ],
+          [
+            4,
+            5
+          ],
+          [
+            4,
+            6
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            5,
+            2
+          ],
+          [
+            5,
+            3
+          ],
+          [
+            5,
+            4
+          ],
+          [
+            5,
+            5
+          ],
+          [
+            5,
+            6
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            6,
+            2
+          ],
+          [
+            6,
+            3
+          ],
+          [
+            6,
+            4
+          ],
+          [
+            6,
+            5
+          ],
+          [
+            6,
+            6
+          ],
+          [
+            7,
+            1
+          ],
+          [
+            7,
+            2
+          ],
+          [
+            7,
+            3
+          ],
+          [
+            7,
+            4
+          ],
+          [
+            7,
+            5
+          ],
+          [
+            7,
+            6
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            2
+          ],
+          [
+            8,
+            3
+          ],
+          [
+            8,
+            4
+          ],
+          [
+            8,
+            5
+          ],
+          [
+            8,
+            6
+          ],
+          [
+            9,
+            1
+          ],
+          [
+            9,
+            2
+          ],
+          [
+            9,
+            3
+          ],
+          [
+            9,
+            4
+          ],
+          [
+            9,
+            5
+          ],
+          [
+            9,
+            6
+          ],
+          [
+            10,
+            1
+          ],
+          [
+            10,
+            2
+          ],
+          [
+            10,
+            3
+          ],
+          [
+            10,
+            4
+          ],
+          [
+            10,
+            5
+          ],
+          [
+            10,
+            6
+          ],
+          [
+            11,
+            1
+          ],
+          [
+            11,
+            2
+          ],
+          [
+            11,
+            3
+          ],
+          [
+            11,
+            4
+          ],
+          [
+            11,
+            5
+          ],
+          [
+            11,
+            6
+          ],
+          [
+            12,
+            1
+          ],
+          [
+            12,
+            2
+          ],
+          [
+            12,
+            3
+          ],
+          [
+            12,
+            4
+          ],
+          [
+            12,
+            5
+          ],
+          [
+            12,
+            6
+          ]
+        ],
+        "ElementList": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72
+        ]
+      }
+    },
+    "QF": {
+      "_description": "focusing quadrupole",
+      "CURRENT": {
+        "_description": "current",
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:MAG:QF:01:CURRENT:RB",
+            "SR:MAG:QF:02:CURRENT:RB",
+            "SR:MAG:QF:03:CURRENT:RB",
+            "SR:MAG:QF:04:CURRENT:RB",
+            "SR:MAG:QF:05:CURRENT:RB",
+            "SR:MAG:QF:06:CURRENT:RB",
+            "SR:MAG:QF:07:CURRENT:RB",
+            "SR:MAG:QF:08:CURRENT:RB",
+            "SR:MAG:QF:09:CURRENT:RB",
+            "SR:MAG:QF:10:CURRENT:RB",
+            "SR:MAG:QF:11:CURRENT:RB",
+            "SR:MAG:QF:12:CURRENT:RB",
+            "SR:MAG:QF:13:CURRENT:RB",
+            "SR:MAG:QF:14:CURRENT:RB",
+            "SR:MAG:QF:15:CURRENT:RB",
+            "SR:MAG:QF:16:CURRENT:RB",
+            "SR:MAG:QF:17:CURRENT:RB",
+            "SR:MAG:QF:18:CURRENT:RB",
+            "SR:MAG:QF:19:CURRENT:RB",
+            "SR:MAG:QF:20:CURRENT:RB",
+            "SR:MAG:QF:21:CURRENT:RB",
+            "SR:MAG:QF:22:CURRENT:RB",
+            "SR:MAG:QF:23:CURRENT:RB",
+            "SR:MAG:QF:24:CURRENT:RB",
+            "SR:MAG:QF:25:CURRENT:RB",
+            "SR:MAG:QF:26:CURRENT:RB",
+            "SR:MAG:QF:27:CURRENT:RB",
+            "SR:MAG:QF:28:CURRENT:RB",
+            "SR:MAG:QF:29:CURRENT:RB",
+            "SR:MAG:QF:30:CURRENT:RB",
+            "SR:MAG:QF:31:CURRENT:RB",
+            "SR:MAG:QF:32:CURRENT:RB",
+            "SR:MAG:QF:33:CURRENT:RB",
+            "SR:MAG:QF:34:CURRENT:RB",
+            "SR:MAG:QF:35:CURRENT:RB",
+            "SR:MAG:QF:36:CURRENT:RB",
+            "SR:MAG:QF:37:CURRENT:RB",
+            "SR:MAG:QF:38:CURRENT:RB",
+            "SR:MAG:QF:39:CURRENT:RB",
+            "SR:MAG:QF:40:CURRENT:RB",
+            "SR:MAG:QF:41:CURRENT:RB",
+            "SR:MAG:QF:42:CURRENT:RB",
+            "SR:MAG:QF:43:CURRENT:RB",
+            "SR:MAG:QF:44:CURRENT:RB",
+            "SR:MAG:QF:45:CURRENT:RB",
+            "SR:MAG:QF:46:CURRENT:RB",
+            "SR:MAG:QF:47:CURRENT:RB",
+            "SR:MAG:QF:48:CURRENT:RB",
+            "SR:MAG:QF:49:CURRENT:RB",
+            "SR:MAG:QF:50:CURRENT:RB",
+            "SR:MAG:QF:51:CURRENT:RB",
+            "SR:MAG:QF:52:CURRENT:RB",
+            "SR:MAG:QF:53:CURRENT:RB",
+            "SR:MAG:QF:54:CURRENT:RB",
+            "SR:MAG:QF:55:CURRENT:RB",
+            "SR:MAG:QF:56:CURRENT:RB",
+            "SR:MAG:QF:57:CURRENT:RB",
+            "SR:MAG:QF:58:CURRENT:RB",
+            "SR:MAG:QF:59:CURRENT:RB",
+            "SR:MAG:QF:60:CURRENT:RB",
+            "SR:MAG:QF:61:CURRENT:RB",
+            "SR:MAG:QF:62:CURRENT:RB",
+            "SR:MAG:QF:63:CURRENT:RB",
+            "SR:MAG:QF:64:CURRENT:RB",
+            "SR:MAG:QF:65:CURRENT:RB",
+            "SR:MAG:QF:66:CURRENT:RB",
+            "SR:MAG:QF:67:CURRENT:RB",
+            "SR:MAG:QF:68:CURRENT:RB",
+            "SR:MAG:QF:69:CURRENT:RB",
+            "SR:MAG:QF:70:CURRENT:RB",
+            "SR:MAG:QF:71:CURRENT:RB",
+            "SR:MAG:QF:72:CURRENT:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        },
+        "SP": {
+          "_description": "setpoint",
+          "ChannelNames": [
+            "SR:MAG:QF:01:CURRENT:SP",
+            "SR:MAG:QF:02:CURRENT:SP",
+            "SR:MAG:QF:03:CURRENT:SP",
+            "SR:MAG:QF:04:CURRENT:SP",
+            "SR:MAG:QF:05:CURRENT:SP",
+            "SR:MAG:QF:06:CURRENT:SP",
+            "SR:MAG:QF:07:CURRENT:SP",
+            "SR:MAG:QF:08:CURRENT:SP",
+            "SR:MAG:QF:09:CURRENT:SP",
+            "SR:MAG:QF:10:CURRENT:SP",
+            "SR:MAG:QF:11:CURRENT:SP",
+            "SR:MAG:QF:12:CURRENT:SP",
+            "SR:MAG:QF:13:CURRENT:SP",
+            "SR:MAG:QF:14:CURRENT:SP",
+            "SR:MAG:QF:15:CURRENT:SP",
+            "SR:MAG:QF:16:CURRENT:SP",
+            "SR:MAG:QF:17:CURRENT:SP",
+            "SR:MAG:QF:18:CURRENT:SP",
+            "SR:MAG:QF:19:CURRENT:SP",
+            "SR:MAG:QF:20:CURRENT:SP",
+            "SR:MAG:QF:21:CURRENT:SP",
+            "SR:MAG:QF:22:CURRENT:SP",
+            "SR:MAG:QF:23:CURRENT:SP",
+            "SR:MAG:QF:24:CURRENT:SP",
+            "SR:MAG:QF:25:CURRENT:SP",
+            "SR:MAG:QF:26:CURRENT:SP",
+            "SR:MAG:QF:27:CURRENT:SP",
+            "SR:MAG:QF:28:CURRENT:SP",
+            "SR:MAG:QF:29:CURRENT:SP",
+            "SR:MAG:QF:30:CURRENT:SP",
+            "SR:MAG:QF:31:CURRENT:SP",
+            "SR:MAG:QF:32:CURRENT:SP",
+            "SR:MAG:QF:33:CURRENT:SP",
+            "SR:MAG:QF:34:CURRENT:SP",
+            "SR:MAG:QF:35:CURRENT:SP",
+            "SR:MAG:QF:36:CURRENT:SP",
+            "SR:MAG:QF:37:CURRENT:SP",
+            "SR:MAG:QF:38:CURRENT:SP",
+            "SR:MAG:QF:39:CURRENT:SP",
+            "SR:MAG:QF:40:CURRENT:SP",
+            "SR:MAG:QF:41:CURRENT:SP",
+            "SR:MAG:QF:42:CURRENT:SP",
+            "SR:MAG:QF:43:CURRENT:SP",
+            "SR:MAG:QF:44:CURRENT:SP",
+            "SR:MAG:QF:45:CURRENT:SP",
+            "SR:MAG:QF:46:CURRENT:SP",
+            "SR:MAG:QF:47:CURRENT:SP",
+            "SR:MAG:QF:48:CURRENT:SP",
+            "SR:MAG:QF:49:CURRENT:SP",
+            "SR:MAG:QF:50:CURRENT:SP",
+            "SR:MAG:QF:51:CURRENT:SP",
+            "SR:MAG:QF:52:CURRENT:SP",
+            "SR:MAG:QF:53:CURRENT:SP",
+            "SR:MAG:QF:54:CURRENT:SP",
+            "SR:MAG:QF:55:CURRENT:SP",
+            "SR:MAG:QF:56:CURRENT:SP",
+            "SR:MAG:QF:57:CURRENT:SP",
+            "SR:MAG:QF:58:CURRENT:SP",
+            "SR:MAG:QF:59:CURRENT:SP",
+            "SR:MAG:QF:60:CURRENT:SP",
+            "SR:MAG:QF:61:CURRENT:SP",
+            "SR:MAG:QF:62:CURRENT:SP",
+            "SR:MAG:QF:63:CURRENT:SP",
+            "SR:MAG:QF:64:CURRENT:SP",
+            "SR:MAG:QF:65:CURRENT:SP",
+            "SR:MAG:QF:66:CURRENT:SP",
+            "SR:MAG:QF:67:CURRENT:SP",
+            "SR:MAG:QF:68:CURRENT:SP",
+            "SR:MAG:QF:69:CURRENT:SP",
+            "SR:MAG:QF:70:CURRENT:SP",
+            "SR:MAG:QF:71:CURRENT:SP",
+            "SR:MAG:QF:72:CURRENT:SP"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "QF 01",
+          "QF 02",
+          "QF 03",
+          "QF 04",
+          "QF 05",
+          "QF 06",
+          "QF 07",
+          "QF 08",
+          "QF 09",
+          "QF 10",
+          "QF 11",
+          "QF 12",
+          "QF 13",
+          "QF 14",
+          "QF 15",
+          "QF 16",
+          "QF 17",
+          "QF 18",
+          "QF 19",
+          "QF 20",
+          "QF 21",
+          "QF 22",
+          "QF 23",
+          "QF 24",
+          "QF 25",
+          "QF 26",
+          "QF 27",
+          "QF 28",
+          "QF 29",
+          "QF 30",
+          "QF 31",
+          "QF 32",
+          "QF 33",
+          "QF 34",
+          "QF 35",
+          "QF 36",
+          "QF 37",
+          "QF 38",
+          "QF 39",
+          "QF 40",
+          "QF 41",
+          "QF 42",
+          "QF 43",
+          "QF 44",
+          "QF 45",
+          "QF 46",
+          "QF 47",
+          "QF 48",
+          "QF 49",
+          "QF 50",
+          "QF 51",
+          "QF 52",
+          "QF 53",
+          "QF 54",
+          "QF 55",
+          "QF 56",
+          "QF 57",
+          "QF 58",
+          "QF 59",
+          "QF 60",
+          "QF 61",
+          "QF 62",
+          "QF 63",
+          "QF 64",
+          "QF 65",
+          "QF 66",
+          "QF 67",
+          "QF 68",
+          "QF 69",
+          "QF 70",
+          "QF 71",
+          "QF 72"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            3
+          ],
+          [
+            1,
+            4
+          ],
+          [
+            1,
+            5
+          ],
+          [
+            1,
+            6
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            5
+          ],
+          [
+            2,
+            6
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            3,
+            2
+          ],
+          [
+            3,
+            3
+          ],
+          [
+            3,
+            4
+          ],
+          [
+            3,
+            5
+          ],
+          [
+            3,
+            6
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            4,
+            2
+          ],
+          [
+            4,
+            3
+          ],
+          [
+            4,
+            4
+          ],
+          [
+            4,
+            5
+          ],
+          [
+            4,
+            6
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            5,
+            2
+          ],
+          [
+            5,
+            3
+          ],
+          [
+            5,
+            4
+          ],
+          [
+            5,
+            5
+          ],
+          [
+            5,
+            6
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            6,
+            2
+          ],
+          [
+            6,
+            3
+          ],
+          [
+            6,
+            4
+          ],
+          [
+            6,
+            5
+          ],
+          [
+            6,
+            6
+          ],
+          [
+            7,
+            1
+          ],
+          [
+            7,
+            2
+          ],
+          [
+            7,
+            3
+          ],
+          [
+            7,
+            4
+          ],
+          [
+            7,
+            5
+          ],
+          [
+            7,
+            6
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            2
+          ],
+          [
+            8,
+            3
+          ],
+          [
+            8,
+            4
+          ],
+          [
+            8,
+            5
+          ],
+          [
+            8,
+            6
+          ],
+          [
+            9,
+            1
+          ],
+          [
+            9,
+            2
+          ],
+          [
+            9,
+            3
+          ],
+          [
+            9,
+            4
+          ],
+          [
+            9,
+            5
+          ],
+          [
+            9,
+            6
+          ],
+          [
+            10,
+            1
+          ],
+          [
+            10,
+            2
+          ],
+          [
+            10,
+            3
+          ],
+          [
+            10,
+            4
+          ],
+          [
+            10,
+            5
+          ],
+          [
+            10,
+            6
+          ],
+          [
+            11,
+            1
+          ],
+          [
+            11,
+            2
+          ],
+          [
+            11,
+            3
+          ],
+          [
+            11,
+            4
+          ],
+          [
+            11,
+            5
+          ],
+          [
+            11,
+            6
+          ],
+          [
+            12,
+            1
+          ],
+          [
+            12,
+            2
+          ],
+          [
+            12,
+            3
+          ],
+          [
+            12,
+            4
+          ],
+          [
+            12,
+            5
+          ],
+          [
+            12,
+            6
+          ]
+        ],
+        "ElementList": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72
+        ]
+      }
+    },
+    "VCM": {
+      "_description": "vertical corrector",
+      "CURRENT": {
+        "_description": "current",
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:MAG:VCM:01:CURRENT:RB",
+            "SR:MAG:VCM:02:CURRENT:RB",
+            "SR:MAG:VCM:03:CURRENT:RB",
+            "SR:MAG:VCM:04:CURRENT:RB",
+            "SR:MAG:VCM:05:CURRENT:RB",
+            "SR:MAG:VCM:06:CURRENT:RB",
+            "SR:MAG:VCM:07:CURRENT:RB",
+            "SR:MAG:VCM:08:CURRENT:RB",
+            "SR:MAG:VCM:09:CURRENT:RB",
+            "SR:MAG:VCM:10:CURRENT:RB",
+            "SR:MAG:VCM:11:CURRENT:RB",
+            "SR:MAG:VCM:12:CURRENT:RB",
+            "SR:MAG:VCM:13:CURRENT:RB",
+            "SR:MAG:VCM:14:CURRENT:RB",
+            "SR:MAG:VCM:15:CURRENT:RB",
+            "SR:MAG:VCM:16:CURRENT:RB",
+            "SR:MAG:VCM:17:CURRENT:RB",
+            "SR:MAG:VCM:18:CURRENT:RB",
+            "SR:MAG:VCM:19:CURRENT:RB",
+            "SR:MAG:VCM:20:CURRENT:RB",
+            "SR:MAG:VCM:21:CURRENT:RB",
+            "SR:MAG:VCM:22:CURRENT:RB",
+            "SR:MAG:VCM:23:CURRENT:RB",
+            "SR:MAG:VCM:24:CURRENT:RB",
+            "SR:MAG:VCM:25:CURRENT:RB",
+            "SR:MAG:VCM:26:CURRENT:RB",
+            "SR:MAG:VCM:27:CURRENT:RB",
+            "SR:MAG:VCM:28:CURRENT:RB",
+            "SR:MAG:VCM:29:CURRENT:RB",
+            "SR:MAG:VCM:30:CURRENT:RB",
+            "SR:MAG:VCM:31:CURRENT:RB",
+            "SR:MAG:VCM:32:CURRENT:RB",
+            "SR:MAG:VCM:33:CURRENT:RB",
+            "SR:MAG:VCM:34:CURRENT:RB",
+            "SR:MAG:VCM:35:CURRENT:RB",
+            "SR:MAG:VCM:36:CURRENT:RB",
+            "SR:MAG:VCM:37:CURRENT:RB",
+            "SR:MAG:VCM:38:CURRENT:RB",
+            "SR:MAG:VCM:39:CURRENT:RB",
+            "SR:MAG:VCM:40:CURRENT:RB",
+            "SR:MAG:VCM:41:CURRENT:RB",
+            "SR:MAG:VCM:42:CURRENT:RB",
+            "SR:MAG:VCM:43:CURRENT:RB",
+            "SR:MAG:VCM:44:CURRENT:RB",
+            "SR:MAG:VCM:45:CURRENT:RB",
+            "SR:MAG:VCM:46:CURRENT:RB",
+            "SR:MAG:VCM:47:CURRENT:RB",
+            "SR:MAG:VCM:48:CURRENT:RB",
+            "SR:MAG:VCM:49:CURRENT:RB",
+            "SR:MAG:VCM:50:CURRENT:RB",
+            "SR:MAG:VCM:51:CURRENT:RB",
+            "SR:MAG:VCM:52:CURRENT:RB",
+            "SR:MAG:VCM:53:CURRENT:RB",
+            "SR:MAG:VCM:54:CURRENT:RB",
+            "SR:MAG:VCM:55:CURRENT:RB",
+            "SR:MAG:VCM:56:CURRENT:RB",
+            "SR:MAG:VCM:57:CURRENT:RB",
+            "SR:MAG:VCM:58:CURRENT:RB",
+            "SR:MAG:VCM:59:CURRENT:RB",
+            "SR:MAG:VCM:60:CURRENT:RB",
+            "SR:MAG:VCM:61:CURRENT:RB",
+            "SR:MAG:VCM:62:CURRENT:RB",
+            "SR:MAG:VCM:63:CURRENT:RB",
+            "SR:MAG:VCM:64:CURRENT:RB",
+            "SR:MAG:VCM:65:CURRENT:RB",
+            "SR:MAG:VCM:66:CURRENT:RB",
+            "SR:MAG:VCM:67:CURRENT:RB",
+            "SR:MAG:VCM:68:CURRENT:RB",
+            "SR:MAG:VCM:69:CURRENT:RB",
+            "SR:MAG:VCM:70:CURRENT:RB",
+            "SR:MAG:VCM:71:CURRENT:RB",
+            "SR:MAG:VCM:72:CURRENT:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        },
+        "SP": {
+          "_description": "setpoint",
+          "ChannelNames": [
+            "SR:MAG:VCM:01:CURRENT:SP",
+            "SR:MAG:VCM:02:CURRENT:SP",
+            "SR:MAG:VCM:03:CURRENT:SP",
+            "SR:MAG:VCM:04:CURRENT:SP",
+            "SR:MAG:VCM:05:CURRENT:SP",
+            "SR:MAG:VCM:06:CURRENT:SP",
+            "SR:MAG:VCM:07:CURRENT:SP",
+            "SR:MAG:VCM:08:CURRENT:SP",
+            "SR:MAG:VCM:09:CURRENT:SP",
+            "SR:MAG:VCM:10:CURRENT:SP",
+            "SR:MAG:VCM:11:CURRENT:SP",
+            "SR:MAG:VCM:12:CURRENT:SP",
+            "SR:MAG:VCM:13:CURRENT:SP",
+            "SR:MAG:VCM:14:CURRENT:SP",
+            "SR:MAG:VCM:15:CURRENT:SP",
+            "SR:MAG:VCM:16:CURRENT:SP",
+            "SR:MAG:VCM:17:CURRENT:SP",
+            "SR:MAG:VCM:18:CURRENT:SP",
+            "SR:MAG:VCM:19:CURRENT:SP",
+            "SR:MAG:VCM:20:CURRENT:SP",
+            "SR:MAG:VCM:21:CURRENT:SP",
+            "SR:MAG:VCM:22:CURRENT:SP",
+            "SR:MAG:VCM:23:CURRENT:SP",
+            "SR:MAG:VCM:24:CURRENT:SP",
+            "SR:MAG:VCM:25:CURRENT:SP",
+            "SR:MAG:VCM:26:CURRENT:SP",
+            "SR:MAG:VCM:27:CURRENT:SP",
+            "SR:MAG:VCM:28:CURRENT:SP",
+            "SR:MAG:VCM:29:CURRENT:SP",
+            "SR:MAG:VCM:30:CURRENT:SP",
+            "SR:MAG:VCM:31:CURRENT:SP",
+            "SR:MAG:VCM:32:CURRENT:SP",
+            "SR:MAG:VCM:33:CURRENT:SP",
+            "SR:MAG:VCM:34:CURRENT:SP",
+            "SR:MAG:VCM:35:CURRENT:SP",
+            "SR:MAG:VCM:36:CURRENT:SP",
+            "SR:MAG:VCM:37:CURRENT:SP",
+            "SR:MAG:VCM:38:CURRENT:SP",
+            "SR:MAG:VCM:39:CURRENT:SP",
+            "SR:MAG:VCM:40:CURRENT:SP",
+            "SR:MAG:VCM:41:CURRENT:SP",
+            "SR:MAG:VCM:42:CURRENT:SP",
+            "SR:MAG:VCM:43:CURRENT:SP",
+            "SR:MAG:VCM:44:CURRENT:SP",
+            "SR:MAG:VCM:45:CURRENT:SP",
+            "SR:MAG:VCM:46:CURRENT:SP",
+            "SR:MAG:VCM:47:CURRENT:SP",
+            "SR:MAG:VCM:48:CURRENT:SP",
+            "SR:MAG:VCM:49:CURRENT:SP",
+            "SR:MAG:VCM:50:CURRENT:SP",
+            "SR:MAG:VCM:51:CURRENT:SP",
+            "SR:MAG:VCM:52:CURRENT:SP",
+            "SR:MAG:VCM:53:CURRENT:SP",
+            "SR:MAG:VCM:54:CURRENT:SP",
+            "SR:MAG:VCM:55:CURRENT:SP",
+            "SR:MAG:VCM:56:CURRENT:SP",
+            "SR:MAG:VCM:57:CURRENT:SP",
+            "SR:MAG:VCM:58:CURRENT:SP",
+            "SR:MAG:VCM:59:CURRENT:SP",
+            "SR:MAG:VCM:60:CURRENT:SP",
+            "SR:MAG:VCM:61:CURRENT:SP",
+            "SR:MAG:VCM:62:CURRENT:SP",
+            "SR:MAG:VCM:63:CURRENT:SP",
+            "SR:MAG:VCM:64:CURRENT:SP",
+            "SR:MAG:VCM:65:CURRENT:SP",
+            "SR:MAG:VCM:66:CURRENT:SP",
+            "SR:MAG:VCM:67:CURRENT:SP",
+            "SR:MAG:VCM:68:CURRENT:SP",
+            "SR:MAG:VCM:69:CURRENT:SP",
+            "SR:MAG:VCM:70:CURRENT:SP",
+            "SR:MAG:VCM:71:CURRENT:SP",
+            "SR:MAG:VCM:72:CURRENT:SP"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "VCM 01",
+          "VCM 02",
+          "VCM 03",
+          "VCM 04",
+          "VCM 05",
+          "VCM 06",
+          "VCM 07",
+          "VCM 08",
+          "VCM 09",
+          "VCM 10",
+          "VCM 11",
+          "VCM 12",
+          "VCM 13",
+          "VCM 14",
+          "VCM 15",
+          "VCM 16",
+          "VCM 17",
+          "VCM 18",
+          "VCM 19",
+          "VCM 20",
+          "VCM 21",
+          "VCM 22",
+          "VCM 23",
+          "VCM 24",
+          "VCM 25",
+          "VCM 26",
+          "VCM 27",
+          "VCM 28",
+          "VCM 29",
+          "VCM 30",
+          "VCM 31",
+          "VCM 32",
+          "VCM 33",
+          "VCM 34",
+          "VCM 35",
+          "VCM 36",
+          "VCM 37",
+          "VCM 38",
+          "VCM 39",
+          "VCM 40",
+          "VCM 41",
+          "VCM 42",
+          "VCM 43",
+          "VCM 44",
+          "VCM 45",
+          "VCM 46",
+          "VCM 47",
+          "VCM 48",
+          "VCM 49",
+          "VCM 50",
+          "VCM 51",
+          "VCM 52",
+          "VCM 53",
+          "VCM 54",
+          "VCM 55",
+          "VCM 56",
+          "VCM 57",
+          "VCM 58",
+          "VCM 59",
+          "VCM 60",
+          "VCM 61",
+          "VCM 62",
+          "VCM 63",
+          "VCM 64",
+          "VCM 65",
+          "VCM 66",
+          "VCM 67",
+          "VCM 68",
+          "VCM 69",
+          "VCM 70",
+          "VCM 71",
+          "VCM 72"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            3
+          ],
+          [
+            1,
+            4
+          ],
+          [
+            1,
+            5
+          ],
+          [
+            1,
+            6
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            5
+          ],
+          [
+            2,
+            6
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            3,
+            2
+          ],
+          [
+            3,
+            3
+          ],
+          [
+            3,
+            4
+          ],
+          [
+            3,
+            5
+          ],
+          [
+            3,
+            6
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            4,
+            2
+          ],
+          [
+            4,
+            3
+          ],
+          [
+            4,
+            4
+          ],
+          [
+            4,
+            5
+          ],
+          [
+            4,
+            6
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            5,
+            2
+          ],
+          [
+            5,
+            3
+          ],
+          [
+            5,
+            4
+          ],
+          [
+            5,
+            5
+          ],
+          [
+            5,
+            6
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            6,
+            2
+          ],
+          [
+            6,
+            3
+          ],
+          [
+            6,
+            4
+          ],
+          [
+            6,
+            5
+          ],
+          [
+            6,
+            6
+          ],
+          [
+            7,
+            1
+          ],
+          [
+            7,
+            2
+          ],
+          [
+            7,
+            3
+          ],
+          [
+            7,
+            4
+          ],
+          [
+            7,
+            5
+          ],
+          [
+            7,
+            6
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            2
+          ],
+          [
+            8,
+            3
+          ],
+          [
+            8,
+            4
+          ],
+          [
+            8,
+            5
+          ],
+          [
+            8,
+            6
+          ],
+          [
+            9,
+            1
+          ],
+          [
+            9,
+            2
+          ],
+          [
+            9,
+            3
+          ],
+          [
+            9,
+            4
+          ],
+          [
+            9,
+            5
+          ],
+          [
+            9,
+            6
+          ],
+          [
+            10,
+            1
+          ],
+          [
+            10,
+            2
+          ],
+          [
+            10,
+            3
+          ],
+          [
+            10,
+            4
+          ],
+          [
+            10,
+            5
+          ],
+          [
+            10,
+            6
+          ],
+          [
+            11,
+            1
+          ],
+          [
+            11,
+            2
+          ],
+          [
+            11,
+            3
+          ],
+          [
+            11,
+            4
+          ],
+          [
+            11,
+            5
+          ],
+          [
+            11,
+            6
+          ],
+          [
+            12,
+            1
+          ],
+          [
+            12,
+            2
+          ],
+          [
+            12,
+            3
+          ],
+          [
+            12,
+            4
+          ],
+          [
+            12,
+            5
+          ],
+          [
+            12,
+            6
+          ]
+        ],
+        "ElementList": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72
+        ]
+      }
+    },
+    "CAVITY": {
+      "_description": "RF cavity",
+      "VOLTAGE": {
+        "_description": "voltage",
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:RF:CAVITY:01:VOLTAGE:RB",
+            "SR:RF:CAVITY:02:VOLTAGE:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "V"
+        },
+        "SP": {
+          "_description": "setpoint",
+          "ChannelNames": [
+            "SR:RF:CAVITY:01:VOLTAGE:SP",
+            "SR:RF:CAVITY:02:VOLTAGE:SP"
+          ],
+          "DataType": "double",
+          "HWUnits": "V"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "CAVITY 01",
+          "CAVITY 02"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ]
+        ],
+        "ElementList": [
+          1,
+          2
+        ]
+      }
+    }
+  }
+}

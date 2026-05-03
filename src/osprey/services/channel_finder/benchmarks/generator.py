@@ -77,6 +77,8 @@ FIELD_NAMES: dict[str, str] = {
     "FREQUENCY": "frequency",
     "TEMPERATURE": "temperature",
     "TUNER": "tuner",
+    "LIFETIME": "lifetime",
+    "SIGNAL": "signal",
     "GOLDEN": "golden orbit",
     "OFFSET": "offset",
     "DOSE_RATE": "dose rate",
@@ -89,6 +91,7 @@ SUBFIELD_NAMES: dict[str, str] = {
     "GOLDEN": "golden setpoint",
     "X": "horizontal",
     "Y": "vertical",
+    "SUM": "sum",
     "FWD": "forward",
     "REV": "reverse",
     "NET": "net",
@@ -147,6 +150,8 @@ ALIAS_FIELD_NAMES: dict[str, str] = {
     "FREQUENCY": "Frequency",
     "TEMPERATURE": "Temperature",
     "TUNER": "Tuner",
+    "LIFETIME": "Lifetime",
+    "SIGNAL": "Signal",
     "GOLDEN": "GoldenOrbit",
     "OFFSET": "Offset",
     "DOSE_RATE": "DoseRate",
@@ -159,6 +164,7 @@ ALIAS_SUBFIELD_NAMES: dict[str, str] = {
     "GOLDEN": "Golden",
     "X": "X",
     "Y": "Y",
+    "SUM": "Sum",
     "FWD": "Forward",
     "REV": "Reverse",
     "NET": "Net",
@@ -221,7 +227,7 @@ TIER_1 = TierSpec(
         "DCCT": frozenset({"CURRENT"}),
         "CAVITY": frozenset({"VOLTAGE"}),
     },
-    target_count=205,
+    target_count=677,
 )
 
 TIER_2 = TierSpec(
@@ -229,7 +235,7 @@ TIER_2 = TierSpec(
     rings=frozenset({"SR"}),
     families=None,  # all SR families
     allowed_subfields=frozenset({"SP", "RB", "GOLDEN", "X", "Y", "FWD", "REV", "NET", "INST"}),
-    target_count=547,
+    target_count=2290,
 )
 
 TIER_3 = TierSpec(
@@ -237,7 +243,7 @@ TIER_3 = TierSpec(
     rings=frozenset({"SR", "BR", "BTS"}),
     families=None,  # all families
     allowed_subfields=None,  # all subfields
-    target_count=1210,
+    target_count=4353,
 )
 
 

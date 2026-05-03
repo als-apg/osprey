@@ -141,11 +141,11 @@ class TestShippedTemplateDatabaseRenders:
     @pytest.mark.parametrize(
         "channel, expected_address",
         [
-            ("DipoleMagnet05CurrentSetPoint", "SR:MAG:DIPOLE:B05:CURRENT:SP"),
-            ("DipoleMagnet05CurrentReadBack", "SR:MAG:DIPOLE:B05:CURRENT:RB"),
-            ("FocusingQuad03CurrentSetPoint", "SR:MAG:QF:QF03:CURRENT:SP"),
-            ("HorizontalCorrectorMagnet07CurrentSetPoint", "SR:MAG:HCM:H07:CURRENT:SP"),
-            ("VerticalCorrectorMagnet02CurrentReadBack", "SR:MAG:VCM:V02:CURRENT:RB"),
+            ("StorageRing_Dipole_05_Current_Setpoint", "SR:MAG:DIPOLE:05:CURRENT:SP"),
+            ("StorageRing_Dipole_05_Current_Readback", "SR:MAG:DIPOLE:05:CURRENT:RB"),
+            ("StorageRing_QuadFocus_03_Current_Setpoint", "SR:MAG:QF:03:CURRENT:SP"),
+            ("StorageRing_HorizCorr_07_Current_Setpoint", "SR:MAG:HCM:07:CURRENT:SP"),
+            ("StorageRing_VertCorr_02_Current_Readback", "SR:MAG:VCM:02:CURRENT:RB"),
         ],
     )
     def test_canonical_addresses(

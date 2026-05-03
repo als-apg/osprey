@@ -38,43 +38,43 @@ class TestGenerateSubcommand:
         assert (tmp_path / "middle_layer.json").exists()
 
     def test_in_context_channel_count_default(self, runner, tmp_path):
-        """Default (no tier) in_context.json should have all 1210 channels."""
+        """Default (no tier) in_context.json should have all 4353 channels."""
         runner.invoke(channel_finder, ["generate", "--output-dir", str(tmp_path)])
 
         data = json.loads((tmp_path / "in_context.json").read_text())
         assert isinstance(data, dict)
         assert "_metadata" in data
-        assert len(data["channels"]) == 1210
+        assert len(data["channels"]) == 4353
 
     def test_in_context_channel_count_tier1(self, runner, tmp_path):
-        """--tier 1 in_context.json should have 205 channels."""
+        """--tier 1 in_context.json should have 677 channels."""
         runner.invoke(
             channel_finder,
             ["generate", "--output-dir", str(tmp_path), "--tier", "1"],
         )
 
         data = json.loads((tmp_path / "in_context.json").read_text())
-        assert len(data["channels"]) == 205
+        assert len(data["channels"]) == 677
 
     def test_hierarchical_channel_count(self, runner, tmp_path):
-        """hierarchical.json should have 1210 channels (default, no tier filter)."""
+        """hierarchical.json should have 4353 channels (default, no tier filter)."""
         from osprey.services.channel_finder.benchmarks.generator import expand_hierarchy
 
         runner.invoke(channel_finder, ["generate", "--output-dir", str(tmp_path)])
 
         data = json.loads((tmp_path / "hierarchical.json").read_text())
         channels = expand_hierarchy(data)
-        assert len(channels) == 1210
+        assert len(channels) == 4353
 
     def test_middle_layer_channel_count(self, runner, tmp_path):
-        """middle_layer.json should have 1210 channels (default, no tier filter)."""
+        """middle_layer.json should have 4353 channels (default, no tier filter)."""
         from osprey.services.channel_finder.benchmarks.generator import collect_middle_layer_pvs
 
         runner.invoke(channel_finder, ["generate", "--output-dir", str(tmp_path)])
 
         data = json.loads((tmp_path / "middle_layer.json").read_text())
         pvs = collect_middle_layer_pvs(data)
-        assert len(pvs) == 1210
+        assert len(pvs) == 4353
 
     def test_output_dir_flag(self, runner, tmp_path):
         """--output-dir creates files in specified directory."""
@@ -115,19 +115,19 @@ class TestGenerateSubcommand:
         )
         assert result.exit_code == 0
 
-        # in_context: 205 channels at tier 1
+        # in_context: 677 channels at tier 1
         ic_data = json.loads((tmp_path / "in_context.json").read_text())
-        assert len(ic_data["channels"]) == 205
+        assert len(ic_data["channels"]) == 677
 
         # hierarchical: tier 1 produces fewer channels
         h_data = json.loads((tmp_path / "hierarchical.json").read_text())
         h_channels = expand_hierarchy(h_data)
-        assert len(h_channels) == 205
+        assert len(h_channels) == 677
 
         # middle_layer: tier 1 produces fewer channels
         ml_data = json.loads((tmp_path / "middle_layer.json").read_text())
         ml_pvs = collect_middle_layer_pvs(ml_data)
-        assert len(ml_pvs) == 205
+        assert len(ml_pvs) == 677
 
     def test_generate_custom_source(self, runner, tmp_path):
         """--source custom.json loads from a custom hierarchical template."""
@@ -150,7 +150,7 @@ class TestGenerateSubcommand:
         )
         assert result.exit_code == 0
         data = json.loads((tmp_path / "in_context.json").read_text())
-        assert len(data["channels"]) == 1210
+        assert len(data["channels"]) == 4353
 
     def test_validate_single_format(self, runner, tmp_path):
         """--validate works with a single format."""

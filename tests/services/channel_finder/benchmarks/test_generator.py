@@ -86,12 +86,12 @@ class TestExpandHierarchy:
     def test_known_pv_present(self, all_channels: list[dict]) -> None:
         """Spot-check known PVs exist."""
         pvs = {ch["pv"] for ch in all_channels}
-        assert "SR:MAG:DIPOLE:B01:CURRENT:SP" in pvs
-        assert "SR:MAG:DIPOLE:B24:STATUS:FAULT" in pvs
-        assert "SR:DIAG:BPM:BPM01:POSITION:X" in pvs
-        assert "SR:RF:CAVITY:C1:VOLTAGE:RB" in pvs
-        assert "BR:MAG:DIPOLE:B01:CURRENT:SP" in pvs
-        assert "BTS:DIAG:BPM:BPM01:POSITION:X" in pvs
+        assert "SR:MAG:DIPOLE:01:CURRENT:SP" in pvs
+        assert "SR:MAG:DIPOLE:24:STATUS:FAULT" in pvs
+        assert "SR:DIAG:BPM:01:POSITION:X" in pvs
+        assert "SR:RF:CAVITY:01:VOLTAGE:RB" in pvs
+        assert "BR:MAG:DIPOLE:01:CURRENT:SP" in pvs
+        assert "BTS:DIAG:BPM:01:POSITION:X" in pvs
 
     def test_no_metadata_keys(self, all_channels: list[dict]) -> None:
         """No PV segment should start with underscore."""
@@ -116,66 +116,66 @@ class TestGenerateDescription:
                     "ring": "SR",
                     "system": "MAG",
                     "family": "DIPOLE",
-                    "device": "B01",
+                    "device": "01",
                     "field": "CURRENT",
                     "subfield": "SP",
                 },
-                "Storage ring dipole bending magnet B01 current setpoint",
+                "Storage ring dipole bending magnet 01 current setpoint",
             ),
             (
                 {
                     "ring": "SR",
                     "system": "DIAG",
                     "family": "BPM",
-                    "device": "BPM01",
+                    "device": "01",
                     "field": "POSITION",
                     "subfield": "X",
                 },
-                "Storage ring beam position monitor BPM01 position horizontal",
+                "Storage ring beam position monitor 01 position horizontal",
             ),
             (
                 {
                     "ring": "BR",
                     "system": "MAG",
                     "family": "QF",
-                    "device": "QF01",
+                    "device": "01",
                     "field": "STATUS",
                     "subfield": "FAULT",
                 },
-                "Booster ring focusing quadrupole QF01 status fault",
+                "Booster ring focusing quadrupole 01 status fault",
             ),
             (
                 {
                     "ring": "BTS",
                     "system": "MAG",
                     "family": "VCM",
-                    "device": "V01",
+                    "device": "01",
                     "field": "CURRENT",
                     "subfield": "RB",
                 },
-                "Booster-to-storage transfer line vertical corrector V01 current readback",
+                "Booster-to-storage transfer line vertical corrector 01 current readback",
             ),
             (
                 {
                     "ring": "SR",
                     "system": "RF",
                     "family": "CAVITY",
-                    "device": "C1",
+                    "device": "01",
                     "field": "POWER",
                     "subfield": "FWD",
                 },
-                "Storage ring RF cavity C1 power forward",
+                "Storage ring RF cavity 01 power forward",
             ),
             (
                 {
                     "ring": "SR",
                     "system": "VAC",
                     "family": "ION-PUMP",
-                    "device": "SR01",
+                    "device": "01",
                     "field": "PRESSURE",
                     "subfield": "RB",
                 },
-                "Storage ring ion pump SR01 pressure readback",
+                "Storage ring ion pump 01 pressure readback",
             ),
         ]
 
@@ -590,55 +590,55 @@ class TestGenerateAlias:
                     "ring": "SR",
                     "system": "MAG",
                     "family": "DIPOLE",
-                    "device": "B05",
+                    "device": "05",
                     "field": "CURRENT",
                     "subfield": "SP",
                 },
-                "StorageRing_Dipole_B05_Current_Setpoint",
+                "StorageRing_Dipole_05_Current_Setpoint",
             ),
             (
                 {
                     "ring": "SR",
                     "system": "DIAG",
                     "family": "BPM",
-                    "device": "BPM01",
+                    "device": "01",
                     "field": "POSITION",
                     "subfield": "X",
                 },
-                "StorageRing_BPM_BPM01_Position_X",
+                "StorageRing_BPM_01_Position_X",
             ),
             (
                 {
                     "ring": "SR",
                     "system": "RF",
                     "family": "CAVITY",
-                    "device": "C2",
+                    "device": "02",
                     "field": "VOLTAGE",
                     "subfield": "RB",
                 },
-                "StorageRing_Cavity_C2_Voltage_Readback",
+                "StorageRing_Cavity_02_Voltage_Readback",
             ),
             (
                 {
                     "ring": "BR",
                     "system": "MAG",
                     "family": "DIPOLE",
-                    "device": "B01",
+                    "device": "01",
                     "field": "CURRENT",
                     "subfield": "SP",
                 },
-                "BoosterRing_Dipole_B01_Current_Setpoint",
+                "BoosterRing_Dipole_01_Current_Setpoint",
             ),
             (
                 {
                     "ring": "BTS",
                     "system": "DIAG",
                     "family": "BPM",
-                    "device": "BPM01",
+                    "device": "01",
                     "field": "POSITION",
                     "subfield": "Y",
                 },
-                "BoosterToStorageRing_BPM_BPM01_Position_Y",
+                "BoosterToStorageRing_BPM_01_Position_Y",
             ),
         ]
         for pv_parts, expected in cases:

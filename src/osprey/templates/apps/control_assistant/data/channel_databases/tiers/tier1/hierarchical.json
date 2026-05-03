@@ -1,0 +1,194 @@
+{
+  "_comment": "Accelerator Control System - Hierarchical Channel Database. Uses unified 6-level naming: RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD. SYSTEM and FAMILY are semantic tree categories, DEVICE is an instance expansion level, and FIELD/SUBFIELD describe physical properties and access modes.",
+  "hierarchy": {
+    "levels": [
+      {
+        "name": "ring",
+        "type": "tree"
+      },
+      {
+        "name": "system",
+        "type": "tree"
+      },
+      {
+        "name": "family",
+        "type": "tree"
+      },
+      {
+        "name": "device",
+        "type": "instances"
+      },
+      {
+        "name": "field",
+        "type": "tree"
+      },
+      {
+        "name": "subfield",
+        "type": "tree"
+      }
+    ],
+    "naming_pattern": "{ring}:{system}:{family}:{device}:{field}:{subfield}"
+  },
+  "tree": {
+    "SR": {
+      "_description": "Storage Ring (SR): Main synchrotron light source. 12-sector electron storage ring operating at 1.9 GeV. Contains magnets, diagnostics, vacuum, and RF systems for stable beam circulation and photon production.",
+      "MAG": {
+        "_description": "Magnet System (MAG): Controls beam trajectory and focusing in the storage ring. Includes dipole bending magnets, quadrupole focusing magnets, sextupole magnets for chromaticity correction, and corrector magnets for precise beam steering. All magnets are powered by regulated power supplies and are critical for maintaining stable beam orbit and beam quality.",
+        "DIPOLE": {
+          "_description": "Dipole Bending Magnets: Main bending magnets that deflect the beam in a circular path to form the storage ring. Create uniform magnetic field perpendicular to beam. Numbered sequentially around the ring (e.g., 01, 02, ...). Critical for maintaining correct beam trajectory and energy.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "{:02d}",
+              "_range": [
+                1,
+                24
+              ]
+            },
+            "CURRENT": {
+              "_description": "Magnet Excitation Current (Amperes): Current through dipole coil windings. Directly proportional to magnetic bending field via Ampere's law (B \u221d I). Typically 50-500A depending on ring energy. Tightly regulated by precision power supplies to maintain stable beam energy and trajectory.",
+              "SP": {
+                "_description": "Current Setpoint (read-write): Commanded dipole current for desired bending field. Operators or high-level software set this to control beam energy. Power supply servo loop regulates output to match setpoint."
+              },
+              "RB": {
+                "_description": "Current Readback (read-only): Actual measured dipole current from DCCT. High-accuracy measurement (\u00b10.01%) essential for field reproducibility. Used in power supply feedback loop and archived for orbit analysis."
+              }
+            }
+          }
+        },
+        "QF": {
+          "_description": "Focusing Quadrupoles (QF): Quadrupole magnets with positive gradient. Focus beam in horizontal plane, defocus in vertical plane. Part of tune correction system. Work together with QD magnets for independent horizontal/vertical tune control.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "{:02d}",
+              "_range": [
+                1,
+                72
+              ]
+            },
+            "CURRENT": {
+              "_description": "Quadrupole Excitation Current (Amperes): Current through QF coil windings. Proportional to positive field gradient. Typically 0-200A.",
+              "SP": {
+                "_description": "Setpoint (read-write): Commanded focusing current for tune correction."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured focusing current."
+              }
+            }
+          }
+        },
+        "HCM": {
+          "_description": "Horizontal Corrector Magnets (HCM): Small dipole steering magnets for fine horizontal (X) beam position adjustments. Used in closed-orbit correction algorithms to compensate for alignment errors and field imperfections. Bipolar power supplies allow positive and negative deflection.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "{:02d}",
+              "_range": [
+                1,
+                72
+              ]
+            },
+            "CURRENT": {
+              "_description": "Corrector Current (Amperes): Bipolar current for horizontal steering. Range typically \u00b110A.",
+              "SP": {
+                "_description": "Setpoint (read-write): Commanded horizontal corrector current."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured horizontal corrector current."
+              }
+            }
+          }
+        },
+        "VCM": {
+          "_description": "Vertical Corrector Magnets (VCM): Small dipole steering magnets for fine vertical (Y) beam position adjustments. Work with BPMs in feedback loops to maintain desired orbit. Bipolar power supplies allow positive and negative deflection.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "{:02d}",
+              "_range": [
+                1,
+                72
+              ]
+            },
+            "CURRENT": {
+              "_description": "Corrector Current (Amperes): Bipolar current for vertical steering.",
+              "SP": {
+                "_description": "Setpoint (read-write): Commanded vertical corrector current."
+              },
+              "RB": {
+                "_description": "Readback (read-only): Measured vertical corrector current."
+              }
+            }
+          }
+        }
+      },
+      "RF": {
+        "_description": "Radio Frequency System (RF): Provides energy to the circulating beam to compensate for synchrotron radiation losses. RF cavities accelerate the beam using high-power electromagnetic waves. Klystrons provide RF power amplification.",
+        "CAVITY": {
+          "_description": "RF Accelerating Cavities: Resonant structures that provide longitudinal electric field to accelerate the beam. Gap voltage (MV range) determines energy gain per turn.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "01",
+                "02"
+              ]
+            },
+            "VOLTAGE": {
+              "_description": "Cavity Gap Voltage (Megavolts): Peak RF voltage across accelerating gap. Typical: 0.5-3 MV.",
+              "RB": {
+                "_description": "Voltage Readback (read-only): Measured cavity gap voltage."
+              },
+              "SP": {
+                "_description": "Voltage Setpoint (read-write): Commanded cavity gap voltage."
+              }
+            }
+          }
+        }
+      },
+      "DIAG": {
+        "_description": "Diagnostic System (DIAG): Beam measurement and monitoring instrumentation. Includes beam position monitors (BPMs) for orbit measurement, beam current monitors (DCCT), and radiation safety monitors.",
+        "BPM": {
+          "_description": "Beam Position Monitors: Measure transverse (X, Y) beam position at many locations around the ring. Typical resolution: 1-10 microns. Essential for orbit correction and feedback.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "{:02d}",
+              "_range": [
+                1,
+                96
+              ]
+            },
+            "POSITION": {
+              "_description": "Beam Position (millimeters): Measured transverse beam position.",
+              "X": {
+                "_description": "Horizontal Position (read-only): Beam X position at this BPM location."
+              },
+              "Y": {
+                "_description": "Vertical Position (read-only): Beam Y position at this BPM location."
+              }
+            }
+          }
+        },
+        "DCCT": {
+          "_description": "DC Current Transformer: Non-intercepting beam current monitor. Measures total circulating beam current with high accuracy.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": [
+                "01"
+              ]
+            },
+            "CURRENT": {
+              "_description": "Beam Current (milliAmperes): Total circulating electron current. Typical range: 1-500 mA.",
+              "RB": {
+                "_description": "Current Readback (read-only): Standard beam current measurement."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

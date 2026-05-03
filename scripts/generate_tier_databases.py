@@ -39,7 +39,17 @@ TIER_SPECS: dict[str, TierSpec] = {
 ALL_TIERS = ["1", "2", "3"]
 ALL_FORMATS = ["in_context", "hierarchical", "middle_layer"]
 
-DEFAULT_OUTPUT_DIR = str(_PROJECT_ROOT / "data" / "benchmarks" / "tiers")
+DEFAULT_OUTPUT_DIR = str(
+    _PROJECT_ROOT
+    / "src"
+    / "osprey"
+    / "templates"
+    / "apps"
+    / "control_assistant"
+    / "data"
+    / "channel_databases"
+    / "tiers"
+)
 DEFAULT_QUERIES_PATH = str(
     _PROJECT_ROOT / "data" / "benchmarks" / "queries" / "benchmark_queries.json"
 )

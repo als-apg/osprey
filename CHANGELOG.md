@@ -12,7 +12,9 @@ Compatibility is documented in release notes, not encoded in the version string.
 ## [Unreleased]
 
 ### Added
-- **Channel Finder**: `osprey channel-finder generate` subcommand produces 3 template databases from the canonical hierarchical source — `in_context.json` (Tier 1, 205 channels with aliases), `hierarchical.json` (Tier 3, 1210 channels), `middle_layer.json` (Tier 3, 1210 channels with setup blocks)
+- **Channel-finder preset ships tier-segmented channel DBs.** All 9 tier databases (3 tiers × 3 paradigms) now live inside the `control_assistant` preset under `data/channel_databases/tiers/{tier1,tier2,tier3}/{hierarchical,in_context,middle_layer}.json` and are copied to user projects by `osprey init`. Users can pick a tier per-run rather than re-initializing. `scripts/generate_tier_databases.py` writes into the preset path by default.
+- **Tier-annotated benchmark queries.** Each query in `hierarchical_benchmark.json`, `middle_layer_benchmark.json`, and `in_context_benchmark.json` now carries a `tier: 1|2|3` field, computed as the smallest tier whose channel set contains every targeted PV. New `scripts/annotate_benchmark_tiers.py` regenerates the field from the tier DBs.
+- **Channel Finder**: `osprey channel-finder generate` subcommand produces 3 template databases from the canonical hierarchical source — `in_context.json` (Tier 1, 677 channels with aliases), `hierarchical.json` (Tier 3, 4353 channels), `middle_layer.json` (Tier 3, 4353 channels with setup blocks)
 - **Benchmarks**: Tier-specific query sets (`tier1_queries.json`/`tier2_queries.json`/`tier3_queries.json`) with 21/38/58 queries covering cross-ring, ambiguity, and sector-based categories
 - **`osprey-contribute` skill.** A new installable skill that walks
   contributors through the GitHub Flow contribution journey end-to-end:
@@ -32,14 +34,16 @@ Compatibility is documented in release notes, not encoded in the version string.
   check tiers (`quick_check.sh`, `ci_check.sh`, `premerge_check.sh main`).
 
 ### Fixed
+- **Channel-finder schema: drop redundant family prefixes from device segments.** `hierarchical.json` expansion patterns embedded the family-letter inside the device id (e.g. `BPM{:02d}` produced `SR:DIAG:BPM:BPM01:POSITION:X`). Patterns are now bare `{:02d}` across all 20 device families, producing `SR:DIAG:BPM:01:POSITION:X` and matching aliases `StorageRing_BPM_01_Position_X`. Range/instance counts expanded to realistic facility sizes (96 BPMs, 72 quads/correctors/sextupoles, 12 ion pumps). Schema extended for benchmark consistency: numeric DCCT/GAUGE devices, `DCCT.LIFETIME`, `BPM.SIGNAL.SUM`, `HCM.CONTROL.ON` fields. All 9 tier databases, 3 default channel DBs, and `hierarchical_benchmark.json` regenerated against the corrected schema; `TestMiddleLayerBenchmarkPVs::test_all_pvs_valid` now passes.
+- **Channel-finder benchmarks: `in_context_benchmark.json` aligned with current alias scheme.** All 30 entries rewritten from the orphaned legacy aliases (`BPM_Position01X`, `RF_Cavity1_ForwardPower_ReadBack`, …) to the active `StorageRing_<Family>_<NN>_<Field>_<Subfield>` scheme produced by the generator. Every `targeted_pv` now resolves against the regenerated `in_context.json`.
 - **Channel-finder template renderer honors `suffix_map`.** Templates in
   `in_context.json` (and any project DB using the same schema) declare
   `suffix_map` to translate display-name sub-channels (e.g.
   `CurrentSetPoint`) into EPICS address suffixes (e.g. `SP`). The renderer
   was ignoring this field and using the raw sub-channel name as the
   address suffix, producing addresses like
-  `SR:MAG:DIPOLE:B05:CURRENT:CurrentSetPoint` instead of
-  `SR:MAG:DIPOLE:B05:CURRENT:SP`. Affects every project scaffolded with
+  `SR:MAG:DIPOLE:05:CURRENT:CurrentSetPoint` instead of
+  `SR:MAG:DIPOLE:05:CURRENT:SP`. Affects every project scaffolded with
   `osprey init --channel-finder-mode=in_context` whose templates declare
   `suffix_map` (the four magnet templates in the shipped
   `control_assistant` app: dipoles, focusing quads, horizontal/vertical
