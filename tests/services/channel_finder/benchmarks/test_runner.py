@@ -232,7 +232,7 @@ class TestRunQueries:
 
         assert isinstance(result, BenchmarkRun)
         assert result.paradigm == "in_context"
-        assert result.tier == 0
+        assert result.tier is None
         assert result.model == "anthropic/claude-haiku"
         assert len(result.query_results) == 2
 

@@ -101,10 +101,10 @@ class QueryResult:
 class BenchmarkRun:
     """One benchmark execution: aggregated query results for a single model.
 
-    ``paradigm`` and ``tier`` are optional labels — useful for the tutorial
-    flow where they identify the configured pipeline mode and database tier,
-    and used by the companion paper repo's matrix aggregation to group runs.
-    Single-paradigm consumers can leave them as ``None``.
+    ``paradigm`` and ``tier`` are optional labels consumed by the companion
+    paper repo's matrix aggregation to group runs across pipeline modes and
+    database tiers. OSPREY's single-project benchmark flow leaves them as
+    ``None``; the configured pipeline and database are recorded elsewhere.
     """
 
     model: str

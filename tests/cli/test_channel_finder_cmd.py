@@ -425,7 +425,6 @@ class TestBenchmarkSubcommand:
         assert result.exit_code == 0
         assert "--model" in result.output
         assert "--queries" in result.output
-        assert "--tier" in result.output
 
     def test_benchmark_missing_config(self, runner, tmp_path):
         """benchmark without config.yml shows error."""
@@ -465,7 +464,6 @@ class TestBenchmarkSubcommand:
 
         canned_run = BenchmarkRun(
             paradigm="in_context",
-            tier=0,
             model="test-model",
             timestamp="2026-01-01T00:00:00",
             query_results=[],

@@ -541,12 +541,6 @@ def _parse_query_indices(queries_spec: str, total: int) -> list[int]:
     default=None,
     help="Override benchmark dataset path from config",
 )
-@click.option(
-    "--tier",
-    default=0,
-    type=int,
-    help="Tier label for this benchmark run (default: 0)",
-)
 @click.pass_context
 def benchmark(
     ctx,
@@ -557,7 +551,6 @@ def benchmark(
     concurrency: int,
     output_dir: str | None,
     queries_path: str | None,
-    tier: int,
 ):
     """Run channel finder benchmarks against the current project.
 
@@ -600,7 +593,6 @@ def benchmark(
     runner = BenchmarkRunner(
         project_dir,
         model=model,
-        tier=tier,
         max_concurrent=concurrency,
         verbose=verbose,
         queries_override=Path(queries_path) if queries_path else None,
