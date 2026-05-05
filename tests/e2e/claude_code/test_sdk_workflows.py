@@ -80,10 +80,12 @@ class TestClaudeCodeSDKIntegration:
             "No tool calls recorded — SDK observability may be broken"
         )
 
-        # At least one tool name should contain a recognizable MCP tool
-        mcp_tool_names = [t.name for t in result.tool_traces if "channel" in t.name.lower()]
-        assert len(mcp_tool_names) > 0, (
-            f"Expected a channel-related tool call but got: {result.tool_names}"
+        # The prompt asks for channel_find specifically — assert a channel-finder
+        # MCP server tool was called, not just any "channel"-substring tool
+        # (controls-server channel_read/write/limits would otherwise satisfy this).
+        cf_tools = [t for t in result.tool_traces if t.name.startswith("mcp__channel-finder__")]
+        assert cf_tools, (
+            f"Expected a channel-finder tool call but got: {result.tool_names}"
         )
 
         # Cost should be reasonable for a simple query
@@ -217,10 +219,15 @@ class TestClaudeCodeSDKIntegration:
         assert result.result is not None, "No ResultMessage received"
         assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
 
-        # Channel finding was invoked (either via channel_find tool or sub-agent)
-        channel_calls = result.tools_matching("channel")
+        # Channel finding was invoked. Match the channel-finder MCP server
+        # specifically — `tools_matching("channel")` would also accept
+        # controls-server `channel_read`/`channel_write`/`channel_limits`,
+        # none of which constitute "finding a channel".
+        channel_calls = [
+            t for t in result.tool_traces if t.name.startswith("mcp__channel-finder__")
+        ]
         assert len(channel_calls) > 0, (
-            f"No channel-related tool calls found. Tools used: {result.tool_names}"
+            f"No channel-finder tool calls found. Tools used: {result.tool_names}"
         )
 
         # archiver_read was called (should retrieve data for multiple channels)

@@ -32,6 +32,7 @@ try:
         ToolPermissionContext,
         ToolResultBlock,
         ToolUseBlock,
+        UserMessage,
         query,
     )
 
@@ -86,6 +87,7 @@ def init_project(
     provider: str = "als-apg",
     model: str = "haiku",
     channel_finder_mode: str | None = None,
+    tier: int = 1,
 ) -> Path:
     """Create a project via ``osprey build --preset <template>``, return project_dir.
 
@@ -108,6 +110,8 @@ def init_project(
         "--skip-lifecycle",
         "--output-dir",
         str(tmp_path),
+        "--tier",
+        str(tier),
         "--set",
         f"provider={provider}",
         "--set",
@@ -120,6 +124,29 @@ def init_project(
     project_dir = tmp_path / name
     assert project_dir.exists(), f"Project directory not created: {project_dir}"
     return project_dir
+
+
+def enable_writes_in_project(project_dir: Path) -> None:
+    """Ensure ``control_system.writes_enabled`` is true in the project's config.yml.
+
+    Required for tests that exercise the approval-hook path: the
+    ``osprey_writes_check.py`` PreToolUse hook denies before
+    ``osprey_approval.py`` gets to return ``ask``, so the SDK's
+    ``can_use_tool`` callback never fires when writes are disabled.
+
+    Idempotent: presets like ``control_assistant`` already ship with
+    ``writes_enabled: true``; only ``hello_world`` defaults to false.
+    """
+    config_path = project_dir / "config.yml"
+    text = config_path.read_text(encoding="utf-8")
+    if "writes_enabled: true" in text:
+        return
+    updated = text.replace("writes_enabled: false", "writes_enabled: true", 1)
+    if updated == text:
+        raise RuntimeError(
+            f"Could not enable writes in {config_path}: no writes_enabled key found."
+        )
+    config_path.write_text(updated, encoding="utf-8")
 
 
 def _resolve_project_spec(project_dir: Path):
@@ -239,6 +266,22 @@ class ToolTrace:
     tool_use_id: str | None = None
     parent_tool_use_id: str | None = None
 
+    @property
+    def failed(self) -> bool:
+        """True if the tool reported an error, either via the SDK ``is_error``
+        flag or via an MCP-style error envelope embedded in the result content.
+
+        OSPREY's MCP tools often return errors as a ``{"error": true, ...}``
+        JSON envelope wrapped in a *successful* tool result (``is_error=False``).
+        Tests asserting "no successful write" need to count both shapes as
+        failures.
+        """
+        if self.is_error:
+            return True
+        if not self.result:
+            return False
+        return '"error": true' in self.result or '"error":true' in self.result
+
 
 @dataclass
 class SDKWorkflowResult:
@@ -272,6 +315,29 @@ class SDKWorkflowResult:
 # ---------------------------------------------------------------------------
 # Core SDK runner
 # ---------------------------------------------------------------------------
+
+
+def _ingest_tool_result(
+    block: ToolResultBlock, pending_tools: dict[str, ToolTrace]
+) -> None:
+    """Match a ToolResultBlock to its pending ToolTrace and populate result/is_error.
+
+    ToolResultBlocks arrive in ``UserMessage.content`` (per Anthropic API contract:
+    tool_use is assistant output, tool_result is user input back to the model).
+    They may also appear in ``AssistantMessage`` when the SDK forwards them.
+    """
+    matched = pending_tools.get(block.tool_use_id)
+    if matched is None:
+        return
+    if isinstance(block.content, str):
+        matched.result = block.content
+    elif isinstance(block.content, list):
+        texts = []
+        for item in block.content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                texts.append(item.get("text", ""))
+        matched.result = "\n".join(texts) if texts else str(block.content)
+    matched.is_error = bool(block.is_error)
 
 
 async def run_sdk_query(
@@ -331,19 +397,14 @@ async def run_sdk_query(
                         workflow.tool_traces.append(trace)
                         pending_tools[block.id] = trace
                     elif isinstance(block, ToolResultBlock):
-                        # Match result to its tool call
-                        matched = pending_tools.get(block.tool_use_id)
-                        if matched:
-                            if isinstance(block.content, str):
-                                matched.result = block.content
-                            elif isinstance(block.content, list):
-                                # Extract text from content list
-                                texts = []
-                                for item in block.content:
-                                    if isinstance(item, dict) and item.get("type") == "text":
-                                        texts.append(item.get("text", ""))
-                                matched.result = "\n".join(texts) if texts else str(block.content)
-                            matched.is_error = bool(block.is_error)
+                        _ingest_tool_result(block, pending_tools)
+
+            elif isinstance(message, UserMessage):
+                # Tool results land here per the Anthropic API contract.
+                if isinstance(message.content, list):
+                    for block in message.content:
+                        if isinstance(block, ToolResultBlock):
+                            _ingest_tool_result(block, pending_tools)
 
             elif isinstance(message, SystemMessage):
                 workflow.system_messages.append(message)
@@ -485,19 +546,13 @@ async def run_sdk_query_with_hooks(
                             workflow.tool_traces.append(trace)
                             pending_tools[block.id] = trace
                         elif isinstance(block, ToolResultBlock):
-                            matched = pending_tools.get(block.tool_use_id)
-                            if matched:
-                                if isinstance(block.content, str):
-                                    matched.result = block.content
-                                elif isinstance(block.content, list):
-                                    texts = []
-                                    for item in block.content:
-                                        if isinstance(item, dict) and item.get("type") == "text":
-                                            texts.append(item.get("text", ""))
-                                    matched.result = (
-                                        "\n".join(texts) if texts else str(block.content)
-                                    )
-                                matched.is_error = bool(block.is_error)
+                            _ingest_tool_result(block, pending_tools)
+
+                elif isinstance(message, UserMessage):
+                    if isinstance(message.content, list):
+                        for block in message.content:
+                            if isinstance(block, ToolResultBlock):
+                                _ingest_tool_result(block, pending_tools)
 
                 elif isinstance(message, SystemMessage):
                     workflow.system_messages.append(message)

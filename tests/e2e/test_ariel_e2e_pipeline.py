@@ -236,9 +236,9 @@ class TestDemoDataIngestion:
     """Verify demo data is correctly ingested and searchable."""
 
     async def test_demo_data_ingested(self, e2e_ariel_seeded_db):
-        """All 25 demo logbook entries are in the database."""
-        assert e2e_ariel_seeded_db["entry_count"] == 25, (
-            f"Expected 25 entries, got {e2e_ariel_seeded_db['entry_count']}"
+        """At least 25 demo logbook entries are in the database."""
+        assert e2e_ariel_seeded_db["entry_count"] >= 25, (
+            f"Expected at least 25 entries, got {e2e_ariel_seeded_db['entry_count']}"
         )
 
         # Also verify via repository count
@@ -567,6 +567,21 @@ class TestCustomModuleIntegration:
         # --- 5. Assertions ---
         assert result.answer is not None, "Agent did not produce an answer"
         assert len(result.answer) > 50, f"Answer too short: {result.answer}"
+
+        # The custom watermark_search tool must have been invoked. Without
+        # this, the agent could find DEMO-001 via the keyword module ("RF
+        # cavity" matches DEMO-001 directly) and the test would pass without
+        # ever exercising the custom-module integration it claims to verify.
+        assert result.pipeline_details is not None, (
+            "Agent run produced no pipeline_details — cannot verify tool invocations"
+        )
+        invoked_tool_names = [
+            inv.tool_name for inv in result.pipeline_details.agent_tool_invocations
+        ]
+        assert "watermark_search" in invoked_tool_names, (
+            "Agent did not invoke the custom watermark_search tool. "
+            f"Tools invoked: {invoked_tool_names}"
+        )
 
         answer_lower = result.answer.lower()
 

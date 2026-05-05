@@ -80,12 +80,14 @@ class TestAuditObservability:
         assert result.result is not None, "No ResultMessage received from SDK"
         assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
 
-        # channel_find or channel-finder subagent was used
-        channel_tools = result.tools_matching("channel")
-        channel_evidence = channel_tools or any(
-            "channel" in t.lower() or "bpm" in t.lower() for t in result.text_blocks
+        # channel_find (or any channel-finder MCP server tool, in case the
+        # agent delegated to the channel-finder subagent which browsed first)
+        # must have been called. We require a tool trace, not text narration —
+        # the agent claiming "I'll look at BPMs" doesn't satisfy the workflow.
+        cf_tools = [t for t in result.tool_traces if t.name.startswith("mcp__channel-finder__")]
+        assert cf_tools, (
+            f"No mcp__channel-finder__* tool was called. Tools: {result.tool_names}"
         )
-        assert channel_evidence, f"No channel-related activity found. Tools: {result.tool_names}"
 
         # archiver_read was called
         archiver_tools = result.tools_matching("archiver_read")
@@ -119,12 +121,14 @@ class TestAuditObservability:
         # The LLM may retry or reorder intermediate calls, so we check that
         # *some* archiver call precedes the *last* plot tool call.
         tool_names = result.tool_names
-        channel_indices = [i for i, n in enumerate(tool_names) if "channel" in n]
+        channel_indices = [
+            i for i, n in enumerate(tool_names) if n.startswith("mcp__channel-finder__")
+        ]
         archiver_indices = [i for i, n in enumerate(tool_names) if "archiver" in n]
         plot_indices = [i for i, n in enumerate(tool_names) if any(p in n for p in plot_tool_names)]
         if channel_indices and archiver_indices and plot_indices:
             assert min(channel_indices) < max(archiver_indices), (
-                f"Expected a channel call before an archiver call. "
+                f"Expected a channel-finder call before an archiver call. "
                 f"Channel indices: {channel_indices}, archiver: {archiver_indices}. "
                 f"Full order: {tool_names}"
             )

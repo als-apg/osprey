@@ -4,12 +4,29 @@ The judge receives workflow execution results and plain-text expectations,
 then uses an LLM to evaluate whether the workflow succeeded.
 """
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
 from osprey.models import get_chat_completion
+
+
+def _default_provider_config(provider: str) -> dict[str, str] | None:
+    """Build a self-contained provider_config from env vars for known providers.
+
+    Lets the judge run without a config.yml in pytest's cwd. ``get_chat_completion``
+    falls back to ``get_provider_config(provider)`` (which loads config.yml) when
+    ``provider_config`` is None — that's what triggers the FileNotFoundError on
+    bare repo cwd.
+    """
+    if provider == "als-apg":
+        api_key = os.environ.get("ALS_APG_API_KEY")
+        if not api_key:
+            return None
+        return {"api_key": api_key, "base_url": "https://llm.gianlucamartino.com/v1"}
+    return None
 
 
 class JudgeEvaluation(BaseModel):
@@ -55,6 +72,7 @@ class LLMJudge:
         provider: str = "als-apg",
         model: str = "claude-haiku-4-5-20251001",
         verbose: bool = False,
+        provider_config: dict[str, str] | None = None,
     ):
         """Initialize the LLM judge.
 
@@ -62,10 +80,14 @@ class LLMJudge:
             provider: AI provider to use for evaluation
             model: Model name for the judge
             verbose: If True, prints detailed evaluation information
+            provider_config: Explicit ``{api_key, base_url}`` to skip the
+                config.yml lookup. Defaults to env-var-derived config for the
+                known ``als-apg`` provider.
         """
         self.provider = provider
         self.model = model
         self.verbose = verbose
+        self.provider_config = provider_config or _default_provider_config(provider)
 
     async def evaluate(self, result: WorkflowResult, expectations: str) -> JudgeEvaluation:
         """Evaluate a workflow result against expectations.
@@ -94,6 +116,7 @@ class LLMJudge:
             message=full_prompt,
             provider=self.provider,
             model_id=self.model,
+            provider_config=self.provider_config,
             output_model=JudgeEvaluation,
             max_tokens=8096,
         )
@@ -187,6 +210,7 @@ Provide a clear PASS or FAIL decision with detailed reasoning."""
             message=full_prompt,
             provider=self.provider,
             model_id=self.model,
+            provider_config=self.provider_config,
             output_model=JudgeEvaluation,
             max_tokens=8096,
         )

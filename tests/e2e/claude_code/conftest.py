@@ -86,12 +86,21 @@ def safety_project_all_capabilities(tmp_path_factory):
 
     Used by approval flow tests to verify that ALL tool calls (including
     reads) trigger the approval callback.
+
+    The new template ships with a per-tool ``approval.tools`` dict, which
+    the hook checks first and short-circuits the legacy ``global_mode``
+    path. Drop the dict so the fixture's ``global_mode: all_capabilities``
+    actually takes effect.
     """
     tmp = tmp_path_factory.mktemp("safety-all-caps")
     project_dir = init_project(tmp, "safety-all-caps")
     config_path = project_dir / "config.yml"
     config = yaml.safe_load(config_path.read_text())
-    config["approval"]["global_mode"] = "all_capabilities"
+    approval = config.setdefault("approval", {})
+    approval.pop("tools", None)
+    approval.pop("default_policy", None)
+    approval["global_mode"] = "all_capabilities"
+    approval["enabled"] = True
     config["control_system"]["writes_enabled"] = True
     config_path.write_text(yaml.dump(config, default_flow_style=False))
     return project_dir
