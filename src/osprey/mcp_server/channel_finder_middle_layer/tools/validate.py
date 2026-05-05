@@ -23,13 +23,11 @@ def validate(channels: list[str]) -> str:
         JSON with validation results for each channel.
     """
     if not channels:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "Empty channel list provided.",
                 ["Provide one or more channel names to validate."],
             )
-        )
 
     try:
         registry = get_cf_ml_context()
@@ -46,10 +44,8 @@ def validate(channels: list[str]) -> str:
 
     except Exception as exc:
         logger.exception("validate failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to validate channels: {exc}",
                 ["Check that the channel finder database is configured."],
             )
-        )

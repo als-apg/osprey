@@ -44,8 +44,7 @@ def get_options(level: str, selections: dict | None = None) -> str:
         )
 
     except ValueError as exc:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 str(exc),
                 [
@@ -53,13 +52,10 @@ def get_options(level: str, selections: dict | None = None) -> str:
                     "Ensure previous level selections are valid.",
                 ],
             )
-        )
     except Exception as exc:
         logger.exception("get_options failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to get options: {exc}",
                 ["Check that the channel finder database is configured."],
             )
-        )
