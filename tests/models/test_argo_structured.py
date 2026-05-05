@@ -215,7 +215,7 @@ class TestExecuteArgoStructuredOutput:
             )
 
         call_url = mock_post.call_args[1].get("url") or mock_post.call_args[0][0]
-        assert "argo-bridge.cels.anl.gov" in call_url
+        assert "apps.inside.anl.gov/argoapi/v1" in call_url
 
     @patch("osprey.models.providers.argo.httpx.post")
     def test_no_choices_raises_value_error(self, mock_post):
