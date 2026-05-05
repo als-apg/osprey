@@ -70,7 +70,9 @@ def _execute_argo_structured_output(
     a system prompt + schema instructions to get JSON output, then validate
     against the Pydantic model.
     """
-    base_url = base_url or os.environ.get("ARGO_BASE_URL") or "https://apps.inside.anl.gov/argoapi/v1"
+    base_url = (
+        base_url or os.environ.get("ARGO_BASE_URL") or "https://apps.inside.anl.gov/argoapi/v1"
+    )
     api_key = api_key or os.environ.get("ARGO_API_KEY")
 
     url = f"{base_url.rstrip('/')}/chat/completions"
