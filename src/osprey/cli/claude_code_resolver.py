@@ -59,6 +59,19 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
             "opus": "claude-opus-4-6",
         },
     },
+    "amsc": {
+        "auth_env_var": "ANTHROPIC_AUTH_TOKEN",  # Bearer auth via translation proxy
+        "auth_secret_env": "AMSC_I2_API_KEY",  # Matches PROVIDER_API_KEYS["amsc"]
+        "base_url": "https://api.i2-core.american-science-cloud.org/v1",
+        "default_model_tier": "haiku",
+        # AMSC speaks OpenAI; osprey's translation proxy converts requests.
+        # Model IDs from src/osprey/models/providers/amsc.py:available_models.
+        "models": {
+            "haiku": "claude-haiku",
+            "sonnet": "claude-sonnet",
+            "opus": "claude-opus",
+        },
+    },
 }
 
 AGENT_DEFAULT_TIERS: dict[str, str] = {
