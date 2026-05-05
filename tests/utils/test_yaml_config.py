@@ -41,7 +41,11 @@ project_name: "my-test-project"
 
 # Approval workflow for sensitive operations
 approval:
-  global_mode: "selective"   # Options: disabled | selective | all_capabilities
+  enabled: true
+  default_policy: "always"   # Options: skip | selective | always
+  tools:
+    channel_write: "always"
+    channel_read: "skip"
 
 # ============================================================
 # CONTROL SYSTEM
@@ -127,7 +131,7 @@ class TestCommentPreservation:
             config_file,
             {
                 "control_system.writes_enabled": True,
-                "approval.global_mode": "all_capabilities",
+                "approval.default_policy": "always",
                 "artifact_server.port": 9999,
             },
         )
@@ -222,9 +226,9 @@ class TestNumericUpdates:
 
 class TestStringUpdates:
     def test_enum_string(self, config_file):
-        config_update_fields(config_file, {"approval.global_mode": "all_capabilities"})
+        config_update_fields(config_file, {"approval.default_policy": "selective"})
         data = config_read(config_file)
-        assert data["approval"]["global_mode"] == "all_capabilities"
+        assert data["approval"]["default_policy"] == "selective"
 
     def test_string_with_special_chars(self, config_file):
         config_update_fields(config_file, {"artifact_server.host": "0.0.0.0"})
@@ -298,7 +302,7 @@ class TestBatchUpdates:
                 "control_system.writes_enabled": True,
                 "control_system.type": "epics",
                 "artifact_server.port": 7777,
-                "approval.global_mode": "disabled",
+                "approval.enabled": False,
                 "control_system.write_verification.timeout": 15.0,
             },
         )
@@ -306,7 +310,7 @@ class TestBatchUpdates:
         assert data["control_system"]["writes_enabled"] is True
         assert data["control_system"]["type"] == "epics"
         assert data["artifact_server"]["port"] == 7777
-        assert data["approval"]["global_mode"] == "disabled"
+        assert data["approval"]["enabled"] is False
         assert data["control_system"]["write_verification"]["timeout"] == 15.0
 
     def test_batch_preserves_comments(self, config_file):
@@ -318,7 +322,7 @@ class TestBatchUpdates:
             {
                 "control_system.writes_enabled": True,
                 "artifact_server.port": 9999,
-                "approval.global_mode": "disabled",
+                "approval.enabled": False,
             },
         )
 

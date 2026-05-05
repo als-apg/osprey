@@ -18,7 +18,7 @@ Typical usage:
     # Apply structured key-value updates
     config_update_fields(Path("config.yml"), {
         "control_system.writes_enabled": True,
-        "approval.global_mode": "selective",
+        "approval.tools.channel_write": "always",
     })
 """
 

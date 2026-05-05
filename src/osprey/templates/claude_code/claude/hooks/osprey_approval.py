@@ -254,156 +254,28 @@ def main():
     config = load_osprey_config(hook_input)
     approval_config = config.get("approval", {})
 
-    # ── New path: per-tool policy dispatch ───────────────────
-    if "tools" in approval_config:
-        # Global toggle — disabled means allow everything
-        if not approval_config.get("enabled", True):
-            log_hook("approval", hook_input, status="allow", detail="enabled=false")
-            json.dump(build_allow_output(), sys.stdout)
-            sys.exit(0)
-
-        default_policy = approval_config.get("default_policy", "always")
-        tool_policies = approval_config["tools"]
-        policy = tool_policies.get(short_name, default_policy)
-
-        # Skip policy — no approval needed
-        if policy == "skip":
-            log_hook(
-                "approval", hook_input, status="allow", detail=f"policy=skip tool={short_name}"
-            )
-            json.dump(build_allow_output(), sys.stdout)
-            sys.exit(0)
-
-        # Selective policy — content-aware analysis
-        if policy == "selective":
-            if short_name == "execute":
-                exec_mode = tool_input.get("execution_mode", "")
-                code = tool_input.get("code", "")
-
-                writes_detected = has_write_patterns(code, config)
-                needs_approval = exec_mode == "write" or writes_detected
-                if needs_approval:
-                    reason_parts = [f"Python execution (mode: {exec_mode or 'unspecified'})"]
-                    if writes_detected:
-                        reason_parts.append("Code contains control system write patterns.")
-                    if code.strip():
-                        gallery_link = _create_pre_execution_notebook(code, exec_mode, config)
-                        if gallery_link:
-                            reason_parts.append(f"\nReview notebook: {gallery_link}")
-                    reason = "\n".join(reason_parts)
-                    log_hook("approval", hook_input, status="ask", detail="execute_selective")
-                    json.dump(build_approval_output(reason), sys.stdout)
-                    sys.exit(0)
-
-                # Selective execute without write indicators — allow
-                log_hook(
-                    "approval", hook_input, status="allow", detail="execute_selective_readonly"
-                )
-                json.dump(build_allow_output(), sys.stdout)
-                sys.exit(0)
-
-            # For channel_write under selective, treat as always (conservative)
-            if short_name == "channel_write":
-                channels = tool_input.get("operations", [])
-                if not channels:
-                    ch = tool_input.get("channel")
-                    val = tool_input.get("value")
-                    if ch is not None:
-                        channels = [{"channel": ch, "value": val}]
-                channel_list = ", ".join(
-                    f"{op.get('channel')}={op.get('value')}" for op in channels
-                )
-                reason = f"Channel write: {channel_list or 'unknown'}"
-                log_hook("approval", hook_input, status="ask", detail="channel_write_selective")
-                json.dump(build_approval_output(reason), sys.stdout)
-                sys.exit(0)
-
-            # Other tools under selective: treat as always (conservative)
-            # Falls through to "always" handling below
-
-        # Always policy (explicit or fallback from selective for non-execute/write tools)
-        reason_parts = [
-            f"Tool: {short_name}",
-            f"Approval policy: {policy}",
-        ]
-        if short_name == "execute":
-            code = tool_input.get("code", "")
-            exec_mode = tool_input.get("execution_mode", "")
-            if code.strip():
-                gallery_link = _create_pre_execution_notebook(code, exec_mode, config)
-                if gallery_link:
-                    reason_parts.append(f"\nReview notebook: {gallery_link}")
-        elif short_name == "channel_write":
-            channels = tool_input.get("operations", [])
-            if not channels:
-                ch = tool_input.get("channel")
-                val = tool_input.get("value")
-                if ch is not None:
-                    channels = [{"channel": ch, "value": val}]
-            channel_list = ", ".join(f"{op.get('channel')}={op.get('value')}" for op in channels)
-            if channel_list:
-                reason_parts.append(f"Channels: {channel_list}")
-
-        reason = "\n".join(reason_parts)
-        log_hook(
-            "approval",
-            hook_input,
-            status="ask",
-            detail=f"policy={policy} tool={short_name}",
-        )
-        json.dump(build_approval_output(reason), sys.stdout)
-        sys.exit(0)
-
-    # ── Legacy fallback: global_mode-based dispatch ────────────
-    mode = approval_config.get("global_mode", "selective")
-
-    # Disabled — explicitly allow everything
-    if mode == "disabled":
-        log_hook("approval", hook_input, status="allow", detail="mode=disabled")
+    # Global toggle — disabled means allow everything
+    if not approval_config.get("enabled", True):
+        log_hook("approval", hook_input, status="allow", detail="enabled=false")
         json.dump(build_allow_output(), sys.stdout)
         sys.exit(0)
 
-    # All-capabilities — approve every OSPREY tool
-    if mode == "all_capabilities":
-        reason_parts = [
-            f"Tool: {short_name}",
-            "Approval mode: all_capabilities",
-            "All OSPREY tool calls require approval.",
-        ]
+    # Per-tool policy dispatch (default_policy applies when `tools` is absent
+    # or the specific tool isn't listed; production default is "always").
+    default_policy = approval_config.get("default_policy", "always")
+    tool_policies = approval_config.get("tools", {})
+    policy = tool_policies.get(short_name, default_policy)
 
-        # Create a review notebook when the tool carries code
-        if short_name == "execute":
-            code = tool_input.get("code", "")
-            exec_mode = tool_input.get("execution_mode", "")
-            if code.strip():
-                gallery_link = _create_pre_execution_notebook(code, exec_mode, config)
-                if gallery_link:
-                    reason_parts.append(f"\nReview notebook: {gallery_link}")
-
-        reason = "\n".join(reason_parts)
+    # Skip policy — no approval needed
+    if policy == "skip":
         log_hook(
-            "approval", hook_input, status="ask", detail=f"mode=all_capabilities tool={short_name}"
+            "approval", hook_input, status="allow", detail=f"policy=skip tool={short_name}"
         )
-        json.dump(build_approval_output(reason), sys.stdout)
+        json.dump(build_allow_output(), sys.stdout)
         sys.exit(0)
 
-    # Selective mode
-    if mode == "selective":
-        # channel_write always needs approval
-        if short_name == "channel_write":
-            channels = tool_input.get("operations", [])
-            if not channels:
-                ch = tool_input.get("channel")
-                val = tool_input.get("value")
-                if ch is not None:
-                    channels = [{"channel": ch, "value": val}]
-            channel_list = ", ".join(f"{op.get('channel')}={op.get('value')}" for op in channels)
-            reason = f"Channel write: {channel_list or 'unknown'}"
-            log_hook("approval", hook_input, status="ask", detail="channel_write")
-            json.dump(build_approval_output(reason), sys.stdout)
-            sys.exit(0)
-
-        # execute: approve if mode=="write" or code has write patterns
+    # Selective policy — content-aware analysis
+    if policy == "selective":
         if short_name == "execute":
             exec_mode = tool_input.get("execution_mode", "")
             code = tool_input.get("code", "")
@@ -414,21 +286,72 @@ def main():
                 reason_parts = [f"Python execution (mode: {exec_mode or 'unspecified'})"]
                 if writes_detected:
                     reason_parts.append("Code contains control system write patterns.")
-
-                # Create pre-execution notebook so reviewer can inspect the code
                 if code.strip():
                     gallery_link = _create_pre_execution_notebook(code, exec_mode, config)
                     if gallery_link:
                         reason_parts.append(f"\nReview notebook: {gallery_link}")
-
                 reason = "\n".join(reason_parts)
-                log_hook("approval", hook_input, status="ask", detail="execute_write")
+                log_hook("approval", hook_input, status="ask", detail="execute_selective")
                 json.dump(build_approval_output(reason), sys.stdout)
                 sys.exit(0)
 
-    # No approval needed — explicitly allow so hook decision overrides static lists
-    log_hook("approval", hook_input, status="allow")
-    json.dump(build_allow_output(), sys.stdout)
+            # Selective execute without write indicators — allow
+            log_hook(
+                "approval", hook_input, status="allow", detail="execute_selective_readonly"
+            )
+            json.dump(build_allow_output(), sys.stdout)
+            sys.exit(0)
+
+        # For channel_write under selective, treat as always (conservative)
+        if short_name == "channel_write":
+            channels = tool_input.get("operations", [])
+            if not channels:
+                ch = tool_input.get("channel")
+                val = tool_input.get("value")
+                if ch is not None:
+                    channels = [{"channel": ch, "value": val}]
+            channel_list = ", ".join(
+                f"{op.get('channel')}={op.get('value')}" for op in channels
+            )
+            reason = f"Channel write: {channel_list or 'unknown'}"
+            log_hook("approval", hook_input, status="ask", detail="channel_write_selective")
+            json.dump(build_approval_output(reason), sys.stdout)
+            sys.exit(0)
+
+        # Other tools under selective: treat as always (conservative)
+        # Falls through to "always" handling below
+
+    # Always policy (explicit or fallback from selective for non-execute/write tools)
+    reason_parts = [
+        f"Tool: {short_name}",
+        f"Approval policy: {policy}",
+    ]
+    if short_name == "execute":
+        code = tool_input.get("code", "")
+        exec_mode = tool_input.get("execution_mode", "")
+        if code.strip():
+            gallery_link = _create_pre_execution_notebook(code, exec_mode, config)
+            if gallery_link:
+                reason_parts.append(f"\nReview notebook: {gallery_link}")
+    elif short_name == "channel_write":
+        channels = tool_input.get("operations", [])
+        if not channels:
+            ch = tool_input.get("channel")
+            val = tool_input.get("value")
+            if ch is not None:
+                channels = [{"channel": ch, "value": val}]
+        channel_list = ", ".join(f"{op.get('channel')}={op.get('value')}" for op in channels)
+        if channel_list:
+            reason_parts.append(f"Channels: {channel_list}")
+
+    reason = "\n".join(reason_parts)
+    log_hook(
+        "approval",
+        hook_input,
+        status="ask",
+        detail=f"policy={policy} tool={short_name}",
+    )
+    json.dump(build_approval_output(reason), sys.stdout)
     sys.exit(0)
 
 
