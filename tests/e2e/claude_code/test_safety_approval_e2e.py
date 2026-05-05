@@ -135,7 +135,7 @@ async def test_approval_denial_propagates_to_claude(safety_project_selective):
     # was traversed; this complements it by confirming the side effect
     # was suppressed.)
     write_calls = result.tools_matching("channel_write")
-    successful_writes = [t for t in write_calls if not t.is_error]
+    successful_writes = [t for t in write_calls if not t.failed]
     assert len(successful_writes) == 0, (
         f"Approval denial breached: {len(successful_writes)} write(s) succeeded.\n"
         f"  Tools: {result.tool_names}\n"
@@ -241,7 +241,7 @@ async def test_limits_deny_blocks_before_approval(safety_project_selective):
     # callback fired (asserted above via empty hook_events). The
     # safety-relevant complement is "no successful write tool result".
     write_calls = result.tools_matching("channel_write")
-    successful_writes = [t for t in write_calls if not t.is_error]
+    successful_writes = [t for t in write_calls if not t.failed]
     assert len(successful_writes) == 0, (
         f"Limits-deny breached: {len(successful_writes)} write(s) succeeded.\n"
         f"  Tools: {result.tool_names}\n"

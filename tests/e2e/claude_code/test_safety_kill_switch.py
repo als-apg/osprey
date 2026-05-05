@@ -66,7 +66,7 @@ async def test_channel_write_denied_when_writes_disabled(safety_project_writes_o
     # back as an error from the writes_check hook. (Replaces a brittle
     # WRITES_DISABLED_KEYWORDS check on Claude's text response — the actual
     # safety invariant is "no successful write", which the trace records.)
-    successful_writes = [t for t in write_calls if not t.is_error]
+    successful_writes = [t for t in write_calls if not t.failed]
     assert len(successful_writes) == 0, (
         f"Kill switch breached: {len(successful_writes)} write(s) succeeded.\n"
         f"  Tools: {result.tool_names}\n"
@@ -131,7 +131,7 @@ async def test_python_write_denied_when_writes_disabled(safety_project_writes_of
 
     # Tool-trace assertion: no successful execute(write) call. See the
     # channel_write test above for the rationale.
-    successful_writes = [t for t in py_calls if not t.is_error]
+    successful_writes = [t for t in py_calls if not t.failed]
     assert len(successful_writes) == 0, (
         f"Kill switch breached: {len(successful_writes)} execute(write) succeeded.\n"
         f"  Tools: {result.tool_names}\n"
