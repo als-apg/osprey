@@ -114,7 +114,7 @@ class TestFeedbackCaptureResultUnwrapping:
 
         hook_runner(
             "osprey_cf_feedback_capture.py",
-            "mcp__channel-finder__get_channels",
+            "mcp__channel-finder__query_channels",
             {"query": "correctors", "facility": "test"},
             cwd=tmp_path,
             tool_response=resp,

@@ -17,9 +17,12 @@ from osprey.services.channel_finder.benchmarks.generator import (
     expand_hierarchy,
 )
 
-TEMPLATE_DIR = TEMPLATE_DB_PATH.parent.parent.parent
+# TEMPLATE_DB_PATH lives at <template>/data/channel_databases/tiers/tier3/hierarchical.json,
+# so walk up five components to reach the template root.
+TEMPLATE_DIR = TEMPLATE_DB_PATH.parents[4]
 DATASETS_DIR = TEMPLATE_DIR / "data" / "benchmarks" / "datasets"
-DATABASES_DIR = TEMPLATE_DIR / "data" / "channel_databases"
+# Validate benchmark PVs against the tier-3 superset (full 4353-channel database).
+DATABASES_DIR = TEMPLATE_DIR / "data" / "channel_databases" / "tiers" / "tier3"
 
 
 class TestBenchmarkDatasetsExist:

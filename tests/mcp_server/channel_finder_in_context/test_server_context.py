@@ -8,6 +8,7 @@ from osprey.mcp_server.channel_finder_in_context.server_context import (
     PROVIDER_RPM,
     get_cf_ic_context,
     initialize_cf_ic_context,
+    reset_cf_ic_context,
 )
 from osprey.services.channel_finder.rate_limiter import configure_rate_limiter, get_rate_limiter
 
@@ -15,8 +16,13 @@ _MINIMAL_MODEL_CONFIG = "claude_code:\n  model: test-model\n  provider: anthropi
 
 
 @pytest.fixture(autouse=True)
-def _reset_rate_limiter():
+def _reset_module_state():
+    # Module-level singletons leak across tests; clear before *and* after each
+    # test so order-dependent assertions (e.g. test_context_not_initialized)
+    # hold regardless of full-suite collection order.
+    reset_cf_ic_context()
     yield
+    reset_cf_ic_context()
     configure_rate_limiter(None)
 
 
@@ -93,8 +99,19 @@ def test_context_subagent_model_from_ic_config(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 def test_context_subagent_model_fallback_to_claude_code(tmp_path, monkeypatch):
+    # When no pipeline-local subagent_model is set, the context falls back to
+    # ClaudeCodeModelResolver, which reads default_model (a tier name) and the
+    # tier→model map under claude_code.models. The plain `model:` key on the
+    # claude_code block is *not* consumed by the resolver.
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(_MINIMAL_MODEL_CONFIG)
+    config = (
+        "claude_code:\n"
+        "  provider: anthropic\n"
+        "  default_model: sonnet\n"
+        "  models:\n"
+        "    sonnet: test-model\n"
+    )
+    (tmp_path / "config.yml").write_text(config)
     initialize_cf_ic_context()
     reg = get_cf_ic_context()
     assert reg.subagent_model_id == "test-model"
