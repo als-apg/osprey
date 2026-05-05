@@ -11,7 +11,8 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Path to the canonical hierarchical template database
+# Path to the canonical hierarchical template database — tier3 is the full
+# 4353-channel superset; tier1/tier2 are filtered subsets derived from it.
 TEMPLATE_DB_PATH = (
     Path(__file__).resolve().parents[3]
     / "templates"
@@ -19,6 +20,8 @@ TEMPLATE_DB_PATH = (
     / "control_assistant"
     / "data"
     / "channel_databases"
+    / "tiers"
+    / "tier3"
     / "hierarchical.json"
 )
 
