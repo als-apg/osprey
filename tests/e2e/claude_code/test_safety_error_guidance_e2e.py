@@ -83,9 +83,10 @@ async def test_execution_error_triggers_guidance(safety_project):
     py_calls = result.tools_matching("execute")
     assert len(py_calls) >= 1, f"Expected execute call but got: {result.tool_names}"
 
-    # The tool should have returned an error (is_error=True)
-    assert py_calls[0].is_error, (
-        f"Expected execute to return an error but is_error=False.\n"
+    # The tool should have returned an error (either via SDK is_error or via
+    # the MCP ``{"error": true}`` envelope wrapped in a successful response).
+    assert py_calls[0].failed, (
+        f"Expected execute to report an error but failed=False.\n"
         f"  Result: {(py_calls[0].result or '')[:300]}"
     )
 
@@ -156,9 +157,10 @@ async def test_error_response_no_retry_protocol(safety_project):
     py_calls = result.tools_matching("execute")
     assert len(py_calls) >= 1, f"Expected execute call but got: {result.tool_names}"
 
-    # The tool should have returned an error (is_error=True)
-    assert py_calls[0].is_error, (
-        f"Expected execute to return an error but is_error=False.\n"
+    # The tool should have returned an error (either via SDK is_error or via
+    # the MCP ``{"error": true}`` envelope wrapped in a successful response).
+    assert py_calls[0].failed, (
+        f"Expected execute to report an error but failed=False.\n"
         f"  Result: {(py_calls[0].result or '')[:300]}"
     )
 

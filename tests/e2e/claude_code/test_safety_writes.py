@@ -129,7 +129,7 @@ async def test_write_over_limits_denied(safety_project):
     # Claude's text response — the actual safety invariant is "no
     # successful write", which the trace records.)
     write_calls = result.tools_matching("channel_write")
-    successful_writes = [t for t in write_calls if not t.is_error]
+    successful_writes = [t for t in write_calls if not t.failed]
     assert len(successful_writes) == 0, (
         f"Limits hook breached: {len(successful_writes)} write(s) succeeded.\n"
         f"  Tools: {result.tool_names}\n"
@@ -194,7 +194,7 @@ async def test_write_to_readonly_denied(safety_project):
     # Tool-trace assertion: no successful write to a read-only channel.
     # See test_write_over_limits_denied for the rationale.
     write_calls = result.tools_matching("channel_write")
-    successful_writes = [t for t in write_calls if not t.is_error]
+    successful_writes = [t for t in write_calls if not t.failed]
     assert len(successful_writes) == 0, (
         f"Read-only protection breached: {len(successful_writes)} write(s) succeeded.\n"
         f"  Tools: {result.tool_names}\n"
