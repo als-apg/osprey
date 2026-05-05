@@ -315,15 +315,33 @@ def _build_markdown_page(md_source: str, title: str) -> str:
     )
 
 
-_CDN_PLOTLY_RE = re.compile(
-    r'(src=["\'])https://cdn\.plot\.ly/plotly[^"\']*\.min\.js(["\'])'
+_CDN_PLOTLY_SCRIPT_RE = re.compile(
+    r'<script([^>]*?)\s+src=(["\'])https://cdn\.plot\.ly/plotly[^"\']*\.min\.js\2([^>]*)>',
+    re.IGNORECASE,
+)
+_SRI_ATTR_RE = re.compile(
+    r'\s+(?:integrity|crossorigin)=(["\'])[^"\']*\1',
+    re.IGNORECASE,
 )
 
 
 def _rewrite_plotly_cdn(html_bytes: bytes) -> bytes:
-    """Replace CDN Plotly URLs with the local bundled copy."""
+    """Replace CDN Plotly URLs with the local bundled copy.
+
+    Strips `integrity=` and `crossorigin=` attributes at the same time:
+    our bundled plotly is pinned to one version, so the CDN-computed SRI
+    hash (keyed to plotly.py's latest CDN version) won't match. Without
+    stripping, the browser refuses to execute the script and plotly
+    ends up undefined.
+    """
     html = html_bytes.decode("utf-8", errors="replace")
-    html = _CDN_PLOTLY_RE.sub(r"\1/static/js/vendor/plotly.min.js\2", html)
+
+    def replace(m: "re.Match[str]") -> str:
+        before = _SRI_ATTR_RE.sub("", m.group(1))
+        after = _SRI_ATTR_RE.sub("", m.group(3))
+        return f'<script{before} src="/static/js/vendor/plotly.min.js"{after}>'
+
+    html = _CDN_PLOTLY_SCRIPT_RE.sub(replace, html)
     return html.encode("utf-8")
 
 
