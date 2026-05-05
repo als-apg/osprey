@@ -2,6 +2,7 @@
 
 import json
 from unittest.mock import AsyncMock, patch
+from tests.mcp_server.conftest import assert_error, extract_response_dict
 
 import pytest
 
@@ -72,9 +73,7 @@ async def test_entry_get_nonexistent(tmp_path, monkeypatch):
         fn = _get_entry_get()
         result = await fn(entry_id="nonexistent")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "not_found"
+    data = assert_error(result, error_type="not_found")
 
 
 @pytest.mark.unit
@@ -83,9 +82,7 @@ async def test_entry_get_empty_id():
     fn = _get_entry_get()
     result = await fn(entry_id="")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +143,7 @@ async def test_entry_create_minimal_fields(tmp_path, monkeypatch):
         fn = _get_entry_create()
         result = await fn(subject="Quick note", details="Something happened", draft=False)
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["entry_id"].startswith("ariel-")
 
     call_args = mock_service.repository.upsert_entry.call_args[0][0]
@@ -159,9 +156,7 @@ async def test_entry_create_empty_subject():
     fn = _get_entry_create()
     result = await fn(subject="", details="some details")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
 
 
 @pytest.mark.unit
@@ -170,9 +165,7 @@ async def test_entry_create_empty_details():
     fn = _get_entry_create()
     result = await fn(subject="A subject", details="")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
 
 
 @pytest.mark.unit
@@ -200,7 +193,7 @@ async def test_entry_create_with_file_paths(tmp_path, monkeypatch):
             draft=False,
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["entry_id"].startswith("ariel-")
     assert data["attachment_count"] == 1
 
@@ -227,9 +220,7 @@ async def test_entry_create_with_invalid_file_path(tmp_path, monkeypatch):
         draft=False,
     )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
     assert "not found" in data["error_message"]
 
 
@@ -249,9 +240,7 @@ async def test_entry_create_with_oversized_file(tmp_path, monkeypatch):
         draft=False,
     )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
     assert "exceeds" in data["error_message"]
 
 
@@ -509,7 +498,7 @@ async def test_entry_create_with_markdown_artifact(tmp_path, monkeypatch):
             draft=False,
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["entry_id"].startswith("ariel-")
     assert data["attachment_count"] == 1
 
@@ -563,7 +552,7 @@ async def test_entry_create_with_unknown_mime_type_artifact(tmp_path, monkeypatc
             draft=False,
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["entry_id"].startswith("ariel-")
     assert data["attachment_count"] == 1
 
@@ -591,9 +580,7 @@ async def test_entry_create_with_invalid_artifact_id(tmp_path, monkeypatch):
             artifact_ids=["nonexistent-id"],
         )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
     assert "not found" in data["error_message"]
 
 
@@ -659,7 +646,7 @@ async def test_entry_create_draft_with_file_paths(tmp_path, monkeypatch):
         draft=True,
     )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert "draft_id" in data
 
     # Check draft JSON file includes attachment_paths
@@ -695,7 +682,7 @@ async def test_entry_create_draft_with_relative_file_path(tmp_path, monkeypatch)
         draft=True,
     )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert "draft_id" in data
 
     filepath = drafts_dir / f"{data['draft_id']}.json"
@@ -725,9 +712,7 @@ async def test_entry_create_draft_with_invalid_file_path(tmp_path, monkeypatch):
         draft=True,
     )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
     assert "not found" in data["error_message"]
 
 
@@ -762,7 +747,7 @@ async def test_entries_by_ids_batch_retrieval(tmp_path, monkeypatch):
         fn = _get_entries_by_ids()
         result = await fn(entry_ids=["e1", "e2", "e3"])
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["requested"] == 3
     assert data["found"] == 2
     assert len(data["entries"]) == 2
@@ -775,9 +760,7 @@ async def test_entries_by_ids_empty_list():
     fn = _get_entries_by_ids()
     result = await fn(entry_ids=[])
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
 
 
 @pytest.mark.unit
@@ -786,9 +769,7 @@ async def test_entries_by_ids_max_limit_exceeded():
     fn = _get_entries_by_ids()
     result = await fn(entry_ids=[f"e{i}" for i in range(51)])
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
     assert "50" in data["error_message"]
 
 
@@ -807,6 +788,4 @@ async def test_entries_by_ids_service_error(tmp_path, monkeypatch):
         fn = _get_entries_by_ids()
         result = await fn(entry_ids=["e1"])
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    data = assert_error(result, error_type="internal_error")

@@ -92,31 +92,36 @@ async def test_load_osprey_config_resolves_env_vars(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 async def test_make_error_format():
-    """make_error produces standard error JSON format."""
-    from osprey.mcp_server.errors import make_error
+    """make_error produces standard CallToolResult with envelope content."""
+    from osprey.mcp_server.errors import extract_error_envelope, make_error
 
-    error = make_error(
+    result = make_error(
         error_type="test_error",
         error_message="something went wrong",
         suggestions=["try again", "check logs"],
     )
-    assert error["error"] is True
-    assert error["error_type"] == "test_error"
-    assert error["error_message"] == "something went wrong"
-    assert len(error["suggestions"]) == 2
+    assert result.isError is True
+    envelope = extract_error_envelope(result)
+    assert envelope is not None
+    assert envelope["error"] is True
+    assert envelope["error_type"] == "test_error"
+    assert envelope["error_message"] == "something went wrong"
+    assert len(envelope["suggestions"]) == 2
 
 
 @pytest.mark.unit
 async def test_make_error_no_suggestions():
     """make_error with no suggestions returns empty list."""
-    from osprey.mcp_server.errors import make_error
+    from osprey.mcp_server.errors import extract_error_envelope, make_error
 
-    error = make_error(
+    result = make_error(
         error_type="simple_error",
         error_message="oops",
     )
-    assert error["error"] is True
-    assert error["suggestions"] == []
+    envelope = extract_error_envelope(result)
+    assert envelope is not None
+    assert envelope["error"] is True
+    assert envelope["suggestions"] == []
 
 
 # ---------------------------------------------------------------------------

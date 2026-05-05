@@ -2,6 +2,7 @@
 
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
+from tests.mcp_server.conftest import extract_response_dict
 
 import pytest
 
@@ -42,7 +43,7 @@ class TestCreateDashboard:
             yield
 
     async def test_empty_code_returns_error(self, tool_fn):
-        result = json.loads(await tool_fn(code="", title="test"))
+        result = extract_response_dict(await tool_fn(code="", title="test"))
         assert result["error"] is True
         assert result["error_type"] == "validation_error"
         assert "No dashboard code" in result["error_message"]
@@ -53,7 +54,7 @@ class TestCreateDashboard:
         mock_importlib = MagicMock()
         mock_importlib.import_module.side_effect = ImportError("No module named 'bokeh'")
         with patch(_BOKEH_CHECK_TARGET, mock_importlib):
-            result = json.loads(await tool_fn(code="p = figure()", title="No Bokeh"))
+            result = extract_response_dict(await tool_fn(code="p = figure()", title="No Bokeh"))
 
         assert result["error"] is True
         assert result["error_type"] == "dependency_missing"
@@ -73,7 +74,7 @@ class TestCreateDashboard:
             patch(_SANDBOX_EXEC_TARGET, new_callable=AsyncMock, return_value=mock_result),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
         ):
-            result = json.loads(await tool_fn(code="p = figure()", title="Bad Dashboard"))
+            result = extract_response_dict(await tool_fn(code="p = figure()", title="Bad Dashboard"))
 
         assert result["error"] is True
         assert result["error_type"] == "execution_error"
@@ -91,7 +92,7 @@ class TestCreateDashboard:
             patch(_SANDBOX_EXEC_TARGET, new_callable=AsyncMock, return_value=mock_result),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
         ):
-            result = json.loads(await tool_fn(code="x = 1", title="Empty Dashboard"))
+            result = extract_response_dict(await tool_fn(code="x = 1", title="Empty Dashboard"))
 
         assert result["error"] is True
         assert result["error_type"] == "execution_error"
@@ -122,7 +123,7 @@ class TestCreateDashboard:
             patch(_SANDBOX_EXEC_TARGET, new_callable=AsyncMock, return_value=mock_result),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
         ):
-            result = json.loads(
+            result = extract_response_dict(
                 await tool_fn(
                     code="p = figure(title='Test')\nsave_artifact(p, 'Test Dashboard')",
                     title="Test Dashboard",
@@ -217,7 +218,7 @@ class TestCreateDashboard:
             patch(_SANDBOX_EXEC_TARGET, new_callable=AsyncMock, return_value=mock_result),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
         ):
-            result = json.loads(await tool_fn(code="pass", title="Multi-panel Dashboard"))
+            result = extract_response_dict(await tool_fn(code="pass", title="Multi-panel Dashboard"))
 
         assert result["status"] == "success"
         assert len(result["artifact_ids"]) == 2

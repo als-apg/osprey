@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_error, extract_response_dict, get_tool_fn
 
 # ---------------------------------------------------------------------------
 # Test data
@@ -89,7 +89,7 @@ async def test_summary_mode():
         fn = _get_channel_limits()
         result = await fn()
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["summary"]["total_channels"] == 3
     assert data["summary"]["writable"] == 2
@@ -115,7 +115,7 @@ async def test_lookup_found():
         fn = _get_channel_limits()
         result = await fn(channels=["MAG:HCM01:CURRENT:SP"])
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     ch = data["access_details"]["channels"]["MAG:HCM01:CURRENT:SP"]
     assert ch["writable"] is True
@@ -135,7 +135,7 @@ async def test_lookup_not_found_blocked():
         fn = _get_channel_limits()
         result = await fn(channels=["UNKNOWN:PV"])
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     ch = data["access_details"]["channels"]["UNKNOWN:PV"]
     assert ch["in_database"] is False
@@ -152,7 +152,7 @@ async def test_lookup_not_found_allowed():
         fn = _get_channel_limits()
         result = await fn(channels=["UNKNOWN:PV"])
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     ch = data["access_details"]["channels"]["UNKNOWN:PV"]
     assert ch["in_database"] is False
     assert "allowed" in ch["policy_action"]
@@ -168,7 +168,7 @@ async def test_lookup_multiple_mixed():
         fn = _get_channel_limits()
         result = await fn(channels=["MAG:HCM01:CURRENT:SP", "NONEXISTENT:PV"])
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     channels = data["access_details"]["channels"]
     assert channels["MAG:HCM01:CURRENT:SP"]["writable"] is True
     assert channels["NONEXISTENT:PV"]["in_database"] is False
@@ -185,7 +185,7 @@ async def test_read_only_channel_details():
         fn = _get_channel_limits()
         result = await fn(channels=["MAG:QF01:CURRENT:SP"])
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     ch = data["access_details"]["channels"]["MAG:QF01:CURRENT:SP"]
     assert ch["writable"] is False
 
@@ -205,7 +205,7 @@ async def test_pattern_match():
         fn = _get_channel_limits()
         result = await fn(pattern="MAG:.*")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["summary"]["matches"] == 2
     assert "MAG:HCM01:CURRENT:SP" in data["access_details"]["channels"]
@@ -222,7 +222,7 @@ async def test_pattern_no_match():
         fn = _get_channel_limits()
         result = await fn(pattern="NONEXISTENT:.*")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["summary"]["matches"] == 0
 
@@ -233,9 +233,7 @@ async def test_pattern_invalid_regex():
     fn = _get_channel_limits()
     result = await fn(pattern="[invalid")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
     assert "regex" in data["error_message"].lower()
 
 
@@ -254,7 +252,7 @@ async def test_filter_writable():
         fn = _get_channel_limits()
         result = await fn(filter_by="writable")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     channels = data["access_details"]["channels"]
     assert len(channels) == 2
     assert all(ch["writable"] is True for ch in channels.values())
@@ -270,7 +268,7 @@ async def test_filter_read_only():
         fn = _get_channel_limits()
         result = await fn(filter_by="read_only")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     channels = data["access_details"]["channels"]
     assert len(channels) == 1
     assert "MAG:QF01:CURRENT:SP" in channels
@@ -286,7 +284,7 @@ async def test_filter_has_step_limit():
         fn = _get_channel_limits()
         result = await fn(filter_by="has_step_limit")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     channels = data["access_details"]["channels"]
     assert len(channels) == 1
     assert "MAG:HCM01:CURRENT:SP" in channels
@@ -302,7 +300,7 @@ async def test_filter_readback_verified():
         fn = _get_channel_limits()
         result = await fn(filter_by="readback_verified")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     channels = data["access_details"]["channels"]
     assert len(channels) == 1
     assert "MAG:HCM01:CURRENT:SP" in channels
@@ -323,7 +321,7 @@ async def test_combined_pattern_and_filter():
         fn = _get_channel_limits()
         result = await fn(pattern="MAG:.*", filter_by="writable")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     channels = data["access_details"]["channels"]
     # MAG:HCM01 is writable, MAG:QF01 is read-only → only 1 match
     assert len(channels) == 1
@@ -341,9 +339,7 @@ async def test_channels_and_pattern_error():
     fn = _get_channel_limits()
     result = await fn(channels=["TEST:PV"], pattern="TEST:.*")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
 
 
 @pytest.mark.unit
@@ -352,9 +348,7 @@ async def test_invalid_filter_error():
     fn = _get_channel_limits()
     result = await fn(filter_by="bogus_filter")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
     assert "bogus_filter" in data["error_message"]
 
 
@@ -373,6 +367,6 @@ async def test_limits_disabled():
         fn = _get_channel_limits()
         result = await fn()
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["summary"]["limits_enabled"] is False

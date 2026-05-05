@@ -2,6 +2,7 @@
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
+from tests.mcp_server.conftest import assert_error, extract_response_dict
 
 import pytest
 
@@ -40,7 +41,7 @@ def test_build_channels_happy_path(tmp_path, monkeypatch):
         fn = get_tool_fn(build_channels)
         selections = {"system": "SR", "family": "BPM", "device": ["01", "02"]}
         result = fn(selections=selections)
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["total"] == 3
     assert "SR:BPM:01:X" in data["channels"]
     assert "SR:BPM:02:X" in data["channels"]
@@ -73,7 +74,7 @@ def test_build_channels_with_invalid_channels(tmp_path, monkeypatch):
 
         fn = get_tool_fn(build_channels)
         result = fn(selections={"system": "SR", "family": "BPM"})
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["total"] == 3
     assert data["valid_count"] == 2
     assert data["invalid_count"] == 1
@@ -100,9 +101,7 @@ def test_build_channels_value_error(tmp_path, monkeypatch):
 
         fn = get_tool_fn(build_channels)
         result = fn(selections={})
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
     assert "Missing required level" in data["error_message"]
 
 
@@ -121,7 +120,5 @@ def test_build_channels_internal_error(tmp_path, monkeypatch):
 
         fn = get_tool_fn(build_channels)
         result = fn(selections={"system": "SR"})
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    data = assert_error(result, error_type="internal_error")
     assert "db crashed" in data["error_message"]

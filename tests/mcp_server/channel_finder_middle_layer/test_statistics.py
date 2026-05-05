@@ -2,6 +2,7 @@
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
+from tests.mcp_server.conftest import assert_error, extract_response_dict
 
 import pytest
 
@@ -39,7 +40,7 @@ def test_statistics_returns_stats(tmp_path, monkeypatch):
         fn = get_tool_fn(statistics)
         result = fn()
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["total_channels"] == 1500
     assert data["total_systems"] == 3
     assert data["total_families"] == 25
@@ -67,7 +68,7 @@ def test_statistics_empty_database(tmp_path, monkeypatch):
         fn = get_tool_fn(statistics)
         result = fn()
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["total_channels"] == 0
     assert data["total_systems"] == 0
 
@@ -90,7 +91,5 @@ def test_statistics_internal_error(tmp_path, monkeypatch):
         fn = get_tool_fn(statistics)
         result = fn()
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    data = assert_error(result, error_type="internal_error")
     assert "Stats computation failed" in data["error_message"]

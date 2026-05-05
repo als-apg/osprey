@@ -2,6 +2,7 @@
 
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
+from tests.mcp_server.conftest import assert_error, extract_response_dict
 
 import pytest
 
@@ -54,7 +55,7 @@ async def test_semantic_search_basic(tmp_path, monkeypatch):
         fn = _get_semantic_search()
         result = await fn(query="beam loss problems")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert not data.get("error", False)
     assert data["results_found"] == 1
     assert data["entries"][0]["entry_id"] == "e1"
@@ -102,7 +103,7 @@ async def test_semantic_search_exclude_entry_ids(tmp_path, monkeypatch):
         fn = _get_semantic_search()
         result = await fn(query="entry", exclude_entry_ids=["e1"])
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["results_found"] == 1
     assert data["entries"][0]["entry_id"] == "e2"
 
@@ -113,9 +114,7 @@ async def test_semantic_search_empty_query():
     fn = _get_semantic_search()
     result = await fn(query="")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
 
 
 @pytest.mark.unit
@@ -133,7 +132,5 @@ async def test_semantic_search_service_error(tmp_path, monkeypatch):
         fn = _get_semantic_search()
         result = await fn(query="test")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    data = assert_error(result, error_type="internal_error")
     assert "Embedding service down" in data["error_message"]

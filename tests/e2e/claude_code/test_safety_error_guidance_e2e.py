@@ -85,7 +85,7 @@ async def test_execution_error_triggers_guidance(safety_project):
 
     # The tool should have returned an error (either via SDK is_error or via
     # the MCP ``{"error": true}`` envelope wrapped in a successful response).
-    assert py_calls[0].failed, (
+    assert py_calls[0].is_error, (
         f"Expected execute to report an error but failed=False.\n"
         f"  Result: {(py_calls[0].result or '')[:300]}"
     )
@@ -159,7 +159,7 @@ async def test_error_response_no_retry_protocol(safety_project):
 
     # The tool should have returned an error (either via SDK is_error or via
     # the MCP ``{"error": true}`` envelope wrapped in a successful response).
-    assert py_calls[0].failed, (
+    assert py_calls[0].is_error, (
         f"Expected execute to report an error but failed=False.\n"
         f"  Result: {(py_calls[0].result or '')[:300]}"
     )

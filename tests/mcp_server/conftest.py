@@ -13,11 +13,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import yaml
+from mcp.types import CallToolResult
 
 from osprey.mcp_server.control_system.server_context import (
     initialize_server_context,
     reset_server_context,
 )
+from osprey.mcp_server.errors import extract_error_envelope
 from osprey.mcp_server.workspace.tools.screen_capture_backends import reset_backend
 from osprey.stores.artifact_store import reset_artifact_store
 from osprey.utils.workspace import reset_config_cache
@@ -31,6 +33,57 @@ def get_tool_fn(tool_or_fn):
     if hasattr(tool_or_fn, "fn"):
         return tool_or_fn.fn
     return tool_or_fn
+
+
+def assert_error(result, *, error_type: str | None = None) -> dict:
+    """Assert tool returned an error and return its structured envelope dict.
+
+    Accepts either a ``CallToolResult(isError=True)`` (the post-migration
+    contract) or a legacy JSON string with ``{"error": true, ...}`` so callers
+    can be migrated incrementally without forcing every test to land in one
+    commit. Returns the parsed envelope so callers can make further
+    assertions on ``error_message``, ``details``, etc.
+    """
+    if isinstance(result, str):
+        envelope = json.loads(result)
+        assert isinstance(envelope, dict) and envelope.get("error") is True, (
+            f"Expected error envelope, got: {envelope!r}"
+        )
+    elif isinstance(result, CallToolResult):
+        envelope = extract_error_envelope(result)
+        assert envelope is not None, (
+            f"Expected isError=True with error envelope, got: {result!r}"
+        )
+    else:
+        raise AssertionError(f"Unexpected tool result type: {type(result).__name__}: {result!r}")
+    if error_type is not None:
+        assert envelope.get("error_type") == error_type, (
+            f"Expected error_type={error_type!r}, got {envelope.get('error_type')!r}"
+        )
+    return envelope
+
+
+def extract_response_dict(result) -> dict:
+    """Pull the structured response dict from a tool result.
+
+    Handles both legacy JSON-string returns and the new
+    ``CallToolResult(content=[TextContent(...)])`` shape used by the python
+    executor's response builder. Useful for tests that assert on shape keys
+    like ``has_errors``, ``status``, or ``summary``.
+    """
+    if isinstance(result, str):
+        return json.loads(result)
+    if isinstance(result, CallToolResult):
+        for block in result.content or []:
+            text = getattr(block, "text", None)
+            if not text:
+                continue
+            try:
+                return json.loads(text)
+            except (json.JSONDecodeError, ValueError):
+                continue
+        raise AssertionError(f"CallToolResult had no JSON-decodable text content: {result!r}")
+    raise AssertionError(f"Unexpected tool result type: {type(result).__name__}: {result!r}")
 
 
 @pytest.fixture(autouse=True)

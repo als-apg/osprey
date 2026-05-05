@@ -11,7 +11,7 @@ import json
 import pytest
 
 from osprey.stores.artifact_store import initialize_artifact_store
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ class TestArtifactGet:
     async def test_get_valid_artifact(self, store, get_tool):
         entry = _save_artifact(store)
 
-        result = json.loads(await get_tool(artifact_id=entry.id))
+        result = extract_response_dict(await get_tool(artifact_id=entry.id))
 
         assert result["artifact_id"] == entry.id
         assert result["title"] == "Test Artifact"
@@ -61,7 +61,7 @@ class TestArtifactGet:
 
     @pytest.mark.asyncio
     async def test_get_missing_artifact(self, store, get_tool):
-        result = json.loads(await get_tool(artifact_id="nonexistent-id"))
+        result = extract_response_dict(await get_tool(artifact_id="nonexistent-id"))
 
         assert result["error"] is True
         assert result["error_type"] == "not_found"
@@ -94,8 +94,8 @@ class TestArtifactGet:
         e1 = _save_artifact(store, title="Plot A", filename="a.html")
         e2 = _save_artifact(store, title="Plot B", filename="b.html")
 
-        r1 = json.loads(await get_tool(artifact_id=e1.id))
-        r2 = json.loads(await get_tool(artifact_id=e2.id))
+        r1 = extract_response_dict(await get_tool(artifact_id=e1.id))
+        r2 = extract_response_dict(await get_tool(artifact_id=e2.id))
 
         assert r1["title"] == "Plot A"
         assert r2["title"] == "Plot B"

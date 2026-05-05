@@ -2,6 +2,7 @@
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
+from tests.mcp_server.conftest import assert_error, extract_response_dict
 
 import pytest
 
@@ -38,7 +39,7 @@ def test_inspect_fields_returns_fields(tmp_path, monkeypatch):
         fn = get_tool_fn(inspect_fields)
         result = fn(system="SR", family="BPM")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert "Monitor" in data["fields"]
     assert "Setpoint" in data["fields"]
     mock_db.inspect_fields.assert_called_once_with("SR", "BPM", None)
@@ -65,7 +66,7 @@ def test_inspect_fields_with_field_drilldown(tmp_path, monkeypatch):
         fn = get_tool_fn(inspect_fields)
         result = fn(system="SR", family="BPM", field="Monitor")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert "X" in data["fields"]
     assert "Y" in data["fields"]
     mock_db.inspect_fields.assert_called_once_with("SR", "BPM", "Monitor")
@@ -89,9 +90,7 @@ def test_inspect_fields_validation_error(tmp_path, monkeypatch):
         fn = get_tool_fn(inspect_fields)
         result = fn(system="SR", family="XYZ")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
     assert "Unknown family" in data["error_message"]
 
 
@@ -113,7 +112,5 @@ def test_inspect_fields_internal_error(tmp_path, monkeypatch):
         fn = get_tool_fn(inspect_fields)
         result = fn(system="SR", family="BPM")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    data = assert_error(result, error_type="internal_error")
     assert "Unexpected failure" in data["error_message"]

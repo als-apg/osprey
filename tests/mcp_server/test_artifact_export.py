@@ -7,7 +7,7 @@ import pytest
 
 from osprey.mcp_server.export.converter import PlaywrightNotInstalledError
 from osprey.stores.artifact_store import ArtifactStore
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_error, extract_response_dict, get_tool_fn
 
 
 def _get_artifact_export():
@@ -47,7 +47,7 @@ async def test_export_html_to_png(tmp_path, monkeypatch):
         fn = _get_artifact_export()
         result = await fn(artifact_id=entry.id)
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["artifact_id"] != entry.id  # new artifact created
     assert data["artifact_type"] == "image"
@@ -72,7 +72,7 @@ async def test_export_already_target_format(tmp_path, monkeypatch):
         fn = _get_artifact_export()
         result = await fn(artifact_id=entry.id, format="png")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["artifact_id"] == entry.id  # same artifact, no conversion
 
@@ -88,9 +88,7 @@ async def test_export_nonexistent_artifact(tmp_path, monkeypatch):
         fn = _get_artifact_export()
         result = await fn(artifact_id="nonexistent-id")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "not_found"
+    data = assert_error(result, error_type="not_found")
 
 
 @pytest.mark.unit
@@ -112,9 +110,7 @@ async def test_export_non_html_artifact(tmp_path, monkeypatch):
         fn = _get_artifact_export()
         result = await fn(artifact_id=entry.id)
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "conversion_not_supported"
+    data = assert_error(result, error_type="conversion_not_supported")
 
 
 @pytest.mark.unit
@@ -145,6 +141,4 @@ async def test_export_playwright_missing(tmp_path, monkeypatch):
         fn = _get_artifact_export()
         result = await fn(artifact_id=entry.id)
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "dependency_missing"
+    data = assert_error(result, error_type="dependency_missing")

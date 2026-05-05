@@ -2,6 +2,7 @@
 
 import json
 from unittest.mock import AsyncMock, patch
+from tests.mcp_server.conftest import assert_error
 
 import pytest
 
@@ -158,6 +159,4 @@ async def test_filter_options_unknown_field(tmp_path, monkeypatch):
         fn = _get_filter_options()
         result = await fn(field="unknown")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")

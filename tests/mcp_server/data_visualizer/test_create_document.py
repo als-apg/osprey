@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from tests.mcp_server.conftest import extract_response_dict
 
 import pytest
 
@@ -41,14 +42,14 @@ Welcome to the presentation.
 """
 
     async def test_empty_source_returns_error(self, tool_fn):
-        result = json.loads(await tool_fn(latex_source="", title="test"))
+        result = extract_response_dict(await tool_fn(latex_source="", title="test"))
         assert result["error"] is True
         assert result["error_type"] == "validation_error"
         assert "No LaTeX source" in result["error_message"]
 
     async def test_pdflatex_not_installed(self, tool_fn, simple_latex):
         with patch("shutil.which", return_value=None):
-            result = json.loads(await tool_fn(latex_source=simple_latex, title="Test Doc"))
+            result = extract_response_dict(await tool_fn(latex_source=simple_latex, title="Test Doc"))
 
         assert result["error"] is True
         assert result["error_type"] == "dependency_missing"
@@ -69,7 +70,7 @@ Welcome to the presentation.
             patch("shutil.which", return_value="/usr/bin/pdflatex"),
             patch("subprocess.run", side_effect=mock_run),
         ):
-            result = json.loads(await tool_fn(latex_source=bad_latex, title="Bad Doc"))
+            result = extract_response_dict(await tool_fn(latex_source=bad_latex, title="Bad Doc"))
 
         assert result["error"] is True
         assert result["error_type"] == "compilation_error"
@@ -81,7 +82,7 @@ Welcome to the presentation.
             patch("shutil.which", return_value="/usr/bin/pdflatex"),
             patch("subprocess.run", side_effect=subprocess.TimeoutExpired("pdflatex", 60)),
         ):
-            result = json.loads(await tool_fn(latex_source=simple_latex, title="Timeout Doc"))
+            result = extract_response_dict(await tool_fn(latex_source=simple_latex, title="Timeout Doc"))
 
         assert result["error"] is True
         assert result["error_type"] == "execution_error"
@@ -108,7 +109,7 @@ Welcome to the presentation.
             patch("shutil.which", return_value="/usr/bin/pdflatex"),
             patch("subprocess.run", side_effect=mock_run),
         ):
-            result = json.loads(
+            result = extract_response_dict(
                 await tool_fn(
                     latex_source=simple_latex,
                     title="Test Report",
@@ -139,7 +140,7 @@ Welcome to the presentation.
             patch("shutil.which", return_value="/usr/bin/pdflatex"),
             patch("subprocess.run", side_effect=mock_run),
         ):
-            result = json.loads(await tool_fn(latex_source=simple_latex, title="Artifacts Test"))
+            result = extract_response_dict(await tool_fn(latex_source=simple_latex, title="Artifacts Test"))
 
         assert result["status"] == "success"
         store = get_artifact_store()
@@ -197,7 +198,7 @@ Welcome to the presentation.
             patch("shutil.which", return_value="/usr/bin/pdflatex"),
             patch("subprocess.run", side_effect=mock_run),
         ):
-            result = json.loads(
+            result = extract_response_dict(
                 await tool_fn(
                     latex_source=latex_with_fig,
                     title="Fig Test",
@@ -225,7 +226,7 @@ Welcome to the presentation.
             patch("shutil.which", return_value="/usr/bin/pdflatex"),
             patch("subprocess.run", side_effect=mock_run),
         ):
-            result = json.loads(
+            result = extract_response_dict(
                 await tool_fn(
                     latex_source=simple_latex,
                     title="Missing Art",

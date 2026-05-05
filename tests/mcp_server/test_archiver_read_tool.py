@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 
 from osprey.mcp_server.control_system.server_context import initialize_server_context
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_error, extract_response_dict, get_tool_fn
 
 
 def _make_archiver_df(channels_data):
@@ -55,7 +55,7 @@ async def test_archiver_read_basic(tmp_path, monkeypatch):
             end_time="2024-01-15T11:00:00",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert "artifact_id" in data
     assert "data_file" in data
@@ -99,7 +99,7 @@ async def test_archiver_read_relative_time(tmp_path, monkeypatch):
             end_time="now",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
 
 
@@ -125,7 +125,7 @@ async def test_archiver_read_file_persistence(tmp_path, monkeypatch):
             start_time="2024-01-15T10:00:00",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert "data_file" in data
 
     # Data file is a relative filename within the artifacts dir
@@ -172,7 +172,7 @@ async def test_archiver_read_multiple_channels(tmp_path, monkeypatch):
             start_time="2024-01-15T10:00:00",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["summary"]["channels_queried"] == 2
     assert "SR:CURRENT:RB" in data["summary"]["per_channel"]
@@ -201,9 +201,7 @@ async def test_archiver_read_timeout(tmp_path, monkeypatch):
             end_time="2024-01-01",
         )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "timeout_error"
+    data = assert_error(result, error_type="timeout_error")
     assert "error_message" in data
     assert "suggestions" in data
 
@@ -229,9 +227,7 @@ async def test_archiver_read_connection_error(tmp_path, monkeypatch):
             start_time="2024-01-15T10:00:00",
         )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "connection_error"
+    data = assert_error(result, error_type="connection_error")
     assert "error_message" in data
     assert "suggestions" in data
 
@@ -265,7 +261,7 @@ async def test_archiver_read_nan_channel_data(tmp_path, monkeypatch):
             start_time="2024-01-15T10:00:00",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
 
     # The good channel should have real stats
@@ -293,6 +289,4 @@ async def test_archiver_read_empty_channels(tmp_path, monkeypatch):
     fn = _get_archiver_read()
     result = await fn(channels=[], start_time="2024-01-15T10:00:00")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")

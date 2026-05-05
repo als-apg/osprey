@@ -2,6 +2,7 @@
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
+from tests.mcp_server.conftest import assert_error, extract_response_dict
 
 import pytest
 
@@ -37,7 +38,7 @@ def test_get_options_happy_path(tmp_path, monkeypatch):
 
         fn = get_tool_fn(get_options)
         result = fn(level="system", selections=None)
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["level"] == "system"
     assert len(data["options"]) == 2
     assert data["total"] == 2
@@ -64,7 +65,7 @@ def test_get_options_with_selections(tmp_path, monkeypatch):
 
         fn = get_tool_fn(get_options)
         result = fn(level="family", selections={"system": "SR"})
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["level"] == "family"
     assert data["total"] == 1
     mock_db.get_options_at_level.assert_called_once_with("family", {"system": "SR"})
@@ -87,9 +88,7 @@ def test_get_options_value_error(tmp_path, monkeypatch):
 
         fn = get_tool_fn(get_options)
         result = fn(level="bogus", selections=None)
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
     assert "bogus" in data["error_message"]
 
 
@@ -108,7 +107,5 @@ def test_get_options_internal_error(tmp_path, monkeypatch):
 
         fn = get_tool_fn(get_options)
         result = fn(level="system", selections=None)
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    data = assert_error(result, error_type="internal_error")
     assert "db exploded" in data["error_message"]

@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from osprey.mcp_server.control_system.server_context import initialize_server_context
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_error, extract_response_dict, get_tool_fn
 
 
 def _make_write_result(
@@ -64,7 +64,7 @@ async def test_channel_write_success(tmp_path, monkeypatch):
         fn = _get_channel_write()
         result = await fn(operations=[{"channel": "TEST:PV", "value": 42.0}])
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["summary"]["total_writes"] == 1
     assert data["summary"]["failed"] == 0
@@ -100,7 +100,7 @@ async def test_channel_write_with_readback(tmp_path, monkeypatch):
             verification_level="readback",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["summary"]["results"][0]["verification"]["level"] == "readback"
     assert data["summary"]["results"][0]["verification"]["readback_value"] == 42.01
@@ -131,9 +131,7 @@ async def test_channel_write_limits_violation(tmp_path, monkeypatch):
         fn = _get_channel_write()
         result = await fn(operations=[{"channel": "TEST:PV", "value": 9999.0}])
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "limits_violation"
+    data = assert_error(result, error_type="limits_violation")
     # Error message includes the channel, value, reason, and allowed range
     assert "TEST:PV" in data["error_message"]
     assert "9999.0" in data["error_message"]
@@ -173,9 +171,7 @@ async def test_channel_write_connection_error(tmp_path, monkeypatch):
         fn = _get_channel_write()
         result = await fn(operations=[{"channel": "TEST:PV", "value": 1.0}])
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "connection_error"
+    data = assert_error(result, error_type="connection_error")
     assert "error_message" in data
     assert "suggestions" in data
 
@@ -213,7 +209,7 @@ async def test_channel_write_multiple_operations(tmp_path, monkeypatch):
             ]
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["summary"]["total_writes"] == 2
     assert data["summary"]["failed"] == 0
@@ -252,8 +248,7 @@ async def test_channel_write_connector_limits_violation(tmp_path, monkeypatch):
         fn = _get_channel_write()
         result = await fn(operations=[{"channel": "TEST:PV", "value": 999.0}])
 
-    data = json.loads(result)
-    assert data["error"] is True
+    data = assert_error(result)
     assert data["error_type"] == "limits_violation", (
         f"Expected limits_violation but got {data['error_type']} — "
         "ChannelLimitsViolationError from connector must not be misclassified as internal_error"
@@ -273,9 +268,7 @@ async def test_channel_write_empty_operations(tmp_path, monkeypatch):
     fn = _get_channel_write()
     result = await fn(operations=[])
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
 
 
 @pytest.mark.unit
@@ -291,6 +284,4 @@ async def test_channel_write_missing_channel_key(tmp_path, monkeypatch):
         fn = _get_channel_write()
         result = await fn(operations=[{"value": 42.0}])
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
