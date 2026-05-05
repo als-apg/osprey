@@ -142,7 +142,7 @@ def run_claude(
 
 
 def disable_approval(project_dir: Path) -> None:
-    """Set approval.global_mode to 'disabled' in the project's config.yml.
+    """Set ``approval.enabled: false`` in the project's config.yml.
 
     These E2E tests exercise the MCP tool pipeline, not the approval hooks.
     Disabling approval prevents the hooks from returning ``permissionDecision:
@@ -150,7 +150,7 @@ def disable_approval(project_dir: Path) -> None:
     """
     config_path = project_dir / "config.yml"
     config = yaml.safe_load(config_path.read_text())
-    config.setdefault("approval", {})["global_mode"] = "disabled"
+    config.setdefault("approval", {})["enabled"] = False
     config_path.write_text(yaml.dump(config, default_flow_style=False, sort_keys=False))
 
 

@@ -65,16 +65,28 @@ def safety_project_writes_off(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def safety_project_selective(tmp_path_factory):
-    """Module-scoped project with approval.global_mode: selective.
+    """Module-scoped project mirroring the production per-tool approval default.
 
     Used by approval flow tests to verify that write operations trigger
-    the approval callback while reads pass through silently.
+    the approval callback while reads pass through silently. Mirrors the
+    rendered ``control_assistant/config.yml.j2`` defaults: channel reads
+    skip approval, writes always ask, ``execute`` is content-aware.
     """
     tmp = tmp_path_factory.mktemp("safety-selective")
     project_dir = init_project(tmp, "safety-selective")
     config_path = project_dir / "config.yml"
     config = yaml.safe_load(config_path.read_text())
-    config["approval"]["global_mode"] = "selective"
+    config["approval"] = {
+        "enabled": True,
+        "default_policy": "always",
+        "tools": {
+            "channel_read": "skip",
+            "archiver_read": "skip",
+            "channel_limits": "skip",
+            "channel_write": "always",
+            "execute": "selective",
+        },
+    }
     config["control_system"]["writes_enabled"] = True
     config_path.write_text(yaml.dump(config, default_flow_style=False))
     return project_dir
@@ -82,25 +94,18 @@ def safety_project_selective(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def safety_project_all_capabilities(tmp_path_factory):
-    """Module-scoped project with approval.global_mode: all_capabilities.
+    """Module-scoped project where every tool requires approval.
 
     Used by approval flow tests to verify that ALL tool calls (including
-    reads) trigger the approval callback.
-
-    The new template ships with a per-tool ``approval.tools`` dict, which
-    the hook checks first and short-circuits the legacy ``global_mode``
-    path. Drop the dict so the fixture's ``global_mode: all_capabilities``
-    actually takes effect.
+    reads) trigger the approval callback. With ``tools`` absent and
+    ``default_policy: always``, every tool falls through to the always-ask
+    path — equivalent to the legacy ``global_mode: all_capabilities``.
     """
     tmp = tmp_path_factory.mktemp("safety-all-caps")
     project_dir = init_project(tmp, "safety-all-caps")
     config_path = project_dir / "config.yml"
     config = yaml.safe_load(config_path.read_text())
-    approval = config.setdefault("approval", {})
-    approval.pop("tools", None)
-    approval.pop("default_policy", None)
-    approval["global_mode"] = "all_capabilities"
-    approval["enabled"] = True
+    config["approval"] = {"enabled": True, "default_policy": "always"}
     config["control_system"]["writes_enabled"] = True
     config_path.write_text(yaml.dump(config, default_flow_style=False))
     return project_dir

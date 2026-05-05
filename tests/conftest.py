@@ -178,7 +178,8 @@ class TestRegistryProvider(RegistryConfigProvider):
         "project_root": str(tmp_path),
         "registry_path": str(registry_file),
         "approval": {
-            "global_mode": "selective",
+            "enabled": True,
+            "default_policy": "selective",
         },
         "control_system": {
             "type": "mock",  # Use mock for tests - default patterns include write_channel/read_channel
@@ -245,7 +246,8 @@ class TestRegistryProvider(RegistryConfigProvider):
         "project_root": str(tmp_path),
         "registry_path": str(registry_file),
         "approval": {
-            "global_mode": "selective",
+            "enabled": True,
+            "default_policy": "selective",
         },
         "control_system": {
             "type": "mock",  # Use mock for tests - default patterns include write_channel/read_channel
