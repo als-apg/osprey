@@ -70,7 +70,7 @@ def _execute_argo_structured_output(
     a system prompt + schema instructions to get JSON output, then validate
     against the Pydantic model.
     """
-    base_url = base_url or os.environ.get("ARGO_BASE_URL") or "https://argo-bridge.cels.anl.gov"
+    base_url = base_url or os.environ.get("ARGO_BASE_URL") or "https://apps.inside.anl.gov/argoapi/v1"
     api_key = api_key or os.environ.get("ARGO_API_KEY")
 
     url = f"{base_url.rstrip('/')}/chat/completions"
@@ -142,7 +142,7 @@ class ArgoProviderAdapter(BaseProvider):
     requires_base_url = True
     requires_model_id = True
     supports_proxy = True
-    default_base_url = "https://argo-bridge.cels.anl.gov"
+    default_base_url = "https://apps.inside.anl.gov/argoapi/v1"
     default_model_id = "claudesonnet45"  # Claude 4.5 Sonnet via ARGO for general use
     health_check_model_id = "gpt5mini"  # Fast and cost-effective for health checks
     available_models = [
