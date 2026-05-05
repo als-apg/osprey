@@ -147,8 +147,6 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "pytest-cov",  # Code coverage reporting
-    "pytest-vcr",  # Optional: For recording/replaying API interactions
-    "vcrpy",
     "mypy",
     "pre-commit",
     "ruff",
@@ -268,10 +266,10 @@ markers = [
     "requires_openai: Tests that require OpenAI API key",
     "requires_anthropic: Tests that require Anthropic API key",
     "requires_google: Tests that require Google API key",
-    "requires_cborg: Tests that require CBORG API key",
+    "requires_cborg: Tests that require CBORG API key (local dev only — IP allowlist blocks GitHub Actions runners)",
+    "requires_als_apg: Tests that require ALS-APG API key (AWS Bedrock proxy; reachable from GitHub Actions runners)",
     "requires_ollama: Tests that require local Ollama service",
     "asyncio: Async test marker",
-    "vcr: VCR cassette recording/replay marker",
     "e2e_services: E2E tests requiring local MCP service infrastructure (PostgreSQL, AccelPapers, etc.)",
 ]
 

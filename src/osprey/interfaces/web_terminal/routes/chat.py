@@ -82,11 +82,15 @@ async def _stream_events(cwd: str, prompt: str):
 
         while True:
             try:
-                event = await asyncio.wait_for(
-                    session._queue.get(), timeout=EVENT_TIMEOUT_S
+                event = await asyncio.wait_for(session._queue.get(), timeout=EVENT_TIMEOUT_S)
+            except TimeoutError:
+                yield _sse(
+                    {
+                        "type": "error",
+                        "message": "Timeout waiting for response",
+                        "error_type": "TimeoutError",
+                    }
                 )
-            except asyncio.TimeoutError:
-                yield _sse({"type": "error", "message": "Timeout waiting for response", "error_type": "TimeoutError"})
                 return
 
             if event.get("type") == "keepalive":
@@ -118,10 +122,8 @@ async def _buffered_response(cwd: str, prompt: str) -> JSONResponse:
 
         while True:
             try:
-                event = await asyncio.wait_for(
-                    session._queue.get(), timeout=EVENT_TIMEOUT_S
-                )
-            except asyncio.TimeoutError:
+                event = await asyncio.wait_for(session._queue.get(), timeout=EVENT_TIMEOUT_S)
+            except TimeoutError:
                 return JSONResponse(
                     content={
                         "text": "".join(text_parts),
@@ -161,14 +163,16 @@ async def _buffered_response(cwd: str, prompt: str) -> JSONResponse:
             if _is_terminal(event):
                 break
 
-        return JSONResponse(content={
-            "text": "".join(text_parts),
-            "events": events,
-            "total_cost_usd": result_meta.get("total_cost_usd"),
-            "duration_ms": result_meta.get("duration_ms"),
-            "num_turns": result_meta.get("num_turns"),
-            "is_error": result_meta.get("is_error", False),
-        })
+        return JSONResponse(
+            content={
+                "text": "".join(text_parts),
+                "events": events,
+                "total_cost_usd": result_meta.get("total_cost_usd"),
+                "duration_ms": result_meta.get("duration_ms"),
+                "num_turns": result_meta.get("num_turns"),
+                "is_error": result_meta.get("is_error", False),
+            }
+        )
     finally:
         await session.stop()
 

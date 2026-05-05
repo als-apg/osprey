@@ -1,7 +1,7 @@
 """E2E Test: Full Osprey Pipeline with ARIEL Logbook Search.
 
 This test validates the real user experience end-to-end:
-  osprey init → database setup → ingest demo logbook → ask agent a logbook question →
+  osprey build → database setup → ingest demo logbook → ask agent a logbook question →
   classifier routes → orchestrator plans → LogbookSearchCapability executes →
   ARIELSearchService searches → response generated.
 
@@ -16,7 +16,9 @@ With verbose output:
 
 Requirements:
     - Docker (for PostgreSQL) - needed for all tests
-    - CBORG_API_KEY env var  - needed for Phase 1.5 (ReAct agent) and Phase 2 (full pipeline)
+    - ALS_APG_API_KEY env var - needed for Phase 1.5 (ReAct agent) and Phase 2 (full pipeline).
+      ALS-APG is an AWS Bedrock proxy reachable from GitHub Actions runners; CBORG_API_KEY
+      also works for local runs from an IP-allowlisted machine.
 """
 
 from __future__ import annotations
@@ -156,8 +158,8 @@ def e2e_ariel_config(e2e_ariel_database_url: str) -> ARIELConfig:
                 ),
             },
             "reasoning": {
-                "provider": "cborg",
-                "model_id": "anthropic/claude-haiku",
+                "provider": "als-apg",
+                "model_id": "claude-haiku-4-5-20251001",
                 "temperature": 0.1,
             },
         }
@@ -393,17 +395,17 @@ class TestKeywordSearchDemoData:
 
 
 # =============================================================================
-# Phase 1.5: ARIEL ReAct Agent E2E Tests (requires CBORG API key)
+# Phase 1.5: ARIEL ReAct Agent E2E Tests (requires ALS-APG API key)
 # =============================================================================
 
 
 @pytest.fixture
 def e2e_agent_config_env():
-    """Set CONFIG_FILE for agent executor LLM access (CBORG).
+    """Set CONFIG_FILE for agent executor LLM access (ALS-APG).
 
-    The AgentExecutor's _get_llm() calls get_provider_config("cborg") which
+    The AgentExecutor's _get_llm() calls get_provider_config("als-apg") which
     reads from Osprey's config system. This fixture points CONFIG_FILE at the
-    test config that has CBORG credentials.
+    test config that has ALS-APG credentials.
 
     Runs after the autouse reset_registry_between_tests fixture (which clears
     CONFIG_FILE), so the env var is set fresh for each test.
@@ -476,7 +478,7 @@ async def e2e_ariel_watermarked_db(e2e_ariel_seeded_db):
         )
 
 
-@pytest.mark.requires_cborg
+@pytest.mark.requires_als_apg
 class TestCustomModuleIntegration:
     """Custom search + enhancement module e2e integration.
 

@@ -1,0 +1,29 @@
+{
+  "skill_name": "osprey-build-interview",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "/osprey-build-interview /Users/thellert/LBL/ML/osprey/uitf_controls_assistant-main",
+      "expected_output": "Should detect the migration path from the directory argument, scan the UITF project, classify artifacts into 4 categories (SALVAGE/OBSOLETE/TRANSFORM/EVALUATE), correctly identify the JLab archiver connector and JLab provider as EVALUATE (not OBSOLETE), detect 3 config variants, handle the 10-role model config transformation, identify the services stack (Jupyter, OpenWebUI, Pipelines, PostgreSQL), and produce a build-profile/ directory with profile.yml, overlays/, and migration-notes.md",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "I have an old OSPREY project at /Users/thellert/LBL/ML/osprey/uitf_controls_assistant-main that I want to migrate. It's a JLab deployment with custom connectors for their archiver system and a custom LLM provider that talks to their local API. Can you help me create a build profile from it? I want to keep the mock config for development.",
+      "expected_output": "Should trigger the migration path of osprey-build-interview via natural-language phrasing, identify the custom code as EVALUATE, use config.yml-mock as the target config, note the JLab-specific provider needs review, and produce a complete build-profile/ directory with the mock config overrides",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "/osprey-build-interview /Users/thellert/LBL/ML/osprey/uitf_controls_assistant-main\n\nI only care about the channel databases and the control system config. Skip the services, skip the custom code, skip ARIEL. Just give me a minimal build profile.",
+      "expected_output": "Should respect the user's minimalist intent, skip services/EVALUATE/ARIEL sections, produce a lean build profile with just channel databases and control system config overrides, and a small overlay directory",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "upgrade from langgraph",
+      "expected_output": "Should activate osprey-build-interview (the legacy/langgraph triggers in its description should match), then ask the user for the path to their existing project before scanning",
+      "files": []
+    }
+  ]
+}

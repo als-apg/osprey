@@ -23,8 +23,9 @@ automatically opens your default browser. You can override the defaults:
 
    osprey web --host 0.0.0.0 --port 9000
 
-The server reads ``config.yml`` from the project directory (or the path given by
-``--config``). Use ``--shell`` to replace the default ``claude`` command.
+The server reads ``config.yml`` from the project directory (or the directory
+given by ``--project``). Use ``--shell`` to replace the default ``claude``
+command.
 
 **Background mode** — run the server as a detached process:
 
@@ -213,8 +214,8 @@ All options live under the ``web_terminal`` key in ``config.yml``:
      - Maximum detached PTY sessions kept alive in the pool.
 
 The server itself accepts ``--host`` (default ``127.0.0.1``), ``--port``
-(default ``8087``), ``--config``, ``--shell``, and ``--detach`` on the command
-line. CLI flags take precedence over ``config.yml`` values.
+(default ``8087``), ``--shell``, ``--project``, ``--reload``, and ``--detach``
+on the command line. CLI flags take precedence over ``config.yml`` values.
 
 Hook Debugging
 ^^^^^^^^^^^^^^

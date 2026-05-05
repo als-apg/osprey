@@ -349,7 +349,7 @@ def save_artifact(obj, title="Untitled", description="", artifact_type=None, cat
     try:
         import plotly.graph_objects as _go
         if isinstance(obj, _go.Figure):
-            content = obj.to_html(include_plotlyjs="cdn", full_html=True).encode()
+            content = obj.to_html(include_plotlyjs=False, full_html=True).encode()
             detected_type = "plot_html"
             filename = f"{{art_id}}_{{_slug}}.html"
             mime_type = "text/html"
@@ -362,8 +362,8 @@ def save_artifact(obj, title="Untitled", description="", artifact_type=None, cat
             import bokeh.model as _bmodel
             if isinstance(obj, _bmodel.Model):
                 from bokeh.embed import file_html
-                from bokeh.resources import CDN as _CDN
-                content = file_html(obj, resources=_CDN, title=title).encode()
+                from bokeh.resources import INLINE as _INLINE
+                content = file_html(obj, resources=_INLINE, title=title).encode()
                 detected_type = "dashboard_html"
                 filename = f"{{art_id}}_{{_slug}}.html"
                 mime_type = "text/html"

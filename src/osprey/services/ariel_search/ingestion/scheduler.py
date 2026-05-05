@@ -106,7 +106,9 @@ class IngestionScheduler:
 
         logger.info("Ingestion scheduler stopped")
 
-    async def poll_once(self, dry_run: bool = False, limit: int | None = None) -> IngestionPollResult:
+    async def poll_once(
+        self, dry_run: bool = False, limit: int | None = None
+    ) -> IngestionPollResult:
         """Execute a single poll cycle.
 
         1. Determine since-timestamp from last successful run

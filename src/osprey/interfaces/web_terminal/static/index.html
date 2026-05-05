@@ -17,19 +17,19 @@
   <!-- Fonts (self-hosted, no external CDN) -->
   <link rel="stylesheet" href="/static/fonts/fonts.css">
 
-  <!-- xterm.js (bundled) -->
-  <link rel="stylesheet" href="/static/vendor/xterm.min.css">
-  <script src="/static/vendor/xterm.min.js"></script>
-  <script src="/static/vendor/addon-fit.min.js"></script>
-  <script src="/static/vendor/addon-web-links.min.js"></script>
+  <!-- xterm.js (CDN by default; local in OSPREY_OFFLINE mode) -->
+  <link rel="stylesheet" href="{{ vendor_url('xterm.css', '/static/vendor/xterm.min.css') }}">
+  <script src="{{ vendor_url('xterm.js', '/static/vendor/xterm.min.js') }}"></script>
+  <script src="{{ vendor_url('xterm addon-fit', '/static/vendor/addon-fit.min.js') }}"></script>
+  <script src="{{ vendor_url('xterm addon-web-links', '/static/vendor/addon-web-links.min.js') }}"></script>
 
-  <!-- highlight.js (bundled) -->
-  <link id="hljs-theme" rel="stylesheet" href="/static/vendor/atom-one-dark.min.css">
-  <link rel="prefetch" href="/static/vendor/atom-one-light.min.css">
-  <script src="/static/vendor/highlight.min.js"></script>
+  <!-- highlight.js -->
+  <link id="hljs-theme" rel="stylesheet" href="{{ vendor_url('highlight.js atom-one-dark theme', '/static/vendor/atom-one-dark.min.css') }}">
+  <link rel="prefetch" href="{{ vendor_url('highlight.js atom-one-light theme', '/static/vendor/atom-one-light.min.css') }}">
+  <script src="{{ vendor_url('highlight.js', '/static/vendor/highlight.min.js') }}"></script>
 
-  <!-- marked.js (bundled) -->
-  <script src="/static/vendor/marked.min.js"></script>
+  <!-- marked.js -->
+  <script src="{{ vendor_url('marked', '/static/vendor/marked.min.js') }}"></script>
 
   <!-- OSPREY styles -->
   <link rel="stylesheet" href="/static/css/variables.css">

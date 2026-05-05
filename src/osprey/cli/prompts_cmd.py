@@ -2,7 +2,7 @@
 
 Provides ``osprey prompts list|claim|diff|unclaim`` commands
 for inspecting and customizing the Claude Code prompt artifacts
-that OSPREY generates during ``osprey init`` / ``osprey claude regen``.
+that OSPREY generates during ``osprey build`` / ``osprey claude regen``.
 """
 
 from __future__ import annotations

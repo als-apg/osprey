@@ -1,0 +1,288 @@
+# =============================================================================
+# facility-config.yml — EXAMPLE / REFERENCE
+# =============================================================================
+#
+# This is an EXAMPLE that exercises every section of the schema with fictional
+# but plausible values. It is NOT a starter template you should copy into a
+# real facility profile repo. Operators should produce their real config by
+# running the deploy interview (see references/setup-interview.md), which
+# captures only the values their facility actually needs and writes them back
+# to facility-config.yml in a controlled way.
+#
+# Schema reference (full field-by-field documentation):
+#   references/facility-config-schema.md
+#
+# Conventions used here:
+#   - Facility name: "Demo Light Source" (DLS)
+#   - prefix: "dls" — used in container names (dls-mcp-matlab, dls-web-alice)
+#                     and profile filenames (dls-prod.yml, dls-client.yml)
+#   - Hostnames under example.org — none are real
+#   - GitLab project IDs are fictional
+#   - Ports are allocated to avoid mutual conflicts
+# =============================================================================
+
+schema_version: 1
+
+# -----------------------------------------------------------------------------
+# Facility identity — drives names of generated files, container names, and
+# what the assistant sees in its CLAUDE.md context.
+# -----------------------------------------------------------------------------
+facility:
+  name: "Demo Light Source"
+  prefix: "dls"                          # 2-6 chars, lowercase, alphanumeric + hyphens
+  timezone: "America/Los_Angeles"        # IANA tz; affects log timestamps + scheduled jobs
+
+# -----------------------------------------------------------------------------
+# Control system — determines which connectors and modules are available.
+# Setting type:"epics" enables EPICS-specific options like the test_ioc module.
+# -----------------------------------------------------------------------------
+control_system:
+  type: "epics"                          # epics | doocs | tango | mock | custom
+  ca_addr_list: "10.42.0.10 10.42.0.11 10.42.0.12"   # CA broadcast addresses
+  archiver_url: "http://arch.dls.example.org:17668"
+
+# -----------------------------------------------------------------------------
+# GitLab — where source lives and CI runs.
+# token_env_var holds the NAME of the env var, never the token value itself.
+# -----------------------------------------------------------------------------
+gitlab:
+  host: "git.dls.example.org"
+  remote_name: "gitlab"
+  default_branch: "main"
+  project_id: 1234
+  project_path: "physics/production/dls-profiles"
+  token_env_var: "DLS_GITLAB_TOKEN"
+
+# -----------------------------------------------------------------------------
+# Container registry — where CI pushes built images and deploy.sh pulls from.
+# external_projects covers other GitLab projects whose images this deploy
+# also pulls (each needs its own deploy token).
+# -----------------------------------------------------------------------------
+registry:
+  url: "git.dls.example.org:5050/physics/production/dls-profiles"
+  external_projects:
+    - name: "beam-viewer"
+      url: "git.dls.example.org:5050/physics/production/beam-viewer"
+      image: "beam-viewer:latest"
+      token_env_var: "BEAM_VIEWER_DEPLOY_TOKEN"
+    - name: "lattice-tools"
+      url: "git.dls.example.org:5050/physics/production/lattice-tools"
+      image: "lattice-tools:latest"
+      token_env_var: "LATTICE_TOOLS_DEPLOY_TOKEN"
+
+# -----------------------------------------------------------------------------
+# Deploy server — where compose runs the containers.
+# host must be in the operator's ~/.ssh/config so `ssh ${host}` works.
+# -----------------------------------------------------------------------------
+deploy:
+  host: "dls-deploy"
+  fqdn: "dls-deploy.dls.example.org"
+  user: "operator"
+  project_path: "/home/operator/projects/dls-profiles"
+
+# -----------------------------------------------------------------------------
+# Container engine + compose flavor on the deploy server.
+# compose_files: order matters; later files override earlier ones.
+# -----------------------------------------------------------------------------
+runtime:
+  engine: "podman"                       # podman | docker
+  compose_command: "podman-compose"      # podman-compose | docker compose | docker-compose
+  compose_files:
+    - "docker-compose.yml"
+    - "docker-compose.host.yml"          # host-network overlay for EPICS UDP
+    - "docker-compose.web.yml"           # web terminal stack
+
+# -----------------------------------------------------------------------------
+# Network — proxy + no_proxy. Both NO_PROXY and no_proxy get set in .env
+# because different tools respect different cases.
+# -----------------------------------------------------------------------------
+network:
+  http_proxy: "http://squid.dls.example.org:3128"
+  https_proxy: "http://squid.dls.example.org:3128"
+  no_proxy:
+    - "localhost"
+    - "127.0.0.1"
+    - "host.containers.internal"
+    - "host.docker.internal"
+    - "*.dls.example.org"
+    # Internal services that must bypass the squid proxy:
+    - "matlab"
+    - "accelpapers"
+    - "phoebus"
+    - "integration-tests"
+    - "wiki-search"
+    - "typesense"
+    - "ollama-gpu.dls.example.org"
+    - "dls-deploy"
+
+# -----------------------------------------------------------------------------
+# LLM provider — feeds every agent + the benchmark judge.
+# api_key_env_var is the NAME of the env var; value lives in .env.
+# -----------------------------------------------------------------------------
+llm:
+  provider: "cborg"                      # cborg | anthropic | openai | google | ollama | ...
+  api_key_env_var: "CBORG_API_KEY"
+  model: "anthropic/claude-sonnet-4-20250514"
+  base_url: null                         # set only for self-hosted endpoints
+
+# -----------------------------------------------------------------------------
+# Service port allocations. Avoid EPICS CA defaults (5064/5065) and any other
+# ports occupied on the deploy server. Each service gets a unique port.
+# -----------------------------------------------------------------------------
+ports:
+  # Core MCP servers
+  matlab: 8001
+  accelpapers: 8002
+  phoebus: 8003
+  integration_tests: 8004
+  direct_channel_finder: 8005
+  wiki_search: 8006
+  beam_viewer: 8007
+  # Optional services
+  event_dispatcher: 8010
+  # Web terminal range — base + offset per user
+  web_terminal_base: 9091
+  web_terminal_nginx: 9080
+
+# =============================================================================
+# Modules — opt-in features. Each is off by default; enable explicitly.
+# =============================================================================
+modules:
+
+  # ---------------------------------------------------------------------------
+  # Webhook + EPICS-CA → headless agent dispatch.
+  # epics_ca block requires control_system.type == "epics".
+  # ---------------------------------------------------------------------------
+  event_dispatcher:
+    enabled: true
+    port: 8010                           # mirrors ports.event_dispatcher
+    token_env_var: "EVENT_DISPATCHER_TOKEN"
+    sidecar_count: 3                     # one sidecar per concurrent dispatch
+    sidecar_port_base: 9190              # sidecars on 9190, 9191, 9192
+    sidecar_token_env_var: "DISPATCH_SIDECAR_TOKEN"
+    triggers_file: "triggers.yml"
+    epics_ca:
+      enabled: true
+      ca_addr_list: "10.42.0.10 10.42.0.11"
+
+  # ---------------------------------------------------------------------------
+  # Multi-user web terminal stack with nginx reverse proxy.
+  # Three users → three containers on ports 9091, 9092, 9093.
+  # ---------------------------------------------------------------------------
+  web_terminals:
+    enabled: true
+    nginx_port: 9080                     # mirrors ports.web_terminal_nginx
+    base_port: 9091                      # mirrors ports.web_terminal_base
+    users:
+      - alice
+      - bob
+      - carol
+    landing_page_template: "default"     # default | custom
+
+  # ---------------------------------------------------------------------------
+  # Electronic logbook integration.
+  # ---------------------------------------------------------------------------
+  olog:
+    enabled: true
+    api_url: "https://controls.dls.example.org/olog/"
+    test_url: "https://controls.dls.example.org/olog_test/rpc.php"
+    auth_method: "basic"                 # basic | bearer | api_key
+    username_env_var: "OLOG_USERNAME"
+    password_env_var: "OLOG_PASSWORD"
+    write_test_enabled: false            # set true to allow writes from integration tests
+
+  # ---------------------------------------------------------------------------
+  # ARIEL DB — Postgres + embeddings, indexes logbook entries for RAG.
+  # deployment:container adds a postgres service to compose.
+  # embeddings_provider:ollama wires to modules.ollama below.
+  # ---------------------------------------------------------------------------
+  ariel:
+    enabled: true
+    deployment: "container"              # container | external
+    dsn: "postgresql://ariel:ariel@ariel-postgres:5432/ariel"
+    sync_source: "olog"                  # olog | logbook | custom
+    embeddings_provider: "ollama"        # ollama | openai | cborg
+
+  # ---------------------------------------------------------------------------
+  # External Ollama server (typically a separate GPU host, not deployed here).
+  # This module just records the URL + model names for other components to use.
+  # ---------------------------------------------------------------------------
+  ollama:
+    enabled: true
+    url: "http://ollama-gpu.dls.example.org:11434"
+    embedding_model: "nomic-embed-text"
+    chat_model: null                     # null = no local chat completion
+
+  # ---------------------------------------------------------------------------
+  # Wiki search (Confluence flavor). Restrict scope with `spaces`.
+  # ---------------------------------------------------------------------------
+  wiki_search:
+    enabled: true
+    type: "confluence"                   # confluence | mediawiki | custom
+    base_url: "https://wiki.dls.example.org"
+    api_path: "/rest/api/"
+    auth_method: "bearer"                # bearer | basic | api_key
+    token_env_var: "WIKI_ACCESS_TOKEN"
+    spaces:
+      - "OPERATIONS"
+      - "PHYSICS"
+      - "BEAMLINES"
+
+  # ---------------------------------------------------------------------------
+  # Bind-mount a host directory (NFS or local) into selected containers.
+  # Read-only is strongly preferred — see references/modules/shared-disk.md.
+  # ---------------------------------------------------------------------------
+  shared_disk:
+    enabled: true
+    host_path: "/mnt/dls-physics"        # absolute path on deploy server
+    container_path: "/physics"           # absolute path inside containers
+    mount_mode: "ro"                     # ro | rw — default ro
+    services_to_mount:
+      - "matlab"
+      - "integration_tests"
+
+  # ---------------------------------------------------------------------------
+  # Custom facility-specific MCP servers. Each entry becomes one compose
+  # service + one CI build job. The user owns the source code + Dockerfile.
+  # ---------------------------------------------------------------------------
+  custom_mcp_servers:
+    enabled: true
+    servers:
+      - name: "matlab"                   # → dls-mcp-matlab on port 8001
+        port: 8001                       # mirrors ports.matlab
+        dockerfile: "docker/Dockerfile.matlab"
+        build_context: "."
+        artifacts:                       # produced by osprey-build CI stage
+          - "artifacts/mml.db"
+        depends_on: []
+      - name: "accelpapers"              # → dls-mcp-accelpapers on port 8002
+        port: 8002                       # mirrors ports.accelpapers
+        dockerfile: "docker/Dockerfile.accelpapers"
+        build_context: "."
+        artifacts: []                    # no build-time data
+        depends_on:
+          - "typesense"
+
+  # ---------------------------------------------------------------------------
+  # E2E agent benchmark suite. Runs INSIDE a web-terminal container; requires
+  # web_terminals to be enabled. Suite JSON authored by the operator.
+  # ---------------------------------------------------------------------------
+  benchmarks:
+    enabled: true
+    suite_path: "data/benchmarks/e2e_workflow_benchmarks.json"
+    runs_in_container: "dls-web-alice"   # use the first user's container
+    project_dir: "/app/dls-assistant/"
+    judge_model: null                    # null = use llm.model
+
+  # ---------------------------------------------------------------------------
+  # EPICS test IOC. ONLY honored when control_system.type == "epics".
+  # cas_server_port + cas_beacon_port MUST be outside 5064-5076 (production
+  # CA range) — see references/modules/test-ioc-safety.md for full rules.
+  # ---------------------------------------------------------------------------
+  test_ioc:
+    enabled: true
+    cas_server_port: 59064               # exotic port, isolates from production CA
+    cas_beacon_port: 59065
+    pv_prefix: "OSPREY:TEST:"            # all test PVs use this prefix
+    db_path: "ioc/test.db"
+    startup_script_path: "/tmp/start-test-ioc.sh"

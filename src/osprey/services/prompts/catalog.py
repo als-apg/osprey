@@ -1,6 +1,6 @@
 """Prompt Catalog — declarative catalog of all Claude Code prompt artifacts.
 
-Each prompt artifact produced by ``osprey init`` / ``osprey claude regen``
+Each prompt artifact produced by ``osprey build`` / ``osprey claude regen``
 is cataloged here with a canonical name, template path, output path, and
 metadata.  The catalog enables:
 
@@ -54,6 +54,12 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             template_path="claude/settings.json.j2",
             output_path=".claude/settings.json",
             description="Claude Code permissions & hooks",
+        ),
+        PromptArtifact(
+            canonical_name="statusline",
+            template_path="claude/statusline.py",
+            output_path=".claude/statusline.py",
+            description="OSPREY statusline script",
         ),
         # ── Agents ───────────────────────────────────────────────────
         PromptArtifact(
@@ -220,44 +226,6 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             template_path="claude/skills/demo-gallery/SKILL.md",
             output_path=".claude/skills/demo-gallery/SKILL.md",
             description="Artifact Gallery demo showcase skill",
-        ),
-        PromptArtifact(
-            canonical_name="skills/migrate-legacy",
-            template_path="claude/skills/migrate-legacy/SKILL.md",
-            output_path=".claude/skills/migrate-legacy/SKILL.md",
-            description="Interactive migration from legacy LangGraph-based OSPREY projects",
-        ),
-        # ── Reference scripts (lattice_design) ─────────────────────
-        PromptArtifact(
-            canonical_name="skills/lattice-evaluation/ref-analyze-working-point",
-            template_path="claude/skills/lattice-evaluation/references/analyze_working_point.py",
-            output_path=".claude/skills/lattice-evaluation/references/analyze_working_point.py",
-            description="Reference implementation for working point analysis",
-        ),
-        PromptArtifact(
-            canonical_name="skills/lattice-evaluation/ref-resonance-diagram",
-            template_path="claude/skills/lattice-evaluation/references/resonance_diagram.py",
-            output_path=".claude/skills/lattice-evaluation/references/resonance_diagram.py",
-            description="Reference implementation for resonance diagram",
-        ),
-        PromptArtifact(
-            canonical_name="skills/lattice-evaluation/ref-dynamic-aperture",
-            template_path="claude/skills/lattice-evaluation/references/dynamic_aperture.py",
-            output_path=".claude/skills/lattice-evaluation/references/dynamic_aperture.py",
-            description="Reference implementation for dynamic aperture",
-        ),
-        PromptArtifact(
-            canonical_name="skills/lattice-evaluation/ref-frequency-map",
-            template_path="claude/skills/lattice-evaluation/references/frequency_map.py",
-            output_path=".claude/skills/lattice-evaluation/references/frequency_map.py",
-            description="Reference implementation for frequency map analysis",
-        ),
-        # ── Rules (lattice_design) ────────────────────────────────
-        PromptArtifact(
-            canonical_name="rules/lattice-physics",
-            template_path="claude/rules/lattice-physics.md.j2",
-            output_path=".claude/rules/lattice-physics.md",
-            description="AT API reference card (lattice_design only)",
         ),
         # ── Output Styles ────────────────────────────────────────────
         PromptArtifact(

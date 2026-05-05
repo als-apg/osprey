@@ -16,7 +16,7 @@ from typing import Any
 
 from click.testing import CliRunner
 
-from osprey.cli.init_cmd import init
+from osprey.cli.build_cmd import build
 
 # SDK imports — skip entire module if not installed
 try:
@@ -68,44 +68,125 @@ def has_anthropic_api_key() -> bool:
     return bool(os.environ.get("ANTHROPIC_API_KEY"))
 
 
+def has_als_apg_api_key() -> bool:
+    """Check if ALS_APG_API_KEY is set.
+
+    The CI-default Bedrock proxy at llm.gianlucamartino.com authenticates
+    with this token; the safety/SDK E2E suite skip-gates on it because the
+    Claude Code CLI subprocess uses the proxy via the project's `.env` and
+    `provider=als-apg` defaults landed in 8c541cc9.
+    """
+    return bool(os.environ.get("ALS_APG_API_KEY"))
+
+
 def init_project(
     tmp_path: Path,
     name: str,
     template: str = "control_assistant",
-    provider: str = "anthropic",
+    provider: str = "als-apg",
     model: str = "haiku",
     channel_finder_mode: str | None = None,
 ) -> Path:
-    """Create a project via ``osprey init`` CLI, return project_dir."""
+    """Create a project via ``osprey build --preset <template>``, return project_dir.
+
+    Defaults to ``provider="als-apg"`` because the ALS-APG AWS Bedrock proxy
+    is the only Anthropic-compatible endpoint reachable from GitHub Actions
+    runners. CBORG enforces an IP allowlist that does not cover the GitHub
+    Actions egress range, so any cborg-routed CI test 403s with
+    ``ip_not_authorized``. With ``provider="anthropic"``, the bundled Claude
+    CLI silently falls back to whatever credentials happen to live in
+    ``~/.claude`` on the developer machine — making tests pass locally and
+    fail in CI's clean HOME. Local development with cborg still works:
+    pass ``provider="cborg"`` explicitly when running from an allowlisted IP.
+    """
     runner = CliRunner()
     args = [
         name,
-        "--template",
-        template,
+        "--preset",
+        template.replace("_", "-"),
+        "--skip-deps",
+        "--skip-lifecycle",
         "--output-dir",
         str(tmp_path),
-        "--provider",
-        provider,
-        "--model",
-        model,
+        "--set",
+        f"provider={provider}",
+        "--set",
+        f"model={model}",
     ]
     if channel_finder_mode is not None:
-        args.extend(["--channel-finder-mode", channel_finder_mode])
-    result = runner.invoke(init, args)
-    assert result.exit_code == 0, f"osprey init failed: {result.output}"
+        args.extend(["--set", f"channel_finder_mode={channel_finder_mode}"])
+    result = runner.invoke(build, args)
+    assert result.exit_code == 0, f"osprey build failed: {result.output}"
     project_dir = tmp_path / name
     assert project_dir.exists(), f"Project directory not created: {project_dir}"
     return project_dir
 
 
-def sdk_env() -> dict[str, str]:
-    """Return env overrides to bypass nested-session guard.
+def _resolve_project_spec(project_dir: Path):
+    """Return the project's ``ClaudeCodeModelSpec`` or None on any failure.
 
-    When tests run inside a Claude Code session, the CLAUDECODE env var
-    triggers a nested-session guard in the CLI. Setting it to empty string
-    bypasses this (JavaScript treats "" as falsy).
+    Reads ``config.yml`` and runs the same resolver ``osprey claude chat``
+    uses, so test routing matches production exactly.
     """
-    return {"CLAUDECODE": ""}
+    try:
+        import yaml
+
+        from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
+
+        cfg = yaml.safe_load((project_dir / "config.yml").read_text()) or {}
+        return ClaudeCodeModelResolver.resolve(
+            cfg.get("claude_code", {}),
+            cfg.get("api", {}).get("providers", {}),
+        )
+    except Exception:
+        return None
+
+
+def provider_env_for_project(project_dir: Path) -> dict[str, str]:
+    """Resolve provider env vars so the SDK routes to the project's provider.
+
+    Without this, the bundled Claude CLI defaults to ``api.anthropic.com``
+    using whatever ambient ``ANTHROPIC_API_KEY`` happens to be set — which
+    is the wrong endpoint for cborg/als-apg projects and 404s on model
+    aliases like ``anthropic/claude-haiku``.
+
+    Returns the spec's ``env_block`` (``ANTHROPIC_BASE_URL``,
+    ``ANTHROPIC_DEFAULT_*_MODEL``, ...) plus the auth var populated from
+    the configured shell secret. Returns ``{}`` if the project has no
+    resolvable provider config or the auth secret is unset.
+    """
+    spec = _resolve_project_spec(project_dir)
+    if spec is None:
+        return {}
+    env: dict[str, str] = dict(spec.env_block)
+    if spec.auth_secret_env and spec.auth_env_var:
+        secret = os.environ.get(spec.auth_secret_env)
+        if secret:
+            env[spec.auth_env_var] = secret
+    return env
+
+
+def _default_haiku_model(project_dir: Path) -> str:
+    """Resolve the project's haiku-tier model name."""
+    spec = _resolve_project_spec(project_dir)
+    if spec is not None:
+        return spec.tier_to_model.get("haiku", "claude-haiku-4-5-20251001")
+    return "claude-haiku-4-5-20251001"
+
+
+def sdk_env(project_dir: Path | None = None) -> dict[str, str]:
+    """Return env overrides for the SDK subprocess.
+
+    Always sets ``CLAUDECODE=""`` to bypass the nested-session guard
+    (JavaScript treats "" as falsy). When ``project_dir`` is provided,
+    also injects the project's resolved provider env block so the bundled
+    CLI talks to the configured provider (cborg, als-apg, anthropic-direct)
+    instead of falling through to ``api.anthropic.com``.
+    """
+    env = {"CLAUDECODE": ""}
+    if project_dir is not None:
+        env.update(provider_env_for_project(project_dir))
+    return env
 
 
 def combined_text(result: SDKWorkflowResult) -> str:
@@ -199,7 +280,7 @@ async def run_sdk_query(
     *,
     max_turns: int = 25,
     max_budget_usd: float = 2.0,
-    model: str = "anthropic/claude-haiku",
+    model: str | None = None,
 ) -> SDKWorkflowResult:
     """Run a query via the Claude Agent SDK and collect full tool traces.
 
@@ -208,7 +289,9 @@ async def run_sdk_query(
         prompt: The user prompt to send.
         max_turns: Maximum agentic turns before stopping.
         max_budget_usd: Budget cap in USD.
-        model: Model to use (defaults to Haiku for cost-effectiveness).
+        model: Model to use. Defaults to the project's haiku-tier model
+            resolved from ``config.yml`` (e.g. ``claude-haiku-4-5`` for
+            cborg, ``claude-haiku-4-5-20251001`` for direct anthropic).
 
     Returns:
         SDKWorkflowResult with all collected tool traces, text, and metadata.
@@ -217,12 +300,12 @@ async def run_sdk_query(
     stderr_lines: list[str] = []
 
     options = ClaudeAgentOptions(
-        model=model,
+        model=model if model is not None else _default_haiku_model(project_dir),
         cwd=str(project_dir),
         permission_mode="bypassPermissions",
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
-        env=sdk_env(),
+        env=sdk_env(project_dir),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
     )
@@ -303,7 +386,7 @@ async def run_sdk_query_with_hooks(
     approval_policy: Callable[[str, dict[str, Any]], bool] | str = "auto_approve",
     max_turns: int = 25,
     max_budget_usd: float = 2.0,
-    model: str = "anthropic/claude-haiku",
+    model: str | None = None,
 ) -> HookObservedResult:
     """Run a query via the Claude Agent SDK with hooks enabled and can_use_tool callback.
 
@@ -325,7 +408,8 @@ async def run_sdk_query_with_hooks(
         approval_policy: How to handle "ask" decisions from hooks.
         max_turns: Maximum agentic turns before stopping.
         max_budget_usd: Budget cap in USD.
-        model: Model to use (defaults to Haiku for cost-effectiveness).
+        model: Model to use. Defaults to the project's haiku-tier model
+            resolved from ``config.yml``.
 
     Returns:
         HookObservedResult with tool traces, text, metadata, and hook events.
@@ -365,12 +449,12 @@ async def run_sdk_query_with_hooks(
             return PermissionResultDeny(message="Denied by test approval policy")
 
     options = ClaudeAgentOptions(
-        model=model,
+        model=model if model is not None else _default_haiku_model(project_dir),
         cwd=str(project_dir),
         permission_mode="default",
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
-        env=sdk_env(),
+        env=sdk_env(project_dir),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
         can_use_tool=_can_use_tool,

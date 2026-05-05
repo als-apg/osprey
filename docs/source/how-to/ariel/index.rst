@@ -74,7 +74,7 @@ ReAct agent that chains searches autonomously.
 
          .. code-block:: bash
 
-            osprey init my-project --template control_assistant
+            osprey build my-project --preset control-assistant
             cd my-project
 
          This generates a ready-to-use ``config.yml`` with PostgreSQL, the ARIEL
@@ -221,4 +221,3 @@ All ARIEL functionality is available through the ``osprey ariel`` command group:
 
 See Also
 ========
-

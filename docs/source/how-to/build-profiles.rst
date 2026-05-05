@@ -28,7 +28,7 @@ Overview
 The ``osprey build`` command takes a YAML profile and produces a standalone Claude Code
 project. The profile declares:
 
-- **Base template** to start from (``control_assistant`` or ``lattice_design``)
+- **Base template** to start from (``control_assistant`` or ``hello_world``)
 - **Config overrides** for the generated ``config.yml`` (dot-notation)
 - **File overlays** that copy facility data into the project
 - **MCP server definitions** to inject custom tools
@@ -62,7 +62,7 @@ Create a minimal profile and build:
    base_template: control_assistant
    provider: anthropic
    model: sonnet
-   requires_osprey_version: ">=0.12.0"
+   requires_osprey_version: ">=2026.5.0"
 
    config:
      control_system.type: mock
@@ -138,7 +138,7 @@ Profile YAML Schema
    * - ``requires_osprey_version``
      - string
      - ``None``
-     - PEP 440 version specifier (e.g. ``>=0.12.0``). Build aborts if not satisfied.
+     - PEP 440 version specifier (e.g. ``>=2026.5.0``). Build aborts if not satisfied.
    * - ``osprey_install``
      - string
      - ``local``
@@ -449,37 +449,67 @@ CLI Reference
 
 .. code-block:: text
 
-   osprey build PROJECT_NAME PROFILE [OPTIONS]
+   osprey build PROJECT_NAME [PROFILE] [OPTIONS]
 
 **Arguments:**
 
 - ``PROJECT_NAME`` — name of the project directory to create
-- ``PROFILE`` — path to a YAML build profile
+- ``PROFILE`` — *optional* path to a YAML build profile. Mutually exclusive
+  with ``--preset``; exactly one of the two must be provided.
 
 **Options:**
 
 .. list-table::
-   :widths: 25 75
+   :widths: 30 70
 
-   * - ``--output-dir, -o``
-     - Output directory (default: current directory)
-   * - ``--force, -f``
-     - Overwrite if project directory already exists
-   * - ``--stream, -s``
-     - Stream lifecycle step output in real time
+   * - ``--preset NAME``
+     - Use a bundled preset profile instead of a positional ``PROFILE`` path.
+       Run ``osprey build --list-presets`` to see what ships.
+   * - ``-O, --override FILE``
+     - Layer a YAML override file on top of the base profile/preset. May be
+       repeated; files apply in declaration order. Top-level keys deep-merge;
+       string lists union-dedup.
+   * - ``--set KEY.PATH=VALUE``
+     - Inline scalar/list override. RHS is parsed as YAML, so
+       ``--set lifecycle.timeout=120`` lands an int and
+       ``--set hooks=[memory-guard]`` lands a list. May be repeated.
+       ``--set`` wins over ``-O`` files at the same key.
+   * - ``--list-presets``
+     - List bundled preset names and exit (eager — no ``PROJECT_NAME`` needed).
+   * - ``-o, --output-dir DIR``
+     - Output directory (default: current directory).
+   * - ``-f, --force``
+     - Overwrite if project directory already exists.
+   * - ``-s, --stream``
+     - Stream lifecycle step output in real time.
+   * - ``--skip-lifecycle``
+     - Skip ``pre_build``, ``post_build``, and ``validate`` phases.
+   * - ``--skip-deps``
+     - Skip venv creation and dependency installation (CI mode).
+   * - ``--runtime-root PATH``
+     - Override ``project_root`` in the rendered config. Useful when the
+       build path differs from the runtime path (e.g. container builds).
+
+**Layer ordering:** base preset/profile → ``-O`` override file(s) in
+declaration order → ``--set`` pairs.
 
 **Examples:**
 
 .. code-block:: bash
 
-   # Basic build
-   osprey build als-test ~/als-profiles/als-dev.yml -o /tmp --force
+   # See what presets ship
+   osprey build --list-presets
 
-   # Build with streaming output for lifecycle steps
-   osprey build als-test ~/als-profiles/als-dev.yml --stream
+   # Build from a bundled preset
+   osprey build my-assistant --preset hello-world
 
-   # Build to current directory
-   osprey build my-assistant profile.yml
+   # Build from a profile file
+   osprey build als-test ~/als-profiles/als-dev.yml
+
+   # Layer overrides on a preset
+   osprey build als-test --preset control-assistant \
+       -O als-overrides.yml \
+       --set model=claude-sonnet-4-6
 
 
 Build Pipeline

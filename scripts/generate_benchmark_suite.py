@@ -42,11 +42,7 @@ from osprey.services.channel_finder.benchmarks.generator import (
 
 TIERS = [(1, TIER_1), (2, TIER_2), (3, TIER_3)]
 QUERY_SOURCE_DIR = (
-    Path(__file__).resolve().parent.parent
-    / "data"
-    / "benchmarks"
-    / "cross_paradigm"
-    / "queries"
+    Path(__file__).resolve().parent.parent / "data" / "benchmarks" / "cross_paradigm" / "queries"
 )
 
 
@@ -63,9 +59,7 @@ def generate_suite(output_dir: Path) -> None:
 
         # In-context
         ic_data = format_in_context(channels, tier_spec)
-        (tier_dir / "in_context.json").write_text(
-            json.dumps(ic_data, indent=2), encoding="utf-8"
-        )
+        (tier_dir / "in_context.json").write_text(json.dumps(ic_data, indent=2), encoding="utf-8")
 
         # Hierarchical
         hier_data = format_hierarchical(tree_data, tier_spec)
@@ -75,9 +69,7 @@ def generate_suite(output_dir: Path) -> None:
 
         # Middle layer
         ml_data = format_middle_layer(channels, tier_spec)
-        (tier_dir / "middle_layer.json").write_text(
-            json.dumps(ml_data, indent=2), encoding="utf-8"
-        )
+        (tier_dir / "middle_layer.json").write_text(json.dumps(ml_data, indent=2), encoding="utf-8")
 
         # Channel count from in-context (envelope format)
         count = len(ic_data["channels"])

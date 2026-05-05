@@ -171,7 +171,7 @@ class EPICSArchiverConnector(ArchiverConnector):
 
         def fetch_all():
             series_dict = {}
-            for pv, effective_pv in zip(pv_list, effective_pvs):
+            for pv, effective_pv in zip(pv_list, effective_pvs, strict=True):
                 series_dict[pv] = self._fetch_single_pv(effective_pv, start_str, end_str)
             return series_dict
 

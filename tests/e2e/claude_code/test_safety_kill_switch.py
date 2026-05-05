@@ -10,22 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.e2e.sdk_helpers import combined_text, run_sdk_query_with_hooks
-
-# Keywords that indicate the writes_check hook denied the operation
-WRITES_DISABLED_KEYWORDS = [
-    "writes",
-    "disabled",
-    "denied",
-    "blocked",
-    "not allowed",
-    "not enabled",
-    "kill switch",
-    "write operations",
-    "cannot write",
-    "refused",
-]
-
+from tests.e2e.sdk_helpers import run_sdk_query_with_hooks
 
 # ---------------------------------------------------------------------------
 # Scenario 9: Writes disabled — channel_write
@@ -33,7 +18,7 @@ WRITES_DISABLED_KEYWORDS = [
 
 
 @pytest.mark.requires_api
-@pytest.mark.requires_anthropic
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_channel_write_denied_when_writes_disabled(safety_project_writes_off):
     """Scenario 9: channel_write should be blocked when writes_enabled=false.
@@ -73,16 +58,19 @@ async def test_channel_write_denied_when_writes_disabled(safety_project_writes_o
     # -- Assertions --
     assert result.result is not None, "No ResultMessage received from SDK"
 
-    combined = combined_text(result)
     write_calls = result.tools_matching("channel_write")
 
-    denied = any(t.is_error for t in write_calls) or any(
-        kw in combined for kw in WRITES_DISABLED_KEYWORDS
-    )
-    assert denied, (
-        f"Expected channel_write to be denied by kill switch.\n"
+    # Tool-trace assertion: kill switch must produce zero successful write
+    # tool results. Either no write tool was invoked at all (model gave up
+    # after the hook denial reached its context), or every invocation came
+    # back as an error from the writes_check hook. (Replaces a brittle
+    # WRITES_DISABLED_KEYWORDS check on Claude's text response — the actual
+    # safety invariant is "no successful write", which the trace records.)
+    successful_writes = [t for t in write_calls if not t.is_error]
+    assert len(successful_writes) == 0, (
+        f"Kill switch breached: {len(successful_writes)} write(s) succeeded.\n"
         f"  Tools: {result.tool_names}\n"
-        f"  Text: {combined[:500]}"
+        f"  Successful results: {[(t.result or '')[:100] for t in successful_writes]}"
     )
 
     # Kill switch returns "deny" (not "ask"), so no approval callback fires
@@ -99,7 +87,7 @@ async def test_channel_write_denied_when_writes_disabled(safety_project_writes_o
 
 
 @pytest.mark.requires_api
-@pytest.mark.requires_anthropic
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_python_write_denied_when_writes_disabled(safety_project_writes_off):
     """Scenario 10: execute with write mode should be blocked.
@@ -139,16 +127,15 @@ async def test_python_write_denied_when_writes_disabled(safety_project_writes_of
     # -- Assertions --
     assert result.result is not None, "No ResultMessage received from SDK"
 
-    combined = combined_text(result)
     py_calls = result.tools_matching("execute")
 
-    denied = any(t.is_error for t in py_calls) or any(
-        kw in combined for kw in WRITES_DISABLED_KEYWORDS
-    )
-    assert denied, (
-        f"Expected execute write to be denied by kill switch.\n"
+    # Tool-trace assertion: no successful execute(write) call. See the
+    # channel_write test above for the rationale.
+    successful_writes = [t for t in py_calls if not t.is_error]
+    assert len(successful_writes) == 0, (
+        f"Kill switch breached: {len(successful_writes)} execute(write) succeeded.\n"
         f"  Tools: {result.tool_names}\n"
-        f"  Text: {combined[:500]}"
+        f"  Successful results: {[(t.result or '')[:100] for t in successful_writes]}"
     )
 
     # Kill switch returns "deny" (not "ask"), so no approval callback fires

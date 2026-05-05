@@ -16,21 +16,20 @@ without arguments launches an interactive TUI menu.
 
    osprey                    # Launch interactive menu
    osprey --version          # Show framework version
-   osprey init PROJECT       # Create new project
+   osprey build PROJECT      # Build project from preset or profile
    osprey config             # Manage configuration
-   osprey build              # Build project from profile
    osprey deploy COMMAND     # Manage services
    osprey health             # Check system health
-   osprey migrate            # Run project migrations
-   osprey tasks              # Browse AI assistant tasks
-   osprey claude             # Manage Claude Code integration
-   osprey web                # Launch web terminal
-   osprey audit              # Audit project or profile safety
-   osprey eject              # Copy framework components for customization
    osprey channel-finder     # Channel finder CLI
+   osprey claude             # Manage Claude Code integration
+   osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
    osprey artifacts          # Artifact gallery
+   osprey web                # Launch web terminal
    osprey prompts            # Prompt artifact overrides
+   osprey audit              # Audit project or profile safety
+   osprey skills             # Manage bundled Osprey skills
+   osprey vendor             # Manage locally bundled vendor assets
 
 Global Options
 ==============
@@ -40,26 +39,6 @@ Global Options
 
 ``--help``
    Show help for any command (e.g., ``osprey deploy --help``).
-
-osprey init
-===========
-
-Create a new project from a template.
-
-.. code-block:: bash
-
-   osprey init [OPTIONS] PROJECT_NAME
-
-``--template <name>``
-   ``hello_world``, ``control_assistant`` (default), or ``lattice_design``.
-
-``--registry-style <style>``
-   ``extend`` (default, recommended) or ``standalone``.
-
-.. code-block:: bash
-
-   osprey init my-agent
-   osprey init my-first-agent --template hello_world
 
 osprey config
 =============
@@ -78,24 +57,31 @@ Manage project configuration. Interactive menu if no subcommand is given.
 ``osprey config set-epics-gateway [--facility als|aps|custom] [--address] [--port]``
    Configure EPICS gateway using facility presets or custom values.
 
-``osprey config set-models [--provider PROVIDER] [--model MODEL] [--project PATH]``
-   Configure AI provider and models for all roles. Interactive if no options.
-
 .. code-block:: bash
 
    osprey config show
    osprey config set-control-system epics
-   osprey config set-models --provider anthropic --model claude-sonnet-4
 
 osprey build
 ============
 
-Build a facility-specific assistant from a profile. See
-:doc:`/how-to/build-profiles`.
+Build a facility-specific assistant from a bundled preset or a YAML profile.
+See :doc:`/how-to/build-profiles`.
 
 .. code-block:: bash
 
-   osprey build PROJECT_NAME PROFILE [OPTIONS]
+   osprey build PROJECT_NAME [PROFILE] [OPTIONS]
+
+``--preset NAME`` — Use a bundled preset (mutually exclusive with positional
+``PROFILE``). Run ``osprey build --list-presets`` to see available names.
+
+``-O, --override PATH`` — Layer a YAML file on top of the base preset/profile
+(repeatable, in order).
+
+``--set KEY.PATH=VALUE`` — Inline scalar/list override (repeatable). RHS is
+parsed as YAML so ``true``, ``[a,b]``, and bare ints/floats are typed.
+
+``--list-presets`` — Print bundled preset names and exit.
 
 ``-o, --output-dir PATH`` — Output directory (default: current directory).
 
@@ -105,35 +91,45 @@ Build a facility-specific assistant from a profile. See
 
 .. code-block:: bash
 
-   osprey build als-test ~/profiles/als-dev.yml
-   osprey build my-assistant profile.yml --force -o /tmp
+   osprey build my-agent --preset hello-world
+   osprey build als-test ~/profiles/als-dev.yml --force
+   osprey build edu --preset education -O overrides.yml --set model=claude-sonnet-4-6
+   osprey build --list-presets
 
 osprey deploy
 =============
 
-Manage containerized services. All subcommands accept ``--project PATH``.
-
-``up [--detached] [--dev]``
-   Start services.
-
-``down``
-   Stop all running services.
-
-``restart``
-   Restart all services.
-
-``status``
-   Show status of deployed services.
-
-``clean``
-   Stop services and remove containers and volumes.
-
-``rebuild [--detached] [--dev]``
-   Rebuild containers from scratch.
+Manage Docker/Podman services for Osprey projects.
 
 .. code-block:: bash
 
-   osprey deploy up --detached
+   osprey deploy ACTION [OPTIONS]
+
+**Actions:** ``up``, ``down``, ``restart``, ``status``, ``build``, ``clean``, ``rebuild``.
+
+- ``up`` -- Start all configured services.
+- ``down`` -- Stop all services.
+- ``restart`` -- Restart all services.
+- ``status`` -- Show service status.
+- ``build`` -- Build/prepare compose files without starting services.
+- ``clean`` -- Remove containers and volumes (destructive).
+- ``rebuild`` -- Clean, rebuild, and restart services.
+
+**Options (apply to all actions):**
+
+``-p, --project DIRECTORY`` -- Project directory (default: current directory or ``OSPREY_PROJECT``).
+
+``-c, --config PATH`` -- Configuration file (default: ``config.yml`` in project directory).
+
+``-d, --detached`` -- Run services in detached mode (for ``up``, ``restart``, ``rebuild``).
+
+``--dev`` -- Copy local osprey package to containers instead of using PyPI version.
+
+``--expose`` -- Expose services on all network interfaces (``0.0.0.0``).
+
+.. code-block:: bash
+
+   osprey deploy up -d
    osprey deploy status
    osprey deploy rebuild --dev
    osprey deploy down
@@ -145,16 +141,13 @@ Run comprehensive system health check.
 
 .. code-block:: bash
 
-   osprey health [--project PATH]
+   osprey health [OPTIONS]
 
-osprey migrate
-==============
+``-p, --project DIRECTORY`` -- Project directory (default: current directory or ``OSPREY_PROJECT``).
 
-Run project migrations for newer framework versions.
+``-v, --verbose`` -- Show detailed information about warnings and errors.
 
-.. code-block:: bash
-
-   osprey migrate
+``-b, --basic`` -- Skip model completion tests (only check configuration and connectivity).
 
 osprey claude
 =============
@@ -196,42 +189,13 @@ status.
    osprey claude regen --dry-run
    osprey claude status
 
-osprey tasks
-============
-
-Browse and manage AI assistant tasks (structured development workflows).
-
-``osprey tasks``
-   Launch interactive task browser.
-
-``osprey tasks list``
-   Non-interactive list of all available tasks.
-
-``osprey tasks copy TASK_NAME [--force]``
-   Copy a task to ``.ai-tasks/``.
-
-``osprey tasks show TASK_NAME``
-   Print task instructions to stdout.
-
-``osprey tasks path TASK_NAME``
-   Print path to task instructions file.
-
-.. code-block:: bash
-
-   osprey tasks list
-   osprey tasks copy pre-merge-cleanup
-   osprey tasks show testing-workflow
-
 osprey eject
 ============
 
-Copy framework capabilities or services to your project for customization.
+Copy framework services to your project for customization.
 
 ``osprey eject list``
-   List all ejectable components.
-
-``osprey eject capability NAME [--output PATH] [--include-tests]``
-   Copy a framework capability locally.
+   List all ejectable framework capabilities and services.
 
 ``osprey eject service NAME [--output PATH] [--include-tests]``
    Copy a framework service directory locally.
@@ -239,40 +203,34 @@ Copy framework capabilities or services to your project for customization.
 .. code-block:: bash
 
    osprey eject list
-   osprey eject capability channel_finding
    osprey eject service channel_finder --include-tests
 
 osprey channel-finder
 =====================
 
-Natural language channel search with REPL, queries, and benchmarking.
+Tools for building, validating, previewing, and serving control system
+channel databases.
 
-Options: ``--project PATH``, ``--verbose``
+Options: ``-p, --project PATH``, ``-v, --verbose``
 
-``osprey channel-finder``
-   Launch interactive REPL.
+``osprey channel-finder build-database``
+   Build a channel database from a CSV file.
 
-``osprey channel-finder query "QUERY_TEXT"``
-   Execute a single query.
-
-``osprey channel-finder benchmark [--queries] [--model] [--dataset]``
-   Run benchmarks against datasets.
-
-``osprey channel-finder build-database [--csv PATH] [--output PATH] [--use-llm]``
-   Build channel database from CSV.
-
-``osprey channel-finder validate [--database PATH] [--verbose] [--pipeline]``
+``osprey channel-finder validate``
    Validate a channel database JSON file.
 
-``osprey channel-finder preview [--depth N] [--max-items N] [--sections] [--full]``
-   Preview a channel database with tree visualization.
+``osprey channel-finder preview``
+   Preview a channel database with flexible display options.
+
+``osprey channel-finder web``
+   Launch the Channel Finder web interface.
 
 .. code-block:: bash
 
-   osprey channel-finder
-   osprey channel-finder query "find beam position monitors"
-   osprey channel-finder benchmark --queries 0:10
-   osprey channel-finder preview --sections tree,stats
+   osprey channel-finder build-database
+   osprey channel-finder validate
+   osprey channel-finder preview
+   osprey channel-finder web
 
 osprey ariel
 ============
@@ -313,7 +271,28 @@ Manage the ARIEL logbook search service.
 osprey artifacts
 ================
 
-Browse and organize generated outputs in the artifact gallery.
+Manage the OSPREY Artifact Gallery -- a local web gallery that displays
+interactive plots, tables, and other outputs produced by Claude during
+analysis sessions. Artifacts are written by Claude via ``save_artifact()`` in
+``osprey execute`` or the ``artifact_save`` MCP tool.
+
+``osprey artifacts web [OPTIONS]``
+   Launch the Artifact Gallery web interface. Starts a FastAPI server on
+   ``http://127.0.0.1:8086`` by default.
+
+   ``-p, --port INTEGER`` — Port (default: from ``config.yml`` or ``8086``).
+
+   ``-h, --host TEXT`` — Host to bind to (default: from ``config.yml`` or
+   ``127.0.0.1``).
+
+   ``--reload`` — Enable auto-reload for development.
+
+.. code-block:: bash
+
+   osprey artifacts web                    # Start on localhost:8086
+   osprey artifacts web --port 9000        # Custom port
+   osprey artifacts web --host 0.0.0.0     # Bind to all interfaces
+   osprey artifacts web --reload           # Development mode
 
 osprey web
 ==========
@@ -375,7 +354,102 @@ and lifecycle scripts.
 osprey prompts
 ==============
 
-Manage prompt artifact overrides for customizing framework prompt templates.
+Manage prompt artifact ownership. Framework-managed prompt artifacts (agents,
+rules, etc.) can be claimed per-facility for in-place editing. Claimed files
+are marked user-owned in ``config.yml`` and ``.osprey-manifest.json``, and
+subsequent ``osprey claude regen`` runs skip them.
+
+All subcommands accept a common flag:
+
+``-p, --project DIRECTORY`` — Project directory (default: current directory).
+
+``osprey prompts list``
+   List all prompt artifacts and their ownership status (framework vs.
+   user-owned).
+
+``osprey prompts claim NAME``
+   Claim ownership of a framework artifact for in-place editing. If the file
+   doesn't exist yet, the framework template is rendered in place at the
+   canonical output path. If it already exists, it is marked user-owned.
+
+``osprey prompts diff NAME``
+   Show a unified diff between the current framework template (re-rendered)
+   and your file at the canonical output path.
+
+``osprey prompts unclaim NAME``
+   Release ownership and restore framework management. The next
+   ``osprey claude regen`` will overwrite the file with the framework template.
+
+.. code-block:: bash
+
+   osprey prompts list                           # Show all artifacts
+   osprey prompts claim agents/channel-finder    # Claim for editing
+   osprey prompts diff agents/channel-finder     # Compare yours vs framework
+   osprey prompts unclaim rules/safety           # Restore framework management
+
+osprey skills
+=============
+
+Manage bundled Osprey skills — Claude Code skills shipped with OSPREY that
+can be installed either globally or into a specific project's
+``.claude/skills/`` directory.
+
+``osprey skills install NAME [--target PATH]``
+   Install a bundled skill into ``<target>/<name>/`` (defaults to
+   ``~/.claude/skills/<name>/``). If the target already exists and is
+   non-empty, the prior content is renamed to
+   ``<name>.bak.<YYYYMMDD-HHMMSS>/`` before the new copy is written, so a
+   previous version is never lost.
+
+   ``--target PATH`` — directory to install into. Tilde is expanded. Use a
+   project-local ``.claude/skills/`` path to scope the skill to one repo
+   (e.g., ``build-profile/.claude/skills/``). Omit for the global install.
+
+   Currently supported skills:
+
+   * ``osprey-build-interview`` — guided project-profile generation (see
+     :doc:`/getting-started/osprey-build-interview`). Typically installed globally
+     so it is available in any Claude Code session.
+   * ``osprey-build-deploy`` — CI/CD setup, deploy-server operations, and
+     release workflow for a facility profile repo. Typically installed
+     project-locally (into the profile repo's ``.claude/skills/``) by the
+     last phase of the ``osprey-build-interview`` skill, so ``/osprey-build-deploy``
+     is available wherever the profile repo is cloned.
+
+.. code-block:: bash
+
+   osprey skills install osprey-build-interview
+   osprey skills install osprey-build-deploy --target build-profile/.claude/skills/
+
+osprey vendor
+=============
+
+Manage locally bundled vendor assets (JS/CSS/fonts) for firewalled
+deployments. By default OSPREY interfaces load third-party libraries directly
+from CDN; set ``OSPREY_OFFLINE=1`` (or ``offline: true`` in ``config.yml``) to
+switch the interfaces over to local bundles.
+
+``osprey vendor fetch [OPTIONS]``
+   Download all vendor assets declared in the manifest into
+   ``static/vendor/``. Run once on firewalled deployments before starting
+   ``osprey web`` with ``OSPREY_OFFLINE=1``. In default CDN mode this command
+   is optional.
+
+   ``-q, --quiet`` — Suppress per-file output.
+
+   ``-k, --insecure`` — Skip TLS cert verification. Every asset is still
+   checked against its manifest SHA256, so this is safe behind corporate
+   proxies (e.g. Squid) that intercept TLS. Also enabled via
+   ``OSPREY_VENDOR_INSECURE=1``.
+
+``osprey vendor verify``
+   Verify all vendor assets exist on disk with correct SHA256 checksums.
+
+.. code-block:: bash
+
+   osprey vendor fetch                    # Download all assets
+   osprey vendor fetch --insecure         # Behind a TLS-intercepting proxy
+   osprey vendor verify                   # Check checksums
 
 Environment Variables
 =====================

@@ -50,6 +50,7 @@ def create_server() -> FastMCP:
             facility_description,
             focus_tools,
             lattice_tools,
+            panel_tools,
             screen_capture,
             session_log,
             session_summary,

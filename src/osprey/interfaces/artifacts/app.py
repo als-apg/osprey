@@ -14,15 +14,20 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+from osprey.interfaces.vendor import vendor_url
 from osprey.utils.timeseries import extract_timeseries_frame, lttb_downsample
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+templates = Jinja2Templates(directory=str(STATIC_DIR))
+templates.env.globals["vendor_url"] = vendor_url
 
 # Snippet injected into Plotly/table/generic HTML artifacts so they fill the
 # iframe viewport in Focus Mode.  CSS alone is not enough for Plotly because
@@ -315,33 +320,31 @@ def _build_markdown_page(md_source: str, title: str) -> str:
     )
 
 
-_CDN_PLOTLY_SCRIPT_RE = re.compile(
-    r'<script([^>]*?)\s+src=(["\'])https://cdn\.plot\.ly/plotly[^"\']*\.min\.js\2([^>]*)>',
-    re.IGNORECASE,
-)
-_SRI_ATTR_RE = re.compile(
-    r'\s+(?:integrity|crossorigin)=(["\'])[^"\']*\1',
-    re.IGNORECASE,
-)
+_CDN_PLOTLY_RE = re.compile(r'(src=["\'])https://cdn\.plot\.ly/plotly[^"\']*\.min\.js(["\'])')
+
+# Strip SRI attributes — the local copy may differ from the CDN version.
+_SRI_ATTR_RE = re.compile(r'\s+(?:integrity|crossorigin)=["\'][^"\']*["\']')
 
 
 def _rewrite_plotly_cdn(html_bytes: bytes) -> bytes:
-    """Replace CDN Plotly URLs with the local bundled copy.
+    """In offline mode, replace CDN Plotly URLs with the local bundled copy.
 
-    Strips `integrity=` and `crossorigin=` attributes at the same time:
-    our bundled plotly is pinned to one version, so the CDN-computed SRI
-    hash (keyed to plotly.py's latest CDN version) won't match. Without
-    stripping, the browser refuses to execute the script and plotly
-    ends up undefined.
+    Also strips ``integrity`` and ``crossorigin`` attributes from the same
+    ``<script>`` tag, since the local file may differ from the CDN version
+    and SRI would block execution.
+
+    In default (CDN) mode this is a no-op — the browser fetches plotly
+    directly from ``cdn.plot.ly`` with its original SRI attributes intact.
     """
+    from osprey.interfaces.vendor import is_offline
+
+    if not is_offline():
+        return html_bytes
     html = html_bytes.decode("utf-8", errors="replace")
-
-    def replace(m: "re.Match[str]") -> str:
-        before = _SRI_ATTR_RE.sub("", m.group(1))
-        after = _SRI_ATTR_RE.sub("", m.group(3))
-        return f'<script{before} src="/static/js/vendor/plotly.min.js"{after}>'
-
-    html = _CDN_PLOTLY_SCRIPT_RE.sub(replace, html)
+    if "cdn.plot.ly/plotly" not in html:
+        return html_bytes
+    html = _CDN_PLOTLY_RE.sub(r"\1/static/js/vendor/plotly-3.3.1.min.js\2", html)
+    html = _SRI_ATTR_RE.sub("", html)
     return html.encode("utf-8")
 
 
@@ -488,8 +491,8 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     # --- Routes ---
 
     @app.get("/")
-    async def root():
-        return FileResponse(STATIC_DIR / "index.html")
+    async def root(request: Request):
+        return templates.TemplateResponse(request, "index.html", {})
 
     @app.get("/health")
     async def health():
@@ -684,16 +687,33 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         # For binary files (images), use FileResponse for proper streaming
         snippet = _RESPONSIVE_SNIPPETS.get(entry.artifact_type)
         if not snippet:
+            # Text artifacts (e.g. .tex with application/x-tex) wouldn't render
+            # inline in an iframe with their original non-browser MIME type —
+            # browsers trigger a download instead. Serve as text/plain so the
+            # gallery preview iframe shows the source.
+            media_type = (
+                "text/plain; charset=utf-8" if entry.artifact_type == "text" else entry.mime_type
+            )
             return FileResponse(
                 filepath,
-                media_type=entry.mime_type,
+                media_type=media_type,
                 filename=entry.filename,
                 content_disposition_type="inline",
             )
 
-        # HTML types may need responsive snippet injection + CDN rewriting
+        # HTML types may need responsive snippet injection + CDN rewriting.
         content = filepath.read_bytes()
+        # Always rewrite CDN Plotly URLs to local — artifacts may have been
+        # generated with include_plotlyjs='cdn' regardless of what OSPREY's
+        # own code paths use, and the CDN is unreachable in offline deployments.
         content = _rewrite_plotly_cdn(content)
+        if entry.artifact_type == "plot_html":
+            # Only inject the local Plotly bundle if the HTML doesn't already
+            # have one (e.g. include_plotlyjs=False). Avoid duplicates — the
+            # 4.8MB file takes ~1s through the reverse proxy per load.
+            if b"plotly-3.3.1.min.js" not in content:
+                plotly_src = vendor_url("Plotly.js", "/static/js/vendor/plotly-3.3.1.min.js")
+                snippet = f'<script src="{plotly_src}"></script>\n' + snippet
         content = _inject_html_snippet(content, snippet)
         return Response(
             content=content,
@@ -780,7 +800,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     app.include_router(logbook_router)
 
-    from osprey.interfaces.common_middleware import ExceptionLoggingMiddleware, NoCacheStaticMiddleware
+    from osprey.interfaces.common_middleware import (
+        ExceptionLoggingMiddleware,
+        NoCacheStaticMiddleware,
+    )
 
     app.add_middleware(NoCacheStaticMiddleware)
     app.add_middleware(ExceptionLoggingMiddleware)

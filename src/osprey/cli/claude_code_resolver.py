@@ -16,6 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from osprey.models.tiers import VALID_TIERS
+
 CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
     "anthropic": {
         "auth_env_var": "ANTHROPIC_API_KEY",  # Claude Code env var that receives the key
@@ -34,11 +36,15 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
         "auth_secret_env": "CBORG_API_KEY",  # Shell env var holding the secret
         "base_url": "https://api.cborg.lbl.gov",  # Well-known URL (no /v1)
         "default_model_tier": "haiku",
-        # Fallback model IDs (used when api.providers.cborg.models is absent)
+        # Fallback model IDs (used when api.providers.cborg.models is absent).
+        # Pinned to specific versions so Claude Code can pattern-match the model
+        # and send the correct thinking/effort schema (e.g. adaptive for 4.7).
+        # Unversioned aliases like "anthropic/claude-opus" break capability
+        # detection and cause 400s on Vertex-backed Opus 4.7.
         "models": {
-            "haiku": "anthropic/claude-haiku",
-            "sonnet": "anthropic/claude-sonnet",
-            "opus": "anthropic/claude-opus",
+            "haiku": "claude-haiku-4-5",
+            "sonnet": "claude-sonnet-4-6",
+            "opus": "claude-opus-4-7",
         },
     },
     "als-apg": {
@@ -61,8 +67,6 @@ AGENT_DEFAULT_TIERS: dict[str, str] = {
     "logbook-deep-research": "opus",
     "data-visualizer": "sonnet",
 }
-
-from osprey.models.tiers import VALID_TIERS
 
 # Env vars that settings.json controls — scrubbed from shell before launch
 # so runtime-injected provider vars are authoritative.

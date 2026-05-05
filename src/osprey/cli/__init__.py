@@ -4,7 +4,7 @@ This package provides the unified CLI interface for the framework,
 organizing all commands under a single 'osprey' entry point.
 
 Commands:
-    - init: Create new projects from templates
+    - build: Build a project from a profile or bundled preset
     - config: Manage project configuration (show, export, set)
     - deploy: Manage Docker/Podman services
     - claude: Claude Code integration (install skills, configure)

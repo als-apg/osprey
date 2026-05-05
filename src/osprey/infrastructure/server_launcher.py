@@ -260,5 +260,3 @@ def ensure_channel_finder_server() -> None:
 def ensure_lattice_dashboard_server() -> None:
     """Ensure the lattice dashboard server is running; launch if needed."""
     ensure_web_server("lattice_dashboard")
-
-

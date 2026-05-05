@@ -3,11 +3,10 @@
 This module provides the top-level navigation loop and shared utilities
 for the interactive menu system. It delegates to:
 - menu_display: Banner, ASCII art, help screens
-- init_wizard: Interactive project creation flow
 - project_actions: Deploy, health, config, and other action handlers
 
 The interactive menu is optional - users can still use direct commands like:
-    osprey init my-project
+    osprey build my-project --preset hello-world
     osprey web
     osprey deploy up
 """
@@ -18,20 +17,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-
-# Re-export from init_wizard (backward compatibility)
-from osprey.cli.init_wizard import (  # noqa: F401
-    configure_api_key,
-    get_api_key_name,
-    get_default_name_for_template,
-    run_interactive_init,
-    run_interactive_profile_wizard,
-    select_channel_finder_mode,
-    select_template,
-    show_api_key_help,
-    show_manual_config_instructions,
-    write_env_file,
-)
 
 # Re-export from menu_display (backward compatibility)
 from osprey.cli.menu_display import (  # noqa: F401
@@ -52,7 +37,6 @@ from osprey.cli.project_actions import (  # noqa: F401
     handle_project_selection,
     handle_set_control_system,
     handle_set_epics_gateway,
-    handle_set_models,
     show_config_menu,
 )
 from osprey.cli.styles import (
@@ -280,111 +264,6 @@ def discover_nearby_projects(max_dirs: int = 50, max_time_ms: int = 100) -> list
     return sorted(projects, key=lambda x: x[0].lower())
 
 
-# Cache for provider metadata (loaded once per TUI session)
-_provider_cache: dict[str, dict[str, Any]] | None = None
-
-
-def get_provider_metadata() -> dict[str, dict[str, Any]]:
-    """Get provider information from osprey registry.
-
-    Loads providers directly from the osprey registry configuration
-    without requiring a project config.yml. This reads the osprey's
-    provider registrations and introspects provider class attributes
-    for metadata (single source of truth).
-
-    This approach works whether or not you're in a project directory,
-    making it perfect for the TUI init flow.
-
-    Results are cached for the TUI session to avoid repeated registry loading.
-
-    Returns:
-        Dictionary mapping provider names to their metadata:
-        {
-            'anthropic': {
-                'name': 'anthropic',
-                'description': 'Anthropic (Claude models)',
-                'requires_key': True,
-                'requires_base_url': False,
-                'models': ['claude-sonnet-4-5', ...],
-                'default_model': 'claude-sonnet-4-5',
-                'health_check_model': 'claude-haiku-4-5'
-            },
-            ...
-        }
-    """
-    global _provider_cache
-
-    # Return cached data if available
-    if _provider_cache is not None:
-        return _provider_cache
-
-    import importlib
-
-    try:
-        # Import osprey registry provider directly (no config.yml needed!)
-        from osprey.registry.builtins import FrameworkRegistryProvider
-
-        # Get osprey registry config (doesn't require project config)
-        framework_registry = FrameworkRegistryProvider()
-        config = framework_registry.get_registry_config()
-
-        providers = {}
-
-        # Load each provider registration from osprey config
-        for provider_reg in config.providers:
-            try:
-                # Import the provider module
-                module = importlib.import_module(provider_reg.module_path)
-
-                # Get the provider class
-                provider_class = getattr(module, provider_reg.class_name)
-
-                # Extract metadata from class attributes (single source of truth)
-                providers[provider_class.name] = {
-                    "name": provider_class.name,
-                    "description": provider_class.description,
-                    "requires_key": provider_class.requires_api_key,
-                    "requires_base_url": provider_class.requires_base_url,
-                    "models": provider_class.available_models,
-                    "default_model": provider_class.default_model_id,
-                    "health_check_model": provider_class.health_check_model_id,
-                    "api_key_url": provider_class.api_key_url,
-                    "api_key_instructions": provider_class.api_key_instructions,
-                    "api_key_note": provider_class.api_key_note,
-                }
-            except Exception as e:
-                # Skip providers that fail to load, but log for debugging
-                if os.environ.get("DEBUG"):
-                    console.print(
-                        f"[dim]Warning: Could not load provider {provider_reg.class_name}: {e}[/dim]"
-                    )
-                continue
-
-        if not providers:
-            console.print(Messages.warning("No providers could be loaded from osprey registry"))
-
-        # Cache the result for future calls
-        _provider_cache = providers
-        return providers
-
-    except Exception as e:
-        # This should rarely happen - osprey registry should always be available
-        console.print(Messages.error(f"Could not load providers from osprey registry: {e}"))
-        console.print(
-            Messages.warning(
-                "The TUI requires access to provider information to initialize projects."
-            )
-        )
-        if os.environ.get("DEBUG"):
-            import traceback
-
-            traceback.print_exc()
-
-        # Return empty dict but don't cache failures
-        return {}
-
-
-
 # --- Main Menu ---
 
 
@@ -406,8 +285,6 @@ def get_project_menu_choices(exit_action: str = "exit") -> list[Choice]:
         Choice("[>] health      - Run system health check", value="health"),
         Choice("[>] config      - Configuration settings", value="config"),
         Choice("[>] registry    - Show registry contents", value="registry"),
-        Choice("─" * 60, value=None, disabled=True),
-        Choice("[+] init        - Create new project", value="init_interactive"),
         Choice("[?] help        - Show all commands", value="help"),
     ]
 
@@ -463,7 +340,6 @@ def show_main_menu() -> str | None:
         # Standard menu options
         choices.extend(
             [
-                Choice("[+] Create new project (interactive)", value="init_interactive"),
                 Choice("[?] Help", value="help"),
                 Choice("[x] Exit", value="exit"),
             ]
@@ -565,84 +441,6 @@ def check_directory_has_active_mounts(directory: Path) -> tuple[bool, list[str]]
     return len(mount_details) > 0, mount_details
 
 
-# --- Provider And Model Selection ---
-
-
-def select_provider(providers: dict[str, dict[str, Any]]) -> str | None:
-    """Interactive provider selection.
-
-    Args:
-        providers: Provider metadata dictionary
-
-    Returns:
-        Selected provider name, or None if cancelled
-    """
-    # Validate providers dict before selection menus (fail gracefully if empty)
-    if not providers:
-        console.print(f"\n{Messages.error('No providers available')}")
-        console.print(Messages.warning("Osprey could not load any AI providers."))
-        console.print(
-            f"[dim]Check that osprey is properly installed: {Messages.command('uv sync --all-extras')}[/dim]\n"
-        )
-        return None
-
-    choices = []
-    for key, p in sorted(providers.items()):
-        try:
-            # Validate provider metadata structure
-            if not isinstance(p, dict):
-                continue
-            if "name" not in p or "description" not in p:
-                if os.environ.get("DEBUG"):
-                    console.print(f"[dim]Warning: Provider {key} missing required metadata[/dim]")
-                continue
-
-            # Description comes directly from provider class attribute
-            key_info = " [requires API key]" if p.get("requires_key", True) else " [no API key]"
-            display = f"{p['name']:12} - {p['description']}{key_info}"
-            choices.append(Choice(display, value=key))
-        except Exception as e:
-            if os.environ.get("DEBUG"):
-                console.print(f"[dim]Warning: Error processing provider {key}: {e}[/dim]")
-            continue
-
-    if not choices:
-        console.print(f"\n{Messages.error('No valid providers found')}")
-        console.print(f"{Messages.warning('All providers failed validation.')}\n")
-        return None
-
-    return questionary.select(
-        "Select default AI provider:",
-        choices=choices,
-        style=custom_style,
-        instruction="(This sets default provider in config.yml)",
-    ).ask()
-
-
-def select_model(provider: str, providers: dict[str, dict[str, Any]]) -> str | None:
-    """Interactive model selection for chosen provider.
-
-    Args:
-        provider: Provider name
-        providers: Provider metadata dictionary
-
-    Returns:
-        Selected model ID, or None if cancelled
-    """
-    provider_info = providers[provider]
-
-    choices = [Choice(model, value=model) for model in provider_info["models"]]
-
-    default = provider_info.get("default_model")
-
-    return questionary.select(
-        f"Select default model for {provider}:",
-        choices=choices,
-        style=custom_style,
-        default=default if default in provider_info["models"] else None,
-    ).ask()
-
-
 # --- Navigation ---
 
 
@@ -668,11 +466,7 @@ def navigation_loop():
                 continue
 
         # Handle string actions (standard commands)
-        if action == "init_interactive":
-            next_action = run_interactive_init()
-            if next_action == "exit":
-                break
-        elif action == "deploy":
+        if action == "deploy":
             handle_deploy_action()
         elif action == "health":
             handle_health_action()

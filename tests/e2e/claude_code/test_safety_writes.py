@@ -10,24 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.e2e.sdk_helpers import combined_text, run_sdk_query_with_hooks
-
-# Keywords that indicate a hook denied the tool call
-DENY_KEYWORDS = [
-    "deny",
-    "denied",
-    "violation",
-    "blocked",
-    "exceed",
-    "limit",
-    "not writable",
-    "read-only",
-    "read only",
-    "cannot write",
-    "not allowed",
-    "refused",
-]
-
+from tests.e2e.sdk_helpers import run_sdk_query_with_hooks
 
 # ---------------------------------------------------------------------------
 # Scenario 2: Write within limits
@@ -35,7 +18,7 @@ DENY_KEYWORDS = [
 
 
 @pytest.mark.requires_api
-@pytest.mark.requires_anthropic
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_write_within_limits_succeeds(safety_project):
     """Scenario 2: Writing a value within limits should succeed.
@@ -98,7 +81,7 @@ async def test_write_within_limits_succeeds(safety_project):
 
 
 @pytest.mark.requires_api
-@pytest.mark.requires_anthropic
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_write_over_limits_denied(safety_project):
     """Scenario 3: Writing a value that exceeds limits should be denied.
@@ -139,19 +122,18 @@ async def test_write_over_limits_denied(safety_project):
     # -- Assertions --
     assert result.result is not None, "No ResultMessage received from SDK"
 
-    # The write should have been denied by the limits hook.
-    # This can manifest as:
-    # 1. Tool trace with is_error=True
-    # 2. Agent text explaining the denial
-    # 3. No tool trace at all (hook blocked before MCP tool was reached)
-    combined = combined_text(result)
+    # Tool-trace assertion: the limits hook must produce zero successful
+    # write tool results. Either the model didn't call channel_write (it
+    # absorbed the limit from prompt context and gave up), or every call
+    # came back as an error. (Replaces a brittle DENY_KEYWORDS check on
+    # Claude's text response — the actual safety invariant is "no
+    # successful write", which the trace records.)
     write_calls = result.tools_matching("channel_write")
-
-    denied = any(t.is_error for t in write_calls) or any(kw in combined for kw in DENY_KEYWORDS)
-    assert denied, (
-        f"Expected write to be denied but it wasn't.\n"
+    successful_writes = [t for t in write_calls if not t.is_error]
+    assert len(successful_writes) == 0, (
+        f"Limits hook breached: {len(successful_writes)} write(s) succeeded.\n"
         f"  Tools: {result.tool_names}\n"
-        f"  Text: {combined[:500]}"
+        f"  Successful results: {[(t.result or '')[:100] for t in successful_writes]}"
     )
 
     # Limits hook returns "deny" (not "ask"), so no approval callback fires
@@ -168,7 +150,7 @@ async def test_write_over_limits_denied(safety_project):
 
 
 @pytest.mark.requires_api
-@pytest.mark.requires_anthropic
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_write_to_readonly_denied(safety_project):
     """Scenario 4: Writing to a read-only channel should be denied.
@@ -209,14 +191,14 @@ async def test_write_to_readonly_denied(safety_project):
     # -- Assertions --
     assert result.result is not None, "No ResultMessage received from SDK"
 
-    combined = combined_text(result)
+    # Tool-trace assertion: no successful write to a read-only channel.
+    # See test_write_over_limits_denied for the rationale.
     write_calls = result.tools_matching("channel_write")
-
-    denied = any(t.is_error for t in write_calls) or any(kw in combined for kw in DENY_KEYWORDS)
-    assert denied, (
-        f"Expected write to read-only channel to be denied.\n"
+    successful_writes = [t for t in write_calls if not t.is_error]
+    assert len(successful_writes) == 0, (
+        f"Read-only protection breached: {len(successful_writes)} write(s) succeeded.\n"
         f"  Tools: {result.tool_names}\n"
-        f"  Text: {combined[:500]}"
+        f"  Successful results: {[(t.result or '')[:100] for t in successful_writes]}"
     )
 
     # Limits hook returns "deny" (not "ask"), so no approval callback fires
@@ -233,7 +215,7 @@ async def test_write_to_readonly_denied(safety_project):
 
 
 @pytest.mark.requires_api
-@pytest.mark.requires_anthropic
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_write_to_unlisted_channel_succeeds(safety_project):
     """Scenario 5: Writing to an unlisted channel should succeed in permissive mode.

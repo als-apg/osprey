@@ -7,7 +7,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
-**🎉 Latest Release: v0.11.5** - Timezone Support & Open WebUI Fix
+**🎉 Latest Release: v2026.5.0** - CalVer adoption, doc-executability CI gate, deploy skill & friction logging
 
 > **🚧 Early Access Release**
 > This is an early access version of the Osprey Framework. While the core functionality is stable and ready for experimentation, documentation and APIs may still evolve. We welcome feedback and contributions!
@@ -21,30 +21,31 @@ This work was presented as a contributed oral presentation at [ICALEPCS'25](http
 ## 🚀 Quick Start
 
 ```bash
-# Install the framework (using uv, recommended)
-uv pip install osprey-framework
+# Install the framework as a standalone CLI tool (using uv, recommended)
+uv tool install osprey-framework
 
-# Or using pip:
-# pip install osprey-framework
+# Create a minimal project to verify your setup
+osprey build quickstart --preset hello-world
+cd quickstart
 
-# Recommended: Interactive setup (guides you through everything!)
-osprey
-
-# The interactive menu will:
-# - Help you choose a template with descriptions
-# - Guide you through AI provider and model selection
-# - Automatically detect and configure API keys from your environment
-# - Create a ready-to-use project with smart defaults
-
-# Alternative: Direct command if you know what you want
-osprey init my-assistant
-cd my-assistant
-# If API keys aren't in your environment, copy and edit .env:
+# If API keys aren't already in your environment, copy and edit .env:
 # cp .env.example .env
 
 # Start a Claude Code agent session
 claude
 ```
+
+For a production project tailored to your detector, beamline, or accelerator
+subsystem, install the guided osprey-build-interview skill and run it from Claude Code:
+
+```bash
+# Install the /osprey-build-interview skill into ~/.claude/skills/
+uv run osprey skills install osprey-build-interview
+```
+
+Then start Claude Code in an empty directory and type `/osprey-build-interview`. The
+skill walks you through a guided conversation, produces a build profile, and
+`osprey build profile.yml` generates a ready-to-use project.
 
 
 ## 📚 Documentation
@@ -62,7 +63,7 @@ pytest tests/ --ignore=tests/e2e -v
 pytest tests/e2e/ -v
 ```
 
-See [TESTING_GUIDE.md](TESTING_GUIDE.md) and [tests/e2e/README.md](tests/e2e/README.md) for details.
+See [tests/e2e/README.md](tests/e2e/README.md) and the [Contributing Guide](https://als-apg.github.io/osprey/contributing/) for details.
 
 
 ## Key Features

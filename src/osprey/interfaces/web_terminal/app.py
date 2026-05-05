@@ -13,21 +13,26 @@ from typing import TYPE_CHECKING
 
 import httpx
 import yaml
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
 from osprey.interfaces.common_middleware import ExceptionLoggingMiddleware, NoCacheStaticMiddleware
+from osprey.interfaces.vendor import vendor_url
 from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster, WorkspaceWatcher
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
+from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+templates = Jinja2Templates(directory=str(STATIC_DIR))
+templates.env.globals["vendor_url"] = vendor_url
 
 logger = __import__("logging").getLogger(__name__)
 
@@ -134,17 +139,6 @@ def _launch_lattice_dashboard_server(app: FastAPI) -> None:
         app.state.lattice_dashboard_server_url = None
 
 
-# Panel classification constants
-UNIVERSAL_PANELS = {"artifacts"}
-BUILTIN_PANELS = {
-    "artifacts",
-    "ariel",
-    "tuning",
-    "channel-finder",
-    "lattice",
-}
-
-
 def _load_panel_config() -> tuple[set[str], list[dict]]:
     """Read web.panels from config.yml.
 
@@ -174,6 +168,7 @@ def _load_panel_config() -> tuple[set[str], list[dict]]:
                     "label": spec.get("label", panel_id.upper()),
                     "url": spec.get("url", ""),
                     "healthEndpoint": spec.get("health_endpoint"),
+                    "path": spec.get("path", "/"),
                 }
             )
 
@@ -363,8 +358,8 @@ def create_app(
     app.include_router(router)
 
     @app.get("/")
-    async def root():
-        return FileResponse(STATIC_DIR / "index.html")
+    async def root(request: Request):
+        return templates.TemplateResponse(request, "index.html", {})
 
     # Mount shared fonts before /static (Starlette matches in declaration order)
     SHARED_FONTS_DIR = Path(__file__).parent.parent / "shared_fonts"

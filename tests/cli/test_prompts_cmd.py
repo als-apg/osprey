@@ -6,7 +6,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.cli.init_cmd import init
+from osprey.cli.build_cmd import build
 from osprey.cli.prompts_cmd import prompts
 from osprey.cli.templates.manifest import MANIFEST_FILENAME
 
@@ -15,7 +15,18 @@ from osprey.cli.templates.manifest import MANIFEST_FILENAME
 def project_dir(tmp_path):
     """Create a minimal OSPREY project for prompts tests."""
     runner = CliRunner()
-    result = runner.invoke(init, ["prompts-test", "--output-dir", str(tmp_path)])
+    result = runner.invoke(
+        build,
+        [
+            "prompts-test",
+            "--preset",
+            "hello-world",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
     assert result.exit_code == 0, result.output
     return tmp_path / "prompts-test"
 

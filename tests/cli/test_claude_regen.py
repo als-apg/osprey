@@ -70,7 +70,7 @@ class TestBuildClaudeCodeContext:
             data_bundle="control_assistant",
         )
         # Generate manifest so build_claude_code_context can discover template_name
-        manager.generate_manifest(project_dir, "ctx-control", "control_assistant", "extend", {})
+        manager.generate_manifest(project_dir, "ctx-control", "control_assistant", {})
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
         ctx = claude_code.build_claude_code_context(
@@ -90,7 +90,7 @@ class TestBuildClaudeCodeContext:
             data_bundle="control_assistant",
         )
         # Generate manifest
-        manager.generate_manifest(project_dir, "ctx-manifest", "control_assistant", "extend", {})
+        manager.generate_manifest(project_dir, "ctx-manifest", "control_assistant", {})
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
         ctx = claude_code.build_claude_code_context(
@@ -489,7 +489,7 @@ class TestDisableServers:
             output_dir=tmp_path,
             data_bundle="control_assistant",
         )
-        manager.generate_manifest(project_dir, "override-test", "control_assistant", "extend", {})
+        manager.generate_manifest(project_dir, "override-test", "control_assistant", {})
 
         result = manager.regenerate_claude_code(
             project_dir, project_root_override="/app/als-assistant"
@@ -584,7 +584,7 @@ class TestFacilityMd:
     """Test facility.md creation and preservation."""
 
     def test_facility_md_created_on_init(self, tmp_path):
-        """osprey init creates .claude/rules/facility.md."""
+        """create_project() (osprey build path) creates .claude/rules/facility.md."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="facility-init",

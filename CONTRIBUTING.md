@@ -43,11 +43,36 @@ ruff format --check src/ tests/
 - Open a Pull Request with a clear description
 - Address review feedback
 
+## Claude Code Workflow Skill (Optional but Recommended)
+
+If you use [Claude Code](https://docs.claude.com/en/docs/claude-code), install
+the bundled `osprey-contribute` skill to get guided help with this workflow:
+
+```bash
+uv run osprey skills install osprey-contribute
+```
+
+It walks you through branching, commits, push, PR, and CI iteration following
+the conventions on this page — including the protected-branch reality on
+`main` (no direct pushes; eight required CI checks; linear history). Once
+installed, just open Claude Code in the repo and describe what you want to
+contribute; the skill picks up wherever you are in the journey.
+
+Other available skills (`osprey skills install --help` lists them all):
+`osprey-build-interview`, `osprey-build-deploy`, `osprey-release`.
+
+## Branch Strategy
+
+Osprey uses **GitHub Flow**: `main` is the single long-lived branch and is always the PR target. Releases are CalVer tags (`vYYYY.M.P`) on `main` — there is no separate `develop`, `release/*`, or `next` branch. Hotfixes follow the same flow: branch from the tag or from `main`, open a PR back to `main`, and tag a follow-up release.
+
+For details (CI gates, branch protection, release cuts) see the [full Contributing Guide](https://als-apg.github.io/osprey/contributing/).
+
 ## Branch Naming
 
 - `feature/description` - New features
 - `fix/description` - Bug fixes
 - `docs/description` - Documentation updates
+- `refactor/description` - Code refactoring
 - `test/description` - Test improvements
 
 ## Code Standards

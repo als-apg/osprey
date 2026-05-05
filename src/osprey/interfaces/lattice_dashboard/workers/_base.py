@@ -67,7 +67,7 @@ def load_state(state_path: Path) -> dict[str, Any]:
 def load_ring(state: dict[str, Any]) -> at.Lattice:
     """Load pyAT ring with parameter overrides applied."""
     lattice_path = state["base_lattice"]
-    ring = at.load_m(lattice_path)
+    ring = at.load_lattice(lattice_path)
     overrides = state.get("overrides", {})
     families = state.get("families", {})
 
@@ -89,7 +89,7 @@ def load_baseline_ring(state_path: Path, state: dict[str, Any]) -> at.Lattice | 
     baseline_overrides = baseline.get("overrides", {})
 
     lattice_path = state["base_lattice"]
-    ring = at.load_m(lattice_path)
+    ring = at.load_lattice(lattice_path)
     families = state.get("families", {})
 
     for fam_name, value in baseline_overrides.items():
